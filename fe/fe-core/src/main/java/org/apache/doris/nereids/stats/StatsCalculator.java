@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
@@ -46,7 +48,6 @@ import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
-import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
@@ -214,7 +215,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     // For unit test only
     public static void estimate(GroupExpression groupExpression, CascadesContext context) {
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
-                new HashMap<>(), false, Collections.EMPTY_MAP, context);
+                new HashMap<>(), false, Collections.emptyMap(), context);
         statsCalculator.estimate();
     }
 
@@ -246,7 +247,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitLogicalFileSink(LogicalFileSink<? extends Plan> olapTableSink, Void context) {
+    public Statistics visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, Void context) {
         return groupExpression.childStatistics(0);
     }
 
@@ -287,18 +288,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalOlapScan(LogicalOlapScan olapScan, Void context) {
-        return computeScan(olapScan);
+        return computeCatalogRelation(olapScan);
     }
 
     @Override
     public Statistics visitLogicalSchemaScan(LogicalSchemaScan schemaScan, Void context) {
-        return computeScan(schemaScan);
+        return computeCatalogRelation(schemaScan);
     }
 
     @Override
     public Statistics visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
         fileScan.getExpressions();
-        return computeScan(fileScan);
+        return computeCatalogRelation(fileScan);
     }
 
     @Override
@@ -309,13 +310,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, Void context) {
         jdbcScan.getExpressions();
-        return computeScan(jdbcScan);
+        return computeCatalogRelation(jdbcScan);
     }
 
     @Override
     public Statistics visitLogicalEsScan(LogicalEsScan esScan, Void context) {
         esScan.getExpressions();
-        return computeScan(esScan);
+        return computeCatalogRelation(esScan);
     }
 
     @Override
@@ -383,7 +384,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitPhysicalFileSink(PhysicalFileSink<? extends Plan> olapTableSink, Void context) {
+    public Statistics visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, Void context) {
         return groupExpression.childStatistics(0);
     }
 
@@ -419,17 +420,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalOlapScan(PhysicalOlapScan olapScan, Void context) {
-        return computeScan(olapScan);
+        return computeCatalogRelation(olapScan);
     }
 
     @Override
     public Statistics visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
-        return computeScan(schemaScan);
+        return computeCatalogRelation(schemaScan);
     }
 
     @Override
     public Statistics visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
-        return computeScan(fileScan);
+        return computeCatalogRelation(fileScan);
     }
 
     @Override
@@ -445,12 +446,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, Void context) {
-        return computeScan(jdbcScan);
+        return computeCatalogRelation(jdbcScan);
     }
 
     @Override
     public Statistics visitPhysicalEsScan(PhysicalEsScan esScan, Void context) {
-        return computeScan(esScan);
+        return computeCatalogRelation(esScan);
     }
 
     @Override
@@ -585,18 +586,19 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     // TODO: 1. Subtract the pruned partition
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
-    private Statistics computeScan(Scan scan) {
-        Set<SlotReference> slotSet = scan.getOutput().stream().filter(SlotReference.class::isInstance)
+    private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
+        Set<SlotReference> slotSet = catalogRelation.getOutput().stream().filter(SlotReference.class::isInstance)
                 .map(s -> (SlotReference) s).collect(Collectors.toSet());
         Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
-        TableIf table = scan.getTable();
-        double rowCount = scan.getTable().estimatedRowCount();
+        TableIf table = catalogRelation.getTable();
+        double rowCount = catalogRelation.getTable().estimatedRowCount();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
-            ColumnStatistic cache = Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+            ColumnStatistic cache = Config.enable_stats && FeConstants.enableInternalSchemaDb
+                    ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
@@ -1022,7 +1024,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
         Statistics consumerStats = new Statistics(prodStats.getRowCount(), new HashMap<>());
         for (Slot slot : cteConsumer.getOutput()) {
-            Slot prodSlot = cteConsumer.findProducerSlot(slot);
+            Slot prodSlot = cteConsumer.getProducerSlot(slot);
             ColumnStatistic colStats = prodStats.columnStatistics().get(prodSlot);
             if (colStats == null) {
                 continue;
@@ -1058,7 +1060,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
         Statistics consumerStats = new Statistics(prodStats.getRowCount(), new HashMap<>());
         for (Slot slot : cteConsumer.getOutput()) {
-            Slot prodSlot = cteConsumer.findProducerSlot(slot);
+            Slot prodSlot = cteConsumer.getProducerSlot(slot);
             ColumnStatistic colStats = prodStats.columnStatistics().get(prodSlot);
             if (colStats == null) {
                 continue;

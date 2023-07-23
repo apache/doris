@@ -24,10 +24,10 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -43,23 +43,21 @@ import java.util.Optional;
 /**
  * Physical olap scan plan.
  */
-public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
+public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapScan {
 
     public static final String DEFERRED_MATERIALIZED_SLOTS = "deferred_materialized_slots";
 
-    private final OlapTable olapTable;
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;
     private final ImmutableList<Long> selectedTabletIds;
     private final ImmutableList<Long> selectedPartitionIds;
     private final PreAggStatus preAggStatus;
-
     private final List<Slot> baseOutputs;
 
     /**
      * Constructor for PhysicalOlapScan.
      */
-    public PhysicalOlapScan(ObjectId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
+    public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             PreAggStatus preAggStatus, List<Slot> baseOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
@@ -70,14 +68,13 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     /**
      * Constructor for PhysicalOlapScan.
      */
-    public PhysicalOlapScan(ObjectId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
+    public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, DistributionSpec distributionSpec,
             PreAggStatus preAggStatus, List<Slot> baseOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics) {
-        super(id, PlanType.PHYSICAL_OLAP_SCAN, qualifier, groupExpression, logicalProperties, physicalProperties,
-                statistics);
-        this.olapTable = olapTable;
+        super(id, PlanType.PHYSICAL_OLAP_SCAN, olapTable, qualifier,
+                groupExpression, logicalProperties, physicalProperties, statistics);
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
@@ -102,7 +99,7 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
 
     @Override
     public OlapTable getTable() {
-        return olapTable;
+        return (OlapTable) table;
     }
 
     public DistributionSpec getDistributionSpec() {
@@ -119,8 +116,8 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalOlapScan[" + id.asInt() + "]" + getGroupIdAsString(),
-                "qualified", Utils.qualifiedName(qualifier, olapTable.getName()),
+        return Utils.toSqlString("PhysicalOlapScan[" + relationId.asInt() + "]" + getGroupIdAsString(),
+                "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "stats", statistics, "fr", getMutableState(AbstractPlan.FRAGMENT_ID)
         );
     }
@@ -130,19 +127,25 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
         if (this == o) {
             return true;
         }
-        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PhysicalOlapScan that = ((PhysicalOlapScan) o);
-        return Objects.equals(selectedIndexId, that.selectedIndexId)
-                && Objects.equals(selectedTabletIds, that.selectedPartitionIds)
-                && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
-                && Objects.equals(olapTable, that.olapTable);
+        if (!super.equals(o)) {
+            return false;
+        }
+        PhysicalOlapScan olapScan = (PhysicalOlapScan) o;
+        return selectedIndexId == olapScan.selectedIndexId && Objects.equals(distributionSpec,
+                olapScan.distributionSpec) && Objects.equals(selectedTabletIds, olapScan.selectedTabletIds)
+                && Objects.equals(selectedPartitionIds, olapScan.selectedPartitionIds)
+                && Objects.equals(preAggStatus, olapScan.preAggStatus) && Objects.equals(baseOutputs,
+                olapScan.baseOutputs);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, selectedIndexId, selectedPartitionIds, selectedTabletIds, olapTable);
+        return Objects.hash(super.hashCode(), distributionSpec, selectedIndexId, selectedTabletIds,
+                selectedPartitionIds,
+                preAggStatus, baseOutputs);
     }
 
     @Override
@@ -152,7 +155,7 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
 
     @Override
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
+        return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs,
                 groupExpression, getLogicalProperties());
     }
@@ -160,7 +163,7 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
+        return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, groupExpression,
                 logicalProperties.get());
     }
@@ -168,23 +171,21 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     @Override
     public PhysicalOlapScan withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
+        return new PhysicalOlapScan(relationId, getTable(), qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics);
     }
 
     @Override
     public String shapeInfo() {
-        StringBuilder builder = new StringBuilder();
-        builder.append(this.getClass().getSimpleName()).append("[").append(olapTable.getName()).append("]");
-        return builder.toString();
+        return this.getClass().getSimpleName() + "[" + table.getName() + "]";
     }
 
     @Override
     public JSONObject toJson() {
         JSONObject olapScan = super.toJson();
         JSONObject properties = new JSONObject();
-        properties.put("OlapTable", olapTable.toString());
+        properties.put("OlapTable", table.toString());
         properties.put("DistributionSpec", distributionSpec.toString());
         properties.put("SelectedIndexId", selectedIndexId);
         properties.put("SelectedTabletIds", selectedTabletIds.toString());

@@ -168,11 +168,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
     }
 
     private AnalyzedResult analyzeSubquery(SubqueryExpr expr) {
-        CascadesContext subqueryContext = CascadesContext.newRewriteContext(cascadesContext, expr.getQueryPlan());
+        CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
+                cascadesContext, expr.getQueryPlan(), cascadesContext.getCteContext());
         Scope subqueryScope = genScopeWithSubquery(expr);
         subqueryContext.setOuterScope(subqueryScope);
         subqueryContext.newAnalyzer().analyze();
-        cascadesContext.putAllCTEIdToConsumer(subqueryContext.getCteIdToConsumers());
         return new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),
                 subqueryScope.getCorrelatedSlots());
     }

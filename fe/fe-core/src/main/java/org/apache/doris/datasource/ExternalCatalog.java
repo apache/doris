@@ -87,6 +87,8 @@ public abstract class ExternalCatalog
     private boolean initialized = false;
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -182,7 +184,11 @@ public abstract class ExternalCatalog
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                        properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                if (metadataRefreshIntervalSec < 0) {
+                    throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+                }
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
@@ -256,6 +262,9 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
+        long currentTime = System.currentTimeMillis();
+        lastUpdateTime = currentTime;
+        initCatalogLog.setLastUpdateTime(lastUpdateTime);
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
@@ -278,7 +287,7 @@ public abstract class ExternalCatalog
         if (db.isPresent()) {
             Optional<? extends ExternalTable> table = db.get().getTable(tblName);
             if (table.isPresent()) {
-                return table.get().initSchema();
+                return table.get().initSchemaAndUpdateTime();
             }
         }
         // return one column with unsupported type.
@@ -389,9 +398,25 @@ public abstract class ExternalCatalog
         notifyPropertiesUpdated(props);
     }
 
+    public void tryModifyCatalogProps(Map<String, String> props) {
+        catalogProperty.modifyCatalogProps(props);
+    }
+
+    public void rollBackCatalogProps(Map<String, String> props) {
+        catalogProperty.rollBackCatalogProps(props);
+    }
+
     private void modifyComment(Map<String, String> props) {
         setComment(props.getOrDefault("comment", comment));
         props.remove("comment");
+    }
+
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
     }
 
     @Override
@@ -428,6 +453,7 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
+        lastUpdateTime = log.getLastUpdateTime();
         initialized = true;
     }
 
@@ -508,11 +534,11 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabase(String dbName) {
+    public void dropDatabaseForReplay(String dbName) {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabase(long dbId, String dbName) {
+    public void createDatabaseForReplay(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 

@@ -109,7 +109,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), filePath, format, properties);
+        return Objects.hash(filePath, format, properties);
     }
 
     @Override
