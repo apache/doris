@@ -683,7 +683,8 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    bool from_date_str_base(const char* str, int len, long sec_offset);
+    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone,
+                            ZoneList* time_zone_cache);
 
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
@@ -1166,7 +1167,8 @@ private:
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
 
-    bool from_date_str_base(const char* str, int len, int scale, long sec_offset);
+    bool from_date_str_base(const char* date_str, int len, int scale,
+                            const cctz::time_zone* local_time_zone, ZoneList* time_zone_cache);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);
