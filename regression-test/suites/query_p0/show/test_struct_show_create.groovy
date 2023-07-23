@@ -19,7 +19,6 @@ suite("test_struct_show_create", "query") {
     // define a sql table
     def testTable = "test_struct_show_create"
 
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
 
     def create_test_table = {testTablex ->
         def result1 = sql """

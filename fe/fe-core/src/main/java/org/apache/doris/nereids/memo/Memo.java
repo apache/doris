@@ -48,6 +48,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.stream.Collectors;
@@ -160,6 +161,41 @@ public class Memo {
             }
         }
         return plan;
+    }
+
+    public int countMaxContinuousJoin() {
+        return countGroupJoin(root).second;
+    }
+
+    /**
+     * return the max continuous join operator
+     */
+
+    public Pair<Integer, Integer> countGroupJoin(Group group) {
+        GroupExpression logicalExpr = group.getLogicalExpression();
+        List<Pair<Integer, Integer>> children = new ArrayList<>();
+        for (Group child : logicalExpr.children()) {
+            children.add(countGroupJoin(child));
+        }
+
+        if (group.isProjectGroup()) {
+            return children.get(0);
+        }
+
+        int maxJoinCount = 0;
+        int continuousJoinCount = 0;
+        for (Pair<Integer, Integer> child : children) {
+            maxJoinCount = Math.max(maxJoinCount, child.second);
+        }
+        if (group.isValidJoinGroup()) {
+            for (Pair<Integer, Integer> child : children) {
+                continuousJoinCount += child.first;
+            }
+            continuousJoinCount += 1;
+        } else if (group.isProjectGroup()) {
+            return children.get(0);
+        }
+        return Pair.of(continuousJoinCount, Math.max(continuousJoinCount, maxJoinCount));
     }
 
     /**
@@ -760,9 +796,9 @@ public class Memo {
         Preconditions.checkArgument(n > 0, "the n %d must be greater than 0 in nthPlan", n);
         List<Pair<Long, Double>> plans = rankGroup(root, PhysicalProperties.GATHER);
         plans = plans.stream().filter(
-                        p -> !p.second.equals(Double.NaN)
-                                && !p.second.equals(Double.POSITIVE_INFINITY)
-                                && !p.second.equals(Double.NEGATIVE_INFINITY))
+                p -> !p.second.equals(Double.NaN)
+                        && !p.second.equals(Double.POSITIVE_INFINITY)
+                        && !p.second.equals(Double.NEGATIVE_INFINITY))
                 .collect(Collectors.toList());
         // This is big heap, it always pops the element with larger cost or larger id.
         PriorityQueue<Pair<Long, Double>> pq = new PriorityQueue<>((l, r) -> Math.abs(l.second - r.second) < threshold

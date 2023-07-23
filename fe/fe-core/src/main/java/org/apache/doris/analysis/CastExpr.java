@@ -147,7 +147,7 @@ public class CastExpr extends Expr {
             Type to = getActualType(type);
             NullableMode nullableMode = TYPE_NULLABLE_MODE.get(Pair.of(from, to));
             Preconditions.checkState(nullableMode != null,
-                    "cannot find nullable mode for cast from " + from + " to " + to);
+                    "cannot find nullable node for cast from " + from + " to " + to);
             fn = new Function(new FunctionName(getFnName(type)), Lists.newArrayList(e.type), type,
                     false, true, nullableMode);
         } else {

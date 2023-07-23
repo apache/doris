@@ -317,6 +317,9 @@ public class JdbcResource extends Resource {
         if (dbType.equals(POSTGRESQL)) {
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
         }
+        if (dbType.equals(SQLSERVER)) {
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useBulkCopyForBatchInsert", "false", "true");
+        }
         return newJdbcUrl;
     }
 

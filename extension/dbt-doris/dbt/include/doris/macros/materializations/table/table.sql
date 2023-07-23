@@ -20,57 +20,34 @@
   {%- set existing_relation = load_cached_relation(this) -%}
   {%- set target_relation = this.incorporate(type='table') %}
   {%- set intermediate_relation =  make_intermediate_relation(target_relation) -%}
-
   {%- set preexisting_intermediate_relation = load_cached_relation(intermediate_relation) -%}
-  /*
-      See ../view/view.sql for more information about this relation.
-  */
-  {%- set backup_relation_type = 'table' if existing_relation is none else existing_relation.type -%}
-  {%- set backup_relation = make_backup_relation(target_relation, backup_relation_type) -%}
-  -- as above, the backup_relation should not already exist
-  {%- set preexisting_backup_relation = load_cached_relation(backup_relation) -%}
+
   -- grab current tables grants config for comparision later on
   {% set grant_config = config.get('grants') %}
 
-
-
   -- drop the temp relations if they exist already in the database
-  {{ drop_relation_if_exists(preexisting_intermediate_relation) }}
-  {{ drop_relation_if_exists(preexisting_backup_relation) }}
-
-  {{ run_hooks(pre_hooks, inside_transaction=False) }}
-
-  -- `BEGIN` happens here:
-  {{ run_hooks(pre_hooks, inside_transaction=True) }}
+  {{ doris__drop_relation(preexisting_intermediate_relation) }}
 
   -- build model
   {% call statement('main') -%}
     {{ get_create_table_as_sql(False, intermediate_relation, sql) }}
   {%- endcall %}
 
-  -- cleanup
-  {% if existing_relation is not none %}
-      {{ adapter.rename_relation(existing_relation, backup_relation) }}
+  {% if existing_relation -%}
+    {% do exchange_relation(target_relation, intermediate_relation, True) %}
+  {% else %}
+    {{ adapter.rename_relation(intermediate_relation, target_relation) }}
   {% endif %}
 
-  {{ adapter.rename_relation(intermediate_relation, target_relation) }}
-
-  {% do create_indexes(target_relation) %}
-
-  {{ run_hooks(post_hooks, inside_transaction=True) }}
 
   {% set should_revoke = should_revoke(existing_relation, full_refresh_mode=True) %}
   {% do apply_grants(target_relation, grant_config, should_revoke=should_revoke) %}
 
+  -- alter relation comment
   {% do persist_docs(target_relation, model) %}
 
-  -- `COMMIT` happens here
-  {{ adapter.commit() }}
-
   -- finally, drop the existing/backup relation after the commit
-  {{ drop_relation_if_exists(backup_relation) }}
-
-  {{ run_hooks(post_hooks, inside_transaction=False) }}
+  {{ doris__drop_relation(intermediate_relation) }}
 
   {{ return({'relations': [target_relation]}) }}
 {% endmaterialization %}

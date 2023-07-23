@@ -331,6 +331,7 @@ void Tablet::save_meta() {
                                 << ", root=" << _data_dir->path();
 }
 
+// Caller should hold _meta_lock.
 Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
                                   const std::vector<RowsetSharedPtr>& to_delete,
                                   bool is_incremental_clone) {
@@ -360,7 +361,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             // clone tablet: [7-7] [8-8]
             // new tablet:   [0-1] [2-5] [6-6] [7-7] [8-8] [9-10]
             // [7-7] [8-8] [9-10] need to recalculate delete bitmap
-            calc_delete_bitmap_ver = Version(to_add_min_version, max_version().second);
+            calc_delete_bitmap_ver = Version(to_add_min_version, max_version_unlocked().second);
         } else {
             // the delete bitmap of to_add's rowsets has clone from remote when full clone.
             // only other rowsets in local need to recalculate the delete bitmap.
@@ -370,7 +371,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             // new tablet:   [0-1]  [2-4]  [5-6]  [7-8] [9-10]
             // only [9-10] need to recalculate delete bitmap
             CHECK_EQ(to_add_min_version, 0) << "to_add_min_version is: " << to_add_min_version;
-            calc_delete_bitmap_ver = Version(to_add_max_version + 1, max_version().second);
+            calc_delete_bitmap_ver = Version(to_add_max_version + 1, max_version_unlocked().second);
         }
 
         if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
@@ -866,6 +867,7 @@ bool Tablet::exceed_version_limit(int32_t limit) const {
 
 // If any rowset contains the specific version, it means the version already exist
 bool Tablet::check_version_exist(const Version& version) const {
+    std::shared_lock rdlock(_meta_lock);
     for (auto& it : _rs_version_map) {
         if (it.first.contains(version)) {
             return true;
@@ -2652,13 +2654,12 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
 
 Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                      const std::vector<uint32_t>& rowids,
-                                     const std::string& column_name,
+                                     const TabletColumn& tablet_column,
                                      vectorized::MutableColumnPtr& dst) {
     // read row data
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
 
-    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
     // find segment
@@ -2679,8 +2680,7 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
     });
     // create _source column
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator = nullptr;
-    RETURN_IF_ERROR(
-            segment->new_column_iterator(tablet_schema->column(column_name), &column_iterator));
+    RETURN_IF_ERROR(segment->new_column_iterator(tablet_column, &column_iterator));
     segment_v2::ColumnIteratorOptions opt;
     OlapReaderStatistics stats;
     opt.file_reader = segment->file_reader().get();
@@ -2792,11 +2792,11 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
             if (s.is<NOT_FOUND>()) {
                 continue;
             }
-            if (!s.ok()) {
+            if (!s.ok() && !s.is<ALREADY_EXIST>()) {
                 return s;
             }
-            if (_tablet_meta->delete_bitmap().contains_agg_without_cache(
-                        {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+            if (s.ok() && _tablet_meta->delete_bitmap().contains_agg_without_cache(
+                                  {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
                 if (_schema->has_sequence_col()) {
@@ -2805,6 +2805,9 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                 // The key is deleted, we don't need to search for it any more.
                 break;
             }
+            // `st` is either OK or ALREADY_EXIST now.
+            // for partial update, even if the key is already exists, we still need to
+            // read it's original values to keep all columns align.
             *row_location = loc;
             if (rowset) {
                 // return it's rowset
@@ -3125,8 +3128,9 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                 continue;
             }
             for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
+                TabletColumn tablet_column = tablet_schema->column(cids_to_read[cid]);
                 auto st = fetch_value_by_rowids(rowset_iter->second, seg_it.first, rids,
-                                                block.get_names()[cid], mutable_columns[cid]);
+                                                tablet_column, mutable_columns[cid]);
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value";
