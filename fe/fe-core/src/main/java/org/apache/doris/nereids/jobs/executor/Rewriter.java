@@ -40,6 +40,7 @@ import org.apache.doris.nereids.rules.rewrite.CTEProducerRewrite;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
+import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -286,6 +287,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
+                            new CheckMatchExpression(),
+                            new CheckMultiDistinct(),
                             new CheckAfterRewrite()
                     )),
             topic("MATERIALIZED CTE", topDown(
