@@ -23,7 +23,6 @@ import java.nio.file.Paths
 
 suite("test_javaudf_map") {
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
-    sql """  admin set frontend config("enable_map_type" = "true"); """
     log.info("Jar path: ${jarPath}".toString())
     try {
         try_sql("DROP FUNCTION IF EXISTS udfii(Map<INT, INT>);")
