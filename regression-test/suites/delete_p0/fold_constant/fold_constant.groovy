@@ -88,7 +88,7 @@ suite("fold_constant") {
     sql """insert into delete_condition values(3,"2017-02-03 00:00:00");"""
     sql """insert into delete_condition values(4,"2017-03-02 00:00:00");"""
     sql """
-    delete from  delete_condition PARTITION p201702  where  `create_date` > str_to_date('2017-02-02 00:00:00', '%Y-%m-%d %H:%i:%s'); 
+    delete from  delete_condition p201702  where  `create_date` > str_to_date('2017-02-02 00:00:00', '%Y-%m-%d %H:%i:%s'); 
     """
     qt_select """select * from delete_condition order by 1,2;"""
 
@@ -120,7 +120,7 @@ suite("fold_constant") {
     sql """insert into delete_condition2 values(3,"2017-02-03 00:00:00");"""
     sql """insert into delete_condition2 values(4,"2017-03-02 00:00:00");"""
     sql """
-    delete from  delete_condition2 PARTITION p201702  where  `create_date` > str_to_date('2017-02-02 00:00:00', '%Y-%m-%d %H:%i:%s'); 
+    delete from  delete_condition2 p201702  where  `create_date` > str_to_date('2017-02-02 00:00:00', '%Y-%m-%d %H:%i:%s'); 
     """
     qt_select """select * from delete_condition2 order by 1,2;"""
 }
