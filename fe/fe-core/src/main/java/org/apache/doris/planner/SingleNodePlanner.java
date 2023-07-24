@@ -1823,18 +1823,6 @@ public class SingleNodePlanner {
             e.setIsOnClauseConjunct(false);
         }
         inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates, inlineViewRef.getAllTupleIds());
-        QueryStmt queryStmt = inlineViewRef.getQueryStmt();
-        if (queryStmt instanceof SetOperationStmt) {
-            // registerConjuncts for every set operand
-            SetOperationStmt setOperationStmt = (SetOperationStmt) queryStmt;
-            for (SetOperationStmt.SetOperand setOperand : setOperationStmt.getOperands()) {
-                setOperand.getAnalyzer().registerConjuncts(
-                        Expr.substituteList(viewPredicates, setOperand.getSmap(),
-                                setOperand.getAnalyzer(), false),
-                        inlineViewRef.getAllTupleIds());
-            }
-        }
-
         // mark (fully resolve) slots referenced by remaining unassigned conjuncts as
         // materialized
         List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,

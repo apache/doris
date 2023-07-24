@@ -171,9 +171,9 @@ public class ColumnStatisticBuilder {
 
     public ColumnStatistic build() {
         dataSize = Math.max((count - numNulls + 1) * avgSizeByte, 0);
-        if (original == null) {
+        if (original == null && !isUnknown) {
             original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
-                    dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown, histogram);
+                    dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, false, histogram);
         }
         return new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
             dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown, histogram);
