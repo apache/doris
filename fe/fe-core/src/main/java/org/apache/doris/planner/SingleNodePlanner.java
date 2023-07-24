@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.AnalyticExpr;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
@@ -264,6 +265,13 @@ public class SingleNodePlanner {
                 AggregateInfo aggInfo = selectStmt.getAggInfo();
                 root = analyticPlanner.createSingleNodePlan(root,
                         aggInfo != null ? aggInfo.getGroupingExprs() : null, inputPartitionExprs);
+                List<Expr> predicates = getBoundPredicates(analyzer,
+                        selectStmt.getAnalyticInfo().getOutputTupleDesc());
+                if (!predicates.isEmpty()) {
+                    root = new SelectNode(ctx.getNextNodeId(), root, predicates);
+                    root.init(analyzer);
+                    Preconditions.checkState(root.hasValidStats());
+                }
                 if (aggInfo != null && !inputPartitionExprs.isEmpty()) {
                     // analytic computation will benefit from a partition on inputPartitionExprs
                     aggInfo.setPartitionExprs(inputPartitionExprs);
@@ -1782,7 +1790,6 @@ public class SingleNodePlanner {
             e.setIsOnClauseConjunct(false);
         }
         inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates, inlineViewRef.getAllTupleIds());
-
         // mark (fully resolve) slots referenced by remaining unassigned conjuncts as
         // materialized
         List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
@@ -1808,15 +1815,21 @@ public class SingleNodePlanner {
             return;
         }
 
-        List<Expr> newConjuncts = cloneExprs(conjuncts);
         final QueryStmt stmt = inlineViewRef.getViewStmt();
         final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
         viewAnalyzer.markConjunctsAssigned(conjuncts);
+        // even if the conjuncts are constant, they may contains slotRef 
+        // for example: case when slotRef is null then 0 else 1
+        // we need substitute the conjuncts using inlineViewRef's analyzer
+        // otherwise, when analyzing the conjunct in the inline view
+        // the analyzer is not able to find the column because it comes from outside
+        List<Expr> newConjuncts =
+                Expr.substituteList(conjuncts, inlineViewRef.getSmap(), viewAnalyzer, false);
         if (stmt instanceof SelectStmt) {
             final SelectStmt select = (SelectStmt) stmt;
             if (select.getAggInfo() != null) {
                 viewAnalyzer.registerConjuncts(newConjuncts, select.getAggInfo().getOutputTupleId().asList());
-            } else if (select.getTableRefs().size() > 1) {
+            } else if (select.getTableRefs().size() > 0) {
                 for (int i = select.getTableRefs().size() - 1; i >= 0; i--) {
                     viewAnalyzer.registerConjuncts(newConjuncts,
                             select.getTableRefs().get(i).getDesc().getId().asList());
@@ -2695,6 +2708,10 @@ public class SingleNodePlanner {
                     }
                     sourceExpr = slotDesc.getSourceExprs().get(0);
                 }
+                if (sourceExpr instanceof AnalyticExpr) {
+                    isAllSlotReferToGroupBys = false;
+                    break;
+                }
                 // if grouping set is given and column is not in all grouping set list
                 // we cannot push the predicate since the column value can be null
                 if (stmt.getGroupByClause() == null) {
@@ -2722,7 +2739,9 @@ public class SingleNodePlanner {
                 }
                 GroupByClause groupByClause = stmt.getGroupByClause();
                 List<Expr> exprs = groupByClause.getGroupingExprs();
-                if (!exprs.contains(sourceExpr)) {
+                final Expr srcExpr = sourceExpr;
+                if (!exprs.stream().anyMatch(expr -> expr.comeFrom(srcExpr))) {
+                    // the sourceExpr doesn't come from any of the group by exprs
                     isAllSlotReferToGroupBys = false;
                     break;
                 }
