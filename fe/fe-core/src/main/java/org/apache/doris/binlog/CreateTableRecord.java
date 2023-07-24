@@ -63,8 +63,8 @@ public class CreateTableRecord {
 
         table.readLock();
         try {
-            Env.getBeingSyncedDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, false, false /* show password */,
-                    -1L);
+            Env.getBeingSyncedDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt,
+                    false, false /* show password */, -1L);
         } finally {
             table.readUnlock();
         }
