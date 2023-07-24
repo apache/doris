@@ -301,11 +301,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         && optionStats.maxValue <= compareExprStats.maxValue) {
                     validInOptCount++;
                     LiteralExpr optionLiteralExpr = ((Literal) option).toLegacyLiteral();
-                    if (optionLiteralExpr.compareTo(maxOptionLiteral) >= 0) {
+                    if (maxOptionLiteral == null  || optionLiteralExpr.compareTo(maxOptionLiteral) >= 0) {
                         maxOptionLiteral = optionLiteralExpr;
                         maxOptionValue = optionStats.maxValue;
                     }
-                    if (optionLiteralExpr.compareTo(minOptionLiteral) <= 0) {
+
+                    if (minOptionLiteral == null || optionLiteralExpr.compareTo(minOptionLiteral) <= 0) {
                         minOptionLiteral = optionLiteralExpr;
                         minOptionValue = optionStats.minValue;
                     }
