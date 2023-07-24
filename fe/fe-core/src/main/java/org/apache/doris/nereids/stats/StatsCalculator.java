@@ -130,8 +130,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -689,38 +689,36 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
         double rowCount = 1;
-        Map<Expression, ColumnStatistic> groupByColStats = new HashMap<>();
+        // if there is group-bys, output row count is childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO,
+        // o.w. output row count is 1
+        // example: select sum(A) from T;
+        if (groupByExpressions.isEmpty()) {
+            return 1;
+        }
+        List<Double> groupByNdvs = new ArrayList<>();
         for (Expression groupByExpr : groupByExpressions) {
             ColumnStatistic colStats = childStats.findColumnStatistics(groupByExpr);
             if (colStats == null) {
                 colStats = ExpressionEstimation.estimate(groupByExpr, childStats);
             }
-            groupByColStats.put(groupByExpr, colStats);
-        }
-        int groupByCount = groupByExpressions.size();
-        if (groupByColStats.values().stream().anyMatch(ColumnStatistic::isUnKnown)) {
-            // if there is group-bys, output row count is childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO,
-            // o.w. output row count is 1
-            // example: select sum(A) from T;
-            if (groupByCount > 0) {
+            if (colStats.isUnKnown()) {
                 rowCount = childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO;
-            } else {
-                rowCount = 1;
+                rowCount = Math.max(1, rowCount);
+                rowCount = Math.min(rowCount, childStats.getRowCount());
+                return rowCount;
             }
-        } else {
-            if (groupByCount > 0) {
-                List<Double> groupByNdvs = groupByColStats.values().stream()
-                        .map(colStats -> colStats.ndv)
-                        .sorted(Comparator.reverseOrder()).collect(Collectors.toList());
-                rowCount = groupByNdvs.get(0);
-                for (int groupByIndex = 1; groupByIndex < groupByCount; ++groupByIndex) {
-                    rowCount *= Math.max(1, groupByNdvs.get(groupByIndex) * Math.pow(
-                            AGGREGATE_COLUMN_CORRELATION_COEFFICIENT, groupByIndex + 1D));
-                    if (rowCount > childStats.getRowCount()) {
-                        rowCount = childStats.getRowCount();
-                        break;
-                    }
-                }
+            double ndv = colStats.ndv;
+            groupByNdvs.add(ndv);
+        }
+        groupByNdvs.sort(Collections.reverseOrder());
+
+        rowCount = groupByNdvs.get(0);
+        for (int groupByIndex = 1; groupByIndex < groupByExpressions.size(); ++groupByIndex) {
+            rowCount *= Math.max(1, groupByNdvs.get(groupByIndex) * Math.pow(
+                    AGGREGATE_COLUMN_CORRELATION_COEFFICIENT, groupByIndex + 1D));
+            if (rowCount > childStats.getRowCount()) {
+                rowCount = childStats.getRowCount();
+                break;
             }
         }
         rowCount = Math.max(1, rowCount);

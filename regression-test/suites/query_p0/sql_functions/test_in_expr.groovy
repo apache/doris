@@ -130,4 +130,89 @@ suite("test_in_expr", "query") {
     qt_select """
     SELECT CASE (TIMESTAMP '1970-12-04 03:51:34' NOT BETWEEN TIMESTAMP '1970-11-11 16:41:26' AND TIMESTAMP 'CURRENT_TIMESTAMP')  WHEN (0.7532032132148743 BETWEEN 0.7817240953445435 AND CAST('.' AS FLOAT) ) THEN (- (- 2093562249))  WHEN CAST((true IN (false)) AS BOOLEAN)  THEN (+ 1351956476) END  FROM t11 WHERE (NULL IN (CASE CAST('-658171195' AS BOOLEAN)   WHEN ((TIMESTAMP '1970-02-25 22:11:59') IS NOT NULL) THEN NULL  WHEN ((true) IS NULL) THEN NULL END )) GROUP BY t11.c0 ORDER BY 1;
     """
+
+    sql " drop table if exists `array_in_test` "
+    sql """
+    CREATE TABLE `array_in_test` (
+        `id` int(11) NULL COMMENT "",
+        `c_array` ARRAY<int(11)> NULL COMMENT ""
+    )
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """ INSERT INTO `array_in_test` VALUES (1, [1,2,3,4,5]); """
+
+    test {
+        sql """ select c_array, c_array in (null) from array_in_test; """
+        exception "NOT_IMPLEMENTED_ERROR"
+    }
+
+    sql " drop table if exists `json_in_test` "
+    sql """
+        CREATE TABLE json_in_test (
+            id INT,
+            j JSON
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        PROPERTIES("replication_num" = "1");
+    """
+
+    sql """ INSERT INTO json_in_test VALUES(26, '{"k1":"v1", "k2": 200}'); """
+
+    test {
+        sql """ select j, j in (null) from json_in_test; """
+        exception "NOT_IMPLEMENTED_ERROR"
+    }
+
+    sql " drop table if exists `bitmap_in_test` "
+    sql """
+        create table bitmap_in_test (
+            datekey int,
+            hour int,
+            device_id bitmap BITMAP_UNION
+        )
+        aggregate key (datekey, hour)
+        distributed by hash(datekey, hour) buckets 1
+        properties(
+          "replication_num" = "1"
+        );
+    """
+
+    sql """ insert into bitmap_in_test values (20200622, 1, to_bitmap(243));"""
+    test {
+        sql """ select device_id, device_id in (to_bitmap(1)) from bitmap_in_test; """
+        exception "NOT_IMPLEMENTED_ERROR"
+    }
+    test {
+        sql """ select device_id, device_id in (to_bitmap(1),to_bitmap(2),to_bitmap(243)) from bitmap_in_test; """
+        exception "NOT_IMPLEMENTED_ERROR"
+    }
+
+    sql " drop table if exists `hll_in_test` "
+    sql """
+        create table hll_in_test (
+            id int,
+            pv hll hll_union
+        )
+        Aggregate KEY (id)
+        distributed by hash(id) buckets 10
+        PROPERTIES(
+            "replication_num" = "1"
+        )
+    """
+
+    sql """ insert into hll_in_test values(1, hll_hash(1)) """
+    test {
+        sql """ select id, pv in (hll_hash(1)) from hll_in_test; """
+        exception "NOT_IMPLEMENTED_ERROR"
+    }
+    test {
+        sql """ select id, pv in (hll_hash(1), hll_hash(2)) from hll_in_test; """
+        exception "NOT_IMPLEMENTED_ERROR"
+    }
+
 }
