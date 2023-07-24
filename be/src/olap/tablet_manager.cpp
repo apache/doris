@@ -244,7 +244,18 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id;
 
-    std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
+    // when we create rollup tablet A(assume on shard-1) from tablet B(assume on shard-2)
+    // we need use write lock on shard-1 and then use read lock on shard-2
+    // if there have create rollup tablet C(assume on shard-2) from tablet D(assume on shard-1) at the same time, we will meet deadlock
+    std::unique_lock two_tablet_lock(_two_tablet_mtx, std::defer_lock);
+    bool is_schema_change = request.__isset.base_tablet_id && request.base_tablet_id > 0;
+    bool need_two_lock = is_schema_change && ((_tablets_shards_mask & request.base_tablet_id) !=
+                                              (_tablets_shards_mask & tablet_id));
+    if (need_two_lock) {
+        two_tablet_lock.lock();
+    }
+
+    std::lock_guard wrlock(_get_tablets_shard_lock(tablet_id));
     // Make create_tablet operation to be idempotent:
     // 1. Return true if tablet with same tablet_id and schema_hash exist;
     //           false if tablet with same tablet_id but different schema_hash exist.
@@ -258,13 +269,12 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     }
 
     TabletSharedPtr base_tablet = nullptr;
-    bool is_schema_change = false;
     // If the CreateTabletReq has base_tablet_id then it is a alter-tablet request
-    if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
-        is_schema_change = true;
+    if (is_schema_change) {
         // if base_tablet_id's lock diffrent with new_tablet_id, we need lock it.
-        if ((_tablets_shards_mask & request.base_tablet_id) != (_tablets_shards_mask & tablet_id)) {
+        if (need_two_lock) {
             base_tablet = get_tablet(request.base_tablet_id);
+            two_tablet_lock.unlock();
         } else {
             base_tablet = _get_tablet_unlocked(request.base_tablet_id);
         }
@@ -550,9 +560,8 @@ std::pair<TabletSharedPtr, Status> TabletManager::get_tablet_and_status(TTabletI
     std::string err;
     auto tablet = get_tablet(tablet_id, include_deleted, &err);
     if (tablet == nullptr) {
-        auto err_str = fmt::format("failed to get tablet: {}, reason: {}", tablet_id, err);
-        LOG(WARNING) << err_str;
-        return {tablet, Status::InternalError(err_str)};
+        return {tablet,
+                Status::InternalError("failed to get tablet: {}, reason: {}", tablet_id, err)};
     }
 
     return {tablet, Status::OK()};

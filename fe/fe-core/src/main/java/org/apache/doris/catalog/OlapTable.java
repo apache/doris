@@ -40,6 +40,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -150,6 +151,8 @@ public class OlapTable extends Table {
     private long baseIndexId = -1;
 
     private TableProperty tableProperty;
+
+    private AutoIncrementGenerator autoIncrementGenerator;
 
     public OlapTable() {
         // for persist
@@ -575,7 +578,7 @@ public class OlapTable extends Table {
                     try {
                         Map<Tag, List<Long>> tag2beIds =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                        replicaAlloc, null);
+                                        replicaAlloc, null, false, false);
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -1265,6 +1268,14 @@ public class OlapTable extends Table {
             tableProperty.write(out);
         }
 
+        // autoIncrementGenerator
+        if (autoIncrementGenerator == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            autoIncrementGenerator.write(out);
+        }
+
         tempPartitions.write(out);
     }
 
@@ -1345,6 +1356,15 @@ public class OlapTable extends Table {
         if (in.readBoolean()) {
             tableProperty = TableProperty.read(in);
         }
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124) {
+            // autoIncrementGenerator
+            if (in.readBoolean()) {
+                autoIncrementGenerator = AutoIncrementGenerator.read(in);
+                autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
+            }
+        }
+
         if (isAutoBucket()) {
             defaultDistributionInfo.markAutoBucket();
         }
@@ -2108,5 +2128,19 @@ public class OlapTable extends Table {
         return getKeysType() == KeysType.DUP_KEYS
                 || (getKeysType() == KeysType.UNIQUE_KEYS
                 && getEnableUniqueKeyMergeOnWrite());
+    }
+
+    public void initAutoIncrentGenerator(long dbId) {
+        for (Column column : fullSchema) {
+            if (column.isAutoInc()) {
+                autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, column.getUniqueId());
+                autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
+                break;
+            }
+        }
+    }
+
+    public AutoIncrementGenerator getAutoIncrementGenerator() {
+        return autoIncrementGenerator;
     }
 }

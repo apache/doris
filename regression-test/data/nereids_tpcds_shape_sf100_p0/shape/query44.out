@@ -19,6 +19,33 @@ PhysicalTopN
 ------------------------PhysicalQuickSort
 --------------------------PhysicalDistribute
 ----------------------------PhysicalQuickSort
+------------------------------PhysicalPartitionTopN
+--------------------------------PhysicalProject
+----------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+------------------------------------hashAgg[GLOBAL]
+--------------------------------------PhysicalDistribute
+----------------------------------------hashAgg[LOCAL]
+------------------------------------------PhysicalProject
+--------------------------------------------filter((ss1.ss_store_sk = 146))
+----------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalAssertNumRows
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------hashAgg[GLOBAL]
+----------------------------------------------PhysicalDistribute
+------------------------------------------------hashAgg[LOCAL]
+--------------------------------------------------PhysicalProject
+----------------------------------------------------filter(ss_addr_sk IS NULL(store_sales.ss_store_sk = 146))
+------------------------------------------------------PhysicalOlapScan[store_sales]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------filter((rnk < 11))
+--------------------PhysicalWindow
+----------------------PhysicalQuickSort
+------------------------PhysicalDistribute
+--------------------------PhysicalQuickSort
+----------------------------PhysicalPartitionTopN
 ------------------------------PhysicalProject
 --------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
 ----------------------------------hashAgg[GLOBAL]
@@ -37,29 +64,4 @@ PhysicalTopN
 ------------------------------------------------PhysicalProject
 --------------------------------------------------filter(ss_addr_sk IS NULL(store_sales.ss_store_sk = 146))
 ----------------------------------------------------PhysicalOlapScan[store_sales]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------filter((rnk < 11))
---------------------PhysicalWindow
-----------------------PhysicalQuickSort
-------------------------PhysicalDistribute
---------------------------PhysicalQuickSort
-----------------------------PhysicalProject
-------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
---------------------------------hashAgg[GLOBAL]
-----------------------------------PhysicalDistribute
-------------------------------------hashAgg[LOCAL]
---------------------------------------PhysicalProject
-----------------------------------------filter((ss1.ss_store_sk = 146))
-------------------------------------------PhysicalOlapScan[store_sales]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalAssertNumRows
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------hashAgg[GLOBAL]
-------------------------------------------PhysicalDistribute
---------------------------------------------hashAgg[LOCAL]
-----------------------------------------------PhysicalProject
-------------------------------------------------filter(ss_addr_sk IS NULL(store_sales.ss_store_sk = 146))
---------------------------------------------------PhysicalOlapScan[store_sales]
 

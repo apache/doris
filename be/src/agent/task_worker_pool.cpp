@@ -157,7 +157,7 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::ALTER_TABLE:
         break;
     case TaskWorkerType::ALTER_INVERTED_INDEX:
-        _worker_count = config::alter_inverted_index_worker_count;
+        _worker_count = config::alter_index_worker_count;
         _cb = std::bind<void>(&TaskWorkerPool::_alter_inverted_index_worker_thread_callback, this);
         break;
     case TaskWorkerType::CLONE:

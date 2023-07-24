@@ -119,6 +119,7 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "s3.endpoint" = "s3.us-east-1.amazonaws.com",
+    "s3.region" = "us-east-1",
     "s3.access_key" = "ak",
     "s3.secret_key" = "sk"
     "use_path_style" = "true"

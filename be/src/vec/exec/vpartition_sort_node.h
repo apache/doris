@@ -26,6 +26,7 @@
 #include "exec/exec_node.h"
 #include "vec/columns/column.h"
 #include "vec/common/columns_hashing.h"
+#include "vec/common/hash_table/fixed_hash_map.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
@@ -83,8 +84,13 @@ public:
 using PartitionDataPtr = PartitionBlocks*;
 using PartitionDataWithStringKey = PHHashMap<StringRef, PartitionDataPtr, DefaultHash<StringRef>>;
 using PartitionDataWithShortStringKey = StringHashMap<PartitionDataPtr>;
+using PartitionDataWithUInt8Key =
+        FixedImplicitZeroHashMapWithCalculatedSize<UInt8, PartitionDataPtr>;
+using PartitionDataWithUInt16Key = FixedImplicitZeroHashMap<UInt16, PartitionDataPtr>;
 using PartitionDataWithUInt32Key = PHHashMap<UInt32, PartitionDataPtr, HashCRC32<UInt32>>;
-
+using PartitionDataWithUInt64Key = PHHashMap<UInt64, PartitionDataPtr, HashCRC32<UInt64>>;
+using PartitionDataWithUInt128Key = PHHashMap<UInt128, PartitionDataPtr, HashCRC32<UInt128>>;
+using PartitionDataWithUInt256Key = PHHashMap<UInt256, PartitionDataPtr, HashCRC32<UInt256>>;
 template <typename TData>
 struct PartitionMethodSerialized {
     using Data = TData;
@@ -249,11 +255,48 @@ struct PartitionMethodSingleNullableColumn : public SingleColumnMethod {
     using State = ColumnsHashing::HashMethodSingleLowNullableColumn<BaseState, Mapped, true>;
 };
 
+template <typename TData, bool has_nullable_keys_ = false>
+struct PartitionMethodKeysFixed {
+    using Data = TData;
+    using Key = typename Data::key_type;
+    using Mapped = typename Data::mapped_type;
+    using Iterator = typename Data::iterator;
+    static constexpr bool has_nullable_keys = has_nullable_keys_;
+
+    Data data;
+    Iterator iterator;
+    PartitionMethodKeysFixed() = default;
+
+    template <typename Other>
+    PartitionMethodKeysFixed(const Other& other) : data(other.data) {}
+
+    using State = ColumnsHashing::HashMethodKeysFixed<typename Data::value_type, Key, Mapped,
+                                                      has_nullable_keys, false>;
+};
+
 using PartitionedMethodVariants =
         std::variant<PartitionMethodSerialized<PartitionDataWithStringKey>,
+                     PartitionMethodOneNumber<UInt8, PartitionDataWithUInt8Key>,
+                     PartitionMethodOneNumber<UInt16, PartitionDataWithUInt16Key>,
                      PartitionMethodOneNumber<UInt32, PartitionDataWithUInt32Key>,
+                     PartitionMethodOneNumber<UInt64, PartitionDataWithUInt64Key>,
+                     PartitionMethodOneNumber<UInt128, PartitionDataWithUInt128Key>,
+                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
+                             UInt8, PartitionDataWithNullKey<PartitionDataWithUInt8Key>>>,
+                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
+                             UInt16, PartitionDataWithNullKey<PartitionDataWithUInt16Key>>>,
                      PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
                              UInt32, PartitionDataWithNullKey<PartitionDataWithUInt32Key>>>,
+                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
+                             UInt64, PartitionDataWithNullKey<PartitionDataWithUInt64Key>>>,
+                     PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
+                             UInt128, PartitionDataWithNullKey<PartitionDataWithUInt128Key>>>,
+                     PartitionMethodKeysFixed<PartitionDataWithUInt64Key, false>,
+                     PartitionMethodKeysFixed<PartitionDataWithUInt64Key, true>,
+                     PartitionMethodKeysFixed<PartitionDataWithUInt128Key, false>,
+                     PartitionMethodKeysFixed<PartitionDataWithUInt128Key, true>,
+                     PartitionMethodKeysFixed<PartitionDataWithUInt256Key, false>,
+                     PartitionMethodKeysFixed<PartitionDataWithUInt256Key, true>,
                      PartitionMethodStringNoCache<PartitionDataWithShortStringKey>,
                      PartitionMethodSingleNullableColumn<PartitionMethodStringNoCache<
                              PartitionDataWithNullKey<PartitionDataWithShortStringKey>>>>;
@@ -283,11 +326,34 @@ struct PartitionedHashMapVariants {
     void init(Type type, bool is_nullable = false) {
         _type = type;
         switch (_type) {
-        case Type::serialized:
+        case Type::serialized: {
             _partition_method_variant
                     .emplace<PartitionMethodSerialized<PartitionDataWithStringKey>>();
             break;
-        case Type::int32_key:
+        }
+        case Type::int8_key: {
+            if (is_nullable) {
+                _partition_method_variant
+                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
+                                UInt8, PartitionDataWithNullKey<PartitionDataWithUInt8Key>>>>();
+            } else {
+                _partition_method_variant
+                        .emplace<PartitionMethodOneNumber<UInt8, PartitionDataWithUInt8Key>>();
+            }
+            break;
+        }
+        case Type::int16_key: {
+            if (is_nullable) {
+                _partition_method_variant
+                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
+                                UInt16, PartitionDataWithNullKey<PartitionDataWithUInt16Key>>>>();
+            } else {
+                _partition_method_variant
+                        .emplace<PartitionMethodOneNumber<UInt16, PartitionDataWithUInt16Key>>();
+            }
+            break;
+        }
+        case Type::int32_key: {
             if (is_nullable) {
                 _partition_method_variant
                         .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
@@ -297,7 +363,60 @@ struct PartitionedHashMapVariants {
                         .emplace<PartitionMethodOneNumber<UInt32, PartitionDataWithUInt32Key>>();
             }
             break;
-        case Type::string_key:
+        }
+        case Type::int64_key: {
+            if (is_nullable) {
+                _partition_method_variant
+                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
+                                UInt64, PartitionDataWithNullKey<PartitionDataWithUInt64Key>>>>();
+            } else {
+                _partition_method_variant
+                        .emplace<PartitionMethodOneNumber<UInt64, PartitionDataWithUInt64Key>>();
+            }
+            break;
+        }
+        case Type::int128_key: {
+            if (is_nullable) {
+                _partition_method_variant
+                        .emplace<PartitionMethodSingleNullableColumn<PartitionMethodOneNumber<
+                                UInt128, PartitionDataWithNullKey<PartitionDataWithUInt128Key>>>>();
+            } else {
+                _partition_method_variant
+                        .emplace<PartitionMethodOneNumber<UInt128, PartitionDataWithUInt128Key>>();
+            }
+            break;
+        }
+        case Type::int64_keys: {
+            if (is_nullable) {
+                _partition_method_variant
+                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt64Key, true>>();
+            } else {
+                _partition_method_variant
+                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt64Key, false>>();
+            }
+            break;
+        }
+        case Type::int128_keys: {
+            if (is_nullable) {
+                _partition_method_variant
+                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt128Key, true>>();
+            } else {
+                _partition_method_variant
+                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt128Key, false>>();
+            }
+            break;
+        }
+        case Type::int256_keys: {
+            if (is_nullable) {
+                _partition_method_variant
+                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt256Key, true>>();
+            } else {
+                _partition_method_variant
+                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt256Key, false>>();
+            }
+            break;
+        }
+        case Type::string_key: {
             if (is_nullable) {
                 _partition_method_variant
                         .emplace<PartitionMethodSingleNullableColumn<PartitionMethodStringNoCache<
@@ -307,8 +426,9 @@ struct PartitionedHashMapVariants {
                         .emplace<PartitionMethodStringNoCache<PartitionDataWithShortStringKey>>();
             }
             break;
+        }
         default:
-            DCHECK(false) << "Do not have a rigth partition by data type";
+            DCHECK(false) << "Do not have a rigth partition by data type: ";
         }
     }
 };

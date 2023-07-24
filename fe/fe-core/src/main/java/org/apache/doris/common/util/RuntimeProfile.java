@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -268,7 +269,13 @@ public class RuntimeProfile {
         infoStringsLock.readLock().lock();
         try {
             for (String key : this.infoStringsDisplayOrder) {
-                builder.append(prefix).append("   - ").append(key).append(": ")
+                builder.append(prefix);
+                if (SummaryProfile.EXECUTION_SUMMARY_KEYS_IDENTATION.containsKey(key)) {
+                    for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_IDENTATION.get(key); i++) {
+                        builder.append("  ");
+                    }
+                }
+                builder.append("   - ").append(key).append(": ")
                         .append(this.infoStrings.get(key)).append("\n");
             }
         } finally {
@@ -493,11 +500,9 @@ public class RuntimeProfile {
         infoStringsLock.writeLock().lock();
         try {
             String target = this.infoStrings.get(key);
+            this.infoStrings.put(key, value);
             if (target == null) {
-                this.infoStrings.put(key, value);
                 this.infoStringsDisplayOrder.add(key);
-            } else {
-                this.infoStrings.put(key, value);
             }
         } finally {
             infoStringsLock.writeLock().unlock();

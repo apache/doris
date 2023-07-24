@@ -918,7 +918,7 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
         *codec = ZstdBlockCompression::instance();
         break;
     default:
-        return Status::NotFound("unknown compression type({})", type);
+        return Status::InternalError("unknown compression type({})", type);
     }
 
     return Status::OK();
@@ -943,7 +943,7 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
         *codec = GzipBlockCompression::instance();
         break;
     default:
-        return Status::NotFound("unknown compression type({})", parquet_codec);
+        return Status::InternalError("unknown compression type({})", parquet_codec);
     }
 
     return Status::OK();

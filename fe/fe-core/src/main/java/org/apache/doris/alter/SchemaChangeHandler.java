@@ -2676,6 +2676,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
             currentIndexMeta.setMaxColUniqueId(maxColUniqueId);
+            currentIndexMeta.setIndexes(indexes);
         }
         olapTable.setIndexes(indexes);
         olapTable.rebuildFullSchema();

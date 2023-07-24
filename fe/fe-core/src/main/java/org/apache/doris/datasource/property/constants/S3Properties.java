@@ -126,7 +126,7 @@ public class S3Properties extends BaseProperties {
         if (endpointSplit.length < 2) {
             return null;
         }
-        if (endpointSplit[0].startsWith("oss-")) {
+        if (endpointSplit[0].contains("oss-")) {
             // compatible with the endpoint: oss-cn-bejing.aliyuncs.com
             return endpointSplit[0];
         }

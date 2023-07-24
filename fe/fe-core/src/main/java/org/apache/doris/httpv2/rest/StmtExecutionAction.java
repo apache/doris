@@ -41,6 +41,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -68,6 +69,9 @@ import javax.servlet.http.HttpServletResponse;
 public class StmtExecutionAction extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(StmtExecutionAction.class);
     private static StatementSubmitter stmtSubmitter = new StatementSubmitter();
+    private static final String  NEW_LINE_PATTERN = "[\n\r]";
+
+    private static final String NEW_LINE_REPLACEMENT = " ";
 
     private static final long DEFAULT_ROW_LIMIT = 1000;
     private static final long MAX_ROW_LIMIT = 10000;
@@ -140,8 +144,10 @@ public class StmtExecutionAction extends RestBaseController {
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             ns = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
+        if (StringUtils.isNotBlank(sql)) {
+            sql = sql.replaceAll(NEW_LINE_PATTERN, NEW_LINE_REPLACEMENT);
+        }
         LOG.info("sql: {}", sql);
-
         ConnectContext.get().changeDefaultCatalog(ns);
         ConnectContext.get().setDatabase(getFullDbName(dbName));
         return getSchema(sql);
