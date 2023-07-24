@@ -1645,7 +1645,7 @@ public class FunctionCallExpr extends Expr {
      * @return
      * @throws AnalysisException
      */
-    public Expr rewriteExpr() throws AnalysisException {
+    public Expr rewriteExpr(Analyzer analyzer) throws AnalysisException {
         if (isRewrote) {
             return this;
         }
@@ -1674,13 +1674,14 @@ public class FunctionCallExpr extends Expr {
 
         retExpr.fnParams = new FunctionParams(oriExpr.fnParams.isDistinct(), oriParamsExprs);
 
-        // retExpr changed to original function, so the fn should be null.
+        // retExpr changed to original function, should be analyzed again.
         retExpr.fn = null;
 
         // reset children
         retExpr.children.clear();
         retExpr.children.addAll(oriExpr.getChildren());
         retExpr.isRewrote = true;
+        retExpr.analyze(analyzer);
         return retExpr;
     }
 
