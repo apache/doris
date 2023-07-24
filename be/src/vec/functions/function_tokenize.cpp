@@ -54,14 +54,14 @@ void FunctionTokenize::_execute_constant(const ColumnString& src_column_string,
     InvertedIndexCtx inverted_index_ctx;
     auto parser_type = get_inverted_index_parser_type_from_string(tokenize_type.to_string());
 
-    switch(parser_type){
-    case InvertedIndexParserType::PARSER_CHINESE:{
+    switch (parser_type) {
+    case InvertedIndexParserType::PARSER_CHINESE: {
         // we don't support parse_mode params now, so make it default.
         inverted_index_ctx.parser_mode = INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
         inverted_index_ctx.parser_type = parser_type;
         break;
     }
-    case InvertedIndexParserType::PARSER_UNICODE:{
+    case InvertedIndexParserType::PARSER_UNICODE: {
         inverted_index_ctx.parser_type = parser_type;
         break;
     }
