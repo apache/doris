@@ -135,14 +135,14 @@ public class UdfExecutor extends BaseExecutor {
     public Object[] convertMapArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long keyNestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
             long valueNestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) {
-        Object[] keyCol = convertMapKeyArg(argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
-                keyNestedNullMapAddr, keyDataAddr,
-                keyStrOffsetAddr);
-        Object[] valueCol = convertMapValueArg(argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
-                valueNestedNullMapAddr, valueDataAddr,
-                valueStrOffsetAddr);
         PrimitiveType keyType = argTypes[argIdx].getKeyType().getPrimitiveType();
         PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
+        Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
+                keyNestedNullMapAddr, keyDataAddr,
+                keyStrOffsetAddr);
+        Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
+                valueNestedNullMapAddr, valueDataAddr,
+                valueStrOffsetAddr);
         switch (keyType) {
             case BOOLEAN: {
                 return new HashMapBuilder<Boolean>().get(keyCol, valueCol, valueType);
@@ -640,7 +640,9 @@ public class UdfExecutor extends BaseExecutor {
                 for (int i = 0; i < keys.size(); i++) {
                     T1 key = keys.get(i);
                     T2 value = values.get(i);
-                    hashMap.put(key, value);
+                    if (!hashMap.containsKey(key)) {
+                        hashMap.put(key, value);
+                    }
                 }
                 retHashMap[colIdx] = hashMap;
             }
