@@ -33,69 +33,134 @@ namespace doris::vectorized {
 TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
     // arithmetic scala field types
     {
-        std::vector<FieldType> arithmetic_scala_field_types = {
-                FieldType::OLAP_FIELD_TYPE_BOOL,       FieldType::OLAP_FIELD_TYPE_TINYINT,
-                FieldType::OLAP_FIELD_TYPE_SMALLINT,   FieldType::OLAP_FIELD_TYPE_INT,
-                FieldType::OLAP_FIELD_TYPE_FLOAT,      FieldType::OLAP_FIELD_TYPE_DOUBLE,
-                FieldType::OLAP_FIELD_TYPE_BIGINT,     FieldType::OLAP_FIELD_TYPE_LARGEINT,
-                FieldType::OLAP_FIELD_TYPE_CHAR,       FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                FieldType::OLAP_FIELD_TYPE_STRING,     FieldType::OLAP_FIELD_TYPE_DECIMAL,
-                FieldType::OLAP_FIELD_TYPE_DECIMAL32,  FieldType::OLAP_FIELD_TYPE_DECIMAL64,
-                FieldType::OLAP_FIELD_TYPE_DECIMAL128I};
+        // fieldType, test_string, expect_string
+        typedef std::tuple<FieldType, std::vector<string>, std::vector<string>> FieldType_RandStr;
+        std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-1"},
+                                  {"0", "1", ""}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_TINYINT, {"127", "-128", "-190"},
+                                  {"127", "-128", ""}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_SMALLINT, {"32767", "32768", "-32769"},
+                                  {"32767", "", ""}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_INT,
+                                  {"2147483647", "2147483648", "-2147483649"},
+                                  {"2147483647", "", ""}),
+                // float ==> float32(32bit)
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_FLOAT,
+                                  {"1.123", "3.40282e+38", "3.40282e+38+1"},
+                                  {"1.123", "3.40282e+38", ""}),
+                // double ==> float64(64bit)
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                                  {"2343.12345465746", "2.22507e-308", "2.22507e-308-1"},
+                                  {"2343.12345465746", "2.22507e-308", ""}),
+                // BIGINT ==> int64_t(64bit)
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_BIGINT,
+                        {"9223372036854775807", "-9223372036854775808", "9223372036854775808"},
+                        {"9223372036854775807", "-9223372036854775808", ""}),
+                // LARGEINT ==> int128_t(128bit)
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_LARGEINT,
+                                  {"170141183460469231731687303715884105727",
+                                   "−170141183460469231731687303715884105728",
+                                   "170141183460469231731687303715884105728"},
+                                  {"170141183460469231731687303715884105727", "", ""}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_CHAR, {"amory happy"},
+                                  {"amory happy"}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_VARCHAR, {"doris be better"},
+                                  {"doris be better"}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING, {"doris be better"},
+                                  {"doris be better"}),
+                // decimal ==> decimalv2(decimal<128>(27,9))           (17, 9)(first 0 will ignore)
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL,
+                                  {
+                                          "012345678901234567.012345678",
+                                          // (18, 8) (automatically fill 0 for scala)
+                                          "123456789012345678.01234567",
+                                          // (17, 10) (rounding last to make it fit)
+                                          "12345678901234567.0123456779",
+                                          // (17, 11) (wrong)
+                                          "12345678901234567.01234567791",
+                                          // (19, 8) (wrong)
+                                          "1234567890123456789.01234567",
+                                  },
+                                  {"12345678901234567.012345678", "123456789012345678.012345670",
+                                   "12345678901234567.012345678", "", ""}),
+                // decimal32 ==>  decimal32(9,2)                       (7,2)         (6,3)         (7,3)           (8,1)
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+                                  {"1234567.12", "123456.123", "1234567.123", "12345679.1"},
+                                  {"1234567.12", "123456.12", "", ""}),
+                // decimal64 ==> decimal64(18,9)                        (9, 9)                   (3,2)    (9, 10)                  (10, 9)
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+                                  {"123456789.123456789", "123.12", "123456789.0123456789",
+                                   "1234567890.123456789"},
+                                  {"123456789.123456789", "123.120000000", "", ""}),
+                // decimal128I ==> decimal128I(38,18)                     (19,18)
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+                                  {"01234567890123456789.123456789123456789",
+                                   // (20,11) (automatically fill 0 for scala)
+                                   "12345678901234567890.12345678911",
+                                   // (19,18)
+                                   "1234567890123456789.123456789123456789",
+                                   // (19,19) (rounding last to make it fit)
+                                   "1234567890123456789.1234567890123456789",
+                                   // (18, 20) (rounding to make it fit)
+                                   "123456789012345678.01234567890123456789",
+                                   // (20, 19) (wrong)
+                                   "12345678901234567890.1234567890123456789"},
+                                  {"1234567890123456789.123456789123456789",
+                                   "12345678901234567890.123456789110000000",
+                                   "1234567890123456789.123456789123456789",
+                                   "1234567890123456789.123456789012345679",
+                                   "123456789012345678.012345678901234568", ""}),
 
-        for (auto type : arithmetic_scala_field_types) {
+        };
+
+        for (auto type_pair : arithmetic_scala_field_types) {
+            auto type = std::get<0>(type_pair);
             DataTypePtr data_type_ptr;
             if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
-                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 0);
+                // decimal32(7, 2)
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 2);
             } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL64) {
-                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 18, 0);
+                // decimal64(18, 9)
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 18, 9);
             } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I) {
-                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 38, 0);
+                // decimal128I(38,18)
+                data_type_ptr = DataTypeFactory::instance().create_data_type(type, 38, 18);
             } else {
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
             }
             std::cout << "this type is " << data_type_ptr->get_name() << ": "
                       << fmt::format("{}", type) << std::endl;
 
-            std::unique_ptr<WrapperField> min_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_wf(WrapperField::create_by_type(type));
-
-            min_wf->set_to_min();
-            if (is_string_type(type)) {
-                string rand_s = generate(128);
-                Status st = max_wf->from_string(rand_s, 0, 0);
-                EXPECT_EQ(st.ok(), true);
-            } else {
-                max_wf->set_to_max();
-            }
-
-            string min_s = min_wf->to_string();
-            string max_s = max_wf->to_string();
-
-            ReadBuffer min_rb(min_s.data(), min_s.size());
-            ReadBuffer max_rb(max_s.data(), max_s.size());
-
             auto col = data_type_ptr->create_column();
 
             // serde for data types with default FormatOption
             DataTypeSerDe::FormatOptions default_format_option;
             DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
-            Status st = serde->deserialize_one_cell_from_text(*col, min_rb, default_format_option);
-            EXPECT_EQ(st.ok(), true);
-            st = serde->deserialize_one_cell_from_text(*col, max_rb, default_format_option);
-            EXPECT_EQ(st.ok(), true);
 
             auto ser_col = ColumnString::create();
-            ser_col->reserve(2);
+            ser_col->reserve(std::get<1>(type_pair).size());
             VectorBufferWriter buffer_writer(*ser_col.get());
-            serde->serialize_one_cell_to_text(*col, 0, buffer_writer, default_format_option);
-            serde->serialize_one_cell_to_text(*col, 1, buffer_writer, default_format_option);
-            StringRef min_s_d = ser_col->get_data_at(0);
-            StringRef max_s_d = ser_col->get_data_at(1);
-            std::cout << " min: " << min_s << ": " << min_s_d.to_string() << std::endl;
-            std::cout << "max: " << max_s << ": " << max_s_d.to_string() << std::endl;
-            EXPECT_EQ(min_s, min_s_d.to_string());
-            EXPECT_EQ(max_s, max_s_d.to_string());
+
+            for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
+                std::cout << "the ith : " << i << std::endl;
+                string test_str = std::get<1>(type_pair)[i];
+                ReadBuffer rb_test(test_str.data(), test_str.size());
+                // deserialize
+                Status st =
+                        serde->deserialize_one_cell_from_text(*col, rb_test, default_format_option);
+                if (std::get<2>(type_pair)[i].empty()) {
+                    EXPECT_EQ(st.ok(), false);
+                    std::cout << "deserialize failed: " << st.to_json() << std::endl;
+                    continue;
+                }
+                EXPECT_EQ(st.ok(), true);
+                // serialize
+                serde->serialize_one_cell_to_text(*col, i, buffer_writer, default_format_option);
+                EXPECT_EQ(ser_col->get_data_at(ser_col->size() - 1).to_string(),
+                          std::get<2>(type_pair)[i]);
+            }
         }
     }
 
