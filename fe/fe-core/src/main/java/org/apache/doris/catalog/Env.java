@@ -108,6 +108,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Daemon;
@@ -5370,7 +5371,8 @@ public class Env {
     }
 
     private void initVersionInfo() {
-        latestFeVersion = GlobalVariable.feVersion;
+        latestFeVersion = Version.DORIS_BUILD_VERSION_MAJOR + "_" + Version.DORIS_BUILD_VERSION_MINOR + "_"
+                + Version.DORIS_BUILD_VERSION_PATCH;
         File folder = new File(versionDir);
         File[] files = folder.listFiles();
         int previousSeq = 0;

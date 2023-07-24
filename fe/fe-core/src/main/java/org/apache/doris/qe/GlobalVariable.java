@@ -34,7 +34,6 @@ public final class GlobalVariable {
 
     public static final String VERSION_COMMENT = "version_comment";
     public static final String VERSION = "version";
-    public static final String FEVERSION = "feversion";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String LICENSE = "license";
     public static final String LANGUAGE = "language";
@@ -56,9 +55,6 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = VERSION, flag = VariableMgr.READ_ONLY)
     public static String version = MysqlHandshakePacket.SERVER_VERSION;
-
-    @VariableMgr.VarAttr(name = FEVERSION, flag = VariableMgr.READ_ONLY)
-    public static String feVersion = "2_0_0";
 
     // 0: table names are stored as specified and comparisons are case sensitive.
     // 1: table names are stored in lowercase on disk and comparisons are not case sensitive.
