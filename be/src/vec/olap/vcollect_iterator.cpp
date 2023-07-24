@@ -65,7 +65,7 @@ VCollectIterator::~VCollectIterator() {
 }
 
 void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, bool force_merge,
-                            bool is_reverse, size_t scanner_idx) {
+                            bool is_reverse) {
     _reader = reader;
 
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
@@ -303,7 +303,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 #define INIT_RS_READER(READER_IMPL, READER_VECTOR, PARAM)                                         \
     for (size_t k = 0; k < READER_VECTOR.size(); k++) {                                           \
         const auto& rs_reader = READER_IMPL;                                                      \
-        RETURN_IF_ERROR(rs_reader->init(&_reader->_reader_context, _scanner_idx, PARAM));         \
+        RETURN_IF_ERROR(rs_reader->init(&_reader->_reader_context, PARAM));                       \
         size_t read_rows = 0;                                                                     \
         bool eof = false;                                                                         \
                                                                                                   \

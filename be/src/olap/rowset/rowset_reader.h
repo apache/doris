@@ -46,10 +46,9 @@ class RowsetReader {
 public:
     virtual ~RowsetReader() = default;
 
-    virtual Status init(RowsetReaderContext* read_context, size_t scanner_idx = 0,
-                        const RowSetSplits& rs_splits = {}) = 0;
+    virtual Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits = {}) = 0;
 
-    virtual Status get_segment_iterators(RowsetReaderContext* read_context, size_t scanner_idx,
+    virtual Status get_segment_iterators(RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
                                          const RowSetSplits& rs_splits = {},
                                          bool use_cache = false) = 0;

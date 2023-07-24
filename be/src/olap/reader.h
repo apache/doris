@@ -140,7 +140,6 @@ public:
         // [pair.first, pair.second) segment in rs_reader, only effective in dup key
         // and pipeline
         std::vector<RowSetSplits> rs_splits;
-        size_t scanner_idx;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;

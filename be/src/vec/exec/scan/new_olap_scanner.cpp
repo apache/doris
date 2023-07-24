@@ -63,14 +63,12 @@ namespace doris::vectorized {
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
-                               RuntimeProfile* profile, size_t scanner_idx)
+                               RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _version(-1),
           _scan_range(scan_range),
-          _key_ranges(key_ranges),
-          _scanner_idx(scanner_idx) {
-    _tablet_reader_params.scanner_idx = _scanner_idx;
+          _key_ranges(key_ranges) {
     _tablet_schema = std::make_shared<TabletSchema>();
     _is_init = false;
 }
@@ -78,16 +76,13 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
-                               const std::vector<RowSetSplits>& rs_splits, RuntimeProfile* profile,
-                               size_t scanner_idx)
+                               const std::vector<RowSetSplits>& rs_splits, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _version(-1),
           _scan_range(scan_range),
-          _key_ranges(key_ranges),
-          _scanner_idx(scanner_idx) {
+          _key_ranges(key_ranges) {
     _tablet_reader_params.rs_splits = rs_splits;
-    _tablet_reader_params.scanner_idx = _scanner_idx;
     _tablet_schema = std::make_shared<TabletSchema>();
     _is_init = false;
 }

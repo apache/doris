@@ -122,7 +122,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     // check if rowsets are noneoverlapping
     _is_rowsets_overlapping = _rowsets_overlapping(read_params);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
-                        read_params.read_orderby_key_reverse, read_params.scanner_idx);
+                        read_params.read_orderby_key_reverse);
 
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
@@ -150,7 +150,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
 
         // _vcollect_iter.topn_next() will init rs_reader by itself
         if (!_vcollect_iter.use_topn_next()) {
-            RETURN_IF_ERROR(rs_reader.rs_reader->init(&_reader_context, 0, rs_reader));
+            RETURN_IF_ERROR(rs_reader.rs_reader->init(&_reader_context, rs_reader));
         }
 
         Status res = _vcollect_iter.add_child(rs_reader);

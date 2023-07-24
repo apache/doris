@@ -53,8 +53,7 @@ public:
     // Hold reader point to get reader params
     ~VCollectIterator();
 
-    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse,
-              size_t scanner_idx);
+    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse);
 
     Status add_child(RowsetReaderSharedPtr rs_reader);
 
@@ -338,7 +337,6 @@ private:
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;
-    size_t _scanner_idx;
 
     bool _skip_same;
 };
