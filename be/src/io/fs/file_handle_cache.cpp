@@ -42,7 +42,7 @@ Status HdfsFileHandle::init(int64_t file_size) {
     _hdfs_file = hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
         std::string _err_msg = hdfs_error();
-        if (_err_msg.find("No such file or directory") != string::npos) {
+        if (_err_msg.find("No such file or directory") != std::string::npos) {
             return Status::NotFound(_err_msg);
         }
         return Status::IOError("failed to open {}: {}", _fname, _err_msg);
