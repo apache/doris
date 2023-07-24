@@ -238,8 +238,7 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
     return std::make_shared<Tablet>(tablet_meta, data_dir);
 }
 
-Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
-               const std::string_view& cumulative_compaction_type)
+Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
         : BaseTablet(tablet_meta, data_dir),
           _is_bad(false),
           _last_cumu_compaction_failure_millis(0),
@@ -251,7 +250,6 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
           _cumulative_point(K_INVALID_CUMULATIVE_POINT),
           _newly_created_rowset_num(0),
           _last_checkpoint_time(0),
-          _cumulative_compaction_type(cumulative_compaction_type),
           _is_clone_occurred(false),
           _is_tablet_path_exists(true),
           _last_missed_version(-1),

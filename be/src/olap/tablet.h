@@ -45,6 +45,7 @@
 #include "olap/binlog_config.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/cumulative_compaction_policy.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -60,7 +61,6 @@
 namespace doris {
 
 class Tablet;
-class CumulativeCompactionPolicy;
 class CumulativeCompaction;
 class BaseCompaction;
 class SingleReplicaCompaction;
@@ -94,8 +94,7 @@ public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                    DataDir* data_dir = nullptr);
 
-    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
-           const std::string_view& cumulative_compaction_type = "");
+    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
 
     Status init();
     bool init_succeeded();
@@ -635,7 +634,6 @@ private:
 
     // cumulative compaction policy
     std::unique_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
-    std::string_view _cumulative_compaction_type;
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;

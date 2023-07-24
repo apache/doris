@@ -46,10 +46,10 @@ public:
     /// Constructor function of CumulativeCompactionPolicy,
     /// it needs tablet pointer to access tablet method.
     /// param tablet, the shared pointer of tablet
-    CumulativeCompactionPolicy() {}
+    CumulativeCompactionPolicy() = default;
 
     /// Destructor function of CumulativeCompactionPolicy.
-    virtual ~CumulativeCompactionPolicy() {}
+    virtual ~CumulativeCompactionPolicy() = default;
 
     /// Calculate the cumulative compaction score of the tablet. This function uses rowsets meta and current
     /// cumulative point to calculative the score of tablet. The score depends on the concrete algorithm of policy.
