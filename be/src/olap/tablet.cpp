@@ -2990,11 +2990,15 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     return Status::OK();
 }
 
+// if user pass a token, then all calculation works will submit to a threadpool,
+// user can get all delete bitmaps from that token.
+// if `token` is nullptr, the calculation will run in local, and user can get the result
+// delete bitmap from `delete_bitmap` directly.
 Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                                   const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
                                   DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                  RowsetWriter* rowset_writer) {
+                                  CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
     auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
         LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet_id()
@@ -3003,37 +3007,31 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
     }
 
     OlapStopWatch watch;
+    doris::TabletSharedPtr tablet_ptr =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+    if (tablet_ptr == nullptr) {
+        return Status::InternalError("Can't find tablet id: {}, maybe already dropped.",
+                                     tablet_id());
+    }
     std::vector<DeleteBitmapPtr> seg_delete_bitmaps;
-    std::unique_ptr<ThreadPoolToken> token =
-            StorageEngine::instance()->calc_delete_bitmap_thread_pool()->new_token(
-                    ThreadPool::ExecutionMode::CONCURRENT);
-    std::atomic<int> calc_status {ErrorCode::OK};
-    for (size_t i = 1; i < segments.size(); i++) {
+    for (size_t i = 0; i < segments.size(); i++) {
         auto& seg = segments[i];
-        DeleteBitmapPtr seg_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
-        seg_delete_bitmaps.push_back(seg_delete_bitmap);
-        RETURN_IF_ERROR(token->submit_func([=, &calc_status, this]() {
-            auto st = calc_segment_delete_bitmap(rowset, seg, specified_rowsets, seg_delete_bitmap,
-                                                 end_version, rowset_writer);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to calc segment delete bitmap, tablet_id: " << tablet_id()
-                             << " rowset: " << rowset_id << " seg_id: " << seg->id()
-                             << " version: " << end_version;
-                calc_status.store(st.code());
-            }
-        }));
+        if (token != nullptr) {
+            RETURN_IF_ERROR(token->submit(tablet_ptr, rowset, seg, specified_rowsets, end_version,
+                                          rowset_writer));
+        } else {
+            DeleteBitmapPtr seg_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
+            seg_delete_bitmaps.push_back(seg_delete_bitmap);
+            RETURN_IF_ERROR(calc_segment_delete_bitmap(rowset, segments[i], specified_rowsets,
+                                                       seg_delete_bitmap, end_version,
+                                                       rowset_writer));
+        }
     }
 
-    // this thread calc delete bitmap of segment 0
-    RETURN_IF_ERROR(calc_segment_delete_bitmap(rowset, segments[0], specified_rowsets,
-                                               delete_bitmap, end_version, rowset_writer));
-    token->wait();
-    auto code = calc_status.load();
-    if (code != ErrorCode::OK) {
-        return Status::Error(code, "Tablet::calc_delete_bitmap meet error");
-    }
-    for (auto seg_delete_bitmap : seg_delete_bitmaps) {
-        delete_bitmap->merge(*seg_delete_bitmap);
+    if (token == nullptr) {
+        for (auto seg_delete_bitmap : seg_delete_bitmaps) {
+            delete_bitmap->merge(*seg_delete_bitmap);
+        }
     }
     return Status::OK();
 }
@@ -3210,8 +3208,11 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
 
     std::vector<RowsetSharedPtr> specified_rowsets = get_rowset_by_ids(&cur_rowset_ids);
     OlapStopWatch watch;
+    auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version - 1));
+                                       cur_version - 1, token.get()));
+    token->wait();
+    token->get_delete_bitmap(delete_bitmap);
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -3231,7 +3232,7 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
 Status Tablet::commit_phase_update_delete_bitmap(
         const RowsetSharedPtr& rowset, RowsetIdUnorderedSet& pre_rowset_ids,
         DeleteBitmapPtr delete_bitmap, const std::vector<segment_v2::SegmentSharedPtr>& segments,
-        int64_t txn_id, RowsetWriter* rowset_writer) {
+        int64_t txn_id, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
     SCOPED_BVAR_LATENCY(g_tablet_commit_phase_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
@@ -3245,19 +3246,14 @@ Status Tablet::commit_phase_update_delete_bitmap(
         cur_rowset_ids = all_rs_id(cur_version);
         _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add,
                                &rowset_ids_to_del);
-        if (!rowset_ids_to_add.empty() || !rowset_ids_to_del.empty()) {
-            LOG(INFO) << "rowset_ids_to_add: " << rowset_ids_to_add.size()
-                      << ", rowset_ids_to_del: " << rowset_ids_to_del.size();
-        }
         specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
     }
     for (const auto& to_del : rowset_ids_to_del) {
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
 
-    OlapStopWatch watch;
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version, rowset_writer));
+                                       cur_version, token, rowset_writer));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -3265,7 +3261,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
               << ", rowset_ids to add: " << rowset_ids_to_add.size()
               << ", rowset_ids to del: " << rowset_ids_to_del.size()
               << ", cur max_version: " << cur_version << ", transaction_id: " << txn_id
-              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+              << ", total rows: " << total_rows;
     pre_rowset_ids = cur_rowset_ids;
     return Status::OK();
 }
@@ -3307,8 +3303,11 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     }
 
     OlapStopWatch watch;
+    auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version - 1, rowset_writer));
+                                       cur_version - 1, token.get(), rowset_writer));
+    token->wait();
+    token->get_delete_bitmap(delete_bitmap);
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
