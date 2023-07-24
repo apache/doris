@@ -176,8 +176,7 @@ Status NewOlapScanner::init() {
 
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
-            if (_tablet_reader_params.rs_readers.empty() &&
-                _tablet_reader_params.rs_splits.empty()) {
+            if (_tablet_reader_params.rs_splits.empty()) {
                 const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
                 if (rowset == nullptr) {
                     std::stringstream ss;
@@ -191,7 +190,7 @@ Status NewOlapScanner::init() {
                 // the rowsets maybe compacted when the last olap scanner starts
                 Version rd_version(0, _version);
                 Status acquire_reader_st =
-                        _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
+                        _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_splits);
                 if (!acquire_reader_st.ok()) {
                     LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                     std::stringstream ss;
@@ -405,13 +404,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
     // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
     if (_tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
         constexpr static int delayed_s = 60;
-        for (auto rs_reader : _tablet_reader_params.rs_readers) {
-            uint64_t delayed_expired_timestamp =
-                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
-                    delayed_s;
-            rs_reader->rowset()->update_delayed_expired_timestamp(delayed_expired_timestamp);
-            StorageEngine::instance()->add_quering_rowset(rs_reader->rowset());
-        }
         for (auto rs_reader : _tablet_reader_params.rs_splits) {
             uint64_t delayed_expired_timestamp =
                     UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
@@ -457,14 +449,10 @@ Status NewOlapScanner::_init_return_columns() {
 
 doris::TabletStorageType NewOlapScanner::get_storage_type() {
     int local_reader = 0;
-    for (const auto& reader : _tablet_reader_params.rs_readers) {
-        local_reader += reader->rowset()->is_local();
-    }
     for (const auto& reader : _tablet_reader_params.rs_splits) {
         local_reader += reader.rs_reader->rowset()->is_local();
     }
-    int total_reader =
-            _tablet_reader_params.rs_readers.size() + _tablet_reader_params.rs_splits.size();
+    int total_reader = _tablet_reader_params.rs_splits.size();
 
     if (local_reader == total_reader) {
         return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
@@ -500,7 +488,6 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // readers will be release when runtime state deconstructed but
     // deconstructor in reader references runtime state
     // so that it will core
-    _tablet_reader_params.rs_readers.clear();
     _tablet_reader_params.rs_splits.clear();
     _tablet_reader.reset();
 

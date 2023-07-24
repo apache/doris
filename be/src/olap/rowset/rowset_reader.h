@@ -39,7 +39,15 @@ using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 struct RowSetSplits {
     RowsetReaderSharedPtr rs_reader;
+
+    // if segment_offsets is not empty, means we only scan
+    // [pair.first, pair.second) segment in rs_reader, only effective in dup key
+    // and pipeline
     std::pair<int, int> segment_offsets;
+
+    RowSetSplits(RowsetReaderSharedPtr rs_reader_)
+            : rs_reader(rs_reader_), segment_offsets({0, 0}) {}
+    RowSetSplits() = default;
 };
 
 class RowsetReader {

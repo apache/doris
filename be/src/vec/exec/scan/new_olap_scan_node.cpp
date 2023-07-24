@@ -455,7 +455,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
 
     bool is_duplicate_key = false;
     size_t segment_count = 0;
-    std::vector<std::vector<RowsetReaderSharedPtr>> rowset_readers_vector(_scan_ranges.size());
+    std::vector<std::vector<RowSetSplits>> rowset_splits_vector(_scan_ranges.size());
     std::vector<std::vector<size_t>> tablet_rs_seg_count(_scan_ranges.size());
 
     // Split tablet segment by scanner, only use in pipeline in duplicate key
@@ -484,7 +484,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Status acquire_reader_st =
-                    tablet->capture_rs_readers({0, version}, &rowset_readers_vector[i]);
+                    tablet->capture_rs_readers({0, version}, &rowset_splits_vector[i]);
             if (!acquire_reader_st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
@@ -494,8 +494,8 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 return Status::InternalError(ss.str());
             }
 
-            for (const auto& rowset_reader : rowset_readers_vector[i]) {
-                auto num_segments = rowset_reader->rowset()->num_segments();
+            for (const auto& rowset_splits : rowset_splits_vector[i]) {
+                auto num_segments = rowset_splits.rs_reader->rowset()->num_segments();
                 tablet_rs_seg_count[i].emplace_back(num_segments);
                 segment_count += num_segments;
             }
@@ -546,7 +546,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
 
                 const auto max_add_seg_nums = rs_seg_count[rowset_idx] - segment_idx_to_scan;
                 rs_splits.emplace_back(RowSetSplits());
-                rs_splits.back().rs_reader = rowset_readers_vector[i][rowset_idx]->clone();
+                rs_splits.back().rs_reader = rowset_splits_vector[i][rowset_idx].rs_reader->clone();
 
                 // if segments assigned to current scanner are already more than the average count,
                 // this scanner will just scan segments equal to the average count

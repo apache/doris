@@ -94,13 +94,7 @@ public:
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
         bool has_single_version() const {
-            return (rs_readers.size() == 1 && rs_readers[0]->rowset()->start_version() == 0 &&
-                    !rs_readers[0]->rowset()->rowset_meta()->is_segments_overlapping()) ||
-                   (rs_readers.size() == 2 &&
-                    rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
-                    rs_readers[1]->rowset()->start_version() == 2 &&
-                    !rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping()) ||
-                   (rs_splits.size() == 1 &&
+            return (rs_splits.size() == 1 &&
                     rs_splits[0].rs_reader->rowset()->start_version() == 0 &&
                     !rs_splits[0].rs_reader->rowset()->rowset_meta()->is_segments_overlapping()) ||
                    (rs_splits.size() == 2 &&
@@ -134,11 +128,6 @@ public:
 
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap {nullptr};
-
-        std::vector<RowsetReaderSharedPtr> rs_readers;
-        // if rs_readers_segment_offsets is not empty, means we only scan
-        // [pair.first, pair.second) segment in rs_reader, only effective in dup key
-        // and pipeline
         std::vector<RowSetSplits> rs_splits;
 
         // return_columns is init from query schema
