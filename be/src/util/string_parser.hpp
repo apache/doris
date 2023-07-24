@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <emmintrin.h>
 #include <fast_float/fast_float.h>
 #include <fast_float/parse_number.h>
 #include <glog/logging.h>
@@ -32,6 +33,7 @@
 #include <map>
 #include <string>
 #include <system_error>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -257,6 +259,33 @@ private:
 
 }; // end of class StringParser
 
+inline std::pair<std::uint64_t, bool> parse_16_chars(const char* string) noexcept {
+    auto chunk = _mm_lddqu_si128(reinterpret_cast<const __m128i*>(string));
+    const static auto zeros = _mm_set1_epi8('0');
+    const static auto nines = _mm_set1_epi8('9');
+    if (_mm_movemask_epi8(_mm_cmpgt_epi8(chunk, nines)) ||
+        _mm_movemask_epi8(_mm_cmpgt_epi8(zeros, chunk))) [[unlikely]] {
+        return {0, false};
+    }
+    chunk = chunk - zeros;
+
+    {
+        const auto mult = _mm_set_epi8(1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10, 1, 10);
+        chunk = _mm_maddubs_epi16(chunk, mult);
+    }
+    {
+        const auto mult = _mm_set_epi16(1, 100, 1, 100, 1, 100, 1, 100);
+        chunk = _mm_madd_epi16(chunk, mult);
+    }
+    {
+        chunk = _mm_packus_epi32(chunk, chunk);
+        const auto mult = _mm_set_epi16(0, 0, 0, 0, 1, 10000, 1, 10000);
+        chunk = _mm_madd_epi16(chunk, mult);
+    }
+
+    return {((chunk[0] & 0xffffffff) * 100000000) + (chunk[0] >> 32), true};
+}
+
 template <typename T>
 T StringParser::string_to_int_internal(const char* s, int len, ParseResult* result) {
     if (UNLIKELY(len <= 0)) {
@@ -288,6 +317,11 @@ T StringParser::string_to_int_internal(const char* s, int len, ParseResult* resu
     const T max_mod_10 = max_val % 10;
 
     int first = i;
+    bool valid = true;
+    while (len - i > 16) {
+        std::tie(val, valid) = parse_16_chars(s);
+        i += 16;
+    }
     for (; i < len; ++i) {
         if (LIKELY(s[i] >= '0' && s[i] <= '9')) {
             T digit = s[i] - '0';
@@ -309,8 +343,12 @@ T StringParser::string_to_int_internal(const char* s, int len, ParseResult* resu
             return static_cast<T>(negative ? -val : val);
         }
     }
-    *result = PARSE_SUCCESS;
-    return static_cast<T>(negative ? -val : val);
+    if (valid) [[likely]] {
+        *result = PARSE_SUCCESS;
+        return static_cast<T>(negative ? -val : val);
+    }
+    *result = PARSE_FAILURE;
+    return 0;
 }
 
 template <typename T>
@@ -335,6 +373,11 @@ T StringParser::string_to_unsigned_int_internal(const char* s, int len, ParseRes
     const T max_mod_10 = max_val % 10;
 
     int first = i;
+    bool valid = true;
+    while (len - i > 16) {
+        std::tie(val, valid) = parse_16_chars(s);
+        i += 16;
+    }
     for (; i < len; ++i) {
         if (LIKELY(s[i] >= '0' && s[i] <= '9')) {
             T digit = s[i] - '0';
@@ -356,8 +399,12 @@ T StringParser::string_to_unsigned_int_internal(const char* s, int len, ParseRes
             return val;
         }
     }
-    *result = PARSE_SUCCESS;
-    return val;
+    if (valid) [[likely]] {
+        *result = PARSE_SUCCESS;
+        return val;
+    }
+    *result = PARSE_FAILURE;
+    return 0;
 }
 
 template <typename T>
@@ -404,7 +451,7 @@ T StringParser::string_to_int_internal(const char* s, int len, int base, ParseRe
         }
 
         // Bail, if we encounter a digit that is not available in base.
-        if (digit >= base) {
+        if (digit >= base) [[unlikely]] {
             break;
         }
 
@@ -427,13 +474,17 @@ T StringParser::string_to_int_no_overflow(const char* s, int len, ParseResult* r
         return val;
     }
     // Factor out the first char for error handling speeds up the loop.
-    if (LIKELY(s[0] >= '0' && s[0] <= '9')) {
-        val = s[0] - '0';
-    } else {
+    if (s[0] > '9' || s[0] < '0') [[unlikely]] {
         *result = PARSE_FAILURE;
         return 0;
     }
-    for (int i = 1; i < len; ++i) {
+    bool valid = true;
+    int i = 0;
+    while (len - i > 16) {
+        std::tie(val, valid) = parse_16_chars(s);
+        i += 16;
+    }
+    for (; i < len; ++i) {
         if (LIKELY(s[i] >= '0' && s[i] <= '9')) {
             T digit = s[i] - '0';
             val = val * 10 + digit;
@@ -446,8 +497,12 @@ T StringParser::string_to_int_no_overflow(const char* s, int len, ParseResult* r
             return val;
         }
     }
-    *result = PARSE_SUCCESS;
-    return val;
+    if (valid) [[likely]] {
+        *result = PARSE_SUCCESS;
+        return val;
+    }
+    *result = PARSE_FAILURE;
+    return 0;
 }
 
 template <typename T>
