@@ -191,8 +191,6 @@ private:
     }
 
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     AggregateFunctionDistinct(AggregateFunctionPtr nested_func_, const DataTypes& arguments)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionDistinct>(arguments),
               nested_func(nested_func_),

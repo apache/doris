@@ -124,8 +124,6 @@ private:
     }
 
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     AggregateFunctionSort(const AggregateFunctionPtr& nested_func, const DataTypes& arguments,
                           const SortDescription& sort_desc, const RuntimeState* state)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSort>(arguments),

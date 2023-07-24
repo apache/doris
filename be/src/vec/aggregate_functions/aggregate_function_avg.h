@@ -107,8 +107,6 @@ template <typename T, typename Data>
 class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = true;
-
     using ResultType = DisposeDecimal<T, Float64>;
     using ResultDataType =
             std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
@@ -233,6 +231,22 @@ public:
             this->data(place).sum += data[i].sum;
             this->data(place).count += data[i].count;
         }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,

@@ -509,8 +509,6 @@ private:
     using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>;
 
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = true;
-
     AggregateFunctionsSingleValue(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>(arguments),
               type(this->argument_types[0]) {
@@ -624,6 +622,22 @@ public:
         } else {
             Base::deserialize_and_merge_from_column_range(place, column, begin, end, arena);
         }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,

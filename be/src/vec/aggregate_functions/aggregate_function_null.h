@@ -70,8 +70,6 @@ protected:
     }
 
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     AggregateFunctionNullBaseInline(IAggregateFunction* nested_function_,
                                     const DataTypes& arguments)
             : IAggregateFunctionHelper<Derived>(arguments),

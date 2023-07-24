@@ -151,8 +151,6 @@ class AggregateFunctionPercentileApprox
         : public IAggregateFunctionDataHelper<PercentileApproxState,
                                               AggregateFunctionPercentileApprox> {
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     AggregateFunctionPercentileApprox(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<PercentileApproxState,
                                            AggregateFunctionPercentileApprox>(argument_types_) {}
@@ -380,8 +378,6 @@ struct PercentileState {
 class AggregateFunctionPercentile final
         : public IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentile> {
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     AggregateFunctionPercentile(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentile>(
                       argument_types_) {}
@@ -425,8 +421,6 @@ public:
 class AggregateFunctionPercentileArray final
         : public IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentileArray> {
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     AggregateFunctionPercentileArray(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<PercentileState, AggregateFunctionPercentileArray>(
                       argument_types_) {}

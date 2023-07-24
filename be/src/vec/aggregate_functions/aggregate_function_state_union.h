@@ -25,8 +25,6 @@ const static std::string AGG_UNION_SUFFIX = "_union";
 
 class AggregateStateUnion : public IAggregateFunctionHelper<AggregateStateUnion> {
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     AggregateStateUnion(AggregateFunctionPtr function, const DataTypes& argument_types,
                         const DataTypePtr& return_type)
             : IAggregateFunctionHelper(argument_types),

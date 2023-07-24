@@ -374,61 +374,46 @@ public:
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
                                    const size_t num_rows) const override {
-        if constexpr (Derived::USE_FIXED_LENGTH_SERIALIZATION_OPT) {
-            assert_cast<const Derived*>(this)->deserialize_from_column(rhs, *column, arena,
-                                                                       num_rows);
-            DEFER({ assert_cast<const Derived*>(this)->destroy_vec(rhs, num_rows); });
-            assert_cast<const Derived*>(this)->merge_vec(places, offset, rhs, arena, num_rows);
-        } else {
-            const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
-            for (size_t i = 0; i != num_rows; ++i) {
-                try {
-                    auto rhs_place = rhs + size_of_data * i;
-                    VectorBufferReader buffer_reader(column->get_data_at(i));
-                    assert_cast<const Derived*>(this)->create(rhs_place);
-                    assert_cast<const Derived*>(this)->deserialize_and_merge(
-                            places[i] + offset, rhs_place, buffer_reader, arena);
-                } catch (...) {
-                    for (int j = 0; j < i; ++j) {
-                        auto place = rhs + size_of_data * j;
-                        assert_cast<const Derived*>(this)->destroy(place);
-                    }
-                    throw;
+        const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            try {
+                auto rhs_place = rhs + size_of_data * i;
+                VectorBufferReader buffer_reader(column->get_data_at(i));
+                assert_cast<const Derived*>(this)->create(rhs_place);
+                assert_cast<const Derived*>(this)->deserialize_and_merge(
+                        places[i] + offset, rhs_place, buffer_reader, arena);
+            } catch (...) {
+                for (int j = 0; j < i; ++j) {
+                    auto place = rhs + size_of_data * j;
+                    assert_cast<const Derived*>(this)->destroy(place);
                 }
+                throw;
             }
-            assert_cast<const Derived*>(this)->destroy_vec(rhs, num_rows);
         }
+        assert_cast<const Derived*>(this)->destroy_vec(rhs, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const ColumnString* column,
                                             Arena* arena, const size_t num_rows) const override {
-        if constexpr (Derived::USE_FIXED_LENGTH_SERIALIZATION_OPT) {
-            assert_cast<const Derived*>(this)->deserialize_from_column(rhs, *column, arena,
-                                                                       num_rows);
-            DEFER({ assert_cast<const Derived*>(this)->destroy_vec(rhs, num_rows); });
-            assert_cast<const Derived*>(this)->merge_vec_selected(places, offset, rhs, arena,
-                                                                  num_rows);
-        } else {
-            const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
-            for (size_t i = 0; i != num_rows; ++i) {
-                try {
-                    auto rhs_place = rhs + size_of_data * i;
-                    VectorBufferReader buffer_reader(column->get_data_at(i));
-                    assert_cast<const Derived*>(this)->create(rhs_place);
-                    if (places[i])
-                        assert_cast<const Derived*>(this)->deserialize_and_merge(
-                                places[i] + offset, rhs_place, buffer_reader, arena);
-                } catch (...) {
-                    for (int j = 0; j < i; ++j) {
-                        auto place = rhs + size_of_data * j;
-                        assert_cast<const Derived*>(this)->destroy(place);
-                    }
-                    throw;
+        const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        for (size_t i = 0; i != num_rows; ++i) {
+            try {
+                auto rhs_place = rhs + size_of_data * i;
+                VectorBufferReader buffer_reader(column->get_data_at(i));
+                assert_cast<const Derived*>(this)->create(rhs_place);
+                if (places[i])
+                    assert_cast<const Derived*>(this)->deserialize_and_merge(
+                            places[i] + offset, rhs_place, buffer_reader, arena);
+            } catch (...) {
+                for (int j = 0; j < i; ++j) {
+                    auto place = rhs + size_of_data * j;
+                    assert_cast<const Derived*>(this)->destroy(place);
                 }
+                throw;
             }
-            assert_cast<const Derived*>(this)->destroy_vec(rhs, num_rows);
         }
+        assert_cast<const Derived*>(this)->destroy_vec(rhs, num_rows);
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,

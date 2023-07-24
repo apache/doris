@@ -110,8 +110,6 @@ template <typename T, typename Data>
 class AggregateFunctionUniq final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>> {
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     using KeyType = std::conditional_t<std::is_same_v<T, String>, UInt128, T>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}

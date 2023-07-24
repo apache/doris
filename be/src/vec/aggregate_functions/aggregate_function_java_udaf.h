@@ -456,8 +456,6 @@ private:
 class AggregateJavaUdaf final
         : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf> {
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     ENABLE_FACTORY_CREATOR(AggregateJavaUdaf);
     AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types,
                       const DataTypePtr& return_type)

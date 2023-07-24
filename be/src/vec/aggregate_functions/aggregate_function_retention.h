@@ -113,8 +113,6 @@ struct RetentionState {
 class AggregateFunctionRetention
         : public IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention> {
 public:
-    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
-
     AggregateFunctionRetention(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention>(
                       argument_types_) {}
