@@ -466,7 +466,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     if (const vectorized::ColumnConst* const_column =
                 check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
-        // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column 
+        // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
         if (const_column->is_null_at(0)) {
             // the input of autoinc column are all null literals
