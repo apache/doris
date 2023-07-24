@@ -54,6 +54,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/exprs/vbitmap_predicate.h"
 #include "vec/exprs/vbloom_predicate.h"
+#include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vdirect_in_predicate.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -298,7 +299,6 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
     t_type_desc.types.push_back(ttype_node);
     node.__set_type(t_type_desc);
     node.__set_opcode(opcode);
-    node.__set_vector_opcode(opcode);
     node.__set_child_type(to_thrift(type.type));
     node.__set_num_children(2);
     node.__set_output_scale(type.scale);
@@ -1477,7 +1477,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
         }
         DCHECK(parent_profile != nullptr);
         _name = fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                            ::doris::to_string(_runtime_filter_type));
+                            to_string(_runtime_filter_type));
         _profile.reset(new RuntimeProfile(_name));
         _profile_init = true;
     }
@@ -1490,8 +1490,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
 
 void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     if (_profile != nullptr) {
-        _profile->add_info_string("RealRuntimeFilterType",
-                                  ::doris::to_string(_wrapper->get_real_type()));
+        _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
         _wrapper->set_filter_id(_filter_id);
     }
 }
@@ -1852,7 +1851,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
            _filter_type == RuntimeFilterType::BITMAP_FILTER)
             << " prob_expr->root()->type().type: " << probe_ctx->root()->type().type
             << " _column_return_type: " << _column_return_type
-            << " _filter_type: " << ::doris::to_string(_filter_type);
+            << " _filter_type: " << to_string(_filter_type);
 
     auto real_filter_type = get_real_type();
     switch (real_filter_type) {
@@ -1865,8 +1864,6 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
             node.__set_node_type(TExprNodeType::IN_PRED);
             node.in_predicate.__set_is_not_in(false);
             node.__set_opcode(TExprOpcode::FILTER_IN);
-            node.__isset.vector_opcode = true;
-            node.__set_vector_opcode(to_in_opcode(_column_return_type));
             node.__set_is_nullable(false);
 
             auto in_pred = vectorized::VDirectInPredicate::create_shared(node);
@@ -1917,8 +1914,6 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
         node.__set_type(type_desc);
         node.__set_node_type(TExprNodeType::BLOOM_PRED);
         node.__set_opcode(TExprOpcode::RT_FILTER);
-        node.__isset.vector_opcode = true;
-        node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
         auto bloom_pred = vectorized::VBloomPredicate::create_shared(node);
         bloom_pred->set_filter(_context.bloom_filter_func);
@@ -1935,8 +1930,6 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
         node.__set_type(type_desc);
         node.__set_node_type(TExprNodeType::BITMAP_PRED);
         node.__set_opcode(TExprOpcode::RT_FILTER);
-        node.__isset.vector_opcode = true;
-        node.__set_vector_opcode(to_in_opcode(_column_return_type));
         node.__set_is_nullable(false);
         auto bitmap_pred = vectorized::VBitmapPredicate::create_shared(node);
         bitmap_pred->set_filter(_context.bitmap_filter_func);

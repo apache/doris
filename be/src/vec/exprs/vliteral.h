@@ -42,9 +42,8 @@ public:
             init(node);
         }
     }
-    Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id) override;
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     const std::string& expr_name() const override { return _expr_name; }
-    VExprSPtr clone() const override { return VLiteral::create_shared(*this); }
     std::string debug_string() const override;
 
     std::string value() const;

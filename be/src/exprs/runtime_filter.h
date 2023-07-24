@@ -368,8 +368,8 @@ protected:
     // expr index
     int _expr_order;
     // used for await or signal
-    doris::Mutex _inner_mutex;
-    doris::ConditionVariable _inner_cv;
+    Mutex _inner_mutex;
+    ConditionVariable _inner_cv;
 
     bool _is_push_down = false;
 
@@ -462,7 +462,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
     } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
-        auto origin_value = reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data);
+        auto origin_value = reinterpret_cast<const vectorized::VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);
@@ -477,8 +477,8 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
         }
     } else if constexpr (T == TYPE_DATEV2) {
-        auto origin_value = reinterpret_cast<
-                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
+        auto origin_value =
+                reinterpret_cast<const vectorized::DateV2Value<vectorized::DateV2ValueType>*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);
@@ -487,9 +487,9 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
     } else if constexpr (T == TYPE_DATETIMEV2) {
-        auto origin_value = reinterpret_cast<
-                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
-                data);
+        auto origin_value =
+                reinterpret_cast<const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*>(
+                        data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);
