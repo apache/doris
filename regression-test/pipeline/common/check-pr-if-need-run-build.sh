@@ -81,11 +81,15 @@ https://github.com/apache/doris/pull/${PULL_NUMBER}/files all change files:
 }
 
 _only_modified_regression_conf() {
-    if [[ ${modified_files} == "regression-test/conf/regression-conf.groovy" ]]; then
-        echo "only modified regression conf" && return 0
-    else
-        echo "Not only modified regression conf" && return 1
-    fi
+    for f in ${modified_files}; do
+        if [[ "${f}" == "regression-test/pipeline/p0/conf/regression-conf.groovy" ]] ||
+            [[ "${f}" == "regression-test/pipeline/p1/conf/regression-conf.groovy" ]]; then
+            continue
+        else
+            echo "Not only modified regression conf" && return 1
+        fi
+    done
+    echo "only modified regression conf" && return 0
 }
 
 need_run_fe_ut() {
