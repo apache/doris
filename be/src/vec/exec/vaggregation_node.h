@@ -958,7 +958,7 @@ private:
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
     void _init_hash_method(const VExprContextSPtrs& probe_exprs);
-
+protected:
     template <typename AggState, typename AggMethod>
     void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
                                     const ColumnRawPtrs& key_columns, const size_t num_rows) {
@@ -973,6 +973,7 @@ private:
         }
     }
 
+private:
     template <bool limit>
     Status _execute_with_serialized_key_helper(Block* block) {
         SCOPED_TIMER(_build_timer);
