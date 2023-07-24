@@ -17,9 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.TypeDef;
-import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
 
@@ -51,8 +49,9 @@ public class ColumnDefinition {
         this.comment = comment;
     }
 
-    public ColumnDef translateToCatalogStyle() {
-        return new ColumnDef(name, new TypeDef(type.toCatalogDataType()), isKey, AggregateType.MAX, isNull,
-                false, null, comment, true);
+    public Column translateToCatalogStyle() {
+        return new Column(name, type.toCatalogDataType(), isKey, null, isNull,
+                false, "", comment, true,
+                null, 0, "");
     }
 }

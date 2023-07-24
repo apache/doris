@@ -17,10 +17,16 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -30,7 +36,7 @@ import java.util.stream.Collectors;
  * table info in creating table.
  */
 public class CreateTableInfo {
-    private final String dbName;
+    private String dbName;
     private final String tableName;
     private final List<ColumnDefinition> columns;
     private final List<IndexDef> indexes;
@@ -61,24 +67,31 @@ public class CreateTableInfo {
         this.properties = properties;
     }
 
+    public void validate(ConnectContext ctx) {
+        if (dbName == null) {
+            dbName = ctx.getDatabase();
+        }
+    }
+
     /**
      * translate to catalog create table stmt
      */
     public CreateTableStmt translateToCatalogStyle() {
-        List<ColumnDef> columnDefs = columns.stream().map(ColumnDefinition::translateToCatalogStyle)
+        List<Column> catalogColumns = columns.stream().map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
         return new CreateTableStmt(false, false,
                 new TableName(null, dbName, tableName),
-                columnDefs,
+                catalogColumns,
                 null,
                 engineName,
-                null,
+                new KeysDesc(KeysType.DUP_KEYS, keys),
                 null,
                 distribution.translateToCatalogStyle(),
-                properties,
+                Maps.newHashMap(properties),
                 null,
                 comment,
-                null,
-                false);
+                ImmutableList.of(),
+                false,
+                null);
     }
 }

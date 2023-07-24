@@ -1755,11 +1755,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException("nameParts in create table should be 1 or 2");
         }
         List<ColumnDefinition> cols = visitColumnDefs(ctx.columnDefs());
-        String engineName = ctx.engine.getText();
-        DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4, null);
-        Map<String, String> properties = visitPropertySeq(ctx.propertySeq());
-        return new CreateTableCommand(null, new CreateTableInfo(dbName, tableName, cols, null, engineName, null, "",
-                desc, null, properties));
+        String engineName = ctx.engine != null ? ctx.engine.getText() : "olap";
+        DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
+                visitIdentifierList(ctx.hashKeys));
+        Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
+        return new CreateTableCommand(null, new CreateTableInfo(dbName, tableName, cols, ImmutableList.of(),
+                engineName, ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(), "",
+                desc, ImmutableList.of(), properties));
     }
 
     @Override
@@ -1773,7 +1775,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         DataType colType = visitColType(ctx.colType());
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
-        String aggType = ctx.aggType.getText();
+        String aggType = ctx.aggType != null ? ctx.aggType.getText() : null;
         Optional<Expression> defaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
             if (ctx.defaultValue != null) {
@@ -1782,7 +1784,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(new Now());
             }
         }
-        String comment = ((Literal) visit(ctx.comment)).getStringValue();
+        String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : null;
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
     }
 

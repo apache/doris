@@ -217,6 +217,44 @@ public class CreateTableStmt extends DdlStmt {
         this.comment = Strings.nullToEmpty(comment);
     }
 
+    // for Nereids
+    public CreateTableStmt(boolean ifNotExists,
+            boolean isExternal,
+            TableName tableName,
+            List<Column> columns,
+            List<Index> indexes,
+            String engineName,
+            KeysDesc keysDesc,
+            PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc,
+            Map<String, String> properties,
+            Map<String, String> extProperties,
+            String comment,
+            List<AlterClause> rollupAlterClauseList,
+            boolean isDynamicSchema,
+            Void unused) {
+        this.ifNotExists = ifNotExists;
+        this.isExternal = isExternal;
+        this.tableName = tableName;
+        this.columns = columns;
+        this.indexes = indexes;
+        this.engineName = engineName;
+        this.keysDesc = keysDesc;
+        this.partitionDesc = partitionDesc;
+        this.distributionDesc = distributionDesc;
+        this.properties = properties;
+        this.extProperties = extProperties;
+        this.columnDefs = Lists.newArrayList();
+        this.comment = Strings.nullToEmpty(comment);
+        this.rollupAlterClauseList = rollupAlterClauseList;
+        if (isDynamicSchema) {
+            if (properties == null) {
+                properties = Maps.newHashMap();
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "true");
+        }
+    }
+
     public void addColumnDef(ColumnDef columnDef) {
         columnDefs.add(columnDef);
     }
