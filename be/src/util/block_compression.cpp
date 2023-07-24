@@ -1046,8 +1046,7 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
     case tparquet::CompressionCodec::SNAPPY:
         *codec = SnappyBlockCompression::instance();
         break;
-    case tparquet::CompressionCodec::
-            LZ4_RAW: // In parquet, we can use LZ4 compression algorithm parse LZ4_RAW
+    case tparquet::CompressionCodec::LZ4_RAW: // we can use LZ4 compression algorithm parse LZ4_RAW
     case tparquet::CompressionCodec::LZ4:
         *codec = Lz4BlockCompression::instance();
         break;
