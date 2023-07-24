@@ -197,12 +197,15 @@ public:
     template <typename ColumnType, bool when_null, bool then_null>
     Status execute_impl(const DataTypePtr& data_type, Block& block, size_t result,
                         CaseWhenColumnHolder column_holder) {
+        int rows_count = column_holder.rows_count;
+        // some operators batch size may be exceeding 4096,
+        // so we added some tolerance to check 65536 to prevent stack overflow.
+        DCHECK(rows_count < 65536) << "rows count needs to be less than 65536 in function case";
+
         if (column_holder.pair_count > UINT8_MAX) {
             return execute_short_circuit<ColumnType, when_null, then_null>(data_type, block, result,
                                                                            column_holder);
         }
-
-        int rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
         uint8_t then_idx[rows_count];
