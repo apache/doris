@@ -332,4 +332,24 @@ TEST_F(TxnManagerTest, DeleteCommittedTxn) {
     EXPECT_TRUE(status != Status::OK());
 }
 
+TEST_F(TxnManagerTest, TabletVersionCache) {
+    std::unique_ptr<TxnManager> txn_mgr = std::make_unique<TxnManager>(64, 1024);
+    txn_mgr->update_tablet_version_txn(123, 100, 456);
+    txn_mgr->update_tablet_version_txn(124, 100, 567);
+    int64_t tx1 = txn_mgr->get_txn_by_tablet_version(123, 100);
+    EXPECT_EQ(tx1, 456);
+    int64_t tx2 = txn_mgr->get_txn_by_tablet_version(124, 100);
+    EXPECT_EQ(tx2, 567);
+    int64_t tx3 = txn_mgr->get_txn_by_tablet_version(124, 101);
+    EXPECT_EQ(tx3, -1);
+    txn_mgr->update_tablet_version_txn(123, 101, 888);
+    txn_mgr->update_tablet_version_txn(124, 101, 890);
+    int64_t tx4 = txn_mgr->get_txn_by_tablet_version(123, 100);
+    EXPECT_EQ(tx4, 456);
+    int64_t tx5 = txn_mgr->get_txn_by_tablet_version(123, 101);
+    EXPECT_EQ(tx5, 888);
+    int64_t tx6 = txn_mgr->get_txn_by_tablet_version(124, 101);
+    EXPECT_EQ(tx6, 890);
+}
+
 } // namespace doris

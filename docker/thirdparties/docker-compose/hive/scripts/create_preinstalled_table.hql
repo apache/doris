@@ -660,4 +660,24 @@ update orc_full_acid_par set value = 'BB' where id = 2;
 alter table orc_full_acid_par PARTITION(part_col=20230101) compact 'major';
 alter table orc_full_acid_par PARTITION(part_col=20230102) compact 'major';
 
+CREATE TABLE `test_different_column_orders_orc`(
+  `name` string,
+  `id` int,
+  `city` string,
+  `age` int,
+  `sex` string)
+STORED AS ORC
+LOCATION
+  '/user/doris/preinstalled_data/test_different_column_orders/orc';
+
+CREATE TABLE `test_different_column_orders_parquet`(
+  `name` string,
+  `id` int,
+  `city` string,
+  `age` int,
+  `sex` string)
+STORED AS PARQUET
+LOCATION
+  '/user/doris/preinstalled_data/test_different_column_orders/parquet';
+
 show tables;

@@ -47,6 +47,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import avro.shaded.com.google.common.base.Preconditions;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.CombinedScanTask;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
@@ -57,8 +58,11 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Conversions;
+import org.apache.iceberg.util.TableScanUtil;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -120,7 +124,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         } else {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
-                deleteFileDesc.setPath(filter.getDeleteFilePath());
+                String deleteFilePath = filter.getDeleteFilePath();
+                deleteFileDesc.setPath(S3Util.toScanRangeLocation(deleteFilePath).toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     fileDesc.setContent(FileContent.POSITION_DELETES.id());
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
@@ -178,21 +183,29 @@ public class IcebergScanNode extends FileQueryScanNode {
         int formatVersion = ((BaseTable) table).operations().current().formatVersion();
         // Min split size is DEFAULT_SPLIT_SIZE(128MB).
         long splitSize = Math.max(ConnectContext.get().getSessionVariable().getFileSplitSize(), DEFAULT_SPLIT_SIZE);
-        for (FileScanTask task : scan.planFiles()) {
-            long fileSize = task.file().fileSizeInBytes();
-            for (FileScanTask splitTask : task.split(splitSize)) {
+        CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
+        try (CloseableIterable<CombinedScanTask> combinedScanTasks =
+                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
+            combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
                 String dataFilePath = splitTask.file().path().toString();
-                String finalDataFilePath = S3Util.convertToS3IfNecessary(dataFilePath);
-                IcebergSplit split = new IcebergSplit(new Path(finalDataFilePath), splitTask.start(),
-                        splitTask.length(), fileSize, new String[0]);
+                Path finalDataFilePath = S3Util.toScanRangeLocation(dataFilePath);
+                IcebergSplit split = new IcebergSplit(
+                        finalDataFilePath,
+                        splitTask.start(),
+                        splitTask.length(),
+                        splitTask.file().fileSizeInBytes(),
+                        new String[0]);
                 split.setFormatVersion(formatVersion);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
                 split.setTableFormatType(TableFormatType.ICEBERG);
                 splits.add(split);
-            }
+            }));
+        } catch (IOException e) {
+            throw new UserException(e.getMessage(), e.getCause());
         }
+
         return splits;
     }
 
@@ -243,6 +256,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     public TFileType getLocationType() throws UserException {
         Table icebergTable = source.getIcebergTable();
         String location = icebergTable.location();
+        return getLocationType(location);
+    }
+
+    @Override
+    public TFileType getLocationType(String location) throws UserException {
+        Table icebergTable = source.getIcebergTable();
         return getTFileType(location).orElseThrow(() ->
             new DdlException("Unknown file location " + location + " for iceberg table " + icebergTable.name()));
     }

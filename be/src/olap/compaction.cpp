@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <set>
@@ -49,7 +50,9 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_checksum_task.h"
+#include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/time.h"
@@ -68,9 +71,27 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
           _input_index_size(0),
           _state(CompactionState::INITED) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
+    init_profile(label);
 }
 
 Compaction::~Compaction() {}
+
+void Compaction::init_profile(const std::string& label) {
+    _profile = std::make_unique<RuntimeProfile>(label);
+
+    _input_rowsets_data_size_counter =
+            ADD_COUNTER(_profile, "input_rowsets_data_size", TUnit::BYTES);
+    _input_rowsets_counter = ADD_COUNTER(_profile, "input_rowsets_count", TUnit::UNIT);
+    _input_row_num_counter = ADD_COUNTER(_profile, "input_row_num", TUnit::UNIT);
+    _input_segments_num_counter = ADD_COUNTER(_profile, "input_segments_num", TUnit::UNIT);
+    _merged_rows_counter = ADD_COUNTER(_profile, "merged_rows", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_profile, "filtered_rows", TUnit::UNIT);
+    _output_rowset_data_size_counter =
+            ADD_COUNTER(_profile, "output_rowset_data_size", TUnit::BYTES);
+    _output_row_num_counter = ADD_COUNTER(_profile, "output_row_num", TUnit::UNIT);
+    _output_segments_num_counter = ADD_COUNTER(_profile, "output_segments_num", TUnit::UNIT);
+    _merge_rowsets_latency_timer = ADD_TIMER(_profile, "merge_rowsets_latency");
+}
 
 Status Compaction::compact() {
     RETURN_IF_ERROR(prepare_compact());
@@ -208,9 +229,9 @@ void Compaction::build_basic_info() {
         _input_row_num += rowset->num_rows();
         _input_num_segments += rowset->num_segments();
     }
-    TRACE_COUNTER_INCREMENT("input_rowsets_data_size", _input_rowsets_size);
-    TRACE_COUNTER_INCREMENT("input_row_num", _input_row_num);
-    TRACE_COUNTER_INCREMENT("input_segments_num", _input_num_segments);
+    COUNTER_UPDATE(_input_rowsets_data_size_counter, _input_rowsets_size);
+    COUNTER_UPDATE(_input_row_num_counter, _input_row_num);
+    COUNTER_UPDATE(_input_segments_num_counter, _input_num_segments);
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
@@ -280,6 +301,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             _tablet->set_last_cumu_compaction_success_time(now);
         } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
             _tablet->set_last_base_compaction_success_time(now);
+        } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+            _tablet->set_last_full_compaction_success_time(now);
         }
         auto cumu_policy = _tablet->cumulative_compaction_policy();
         LOG(INFO) << "succeed to do ordered data " << compaction_name()
@@ -315,13 +338,16 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     Status res;
-    if (vertical_compaction) {
-        res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                             _input_rs_readers, _output_rs_writer.get(),
-                                             get_avg_segment_rows(), &stats);
-    } else {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                     _input_rs_readers, _output_rs_writer.get(), &stats);
+    {
+        SCOPED_TIMER(_merge_rowsets_latency_timer);
+        if (vertical_compaction) {
+            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                                 _input_rs_readers, _output_rs_writer.get(),
+                                                 get_avg_segment_rows(), &stats);
+        } else {
+            res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                         _input_rs_readers, _output_rs_writer.get(), &stats);
+        }
     }
 
     if (!res.ok()) {
@@ -330,19 +356,18 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                      << ", output_version=" << _output_version;
         return res;
     }
-    TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
-    TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
+    COUNTER_UPDATE(_merged_rows_counter, stats.merged_rows);
+    COUNTER_UPDATE(_filtered_rows_counter, stats.filtered_rows);
 
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
-        LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << ", output_version=" << _output_version;
-        return Status::Error<ROWSET_BUILDER_INIT>();
+        return Status::Error<ROWSET_BUILDER_INIT>("rowset writer build failed. output_version: {}",
+                                                  _output_version.to_string());
     }
 
-    TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
-    TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
-    TRACE_COUNTER_INCREMENT("output_segments_num", _output_rowset->num_segments());
+    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
+    COUNTER_UPDATE(_output_row_num_counter, _output_rowset->num_rows());
+    COUNTER_UPDATE(_output_segments_num_counter, _output_rowset->num_segments());
 
     // 3. check correctness
     RETURN_IF_ERROR(check_correctness(stats));
@@ -428,6 +453,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         _tablet->set_last_cumu_compaction_success_time(now);
     } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(now);
+    } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        _tablet->set_last_full_compaction_success_time(now);
     }
 
     int64_t current_max_version;
@@ -558,7 +585,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // of incremental data later.
         _tablet->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                &location_map, &output_rowset_delete_bitmap);
+                &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                &output_rowset_delete_bitmap);
         std::size_t missed_rows_size = missed_rows.size();
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             if (stats != nullptr && stats->merged_rows != missed_rows_size) {
@@ -574,16 +602,50 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
+
         {
             std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
 
+            // Here we will calculate all the rowsets delete bitmaps which are committed but not published to reduce the calculation pressure
+            // of publish phase.
+            // All rowsets which need to recalculate have been published so we don't need to acquire lock.
+            // Step1: collect this tablet's all committed rowsets' delete bitmaps
+            CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
+            StorageEngine::instance()->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
+                    _tablet, &commit_tablet_txn_info_vec);
+
+            // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
+            for (auto& it : commit_tablet_txn_info_vec) {
+                if (!_check_if_includes_input_rowsets(it.rowset_ids)) {
+                    // When calculating the delete bitmap of all committed rowsets relative to the compaction,
+                    // there may be cases where the compacted rowsets are newer than the committed rowsets.
+                    // At this time, row number conversion cannot be performed, otherwise data will be missing.
+                    // Therefore, we need to check if every committed rowset has calculated delete bitmap for
+                    // all compaction input rowsets.
+                    continue;
+                } else {
+                    DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
+                    _tablet->calc_compaction_output_rowset_delete_bitmap(
+                            _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
+                            &location_map, *it.delete_bitmap.get(), &output_delete_bitmap);
+                    it.delete_bitmap->merge(output_delete_bitmap);
+                    // Step3: write back updated delete bitmap and tablet info.
+                    it.rowset_ids.insert(_output_rowset->rowset_id());
+                    StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                            it.partition_id, it.transaction_id, _tablet->tablet_id(),
+                            _tablet->schema_hash(), _tablet->tablet_uid(), true, it.delete_bitmap,
+                            it.rowset_ids);
+                }
+            }
+
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
             _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
-                    &location_map, &output_rowset_delete_bitmap);
+                    &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                    &output_rowset_delete_bitmap);
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                 DCHECK_EQ(missed_rows.size(), missed_rows_size);
                 if (missed_rows.size() != missed_rows_size) {
@@ -602,11 +664,36 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
 
+    int64_t cur_max_version = 0;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
+        cur_max_version = _tablet->max_version_unlocked().second;
         _tablet->save_meta();
     }
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        auto st = TabletMetaManager::remove_old_version_delete_bitmap(
+                _tablet->data_dir(), _tablet->tablet_id(), cur_max_version);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to remove old version delete bitmap, st: " << st;
+        }
+    }
     return Status::OK();
+}
+
+bool Compaction::_check_if_includes_input_rowsets(
+        const RowsetIdUnorderedSet& commit_rowset_ids_set) const {
+    std::vector<RowsetId> commit_rowset_ids {};
+    commit_rowset_ids.insert(commit_rowset_ids.end(), commit_rowset_ids_set.begin(),
+                             commit_rowset_ids_set.end());
+    std::sort(commit_rowset_ids.begin(), commit_rowset_ids.end());
+    std::vector<RowsetId> input_rowset_ids {};
+    for (const auto& rowset : _input_rowsets) {
+        input_rowset_ids.emplace_back(rowset->rowset_meta()->rowset_id());
+    }
+    std::sort(input_rowset_ids.begin(), input_rowset_ids.end());
+    return std::includes(commit_rowset_ids.begin(), commit_rowset_ids.end(),
+                         input_rowset_ids.begin(), input_rowset_ids.end());
 }
 
 void Compaction::gc_output_rowset() {
@@ -656,12 +743,11 @@ Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& 
     for (size_t i = 1; i < rowsets.size(); ++i) {
         RowsetSharedPtr rowset = rowsets[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
-            LOG(WARNING) << "There are missed versions among rowsets. "
-                         << "prev_rowset version=" << prev_rowset->start_version() << "-"
-                         << prev_rowset->end_version()
-                         << ", rowset version=" << rowset->start_version() << "-"
-                         << rowset->end_version();
-            return Status::Error<CUMULATIVE_MISS_VERSION>();
+            return Status::Error<CUMULATIVE_MISS_VERSION>(
+                    "There are missed versions among rowsets. prev_rowset version={}-{}, rowset "
+                    "version={}-{}",
+                    prev_rowset->start_version(), prev_rowset->end_version(),
+                    rowset->start_version(), rowset->end_version());
         }
         prev_rowset = rowset;
     }
@@ -672,12 +758,11 @@ Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& 
 Status Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
-        LOG(WARNING) << "row_num does not match between cumulative input and output! "
-                     << "tablet=" << _tablet->full_name() << ", input_row_num=" << _input_row_num
-                     << ", merged_row_num=" << stats.merged_rows
-                     << ", filtered_row_num=" << stats.filtered_rows
-                     << ", output_row_num=" << _output_rowset->num_rows();
-        return Status::Error<CHECK_LINES_ERROR>();
+        return Status::Error<CHECK_LINES_ERROR>(
+                "row_num does not match between cumulative input and output! tablet={}, "
+                "input_row_num={}, merged_row_num={}, filtered_row_num={}, output_row_num={}",
+                _tablet->full_name(), _input_row_num, stats.merged_rows, stats.filtered_rows,
+                _output_rowset->num_rows());
     }
     return Status::OK();
 }

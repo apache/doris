@@ -151,9 +151,11 @@ public class Statistics {
 
     private double computeTupleSize() {
         if (tupleSize <= 0) {
-            tupleSize = expressionToColumnStats.values().stream()
-                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum);
-            tupleSize = Math.max(1, tupleSize);
+            double tempSize = 0.0;
+            for (ColumnStatistic s : expressionToColumnStats.values()) {
+                tempSize += s.avgSizeByte;
+            }
+            tupleSize = Math.max(1, tempSize);
         }
         return tupleSize;
     }
@@ -240,5 +242,16 @@ public class Statistics {
                 }
             }
         }
+    }
+
+    public String detail(String prefix) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(prefix).append("rows=").append(rowCount).append("\n");
+        builder.append(prefix).append("tupleSize=").append(computeTupleSize()).append("\n");
+
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            builder.append(prefix).append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
+        }
+        return builder.toString();
     }
 }

@@ -140,3 +140,11 @@ under the License.
     }
     ```
 
+13. Hive 1.x 的 orc 格式的表可能会遇到底层 orc 文件 schema 中列名为 `_col0`，`_col1`，`_col2`... 这类系统列名，此时需要在 catalog 配置中添加 `hive.version` 为 1.x.x，这样就会使用 hive 表中的列名进行映射。
+
+    ```sql
+    CREATE CATALOG hive PROPERTIES (
+        'hive.version' = '1.x.x'
+    );
+    ```
+

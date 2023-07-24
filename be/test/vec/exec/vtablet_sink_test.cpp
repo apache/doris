@@ -302,14 +302,6 @@ public:
         status.to_protobuf(response->mutable_status());
     }
 
-    void open_partition(google::protobuf::RpcController* controller,
-                        const OpenPartitionRequest* request, OpenPartitionResult* response,
-                        google::protobuf::Closure* done) override {
-        brpc::ClosureGuard done_guard(done);
-        Status status;
-        status.to_protobuf(response->mutable_status());
-    }
-
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
                                  PTabletWriterAddBlockResult* response,
@@ -324,8 +316,6 @@ public:
             k_add_batch_status.to_protobuf(response->mutable_status());
 
             if (request->has_block() && _row_desc != nullptr) {
-                brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-                attachment_transfer_request_block<PTabletWriterAddBlockRequest>(request, cntl);
                 vectorized::Block block(request->block());
 
                 for (size_t row_num = 0; row_num < block.rows(); ++row_num) {

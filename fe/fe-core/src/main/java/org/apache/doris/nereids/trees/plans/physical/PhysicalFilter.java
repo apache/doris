@@ -114,8 +114,10 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
-    public PhysicalFilter<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalFilter<>(conjuncts, Optional.empty(), logicalProperties.get(), child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new PhysicalFilter<>(conjuncts, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override

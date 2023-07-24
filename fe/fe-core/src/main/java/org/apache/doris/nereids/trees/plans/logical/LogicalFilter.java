@@ -67,7 +67,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public List<Plan> extraPlans() {
+    public List<? extends Plan> extraPlans() {
         return conjuncts.stream().map(Expression::children).flatMap(Collection::stream).flatMap(m -> {
             if (m instanceof SubqueryExpr) {
                 return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
@@ -127,8 +127,10 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public LogicalFilter<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalFilter<>(conjuncts, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalFilter<>(conjuncts, groupExpression, logicalProperties, children.get(0));
     }
 
     public LogicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {

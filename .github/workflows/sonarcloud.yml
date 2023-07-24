@@ -56,6 +56,20 @@ jobs:
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+      - name: Install protoc
+        run: |
+           sudo apt-get update
+           sudo apt-get install -y protobuf-compiler libprotobuf-dev
+           cd thirdparty/installed/bin/ && ln -s /usr/bin/protoc protoc
+      - name: Set up environment
+        run: |
+          # Install Bash if necessary
+          sudo apt-get update
+          sudo apt-get install -y bash  
+      - name: Generated Source Code
+        shell: bash
+        run: |
+           bash generated-source.sh
       - name: Analyze FE
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

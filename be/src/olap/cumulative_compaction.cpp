@@ -40,17 +40,17 @@ using namespace ErrorCode;
 CumulativeCompaction::CumulativeCompaction(const TabletSharedPtr& tablet)
         : Compaction(tablet, "CumulativeCompaction:" + std::to_string(tablet->tablet_id())) {}
 
-CumulativeCompaction::~CumulativeCompaction() {}
+CumulativeCompaction::~CumulativeCompaction() = default;
 
 Status CumulativeCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::Error<CUMULATIVE_INVALID_PARAMETERS>();
+        return Status::Error<CUMULATIVE_INVALID_PARAMETERS>("_tablet init failed");
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>(
+                "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
     }
 
     // 1. calculate cumulative point
@@ -60,7 +60,7 @@ Status CumulativeCompaction::prepare_compact() {
 
     // 2. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-    TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
+    COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
     _tablet->set_clone_occurred(false);
 
     return Status::OK();
@@ -69,15 +69,15 @@ Status CumulativeCompaction::prepare_compact() {
 Status CumulativeCompaction::execute_compact_impl() {
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>(
+                "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
     }
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::Error<CUMULATIVE_CLONE_OCCURRED>();
+        return Status::Error<CUMULATIVE_CLONE_OCCURRED>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -105,7 +105,7 @@ Status CumulativeCompaction::execute_compact_impl() {
 Status CumulativeCompaction::pick_rowsets_to_compact() {
     auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
     if (candidate_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("candidate_rowsets is empty");
     }
 
     // candidate_rowsets may not be continuous
@@ -134,7 +134,8 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             _tablet->set_cumulative_layer_point(_last_delete_version.first + 1);
-            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
+            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                    "_last_delete_version.first not equal to -1");
         }
 
         // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.
@@ -174,7 +175,7 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             }
         }
 
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("_input_rowsets is empty");
     }
 
     return Status::OK();

@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
+import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -57,6 +58,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -64,13 +66,17 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -81,6 +87,8 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
+import org.apache.doris.thrift.TAutoIncrementRangeRequest;
+import org.apache.doris.thrift.TAutoIncrementRangeResult;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
@@ -106,6 +114,7 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TGetBinlogLagResult;
 import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
 import org.apache.doris.thrift.TGetDbsParams;
@@ -163,6 +172,7 @@ import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
+import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
@@ -480,6 +490,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
                         Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
+                                "",
                                 db, olapTable, indexSchemaMap, newIndexes, null, false, jobId, false);
                     } else {
                         throw new MetaNotFoundException("table_id "
@@ -897,6 +908,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
             throw new TException("request from invalid host was rejected.");
         }
+        if (params.isSyncJournalOnly()) {
+            final TMasterOpResult result = new TMasterOpResult();
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            // just make the protocol happy
+            result.setPacket("".getBytes());
+            return result;
+        }
 
         // add this log so that we can track this stmt
         LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
@@ -912,6 +930,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         ConnectContext.remove();
         return result;
+    }
+
+    private List<String> getTableNames(String cluster, String dbName, List<Long> tableIds) throws UserException {
+        final String fullDbName = ClusterNamespace.getFullName(cluster, dbName);
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
+        if (db == null) {
+            throw new UserException(String.format("can't find db named: %s", dbName));
+        }
+        List<String> tableNames = Lists.newArrayList();
+        for (Long id : tableIds) {
+            Table table = db.getTableNullable(id);
+            if (table == null) {
+                throw new UserException(String.format("can't find table id: %d in db: %s", id, dbName));
+            }
+            tableNames.add(table.getName());
+        }
+
+        return tableNames;
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
@@ -1070,8 +1106,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!request.isSetDb()) {
             throw new UserException("db is not set");
         }
-        if (!request.isSetTables()) {
-            throw new UserException("tables is not set");
+        if (!request.isSetTableIds()) {
+            throw new UserException("table ids is not set");
         }
         if (!request.isSetLabel()) {
             throw new UserException("label is not set");
@@ -1084,7 +1120,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // step 1: check auth
         if (Strings.isNullOrEmpty(request.getToken())) {
-            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTables(),
+            // lookup table ids && convert into tableNameList
+            List<String> tableNameList = getTableNames(cluster, request.getDb(), request.getTableIds());
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tableNameList,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
 
@@ -1106,15 +1144,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // step 4: fetch all tableIds
-        // lookup tables && convert into tableIdList
-        List<Long> tableIdList = Lists.newArrayList();
-        for (String tblName : request.getTables()) {
-            Table table = db.getTableOrMetaException(tblName, TableType.OLAP);
-            if (table == null) {
-                throw new UserException("unknown table, table=" + tblName);
-            }
-            tableIdList.add(table.getId());
-        }
+        // table ids is checked at step 1
+        List<Long> tableIdList = request.getTableIds();
 
         // step 5: get timeout
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
@@ -1717,16 +1748,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
-        List<TExecPlanFragmentParams> planFragmentParamsList = new ArrayList<>(tableNames.size());
+        List planFragmentParamsList = new ArrayList<>(tableNames.size());
         List<Long> tableIds = olapTables.stream().map(OlapTable::getId).collect(Collectors.toList());
         // todo: if is multi table, we need consider the lock time and the timeout
+        boolean enablePipelineLoad = Config.enable_pipeline_load;
         try {
             multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), 1);
             for (OlapTable table : olapTables) {
                 int index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
-                TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
-                        table, timeoutMs, index);
-                planFragmentParamsList.add(planFragmentParams);
+                if (enablePipelineLoad) {
+                    planFragmentParamsList.add(generatePipelineStreamLoadPut(request, db, fullDbName, table, timeoutMs,
+                            index));
+                } else {
+                    TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
+                            table, timeoutMs, index);
+
+                    planFragmentParamsList.add(planFragmentParams);
+                }
                 multiTableFragmentInstanceIdIndexMap.put(request.getTxnId(), ++index);
             }
             Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
@@ -1737,6 +1775,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        if (enablePipelineLoad) {
+            result.setPipelineParams(planFragmentParamsList);
             return result;
         }
         result.setParams(planFragmentParamsList);
@@ -1767,7 +1809,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
                                                                String fullDbName, OlapTable table,
                                                                long timeoutMs) throws UserException {
-        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 0);
+        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1);
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
@@ -1801,7 +1843,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
-
         Env env = Env.getCurrentEnv();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db = env.getInternalCatalog().getDbNullable(fullDbName);
@@ -1814,21 +1855,37 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs, 1);
+    }
+
+    private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
+                                                                  String fullDbName, OlapTable table,
+                                                                  long timeoutMs,
+                                                               int multiTableFragmentInstanceIdIndex)
+            throws UserException {
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
                     "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
-            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId());
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
+            TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
+                    multiTableFragmentInstanceIdIndex);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), request.getTxnId());
             if (txnState == null) {
                 throw new UserException("txn does not exist: " + request.getTxnId());
             }
-            txnState.addTableIndexes((OlapTable) table);
+            txnState.addTableIndexes(table);
             return plan;
         } finally {
             table.readUnlock();
@@ -1870,6 +1927,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+                result.setLastStartupTime(exeEnv.getStartupTime());
             }
         } else {
             result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
@@ -1936,10 +1994,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new TException("Only support forward ExternalCatalog init operation.");
         }
-        ((ExternalCatalog) catalog).makeSureInitialized();
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
-        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
-        result.setStatus("OK");
+        try {
+            ((ExternalCatalog) catalog).makeSureInitialized();
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            result.setStatus(MasterCatalogExecutor.STATUS_OK);
+        } catch (Throwable t) {
+            LOG.warn("init catalog failed. catalog: {}", catalog.getName(), t);
+            result.setStatus(Util.getRootCauseStack(t));
+        }
         return result;
     }
 
@@ -1955,10 +2018,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!(db instanceof ExternalDatabase)) {
             throw new TException("Only support forward ExternalDatabase init operation.");
         }
-        ((ExternalDatabase) db).makeSureInitialized();
+
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
-        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
-        result.setStatus("OK");
+        try {
+            ((ExternalDatabase) db).makeSureInitialized();
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            result.setStatus(MasterCatalogExecutor.STATUS_OK);
+        } catch (Throwable t) {
+            LOG.warn("init database failed. catalog.database: {}", catalog.getName(), db.getFullName(), t);
+            result.setStatus(Util.getRootCauseStack(t));
+        }
         return result;
     }
 
@@ -2256,6 +2325,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    @Override
+    public TAutoIncrementRangeResult getAutoIncrementRange(TAutoIncrementRangeRequest request) {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get auto-increement range request: {}, backend: {}", request, clientAddr);
+
+        TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            Env env = Env.getCurrentEnv();
+            Database db = env.getInternalCatalog().getDbOrMetaException(request.getDbId());
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(request.getTableId(), TableType.OLAP);
+            AutoIncrementGenerator autoIncrementGenerator = null;
+            autoIncrementGenerator = olapTable.getAutoIncrementGenerator();
+            long columnId = request.getColumnId();
+            long length = request.getLength();
+            long lowerBound = -1;
+            if (request.isSetLowerBound()) {
+                lowerBound = request.getLowerBound();
+            }
+            Pair<Long, Long> range = autoIncrementGenerator.getAutoIncrementRange(columnId, length, lowerBound);
+            result.setStart(range.first);
+            result.setLength(range.second);
+        } catch (UserException e) {
+            LOG.warn("failed to get auto-increment range of column {}: {}", request.getColumnId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
     public TGetBinlogResult getBinlog(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive get binlog request: {}", request);
@@ -2320,8 +2424,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // step 4: fetch all tableIds
         // lookup tables && convert into tableIdList
         long tableId = -1;
-        String tableName = request.getTable();
-        if (!Strings.isNullOrEmpty(tableName)) {
+        if (request.isSetTableId()) {
+            tableId = request.getTableId();
+        } else if (request.isSetTable()) {
+            String tableName = request.getTable();
             Table table = db.getTableOrMetaException(tableName, TableType.OLAP);
             if (table == null) {
                 throw new UserException("unknown table, table=" + tableName);
@@ -2502,6 +2608,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Map<String, String> properties = request.getProperties();
         RestoreStmt restoreStmt = new RestoreStmt(label, repoName, null, properties, request.getMeta(),
                 request.getJobInfo());
+        restoreStmt.disableDynamicPartition();
         LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
             ConnectContext ctx = ConnectContext.get();
@@ -2551,5 +2658,108 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return result;
+    }
+
+    // getBinlogLag
+    public TGetBinlogLagResult getBinlogLag(TGetBinlogRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get binlog request: {}", request);
+
+        TGetBinlogLagResult result = new TGetBinlogLagResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            result = getBinlogLagImpl(request, clientAddr);
+        } catch (UserException e) {
+            LOG.warn("failed to get binlog: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    private TGetBinlogLagResult getBinlogLagImpl(TGetBinlogRequest request, String clientIp) throws UserException {
+        /// Check all required arg: user, passwd, db, prev_commit_seq
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetPrevCommitSeq()) {
+            throw new UserException("prev_commit_seq is not set");
+        }
+
+
+        // step 1: check auth
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTable(),
+                    request.getUserIp(), PrivPredicate.SELECT);
+        }
+
+        // step 3: check database
+        Env env = Env.getCurrentEnv();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        // step 4: fetch all tableIds
+        // lookup tables && convert into tableIdList
+        long tableId = -1;
+        if (request.isSetTableId()) {
+            tableId = request.getTableId();
+        } else if (request.isSetTable()) {
+            String tableName = request.getTable();
+            Table table = db.getTableOrMetaException(tableName, TableType.OLAP);
+            if (table == null) {
+                throw new UserException("unknown table, table=" + tableName);
+            }
+            tableId = table.getId();
+        }
+
+        // step 6: get binlog
+        long dbId = db.getId();
+        TGetBinlogLagResult result = new TGetBinlogLagResult();
+        result.setStatus(new TStatus(TStatusCode.OK));
+        long prevCommitSeq = request.getPrevCommitSeq();
+
+        Pair<TStatus, Long> statusLagPair = env.getBinlogManager().getBinlogLag(dbId, tableId, prevCommitSeq);
+        TStatus status = statusLagPair.first;
+        if (status != null && status.getStatusCode() != TStatusCode.OK) {
+            result.setStatus(status);
+        }
+        Long binlogLag = statusLagPair.second;
+        if (binlogLag != null) {
+            result.setLag(binlogLag);
+        }
+
+        return result;
+    }
+
+    @Override
+    public TStatus updateStatsCache(TUpdateFollowerStatsCacheRequest request) throws TException {
+        StatisticsCacheKey key = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
+        ColumnStatistic columnStatistic = GsonUtils.GSON.fromJson(request.colStats, ColumnStatistic.class);
+        Env.getCurrentEnv().getStatisticsCache().putCache(key, columnStatistic);
+        return new TStatus(TStatusCode.OK);
     }
 }

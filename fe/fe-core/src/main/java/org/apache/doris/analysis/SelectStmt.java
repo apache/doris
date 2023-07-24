@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -601,8 +602,8 @@ public class SelectStmt extends QueryStmt {
             }
         }
 
-        whereClauseRewrite();
         if (whereClause != null) {
+            whereClauseRewrite();
             if (checkGroupingFn(whereClause)) {
                 throw new AnalysisException("grouping operations are not allowed in WHERE.");
             }
@@ -721,7 +722,8 @@ public class SelectStmt extends QueryStmt {
         if (getAggInfo() != null
                 || getHavingPred() != null
                 || getWithClause() != null
-                || getAnalyticInfo() != null) {
+                || getAnalyticInfo() != null
+                || hasOutFileClause()) {
             return false;
         }
         // ignore short circuit query
@@ -755,6 +757,9 @@ public class SelectStmt extends QueryStmt {
         OlapTable olapTable = (OlapTable) tbl.getTable();
         if (!olapTable.isDupKeysOrMergeOnWrite()) {
             LOG.debug("only support duplicate key or MOW model");
+            return false;
+        }
+        if (!olapTable.getEnableLightSchemaChange() || !Strings.isNullOrEmpty(olapTable.getStoragePolicy())) {
             return false;
         }
         if (getOrderByElements() != null) {
@@ -851,6 +856,9 @@ public class SelectStmt extends QueryStmt {
             } else {
                 whereClause = new BoolLiteral(true);
             }
+        } else if (!whereClause.getType().isBoolean()) {
+            whereClause = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), whereClause);
+            whereClause.setType(Type.BOOLEAN);
         }
     }
 
@@ -1263,6 +1271,9 @@ public class SelectStmt extends QueryStmt {
                 havingClauseAfterAnalyzed = havingClause.substitute(aliasSMap, analyzer, false);
             }
             havingClauseAfterAnalyzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnalyzed, analyzer);
+            if (!havingClauseAfterAnalyzed.getType().isBoolean()) {
+                havingClauseAfterAnalyzed = havingClauseAfterAnalyzed.castTo(Type.BOOLEAN);
+            }
             havingClauseAfterAnalyzed.checkReturnsBool("HAVING clause", true);
             if (groupingInfo != null) {
                 groupingInfo.substituteGroupingFn(Arrays.asList(havingClauseAfterAnalyzed), analyzer);

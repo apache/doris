@@ -29,7 +29,8 @@ public class EliminateLimit extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalLimit()
                 .when(limit -> limit.getLimit() == 0)
-                .then(limit -> new LogicalEmptyRelation(limit.getOutput()))
+                .thenApply(ctx -> new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
+                        ctx.root.getOutput()))
                 .toRule(RuleType.ELIMINATE_LIMIT);
     }
 }

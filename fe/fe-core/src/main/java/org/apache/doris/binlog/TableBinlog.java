@@ -25,9 +25,11 @@ import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -39,78 +41,140 @@ public class TableBinlog {
     private ReentrantReadWriteLock lock;
     private TreeSet<TBinlog> binlogs;
 
-    public TableBinlog(long tableId) {
+    public TableBinlog(TBinlog binlog, long tableId) {
         this.tableId = tableId;
         lock = new ReentrantReadWriteLock();
-        // binlogs treeset order by commitSeq
-        binlogs = new TreeSet<TBinlog>((o1, o2) -> {
-            if (o1.getCommitSeq() < o2.getCommitSeq()) {
-                return -1;
-            } else if (o1.getCommitSeq() > o2.getCommitSeq()) {
-                return 1;
-            } else {
-                return 0;
-            }
-        });
+        binlogs = Sets.newTreeSet(Comparator.comparingLong(TBinlog::getCommitSeq));
+
+        TBinlog dummy;
+        if (binlog.getType() == TBinlogType.DUMMY) {
+            dummy = binlog;
+        } else {
+            dummy = BinlogUtils.newDummyBinlog(binlog.getDbId(), tableId);
+        }
+        binlogs.add(dummy);
+    }
+
+    public TBinlog getDummyBinlog() {
+        return binlogs.first();
     }
 
     public long getTableId() {
         return tableId;
     }
 
+    // not thread safety, do this without lock
+    public void recoverBinlog(TBinlog binlog) {
+        TBinlog dummy = getDummyBinlog();
+        if (binlog.getCommitSeq() > dummy.getCommitSeq()) {
+            binlogs.add(binlog);
+            ++binlog.table_ref;
+        }
+    }
+
     public void addBinlog(TBinlog binlog) {
         lock.writeLock().lock();
         try {
             binlogs.add(binlog);
+            ++binlog.table_ref;
+            LOG.info("[deadlinefen] after add, table {} binlogs: {}", tableId, binlogs);
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    public Pair<TStatus, TBinlog> getBinlog(long commitSeq) {
+    public Pair<TStatus, TBinlog> getBinlog(long prevCommitSeq) {
         lock.readLock().lock();
         try {
-            return BinlogUtils.getBinlog(binlogs, commitSeq);
+            return BinlogUtils.getBinlog(binlogs, prevCommitSeq);
         } finally {
             lock.readLock().unlock();
         }
     }
 
-    // this method call when db binlog enable
-    public BinlogTombstone gc(long largestExpiredCommitSeq) {
-        TBinlog tombstoneUpsert = null;
+    public Pair<TStatus, Long> getBinlogLag(long prevCommitSeq) {
+        lock.readLock().lock();
+        try {
+            return BinlogUtils.getBinlogLag(binlogs, prevCommitSeq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
 
+    private Pair<TBinlog, Long> getLastUpsertAndLargestCommitSeq(long expired, BinlogComparator check) {
+        if (binlogs.size() <= 1) {
+            return null;
+        }
+
+        Iterator<TBinlog> iter = binlogs.iterator();
+        TBinlog dummyBinlog = iter.next();
+        TBinlog tombstoneUpsert = null;
+        TBinlog lastExpiredBinlog = null;
+        while (iter.hasNext()) {
+            TBinlog binlog = iter.next();
+            if (check.isExpired(binlog, expired)) {
+                lastExpiredBinlog = binlog;
+                --binlog.table_ref;
+                if (binlog.getType() == TBinlogType.UPSERT) {
+                    tombstoneUpsert = binlog;
+                }
+                iter.remove();
+            } else {
+                break;
+            }
+        }
+
+        if (lastExpiredBinlog == null) {
+            return null;
+        }
+
+        dummyBinlog.setCommitSeq(lastExpiredBinlog.getCommitSeq());
+
+        return Pair.of(tombstoneUpsert, lastExpiredBinlog.getCommitSeq());
+    }
+
+    // this method call when db binlog enable
+    public BinlogTombstone gc(long expiredCommitSeq) {
+        Pair<TBinlog, Long> tombstoneInfo;
+
+        // step 1: get tombstoneUpsertBinlog and dummyBinlog
         lock.writeLock().lock();
         try {
-            Iterator<TBinlog> iter = binlogs.iterator();
-            while (iter.hasNext()) {
-                TBinlog binlog = iter.next();
-                if (binlog.getCommitSeq() <= largestExpiredCommitSeq) {
-                    if (binlog.getType() == TBinlogType.UPSERT) {
-                        tombstoneUpsert = binlog;
-                    }
-                    iter.remove();
-                } else {
-                    break;
-                }
-            }
+            BinlogComparator check = (binlog, expire) -> binlog.getCommitSeq() <= expire;
+            tombstoneInfo = getLastUpsertAndLargestCommitSeq(expiredCommitSeq, check);
         } finally {
             lock.writeLock().unlock();
         }
 
-        if (tombstoneUpsert == null) {
+        // step 2: set tombstone by tombstoneInfo
+        // if there have expired Binlogs, tombstoneInfo != null
+        if (tombstoneInfo == null) {
             return null;
         }
 
-        BinlogTombstone tombstone = new BinlogTombstone(-1, largestExpiredCommitSeq);
-        UpsertRecord upsertRecord = UpsertRecord.fromJson(tombstoneUpsert.getData());
-        tombstone.addTableRecord(tableId, upsertRecord);
+        TBinlog lastUpsertBinlog = tombstoneInfo.first;
+        long largestCommitSeq = tombstoneInfo.second;
+        BinlogTombstone tombstone = new BinlogTombstone(-1, largestCommitSeq);
+        if (lastUpsertBinlog != null) {
+            UpsertRecord upsertRecord = UpsertRecord.fromJson(lastUpsertBinlog.getData());
+            tombstone.addTableRecord(tableId, upsertRecord);
+        }
+
+        lock.readLock().lock();
+        try {
+            LOG.info("[deadlinefen] after gc, table {} binlogs: {}, tombstone.seq: {}",
+                    tableId, binlogs, tombstone.getCommitSeq());
+        } finally {
+            lock.readLock().unlock();
+        }
+
         return tombstone;
     }
 
     // this method call when db binlog disable
     public BinlogTombstone gc(Database db) {
-        OlapTable table = null;
+        // step 1: get expire time
+        OlapTable table;
         try {
             Table tbl = db.getTableOrMetaException(tableId);
             if (tbl == null) {
@@ -129,36 +193,44 @@ public class TableBinlog {
 
         long dbId = db.getId();
         long ttlSeconds = table.getBinlogConfig().getTtlSeconds();
-        long currentSeconds = System.currentTimeMillis() / 1000;
-        long expireSeconds = currentSeconds - ttlSeconds;
-        long expireMs = expireSeconds * 1000;
+        long expiredMs = BinlogUtils.getExpiredMs(ttlSeconds);
 
-        TBinlog tombstoneUpsert = null;
-        long largestExpiredCommitSeq = 0;
+        if (expiredMs < 0) {
+            return null;
+        }
+
+        // step 2: get tombstoneUpsertBinlog and dummyBinlog
+        Pair<TBinlog, Long> tombstoneInfo;
         lock.writeLock().lock();
         try {
-            Iterator<TBinlog> iter = binlogs.iterator();
-            while (iter.hasNext()) {
-                TBinlog binlog = iter.next();
-                if (binlog.getTimestamp() <= expireMs) {
-                    if (binlog.getType() == TBinlogType.UPSERT) {
-                        tombstoneUpsert = binlog;
-                    }
-                    largestExpiredCommitSeq = binlog.getCommitSeq();
-                    iter.remove();
-                } else {
-                    break;
-                }
-            }
+            BinlogComparator check = (binlog, expire) -> binlog.getTimestamp() <= expire;
+            tombstoneInfo = getLastUpsertAndLargestCommitSeq(expiredMs, check);
         } finally {
             lock.writeLock().unlock();
         }
 
-        BinlogTombstone tombstone = new BinlogTombstone(dbId, tableId, largestExpiredCommitSeq);
-        if (tombstoneUpsert != null) {
-            UpsertRecord upsertRecord = UpsertRecord.fromJson(tombstoneUpsert.getData());
+        // step 3: set tombstone by tombstoneInfo
+        // if have expired Binlogs, tombstoneInfo != null
+        if (tombstoneInfo == null) {
+            return null;
+        }
+
+        TBinlog lastUpsertBinlog = tombstoneInfo.first;
+        long largestCommitSeq = tombstoneInfo.second;
+        BinlogTombstone tombstone = new BinlogTombstone(dbId, tableId, largestCommitSeq);
+        if (lastUpsertBinlog != null) {
+            UpsertRecord upsertRecord = UpsertRecord.fromJson(lastUpsertBinlog.getData());
             tombstone.addTableRecord(tableId, upsertRecord);
         }
+
+        lock.readLock().lock();
+        try {
+            LOG.info("[deadlinefen] after gc, table {} binlogs: {}, tombstone.seq: {}",
+                    tableId, binlogs, tombstone.getCommitSeq());
+        } finally {
+            lock.readLock().unlock();
+        }
+
 
         return tombstone;
     }

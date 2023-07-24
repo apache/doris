@@ -440,7 +440,10 @@ public:
                 << "Can not change to bloom filter because of runtime filter type is "
                 << to_string(_filter_type);
         _is_bloomfilter = true;
-        insert_to_bloom_filter(_context.bloom_filter_func.get());
+        BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
+        // BloomFilter may be not init
+        bf->init_with_fixed_length();
+        insert_to_bloom_filter(bf);
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
     }
@@ -1149,35 +1152,17 @@ Status IRuntimeFilter::publish() {
     }
 }
 
-Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs) {
+Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs,
+                                          bool is_late_arrival) {
     DCHECK(is_consumer());
-    if (!_is_ignored) {
-        _set_push_down();
-        _profile->add_info_string("Info", _format_status());
-        return _wrapper->get_push_exprs(push_exprs, _vprobe_ctx);
-    } else {
-        _profile->add_info_string("Info", _format_status());
-        return Status::OK();
-    }
-}
-
-Status IRuntimeFilter::get_prepared_exprs(std::vector<vectorized::VExprSPtr>* vexprs,
-                                          const RowDescriptor& desc, RuntimeState* state) {
     _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
     }
-    DCHECK((!_enable_pipeline_exec && _rf_state == RuntimeFilterState::READY) ||
-           (_enable_pipeline_exec &&
-            _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY));
-    DCHECK(is_consumer());
-    std::lock_guard guard(_inner_mutex);
-
-    if (_push_down_vexprs.empty()) {
-        RETURN_IF_ERROR(_wrapper->get_push_exprs(&_push_down_vexprs, _vprobe_ctx));
+    if (!is_late_arrival) {
+        _set_push_down();
     }
-    vexprs->insert(vexprs->end(), _push_down_vexprs.begin(), _push_down_vexprs.end());
-    return Status::OK();
+    return _wrapper->get_push_exprs(push_exprs, _vprobe_ctx);
 }
 
 bool IRuntimeFilter::await() {

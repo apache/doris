@@ -157,7 +157,7 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::ALTER_TABLE:
         break;
     case TaskWorkerType::ALTER_INVERTED_INDEX:
-        _worker_count = config::alter_inverted_index_worker_count;
+        _worker_count = config::alter_index_worker_count;
         _cb = std::bind<void>(&TaskWorkerPool::_alter_inverted_index_worker_thread_callback, this);
         break;
     case TaskWorkerType::CLONE:
@@ -613,9 +613,10 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_used(root_path_info.is_used);
             request.disks[root_path_info.path] = disk;
         }
-        int num_cores = config::pipeline_executor_size > 0 ? config::pipeline_executor_size
-                                                           : CpuInfo::num_cores();
-        request.__set_num_cores(num_cores);
+        request.__set_num_cores(CpuInfo::num_cores());
+        request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
+                                                     ? config::pipeline_executor_size
+                                                     : CpuInfo::num_cores());
         _handle_report(request, ReportType::DISK);
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1214,15 +1215,13 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
             _tasks.pop_front();
         }
         const TCreateTabletReq& create_tablet_req = agent_task_req.create_tablet_req;
-        scoped_refptr<Trace> trace(new Trace);
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
             if (watch.elapsed_time() / 1e9 > config::agent_task_trace_threshold_sec) {
-                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+                LOG(WARNING) << "create tablet cost " << watch.elapsed_time() / 1e9;
             }
         });
-        ADOPT_TRACE(trace.get());
         DorisMetrics::instance()->create_tablet_requests_total->increment(1);
         VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
 
@@ -1231,7 +1230,7 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
         Status status = _env->storage_engine()->create_tablet(create_tablet_req);
         if (!status.ok()) {
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
-            LOG_WARNING("failed to create tablet")
+            LOG_WARNING("failed to create tablet, reason={}", status.to_string())
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", create_tablet_req.tablet_id)
                     .error(status);

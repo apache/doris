@@ -139,3 +139,12 @@ under the License.
         ]
     }
     ```
+
+13. The table in orc format of Hive 1.x may encounter system column names such as `_col0`, `_col1`, `_col2`... in the underlying orc file schema, which need to be specified in the catalog configuration. Add `hive.version` to 1.x.x so that it will use the column names in the hive table for mapping.
+
+    ```sql
+    CREATE CATALOG hive PROPERTIES (
+        'hive.version' = '1.x.x'
+    );
+    ```
+

@@ -19,10 +19,8 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -46,8 +44,6 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
 
-    private final CTEId cteId;
-
     public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {
         this(ImmutableList.of(tableAlias), Optional.empty(), Optional.empty(), Optional.empty(), child);
     }
@@ -65,29 +61,17 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases,
-                                Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier is null"));
         this.columnAliases = columnAliases;
-        this.cteId = cteId();
-    }
-
-    public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases,
-            Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, CTEId cteId) {
-        super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier));
-        this.columnAliases = columnAliases;
-        this.cteId = cteId;
     }
 
     @Override
     public List<Slot> computeOutput() {
         List<Slot> childOutput = child().getOutput();
-        List<String> columnAliases = this.columnAliases.isPresent()
-                ? this.columnAliases.get()
-                : ImmutableList.of();
+        List<String> columnAliases = this.columnAliases.orElseGet(ImmutableList::of);
         ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
         for (int i = 0; i < childOutput.size(); i++) {
             Slot originSlot = childOutput.get(i);
@@ -115,15 +99,12 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public String toString() {
-        if (columnAliases.isPresent()) {
-            return Utils.toSqlString("LogicalSubQueryAlias",
+        return columnAliases.map(strings -> Utils.toSqlString("LogicalSubQueryAlias",
                 "qualifier", qualifier,
-                "columnAliases", StringUtils.join(columnAliases.get(), ",")
-            );
-        }
-        return Utils.toSqlString("LogicalSubQueryAlias",
+                "columnAliases", StringUtils.join(strings, ",")
+        )).orElseGet(() -> Utils.toSqlString("LogicalSubQueryAlias",
                 "qualifier", qualifier
-        );
+        ));
     }
 
     @Override
@@ -166,16 +147,10 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public LogicalSubQueryAlias<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, Optional.empty(),
-                logicalProperties, child());
-    }
-
-    public CTEId cteId() {
-        return StatementScopeIdGenerator.newCTEId();
-    }
-
-    public CTEId getCteId() {
-        return cteId;
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
+                children.get(0));
     }
 }

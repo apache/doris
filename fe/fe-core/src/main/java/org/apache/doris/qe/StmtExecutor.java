@@ -96,6 +96,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
@@ -295,6 +296,8 @@ public class StmtExecutor {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(DebugUtil.printId(context.queryId()));
+        builder.dorisVersion(
+                Version.DORIS_BUILD_VERSION_MAJOR == 0 ? Version.DORIS_BUILD_VERSION : Version.DORIS_BUILD_SHORT_HASH);
         builder.taskType(profileType.name());
         builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
         if (isFinished) {
@@ -316,7 +319,7 @@ public class StmtExecutor {
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
         builder.isNereids(context.getState().isNereids ? "Yes" : "No");
-        builder.isPipeline(context.getSessionVariable().enablePipelineEngine ? "Yes" : "No");
+        builder.isPipeline(context.getSessionVariable().getEnablePipelineEngine() ? "Yes" : "No");
         return builder.build();
     }
 
@@ -563,8 +566,9 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
+        syncJournalIfNeeded();
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
-                && context.getSessionVariable().enablePipelineEngine()) {
+                && context.getSessionVariable().getEnablePipelineEngine()) {
             this.queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
                 this.offerRet = queryQueue.offer();
@@ -781,6 +785,14 @@ public class StmtExecutor {
                 }
             }
         }
+    }
+
+    private void syncJournalIfNeeded() throws Exception {
+        final Env env = context.getEnv();
+        if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
+            return;
+        }
+        new MasterOpExecutor(context).syncJournal();
     }
 
     /**
@@ -1088,6 +1100,7 @@ public class StmtExecutor {
                 }
                 // query re-analyze
                 parsedStmt.reset();
+                analyzer.setReAnalyze(true);
                 parsedStmt.analyze(analyzer);
 
                 // Restore the original result types and column labels.
@@ -1358,7 +1371,7 @@ public class StmtExecutor {
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-        if (Config.enable_workload_group && context.sessionVariable.enablePipelineEngine()) {
+        if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
             coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
         }
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),

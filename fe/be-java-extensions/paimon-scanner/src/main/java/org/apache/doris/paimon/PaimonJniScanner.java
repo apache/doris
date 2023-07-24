@@ -21,7 +21,6 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
-import org.apache.doris.common.jni.vec.TableSchema;
 
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.log4j.Logger;
@@ -139,12 +138,6 @@ public class PaimonJniScanner extends JniScanner {
             throw new RuntimeException(e);
         }
         return rows;
-    }
-
-    @Override
-    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        // do nothing
-        return null;
     }
 
     private Catalog create(CatalogContext context) throws IOException {

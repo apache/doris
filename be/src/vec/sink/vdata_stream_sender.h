@@ -194,7 +194,6 @@ protected:
 
     segment_v2::CompressionTypePB _compression_type;
 
-    bool _new_shuffle_hash_method = false;
     bool _only_local_exchange = false;
     bool _enable_pipeline_exec = false;
 };
@@ -294,16 +293,16 @@ public:
                _local_recvr->sender_queue_empty(_parent->_sender_id);
     }
 
-    bool is_receiver_eof() const { return receiver_status_.is<ErrorCode::END_OF_FILE>(); }
+    bool is_receiver_eof() const { return _receiver_status.is<ErrorCode::END_OF_FILE>(); }
 
-    void set_receiver_eof(Status st) { receiver_status_ = st; }
+    void set_receiver_eof(Status st) { _receiver_status = st; }
 
 protected:
     bool _recvr_is_valid() {
         if (_local_recvr && !_local_recvr->is_closed()) {
             return true;
         }
-        receiver_status_ = Status::EndOfFile("local data stream receiver closed");
+        _receiver_status = Status::EndOfFile("local data stream receiver closed");
         return false;
     }
 
@@ -315,7 +314,7 @@ protected:
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
         brpc::Join(call_id);
-        receiver_status_ = _closure->result.status();
+        _receiver_status = Status::create(_closure->result.status());
         if (cntl->Failed()) {
             std::string err = fmt::format(
                     "failed to send brpc batch, error={}, error_text={}, client: {}, "
@@ -325,7 +324,7 @@ protected:
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }
-        return receiver_status_;
+        return _receiver_status;
     }
 
     // Serialize _batch into _thrift_batch and send via send_batch().
@@ -358,7 +357,7 @@ protected:
     PTransmitDataParams _brpc_request;
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
-    Status receiver_status_;
+    Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
     bool _is_transfer_chain;

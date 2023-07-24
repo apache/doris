@@ -65,6 +65,7 @@ WITH BROKER broker_name
   INTO TABLE `table_name`
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
+  [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
@@ -90,11 +91,15 @@ WITH BROKER broker_name
 
   - `PARTITION(p1, p2, ...)`
 
-    可以指定仅导入表的某些分区。不再分区范围内的数据将被忽略。
+    可以指定仅导入表的某些分区。不在分区范围内的数据将被忽略。
 
   - `COLUMNS TERMINATED BY`
 
     指定列分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
+
+  - `LINES TERMINATED BY`
+
+    指定行分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
 
   - `FORMAT AS`
 

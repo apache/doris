@@ -250,20 +250,12 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     }
 }
 
-void PInternalServiceImpl::open_partition(google::protobuf::RpcController* controller,
-                                          const OpenPartitionRequest* request,
-                                          OpenPartitionResult* response,
-                                          google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
-        VLOG_RPC << "partition open"
-                 << ", index_id=" << request->index_id();
-        brpc::ClosureGuard closure_guard(done);
-        auto st = _exec_env->load_channel_mgr()->open_partition(*request);
-        if (!st.ok()) {
-            LOG(WARNING) << "load channel open failed, message=" << st
-                         << ", index_ids=" << request->index_id();
-        }
-        st.to_protobuf(response->mutable_status());
+void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* controller,
+                                              const PExecPlanFragmentRequest* request,
+                                              PExecPlanFragmentResult* response,
+                                              google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -273,10 +265,9 @@ void PInternalServiceImpl::open_partition(google::protobuf::RpcController* contr
     }
 }
 
-void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* controller,
-                                              const PExecPlanFragmentRequest* request,
-                                              PExecPlanFragmentResult* response,
-                                              google::protobuf::Closure* done) {
+void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
+        google::protobuf::RpcController* controller, const PExecPlanFragmentRequest* request,
+        PExecPlanFragmentResult* response, google::protobuf::Closure* done) {
     auto span = telemetry::start_rpc_server_span("exec_plan_fragment", controller);
     auto scope = OpentelemetryScope {span};
     brpc::ClosureGuard closure_guard(done);
@@ -285,11 +276,12 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     PFragmentRequestVersion version =
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
     try {
-        st = _exec_plan_fragment(request->request(), version, compact);
+        st = _exec_plan_fragment_impl(request->request(), version, compact);
     } catch (const Exception& e) {
         st = e.to_status();
     } catch (...) {
-        st = Status::Error(ErrorCode::INTERNAL_ERROR);
+        st = Status::Error(ErrorCode::INTERNAL_ERROR,
+                           "_exec_plan_fragment_impl meet unknown error");
     }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
@@ -302,7 +294,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        exec_plan_fragment(controller, request, response, done);
+        _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -336,12 +328,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        // TODO(zxy) delete in 1.2 version
-        google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTabletWriterAddBlockRequest>(request, cntl);
-
-        _tablet_writer_add_block(controller, request, response, new_done);
+        _tablet_writer_add_block(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -427,8 +414,9 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
-                                                 PFragmentRequestVersion version, bool compact) {
+Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_request,
+                                                      PFragmentRequestVersion version,
+                                                      bool compact) {
     // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
     // If BE execute this fragment, it will core when it wants to get some property from master info.
     if (ExecEnv::GetInstance()->master_info() == nullptr) {
@@ -1031,13 +1019,9 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        // TODO(zxy) delete in 1.2 version
-        google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
-
-        _transmit_block(controller, request, response, new_done, Status::OK());
+    PriorityThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
+    bool ret = pool.try_offer([this, controller, request, response, done]() {
+        _transmit_block(controller, request, response, done, Status::OK());
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -1524,8 +1508,9 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         if (!tablet) {
             continue;
         }
-        BetaRowsetSharedPtr rowset =
-                std::static_pointer_cast<BetaRowset>(tablet->get_rowset(rowset_id));
+        // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
+        BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
+                StorageEngine::instance()->get_quering_rowset(rowset_id));
         if (!rowset) {
             LOG(INFO) << "no such rowset " << rowset_id;
             continue;

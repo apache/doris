@@ -97,7 +97,8 @@ struct decimal12_t {
 
         if (sign != nullptr) {
             if (sign != value_string) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "decimal12_t::from_string meet invalid sign");
             } else {
                 ++value_string;
             }

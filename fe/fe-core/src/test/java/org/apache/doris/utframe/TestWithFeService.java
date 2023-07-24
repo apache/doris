@@ -58,6 +58,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -82,6 +83,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -101,6 +103,7 @@ import java.util.Comparator;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -119,12 +122,13 @@ public abstract class TestWithFeService {
     protected String dorisHome;
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
+    protected boolean needCleanDir = true;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
 
     @BeforeAll
     public final void beforeAll() throws Exception {
-        FeConstants.disableInternalSchemaDb = true;
+        FeConstants.enableInternalSchemaDb = false;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
@@ -140,7 +144,9 @@ public abstract class TestWithFeService {
         runAfterAll();
         Env.getCurrentEnv().clear();
         StatementScopeIdGenerator.clear();
-        cleanDorisFeDir();
+        if (needCleanDir) {
+            cleanDorisFeDir();
+        }
     }
 
     @BeforeEach
@@ -188,8 +194,13 @@ public abstract class TestWithFeService {
     }
 
     public LogicalPlan analyze(String sql) {
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
         cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }

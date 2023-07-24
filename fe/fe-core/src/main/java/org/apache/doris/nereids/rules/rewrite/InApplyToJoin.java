@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -93,7 +94,9 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
             //in-predicate to equal
             Expression predicate;
             Expression left = ((InSubquery) apply.getSubqueryExpr()).getCompareExpr();
-            Expression right = apply.getSubqueryExpr().getSubqueryOutput();
+            // TODO: trick here, because when deep copy logical plan the apply right child
+            //  is not same with query plan in subquery expr, since the scan node copy twice
+            Expression right = apply.getSubqueryExpr().getSubqueryOutput((LogicalPlan) apply.right());
             if (apply.isCorrelated()) {
                 predicate = ExpressionUtils.and(new EqualTo(left, right),
                         apply.getCorrelationFilter().get());
@@ -111,12 +114,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         Lists.newArrayList(),
                         conjuncts,
                         JoinHint.NONE, apply.getMarkJoinSlotReference(),
-                        apply.left(), apply.right());
+                        apply.children());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,
                         JoinHint.NONE, apply.getMarkJoinSlotReference(),
-                        apply.left(), apply.right());
+                        apply.children());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
     }

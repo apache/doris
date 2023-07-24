@@ -71,10 +71,12 @@ if (NOT OS_MACOSX)
     option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
     option(USE_LIBCPP "Use libc++" OFF)
     option(USE_MEM_TRACKER, "Use memory tracker" ON)
+    option(USE_UNWIND "Use libunwind" ON)
 else()
     option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." OFF)
     option(USE_LIBCPP "Use libc++" ON)
     option(USE_MEM_TRACKER, "Use memory tracker" OFF)
+    option(USE_UNWIND "Use libunwind" OFF)
 endif()
 option(USE_JEMALLOC "Use jemalloc" ON)
 
@@ -86,6 +88,7 @@ message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
 message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
+message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
 
 # set CMAKE_BUILD_TYPE
@@ -250,6 +253,11 @@ set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/li
 
 add_library(jemalloc_arrow STATIC IMPORTED)
 set_target_properties(jemalloc_arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
+
+if (USE_UNWIND)
+    add_library(libunwind STATIC IMPORTED)
+    set_target_properties(libunwind PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libunwind.a)
+endif()
 
 add_library(brotlicommon STATIC IMPORTED)
 set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
@@ -597,6 +605,14 @@ if (USE_JEMALLOC)
     add_compile_options(-DUSE_JEMALLOC)
 endif()
 
+# Compile with libunwind
+if (USE_UNWIND)
+    add_compile_options(-DUSE_UNWIND)
+    if (COMPILER_CLANG)
+        add_compile_options(-gdwarf-aranges)
+    endif()
+endif()
+
 # Use Bthread to separate computation and IO
 # Adding the option `USE_BTHREAD_SCANNER=ON sh build.sh` when comliling can enable this feature
 if (USE_BTHREAD_SCANNER)
@@ -879,6 +895,10 @@ if (WITH_MYSQL)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
 endif()
 
+if (USE_UNWIND)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} libunwind)
+endif()
+
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} orc)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
@@ -1073,7 +1093,6 @@ install(FILES
     ${BASE_DIR}/../conf/odbcinst.ini
     ${BASE_DIR}/../conf/asan_suppr.conf
     ${BASE_DIR}/../conf/lsan_suppr.conf
-    ${BASE_DIR}/../conf/hdfs-site.xml
     DESTINATION ${OUTPUT_DIR}/conf)
 
 get_property(dirs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY INCLUDE_DIRECTORIES)

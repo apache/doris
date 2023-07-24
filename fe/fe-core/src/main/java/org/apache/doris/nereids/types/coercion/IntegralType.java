@@ -41,4 +41,8 @@ public class IntegralType extends NumericType {
     public String simpleString() {
         return "integral";
     }
+
+    public boolean widerThan(IntegralType other) {
+        return this.width() > other.width();
+    }
 }

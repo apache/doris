@@ -74,7 +74,13 @@ Status AvroJNIReader::init_fetch_table_reader(
         index++;
     }
 
-    TFileType::type type = _params.file_type;
+    TFileType::type type;
+    if (_range.__isset.file_type) {
+        // for compatibility
+        type = _range.file_type;
+    } else {
+        type = _params.file_type;
+    }
     std::map<String, String> required_param = {
             {"required_fields", required_fields.str()},
             {"columns_types", columns_types.str()},

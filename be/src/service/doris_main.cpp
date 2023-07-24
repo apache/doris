@@ -50,6 +50,7 @@
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
+#include "common/phdr_cache.h"
 #include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -345,10 +346,6 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    if (doris::config::memory_mode == std::string("performance")) {
-        doris::MemTrackerLimiter::disable_oom_avoidance();
-    }
-
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
     if (!olap_res) {
@@ -417,6 +414,10 @@ int main(int argc, char** argv) {
             }
         }
     }
+
+    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
+    // will work only after additional call of this function.
+    updatePHDRCache();
 
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     doris::Daemon daemon;

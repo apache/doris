@@ -72,4 +72,26 @@ public class HiveVersionUtil {
             return DEFAULT_HIVE_VERSION;
         }
     }
+
+    public static boolean isHive1(String version) {
+        if (Strings.isNullOrEmpty(version)) {
+            return false;
+        }
+        String[] parts = version.split("\\.");
+        if (parts.length < 2) {
+            LOG.warn("invalid hive version: " + version);
+            return false;
+        }
+        try {
+            int major = Integer.parseInt(parts[0]);
+            if (major == 1) {
+                return true;
+            } else {
+                return false;
+            }
+        } catch (NumberFormatException e) {
+            LOG.warn("invalid hive version: " + version);
+            return false;
+        }
+    }
 }

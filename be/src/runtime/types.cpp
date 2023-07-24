@@ -46,7 +46,7 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
             DCHECK(scalar_type.__isset.len);
             len = scalar_type.len;
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
-                   type == TYPE_DECIMAL128I || type == TYPE_DATETIMEV2) {
+                   type == TYPE_DECIMAL128I || type == TYPE_DATETIMEV2 || type == TYPE_TIMEV2) {
             DCHECK(scalar_type.__isset.precision);
             DCHECK(scalar_type.__isset.scale);
             precision = scalar_type.precision;
@@ -199,6 +199,9 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         }
     } else if (type == TYPE_MAP) {
         node->set_type(TTypeNodeType::MAP);
+        DCHECK_EQ(2, contains_nulls.size());
+        node->add_contains_nulls(contains_nulls[0]);
+        node->add_contains_nulls(contains_nulls[1]);
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
@@ -252,6 +255,10 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+        if (node.contains_nulls_size() > 1) {
+            contains_nulls.push_back(node.contains_nulls(0));
+            contains_nulls.push_back(node.contains_nulls(1));
+        }
         break;
     }
     case TTypeNodeType::STRUCT: {

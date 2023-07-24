@@ -47,8 +47,8 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
-import org.apache.doris.planner.JdbcTableSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
@@ -330,7 +330,7 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false);
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false, false);
         }
     }
 
@@ -371,6 +371,10 @@ public class NativeInsertStmt extends InsertStmt {
                     targetPartitionIds.add(part.getId());
                 }
             }
+            if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                    && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+                partialUpdateCols.add(Column.SEQUENCE_COL);
+            }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
@@ -383,6 +387,7 @@ public class NativeInsertStmt extends InsertStmt {
                 slotDesc.setType(col.getType());
                 slotDesc.setColumn(col);
                 slotDesc.setIsNullable(col.isAllowNull());
+                slotDesc.setAutoInc(col.isAutoInc());
             }
         } else if (targetTable instanceof MysqlTable || targetTable instanceof OdbcTable
                 || targetTable instanceof JdbcTable) {
@@ -448,11 +453,11 @@ public class NativeInsertStmt extends InsertStmt {
                 }
                 targetColumns.add(col);
             }
-            // hll column mush in mentionedColumns
+            // hll column must in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
                 if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
                     throw new AnalysisException(
-                            " object-stored column " + col.getName() + " mush in insert into columns");
+                            "object-stored column " + col.getName() + " must in insert into columns");
                 }
             }
         }

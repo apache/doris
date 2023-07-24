@@ -89,7 +89,14 @@ In some cases, the keywords in the database might be used as the field names. Fo
 
 1. When executing a query like `where dt = '2022-01-01'`, Doris can push down these filtering conditions to the external data source, thereby directly excluding data that does not meet the conditions at the data source level, reducing the number of unqualified Necessary data acquisition and transfer. This greatly improves query performance while also reducing the load on external data sources.
    
-2. When `enable_func_pushdown` is set to true, the function condition after where will also be pushed down to the external data source. Currently, only MySQL is supported. If you encounter a function that MySQL does not support, you can set this parameter to false.
+2. When `enable_func_pushdown` is set to true, the function condition after where will also be pushed down to the external data source. Currently, only MySQL is supported. If you encounter a function that MySQL does not support, you can set this parameter to false, at present, Doris will automatically identify some functions not supported by MySQL to filter the push-down conditions, which can be checked by explain sql.
+
+Functions that are currently not pushed down include:
+
+|    MYSQL     |
+|:------------:|
+|  DATE_TRUNC  |
+| MONEY_FORMAT |
 
 ### Line Limit
 
@@ -180,7 +187,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | TIME                                      | STRING         |                                                                               |
 | CHAR                                      | CHAR           |                                                                               |
 | VARCHAR                                   | VARCHAR        |                                                                               |
-| JSON                                      | STRING         |                                                                               |
+| JSON                                      | JSON           |                                                                               |
 | SET                                       | STRING         |                                                                               |
 | BIT                                       | BOOLEAN/STRING | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING     |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                                               |
@@ -236,12 +243,13 @@ Doris obtains all schemas that PG user can access through the SQL statement: `se
  | varchar/text                            | STRING         |                                           |
  | timestamp                               | DATETIME       |                                           |
  | date                                    | DATE           |                                           |
+ | json/josnb                              | JSON           |                                           |
  | time                                    | STRING         |                                           |
  | interval                                | STRING         |                                           |
  | point/line/lseg/box/path/polygon/circle | STRING         |                                           |
  | cidr/inet/macaddr                       | STRING         |                                           |
  | bit                                     | BOOLEAN/STRING | bit(1) will be mapped to BOOLEAN, and other bits will be mapped to STRING |
- | uuid/josnb                              | STRING         |                                           |
+ | uuid                                    | STRING         |                                           |
  | Other                                   | UNSUPPORTED    |                                           |
 
 ### Oracle
@@ -254,7 +262,7 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc6.jar",
+    "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
 );
 ```
@@ -490,7 +498,7 @@ CREATE CATALOG jdbc_presto PROPERTIES (
     "password"="",
     "jdbc_url" = "jdbc:presto://localhost:9000/hive",
     "driver_url" = "presto-jdbc-0.280.jar",
-    "driver_class" = "io.prestosql.jdbc.PrestoDriver"
+    "driver_class" = "com.facebook.presto.jdbc.PrestoDriver"
 );
 ```
 
@@ -688,3 +696,7 @@ When Doris connects to OceanBase, it will automatically recognize that OceanBase
     This happens because JDBC can't handle the datetime format 0000-00-00 00:00:00. 
     To address this, append zeroDateTimeBehavior=convertToNull to the jdbc_url when creating the Catalog, e.g., "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull". 
     In this case, JDBC will convert 0000-00-00 00:00:00 to null, and then Doris will handle the DateTime column as a nullable type, allowing for successful reading.
+
+12. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
+
+    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the lib/java_extensions directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
