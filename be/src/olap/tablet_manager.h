@@ -250,6 +250,8 @@ private:
     tablet_map_t& _get_tablet_map(TTabletId tablet_id);
 
     tablets_shard& _get_tablets_shard(TTabletId tabletId);
+
+    std::mutex _two_tablet_mtx;
 };
 
 } // namespace doris

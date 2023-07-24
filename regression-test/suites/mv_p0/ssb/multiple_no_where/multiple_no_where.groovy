@@ -187,7 +187,7 @@ suite ("multiple_no_where") {
             ORDER BY YEAR ASC, revenue DESC;""")
         contains "(lineorder_q_3_1)"
     }
-    qt_select_mv """SELECT
+    qt_select_q_3_1 """SELECT
                         C_NATION,
                         S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
                         SUM(LO_REVENUE) AS revenue
@@ -213,7 +213,7 @@ suite ("multiple_no_where") {
                 ORDER BY YEAR ASC, C_NATION ASC;""")
         contains "(lineorder_q_4_1)"
     }
-    qt_select_mv """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    qt_select_q_4_1 """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
                 SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
                 FROM lineorder_flat
