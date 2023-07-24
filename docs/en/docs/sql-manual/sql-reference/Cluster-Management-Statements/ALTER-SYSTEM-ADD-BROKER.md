@@ -46,12 +46,12 @@ ALTER SYSTEM ADD BROKER broker_name "broker_host1:broker_ipc_port1","broker_host
 1. Add two brokers
 
     ```sql
-     ALTER SYSTEM ADD BROKER broke_name "host1:port", "host2:port";
+     ALTER SYSTEM ADD BROKER "host1:port", "host2:port";
     ````
 2. When fe enable fqdn([fqdn](../../../admin-manual/cluster-management/fqdn.md)),add one Broker
 
    ```sql
-    ALTER SYSTEM ADD BROKER broke_name "broker_fqdn1:port";
+    ALTER SYSTEM ADD BROKER "broker_fqdn1:port";
    ```
 
 ### Keywords
