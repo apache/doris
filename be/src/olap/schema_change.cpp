@@ -1273,8 +1273,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
-    if (new_tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-        new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
+    if (new_tablet->enable_unique_key_merge_on_write()) {
         *sc_directly = true;
         return Status::OK();
     }
