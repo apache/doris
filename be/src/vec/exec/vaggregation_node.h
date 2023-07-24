@@ -818,7 +818,7 @@ struct SpillPartitionHelper {
 };
 
 // not support spill
-class AggregationNode final : public ::doris::ExecNode {
+class AggregationNode : public ::doris::ExecNode {
 public:
     using Sizes = std::vector<size_t>;
 
@@ -836,18 +836,36 @@ public:
     Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
     bool is_streaming_preagg() const { return _is_streaming_preagg; }
+    bool is_aggregate_evaluators_empty() const { return _aggregate_evaluators.empty(); }
+    virtual Status _distinct_pre_agg_with_serialized_key(Block* in_block, Block* out_block) {
+        return Status::NotSupported("Do not support distinct pre agg in AggregationNode class");
+    }
+
+protected:
+    bool _is_streaming_preagg;
+    bool _child_eos = false;
+    Block _preagg_block = Block();
+    ArenaUPtr _agg_arena_pool;
+    // group by k1,k2
+    VExprContextSPtrs _probe_expr_ctxs;
+    AggregatedDataVariantsUPtr _agg_data;
+
+    std::vector<size_t> _probe_key_sz;
+    std::vector<size_t> _hash_values;
+    // left / full join will change the key nullable make output/input solt
+    // nullable diff. so we need make nullable of it.
+    std::vector<size_t> _make_nullable_keys;
+    RuntimeProfile::Counter* _hash_table_compute_timer;
+    RuntimeProfile::Counter* _hash_table_input_counter;
+    RuntimeProfile::Counter* _build_timer;
+    RuntimeProfile::Counter* _expr_timer;
+    RuntimeProfile::Counter* _exec_timer;
 
 private:
     friend class pipeline::AggSinkOperator;
     friend class pipeline::StreamingAggSinkOperator;
     friend class pipeline::AggSourceOperator;
     friend class pipeline::StreamingAggSourceOperator;
-    // group by k1,k2
-    VExprContextSPtrs _probe_expr_ctxs;
-    // left / full join will change the key nullable make output/input solt
-    // nullable diff. so we need make nullable of it.
-    std::vector<size_t> _make_nullable_keys;
-    std::vector<size_t> _probe_key_sz;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
@@ -873,47 +891,32 @@ private:
     size_t _external_agg_bytes_threshold;
     size_t _partitioned_threshold = 0;
 
-    AggregatedDataVariantsUPtr _agg_data;
-
     AggSpillContext _spill_context;
     std::unique_ptr<SpillPartitionHelper> _spill_partition_helper;
 
-    ArenaUPtr _agg_arena_pool;
-
-    RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _build_table_convert_timer;
     RuntimeProfile::Counter* _serialize_key_timer;
-    RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _expr_timer;
     RuntimeProfile::Counter* _get_results_timer;
     RuntimeProfile::Counter* _serialize_data_timer;
     RuntimeProfile::Counter* _serialize_result_timer;
     RuntimeProfile::Counter* _deserialize_data_timer;
-    RuntimeProfile::Counter* _hash_table_compute_timer;
     RuntimeProfile::Counter* _hash_table_iterate_timer;
     RuntimeProfile::Counter* _insert_keys_to_column_timer;
     RuntimeProfile::Counter* _streaming_agg_timer;
     RuntimeProfile::Counter* _hash_table_size_counter;
-    RuntimeProfile::Counter* _hash_table_input_counter;
     RuntimeProfile::Counter* _max_row_size_counter;
-
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _hash_table_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage;
 
-    bool _is_streaming_preagg;
-    Block _preagg_block = Block();
     bool _should_expand_hash_table = true;
-    bool _child_eos = false;
-
     bool _should_limit_output = false;
     bool _reach_limit = false;
     bool _agg_data_created_without_key = false;
 
     PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
-    std::vector<size_t> _hash_values;
     std::vector<AggregateDataPtr> _values;
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 

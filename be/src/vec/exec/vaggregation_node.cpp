@@ -17,6 +17,7 @@
 
 #include "vec/exec/vaggregation_node.h"
 
+#include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -25,6 +26,7 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <string>
 
 #include "exec/exec_node.h"
 #include "runtime/block_spill_manager.h"
@@ -102,27 +104,27 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
+          _hash_table_compute_timer(nullptr),
+          _hash_table_input_counter(nullptr),
+          _build_timer(nullptr),
+          _expr_timer(nullptr),
+          _exec_timer(nullptr),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_merge(false),
-          _build_timer(nullptr),
           _serialize_key_timer(nullptr),
-          _exec_timer(nullptr),
           _merge_timer(nullptr),
-          _expr_timer(nullptr),
           _get_results_timer(nullptr),
           _serialize_data_timer(nullptr),
           _serialize_result_timer(nullptr),
           _deserialize_data_timer(nullptr),
-          _hash_table_compute_timer(nullptr),
           _hash_table_iterate_timer(nullptr),
           _insert_keys_to_column_timer(nullptr),
           _streaming_agg_timer(nullptr),
           _hash_table_size_counter(nullptr),
-          _hash_table_input_counter(nullptr),
           _max_row_size_counter(nullptr) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
@@ -454,10 +456,15 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
         }
 
         if (_is_streaming_preagg) {
-            runtime_profile()->append_exec_option("Streaming Preaggregation");
-            _executor.pre_agg =
-                    std::bind<Status>(&AggregationNode::_pre_agg_with_serialized_key, this,
-                                      std::placeholders::_1, std::placeholders::_2);
+            if (_aggregate_evaluators.empty()) { // remove pipeline
+                _executor.pre_agg =
+                        std::bind<Status>(&AggregationNode::_distinct_pre_agg_with_serialized_key,
+                                          this, std::placeholders::_1, std::placeholders::_2);
+            } else {
+                _executor.pre_agg =
+                        std::bind<Status>(&AggregationNode::_pre_agg_with_serialized_key, this,
+                                          std::placeholders::_1, std::placeholders::_2);
+            }
         }
 
         if (_needs_finalize) {
@@ -478,6 +485,14 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                                _needs_finalize;      // agg's finalize step
     }
 
+    fmt::memory_buffer msg;
+    fmt::format_to(msg,
+                   "(_is_merge: {}, _needs_finalize: {}, Streaming Preaggregation: {}, agg size: "
+                   "{}, limit: {})",
+                   _is_merge ? "true" : "false", _needs_finalize ? "true" : "false",
+                   _is_streaming_preagg ? "true" : "false",
+                   std::to_string(_aggregate_evaluators.size()), std::to_string(_limit));
+    runtime_profile()->add_info_string("AggInfos:", fmt::to_string(msg));
     return Status::OK();
 }
 
@@ -918,7 +933,9 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
+                    if (_hash_values.size() < num_rows) {
+                        _hash_values.resize(num_rows);
+                    }
                     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
                                           AggState>::value) {
                         for (size_t i = 0; i < num_rows; ++i) {

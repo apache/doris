@@ -48,6 +48,8 @@
 #include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/distinct_streaming_aggregation_source_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/empty_source_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
@@ -503,10 +505,21 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        auto* agg_node = assert_cast<vectorized::AggregationNode*>(node);
+        auto* agg_node = dynamic_cast<vectorized::AggregationNode*>(node);
         auto new_pipe = add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
-        if (agg_node->is_streaming_preagg()) {
+        if (agg_node->is_aggregate_evaluators_empty() && agg_node->is_streaming_preagg()) {
+            auto data_queue = std::make_shared<DataQueue>(1);
+            OperatorBuilderPtr pre_agg_sink =
+                    std::make_shared<DistinctStreamingAggSinkOperatorBuilder>(node->id(), agg_node,
+                                                                              data_queue);
+            RETURN_IF_ERROR(new_pipe->set_sink(pre_agg_sink));
+
+            OperatorBuilderPtr pre_agg_source =
+                    std::make_shared<DistinctStreamingAggSourceOperatorBuilder>(
+                            node->id(), agg_node, data_queue);
+            RETURN_IF_ERROR(cur_pipe->add_operator(pre_agg_source));
+        } else if (agg_node->is_streaming_preagg()) {
             auto data_queue = std::make_shared<DataQueue>(1);
             OperatorBuilderPtr pre_agg_sink = std::make_shared<StreamingAggSinkOperatorBuilder>(
                     node->id(), agg_node, data_queue);
