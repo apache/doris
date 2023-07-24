@@ -51,13 +51,20 @@ void FunctionTokenize::_execute_constant(const ColumnString& src_column_string,
     ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
 
     InvertedIndexCtx inverted_index_ctx;
-    if (tokenize_type.to_string() == "chinese") {
+    auto parser_type = get_inverted_index_parser_type_from_string(tokenize_type.to_string());
+
+    switch(parser_type){
+    case InvertedIndexParserType::PARSER_CHINESE:{
         // we don't support parse_mode params now, so make it default.
         inverted_index_ctx.parser_mode = INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
-        inverted_index_ctx.parser_type = InvertedIndexParserType::PARSER_CHINESE;
-    } else if (tokenize_type.to_string() == "unicode") {
-        inverted_index_ctx.parser_type = InvertedIndexParserType::PARSER_UNICODE;
-    } else {
+        inverted_index_ctx.parser_type = parser_type;
+        break;
+    }
+    case InvertedIndexParserType::PARSER_UNICODE:{
+        inverted_index_ctx.parser_type = parser_type;
+        break;
+    }
+    default:
         // default as english
         inverted_index_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
     }
