@@ -78,6 +78,14 @@ public abstract class DistributionInfo implements Writable {
         throw new NotImplementedException("not implemented");
     }
 
+    public boolean isAutoBucket() {
+        return autoBucket;
+    }
+
+    public void disableAutoBucket() {
+        autoBucket = false;
+    }
+
     public void markAutoBucket() {
         autoBucket = true;
     }
@@ -95,7 +103,11 @@ public abstract class DistributionInfo implements Writable {
         type = DistributionInfoType.valueOf(Text.readString(in));
     }
 
-    public String toSql() {
+    public final String toSql() {
+        return toSql(false);
+    }
+
+    public String toSql(boolean getStatic) {
         return "";
     }
 

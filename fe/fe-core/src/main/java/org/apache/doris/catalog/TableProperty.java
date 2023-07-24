@@ -38,6 +38,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 
 /**
@@ -60,7 +61,7 @@ public class TableProperty implements Writable {
     private boolean isInMemory = false;
 
     private String storagePolicy = "";
-    private Boolean ccrEnable = null;
+    private Boolean isBeingSynced = null;
     private BinlogConfig binlogConfig;
     private boolean isDynamicSchema = false;
 
@@ -112,7 +113,7 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
                 buildStoragePolicy();
-                buildCcrEnable();
+                buildIsBeingSynced();
                 break;
             default:
                 break;
@@ -143,6 +144,19 @@ public class TableProperty implements Writable {
     public TableProperty buildDynamicProperty() {
         executeBuildDynamicProperty();
         return this;
+    }
+
+    public void disableDynamicPartition() {
+        if (dynamicPartitionProperty.getEnable()) {
+            Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<String, String> entry = iter.next();
+                if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+                    iter.remove();
+                }
+            }
+            dynamicPartitionProperty = new DynamicPartitionProperty(Maps.newHashMap());
+        }
     }
 
     private TableProperty executeBuildDynamicProperty() {
@@ -214,6 +228,13 @@ public class TableProperty implements Writable {
         return skipWriteIndexOnLoad;
     }
 
+    public void eraseStoragePolicy() {
+        if (!storagePolicy.isEmpty()) {
+            properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+            storagePolicy = "";
+        }
+    }
+
     public TableProperty buildStoragePolicy() {
         storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
         return this;
@@ -223,16 +244,24 @@ public class TableProperty implements Writable {
         return storagePolicy;
     }
 
-    public TableProperty buildCcrEnable() {
-        ccrEnable = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, "false"));
+    public TableProperty buildIsBeingSynced() {
+        isBeingSynced = Boolean.parseBoolean(
+            properties.getOrDefault(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false"));
         return this;
     }
 
-    public boolean isCcrEnable() {
-        if (ccrEnable == null) {
-            buildCcrEnable();
+    public void setIsBeingSynced(boolean isBeingSynced) {
+        this.isBeingSynced = isBeingSynced;
+        if (isBeingSynced) {
+            properties.put(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "true");
         }
-        return ccrEnable;
+    }
+
+    public boolean isBeingSynced() {
+        if (isBeingSynced == null) {
+            buildIsBeingSynced();
+        }
+        return isBeingSynced;
     }
 
     public TableProperty buildBinlogConfig() {
@@ -355,6 +384,14 @@ public class TableProperty implements Writable {
         return Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "false"));
     }
 
+    public void eraseAutoBucket() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET);
+    }
+
+    public void eraseEstimatePartitionSize() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE);
+    }
+
     public String getEstimatePartitionSize() {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE, "");
     }
@@ -429,7 +466,7 @@ public class TableProperty implements Writable {
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
-                .buildCcrEnable()
+                .buildIsBeingSynced()
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()

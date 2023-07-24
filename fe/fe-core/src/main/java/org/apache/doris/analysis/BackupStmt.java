@@ -22,6 +22,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.collect.Maps;
 
@@ -30,6 +31,7 @@ import java.util.Map;
 public class BackupStmt extends AbstractBackupStmt {
     private static final String PROP_TYPE = "type";
     public static final String PROP_CONTENT = "content";
+    public static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
     public enum BackupType {
         INCREMENTAL, FULL
@@ -41,6 +43,7 @@ public class BackupStmt extends AbstractBackupStmt {
 
     private BackupType type = BackupType.FULL;
     private BackupContent content = BackupContent.ALL;
+    private boolean isBeingSynced = false;
 
 
     public BackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
@@ -58,6 +61,10 @@ public class BackupStmt extends AbstractBackupStmt {
 
     public BackupContent getContent() {
         return content;
+    }
+
+    public boolean isBeingSynced() {
+        return isBeingSynced;
     }
 
     @Override
@@ -101,6 +108,17 @@ public class BackupStmt extends AbstractBackupStmt {
                         "Invalid backup job content:" + contentProp);
             }
             copiedProperties.remove(PROP_CONTENT);
+        }
+        // is_being_synced
+        String isBeingSyncedProp = copiedProperties.get(PROP_IS_BEING_SYNCED);
+        if (isBeingSyncedProp != null) {
+            try {
+                isBeingSynced = Boolean.parseBoolean(isBeingSyncedProp);
+            } catch (Exception e) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid backup job is_being_synced: " + isBeingSyncedProp);
+            }
+            copiedProperties.remove(PROP_IS_BEING_SYNCED);
         }
 
         if (!copiedProperties.isEmpty()) {

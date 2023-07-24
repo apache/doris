@@ -129,7 +129,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_MUTABLE = "mutable";
 
-    public static final String PROPERTIES_CCR_ENABLE = "ccr_enable";
+    // is_syncing can only set by syncer and can not be changed
+    public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
 
     // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
     public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";

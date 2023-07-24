@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.io.Text;
@@ -114,6 +115,8 @@ public class BackupJob extends AbstractJob {
     // backup properties && table commit seq with table id
     private Map<String, String> properties = Maps.newHashMap();
 
+    private boolean isBeingSynced = false;
+
     private byte[] metaInfoBytes = null;
     private byte[] jobInfoBytes = null;
 
@@ -122,10 +125,11 @@ public class BackupJob extends AbstractJob {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Env env, long repoId) {
+                     BackupContent content, Env env, long repoId, boolean isBeingSynced) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
+        this.isBeingSynced = isBeingSynced;
         properties.put(BackupStmt.PROP_CONTENT, content.name());
     }
 
@@ -514,7 +518,9 @@ public class BackupJob extends AbstractJob {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
             return;
         }
-
+        if (isBeingSynced) {
+            eraseDynamicProperties(copiedTbl);
+        }
         removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
     }
@@ -547,6 +553,22 @@ public class BackupJob extends AbstractJob {
             }
             copiedResources.add(copiedResource);
         }
+    }
+
+    private void eraseDynamicProperties(OlapTable tbl) {
+        TableProperty tblProperty = tbl.getTableProperty();
+        // erase colocate group
+        tbl.setColocateGroup(null);
+        // erase auto bucket
+        tbl.disableAutoBucket();
+        // set isBeingSynced to true
+        tblProperty.setIsBeingSynced(true);
+        // erase dynamic partition
+        tblProperty.disableDynamicPartition();
+        // erase estimate partition size
+        tblProperty.eraseEstimatePartitionSize();
+        // erase storage policy
+        tblProperty.eraseStoragePolicy();
     }
 
     private void removeUnsupportProperties(OlapTable tbl) {

@@ -738,6 +738,13 @@ public class OlapTable extends Table {
         }
     }
 
+    public void disableAutoBucket() {
+        if (tableProperty.isAutoBucket()) {
+            defaultDistributionInfo.disableAutoBucket();
+            tableProperty.eraseAutoBucket();
+        }
+    }
+
     public DistributionInfo getDefaultDistributionInfo() {
         return defaultDistributionInfo;
     }
@@ -1764,15 +1771,15 @@ public class OlapTable extends Table {
         return "";
     }
 
-    public void setCcrEnable(boolean ccrEnable) throws UserException {
-        // TODO(Drogon): Config.enable_ccr
+    public void setIsBeingSynced(boolean isBeingSynced) throws UserException {
         TableProperty tableProperty = getOrCreatTableProperty();
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, Boolean.toString(ccrEnable));
-        tableProperty.buildCcrEnable();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED,
+                Boolean.toString(isBeingSynced));
+        tableProperty.buildIsBeingSynced();
     }
 
-    public boolean isCcrEnable() {
-        return tableProperty != null && tableProperty.isCcrEnable();
+    public boolean isBeingSynced() {
+        return tableProperty != null && tableProperty.isBeingSynced();
     }
 
     public void setDisableAutoCompaction(boolean disableAutoCompaction) {

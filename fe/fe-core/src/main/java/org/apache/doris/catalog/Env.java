@@ -2818,7 +2818,14 @@ public class Env {
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
                                   long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion, false);
+                hidePassword, false, specificVersion, false, false);
+    }
+
+    public static void getBeingSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+                                  long specificVersion) {
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
+                hidePassword, false, specificVersion, false, true);
     }
 
     /**
@@ -2830,7 +2837,7 @@ public class Env {
                                   List<String> addPartitionStmt, List<String> createRollupStmt,
                                   boolean separatePartition,
                                   boolean hidePassword, boolean getDdlForLike, long specificVersion,
-                                  boolean getBriefDdl) {
+            boolean getBriefDdl, boolean getDdlForCreateTableRecord) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -2949,7 +2956,7 @@ public class Env {
 
             // distribution
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-            sb.append("\n").append(distributionInfo.toSql());
+            sb.append("\n").append(distributionInfo.toSql(getDdlForCreateTableRecord));
 
             // rollup index
             if (ddlStmt instanceof CreateTableLikeStmt) {
@@ -3023,16 +3030,34 @@ public class Env {
                 sb.append(partition.getVisibleVersion()).append("\"");
             }
 
-            // colocateTable
-            String colocateTable = olapTable.getColocateGroup();
-            if (colocateTable != null) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
-                sb.append(colocateTable).append("\"");
-            }
+            if (getDdlForCreateTableRecord || olapTable.isBeingSynced()) {
+                if (!olapTable.isBeingSynced()) {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED).append("\" = \"true\"");
+                }
+            } else {
+                // colocateTable
+                String colocateTable = olapTable.getColocateGroup();
+                if (colocateTable != null) {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
+                    sb.append(colocateTable).append("\"");
+                }
 
-            // dynamic partition
-            if (olapTable.dynamicPartitionExists()) {
-                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
+                // dynamic partition
+                if (olapTable.dynamicPartitionExists()) {
+                    sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
+                }
+
+                // estimate_partition_size
+                if (!olapTable.getEstimatePartitionSize().equals("")) {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE).append("\" = \"");
+                    sb.append(olapTable.getEstimatePartitionSize()).append("\"");
+                }
+
+                // storage policy
+                if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
+                    sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
+                    sb.append(olapTable.getStoragePolicy()).append("\"");
+                }
             }
 
             // only display z-order sort info
@@ -3056,12 +3081,6 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
-            // estimate_partition_size
-            if (!olapTable.getEstimatePartitionSize().equals("")) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE).append("\" = \"");
-                sb.append(olapTable.getEstimatePartitionSize()).append("\"");
-            }
-
             // unique key table with merge on write
             if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
@@ -3072,12 +3091,6 @@ public class Env {
             if (olapTable.getEnableLightSchemaChange()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
                 sb.append(olapTable.getEnableLightSchemaChange()).append("\"");
-            }
-
-            // storage policy
-            if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
-                sb.append(olapTable.getStoragePolicy()).append("\"");
             }
 
             // sequence type
@@ -4477,7 +4490,7 @@ public class Env {
         }
         tableProperty.buildInMemory()
                 .buildStoragePolicy()
-                .buildCcrEnable();
+                .buildIsBeingSynced();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
