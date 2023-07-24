@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
