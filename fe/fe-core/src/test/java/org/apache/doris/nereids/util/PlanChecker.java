@@ -65,7 +65,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -76,6 +75,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Utility to apply rules to plan and check output plan matches the expected pattern.
@@ -318,19 +318,22 @@ public class PlanChecker {
     }
 
     public PlanChecker transform(Group group, PatternMatcher patternMatcher) {
-        // copy groupExpressions can prevent ConcurrentModificationException
-        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
-            transform(logicalExpression, patternMatcher);
+        List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
+        for (int i = 0; i < logicalExpressions.size(); i++) {
+            final int childIdx = i;
+            transform(() -> logicalExpressions.get(childIdx), patternMatcher);
         }
-
-        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
-            transform(physicalExpression, patternMatcher);
+        List<GroupExpression> physicalExpressions = group.getPhysicalExpressions();
+        for (int i = 0; i < physicalExpressions.size(); i++) {
+            final int childIdx = i;
+            transform(() -> physicalExpressions.get(childIdx), patternMatcher);
         }
         return this;
     }
 
-    public PlanChecker transform(GroupExpression groupExpression, PatternMatcher patternMatcher) {
-        GroupExpressionMatching matchResult = new GroupExpressionMatching(patternMatcher.pattern, groupExpression);
+    public PlanChecker transform(Supplier<GroupExpression> groupExpression, PatternMatcher patternMatcher) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(patternMatcher.pattern,
+                groupExpression.get());
 
         for (Plan before : matchResult) {
             Plan after = patternMatcher.matchedAction.apply(
@@ -340,7 +343,7 @@ public class PlanChecker {
             }
         }
 
-        for (Group childGroup : groupExpression.children()) {
+        for (Group childGroup : groupExpression.get().children()) {
             transform(childGroup, patternMatcher);
         }
         return this;
@@ -357,19 +360,21 @@ public class PlanChecker {
     }
 
     private PlanChecker applyExploration(Group group, Rule rule) {
-        // copy groupExpressions can prevent ConcurrentModificationException
-        for (GroupExpression logicalExpression : Lists.newArrayList(group.getLogicalExpressions())) {
-            applyExploration(logicalExpression, rule);
+        List<GroupExpression> logicalExpressions = group.getLogicalExpressions();
+        for (int i = 0; i < logicalExpressions.size(); i++) {
+            final int childIdx = i;
+            applyExploration(() -> logicalExpressions.get(childIdx), rule);
         }
-
-        for (GroupExpression physicalExpression : Lists.newArrayList(group.getPhysicalExpressions())) {
-            applyExploration(physicalExpression, rule);
+        List<GroupExpression> physicalExpressions = group.getPhysicalExpressions();
+        for (int i = 0; i < physicalExpressions.size(); i++) {
+            final int childIdx = i;
+            applyExploration(() -> physicalExpressions.get(childIdx), rule);
         }
         return this;
     }
 
-    private void applyExploration(GroupExpression groupExpression, Rule rule) {
-        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression);
+    private void applyExploration(Supplier<GroupExpression> groupExpression, Rule rule) {
+        GroupExpressionMatching matchResult = new GroupExpressionMatching(rule.getPattern(), groupExpression.get());
 
         for (Plan before : matchResult) {
             Plan after = rule.transform(before, cascadesContext).get(0);
@@ -378,7 +383,7 @@ public class PlanChecker {
             }
         }
 
-        for (Group childGroup : groupExpression.children()) {
+        for (Group childGroup : groupExpression.get().children()) {
             applyExploration(childGroup, rule);
         }
     }
