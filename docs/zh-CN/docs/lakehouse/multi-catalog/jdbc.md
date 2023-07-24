@@ -695,3 +695,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 12. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
     
     下载 [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) 并放到 Doris FE 的 lib 目录以及 BE 的 lib/java_extensions 目录 (Doris 2.0 之前的版本需放到 BE 的 lib 目录下) 下即可。
+
+13. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
+    
+    可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。
