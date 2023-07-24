@@ -350,7 +350,7 @@ public class ConnectProcessor {
 
     // Process COM_QUERY statement,
     // only throw an exception when there is a problem interacting with the requesting client
-    private void handleQuery() {
+    private void handleQuery(MysqlCommand mysqlCommand) {
         MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
@@ -372,7 +372,8 @@ public class ConnectProcessor {
         Exception nereidsParseException = null;
         List<StatementBase> stmts = null;
 
-        if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
+        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
+        if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
                 stmts = new NereidsParser().parseSQL(originStmt);
                 for (StatementBase stmt : stmts) {
@@ -587,7 +588,7 @@ public class ConnectProcessor {
                 ctx.initTracer("trace");
                 Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
                 try (Scope scope = rootSpan.makeCurrent()) {
-                    handleQuery();
+                    handleQuery(command);
                 } catch (Exception e) {
                     rootSpan.recordException(e);
                     throw e;
