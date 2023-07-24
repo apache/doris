@@ -276,9 +276,10 @@ Status RowsetBuilder::close() {
             RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
                                                                          _delete_bitmap));
         }
-        RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                _cur_rowset, _rowset_ids, _delete_bitmap, segments, _context.txn_id,
-                _rowset_writer.get()));
+        // TODO: FIXME
+        //RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
+        //        _cur_rowset, _rowset_ids, _delete_bitmap, segments, _context.txn_id,
+        //        _calc_delete_bitmap_token.get(), nullptr));
     }
     Status res = _storage_engine->txn_manager()->commit_txn(
             _context.partition_id, _tablet, _context.txn_id, _context.load_id, _cur_rowset, false);
