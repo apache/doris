@@ -809,7 +809,10 @@ public class ReportHandler extends Daemon {
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),
                                             olapTable.enableSingleReplicaCompaction(),
-                                            olapTable.skipWriteIndexOnLoad(),
+                                            olapTable.skipWriteIndexOnLoad(), olapTable.compactionPolicy(),
+                                            olapTable.timeSeriesCompactionGoalSizeMbytes(),
+                                            olapTable.timeSeriesCompactionFileCountThreshold(),
+                                            olapTable.timeSeriesCompactionTimeThresholdSeconds(),
                                             olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
                                             binlogConfig);
 

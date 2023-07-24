@@ -52,6 +52,7 @@
 #include "olap/cold_data_compaction.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segcompaction.h"
@@ -833,7 +834,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
-                    &disk_max_score, _cumulative_compaction_policy);
+                    &disk_max_score, _all_cumulative_compaction_policy);
             if (tablet != nullptr) {
                 if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                     if (need_pick_tablet) {
@@ -863,9 +864,12 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 }
 
 void StorageEngine::_update_cumulative_compaction_policy() {
-    if (_cumulative_compaction_policy == nullptr) {
-        _cumulative_compaction_policy =
-                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+    if (_all_cumulative_compaction_policy.size() < 2) {
+        _all_cumulative_compaction_policy[CUMULATIVE_SIZE_BASED_POLICY] =
+                CumulativeCompactionPolicyFactory::create_size_based_cumulative_compaction_policy();
+        _all_cumulative_compaction_policy[CUMULATIVE_TIME_SERIES_POLICY] =
+                CumulativeCompactionPolicyFactory::
+                        create_time_series_cumulative_compaction_policy();
     }
 }
 
@@ -976,7 +980,14 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
                                              bool force) {
     _update_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr) {
-        tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
+        if (tablet->tablet_meta()->tablet_schema()->compaction_policy() ==
+            CUMULATIVE_TIME_SERIES_POLICY) {
+            tablet->set_cumulative_compaction_policy(
+                    _all_cumulative_compaction_policy[CUMULATIVE_TIME_SERIES_POLICY]);
+        } else {
+            tablet->set_cumulative_compaction_policy(
+                    _all_cumulative_compaction_policy[CUMULATIVE_SIZE_BASED_POLICY]);
+        }
     }
     tablet->set_skip_compaction(false);
     return _submit_compaction_task(tablet, compaction_type, force);
