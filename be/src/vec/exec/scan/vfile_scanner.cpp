@@ -247,17 +247,6 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             SCOPED_TIMER(_get_block_timer);
 
             // Read next block.
-
-            if (_parent->push_down_agg_type_opt != TPushAggOp::type ::NONE) {
-                //Prevent FE  misjudging the "select count/min/max ..." statement
-                if (Status::OK() == _cur_reader->get_next_block(_src_block_ptr, &read_rows,
-                                                                &_cur_reader_eof,
-                                                                _parent->push_down_agg_type_opt)) {
-                    _cur_reader.reset(nullptr);
-                    _cur_reader_eof = true;
-                    return Status::OK();
-                }
-            }
             // Some of column in block may not be filled (column not exist in file)
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
@@ -723,6 +712,7 @@ Status VFileScanner::_get_next_reader() {
         _name_to_col_type.clear();
         _missing_cols.clear();
         _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
+        _cur_reader->set_push_down_agg_type(_parent->get_push_down_agg_type());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;

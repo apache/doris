@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
@@ -77,9 +76,8 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     @Override
     protected void toThrift(TPlanNode planNode) {
-        if (pushDownAggNoGroupingOp != TPushAggOp.NONE) {
-            planNode.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
-        }
+        planNode.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+
         planNode.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
         TFileScanNode fileScanNode = new TFileScanNode();
         fileScanNode.setTupleId(desc.getId().asInt());

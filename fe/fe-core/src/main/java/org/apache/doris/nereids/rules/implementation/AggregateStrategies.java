@@ -43,8 +43,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -60,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -125,13 +124,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         logicalFileScan()
                     )
                 )
-                .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
-                .thenApply(ctx -> {
-                    LogicalAggregate<LogicalProject<LogicalFileScan>> agg = ctx.root;
-                    LogicalProject<LogicalFileScan> project = agg.child();
-                    LogicalFileScan fileScan = project.child();
-                    return storageLayerAggregate(agg, project, fileScan, ctx.cascadesContext);
-                })
+                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                    .thenApply(ctx -> {
+                        LogicalAggregate<LogicalProject<LogicalFileScan>> agg = ctx.root;
+                        LogicalProject<LogicalFileScan> project = agg.child();
+                        LogicalFileScan fileScan = project.child();
+                        return storageLayerAggregate(agg, project, fileScan, ctx.cascadesContext);
+                    })
             ),
             RuleType.ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
@@ -208,14 +207,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private LogicalAggregate<? extends Plan> storageLayerAggregate(
             LogicalAggregate<? extends Plan> aggregate,
             @Nullable LogicalProject<? extends Plan> project,
-            LogicalOlapScan olapScan, CascadesContext cascadesContext) {
+            LogicalRelation logicalScan, CascadesContext cascadesContext) {
         final LogicalAggregate<? extends Plan> canNotPush = aggregate;
 
-        KeysType keysType = olapScan.getTable().getKeysType();
-        if (keysType != KeysType.AGG_KEYS && keysType != KeysType.DUP_KEYS) {
+        if (!(logicalScan instanceof LogicalOlapScan) && !(logicalScan instanceof LogicalFileScan)) {
             return canNotPush;
         }
 
+        if (logicalScan instanceof LogicalOlapScan) {
+            KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
+            if (keysType != KeysType.AGG_KEYS && keysType != KeysType.DUP_KEYS) {
+                return canNotPush;
+            }
+        }
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         if (!groupByExpressions.isEmpty() || !aggregate.getDistinctArguments().isEmpty()) {
             return canNotPush;
@@ -231,8 +235,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         if (!supportedAgg.keySet().containsAll(functionClasses)) {
             return canNotPush;
         }
-        if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
-            return canNotPush;
+        if (logicalScan instanceof LogicalOlapScan) {
+            KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
+            if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
+                return canNotPush;
+            }
         }
         if (aggregateFunctions.stream().anyMatch(fun -> fun.arity() > 1)) {
             return canNotPush;
@@ -299,12 +306,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 ExpressionUtils.collect(argumentsOfAggregateFunction, SlotReference.class::isInstance);
 
         List<SlotReference> usedSlotInTable = (List<SlotReference>) (List) Project.findProject(aggUsedSlots,
-                (List<NamedExpression>) (List) olapScan.getOutput());
+                (List<NamedExpression>) (List) logicalScan.getOutput());
 
         for (SlotReference slot : usedSlotInTable) {
             Column column = slot.getColumn().get();
-            if (keysType == KeysType.AGG_KEYS && !column.isKey()) {
-                return canNotPush;
+            if (logicalScan instanceof LogicalOlapScan) {
+                KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
+                if (keysType == KeysType.AGG_KEYS && !column.isKey()) {
+                    return canNotPush;
+                }
             }
             // The zone map max length of CharFamily is 512, do not
             // over the length: https://github.com/apache/doris/pull/6293
@@ -328,148 +338,41 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
         }
 
-        PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
-                .build()
-                .transform(olapScan, cascadesContext)
-                .get(0);
-        if (project != null) {
-            return aggregate.withChildren(ImmutableList.of(
+        if (logicalScan instanceof LogicalOlapScan) {
+            PhysicalOlapScan physicalScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+                    .build()
+                    .transform((LogicalOlapScan) logicalScan, cascadesContext)
+                    .get(0);
+
+            if (project != null) {
+                return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                            ImmutableList.of(new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)))
-            ));
-        } else {
-            return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)
-            ));
-        }
-    }
-    /**
-     * sql: select count(*) from tbl
-     * <p>
-     * before:
-     * <p>
-     *               LogicalAggregate(groupBy=[], output=[count(*)])
-     *                                |
-     *                       LogicalFileScan(table=tbl)
-     * <p>
-     * after:
-     * <p>
-     *               LogicalAggregate(groupBy=[], output=[count(*)])
-     *                                |
-     *        PhysicalStorageLayerAggregate(pushAggOp=COUNT, table=PhysicalFileScan(table=tbl))
-     *
-     */
-
-    private LogicalAggregate<? extends Plan> storageLayerAggregate(
-            LogicalAggregate<? extends Plan> aggregate,
-            @Nullable LogicalProject<? extends Plan> project,
-            LogicalFileScan fileScan, CascadesContext cascadesContext) {
-        final LogicalAggregate<? extends Plan> canNotPush = aggregate;
-        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
-        if (!groupByExpressions.isEmpty() || !aggregate.getDistinctArguments().isEmpty()) {
-            return canNotPush;
-        }
-
-        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
-        Set<Class<? extends AggregateFunction>> functionClasses = aggregateFunctions
-                .stream()
-                .map(AggregateFunction::getClass)
-                .collect(Collectors.toSet());
-
-        Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedAgg = PushDownAggOp.supportedFunctions();
-        if (!supportedAgg.keySet().containsAll(functionClasses)) {
-            return canNotPush;
-        }
-
-        if (functionClasses.contains(Min.class) || functionClasses.contains(Max.class)) {
-            return canNotPush;
-        }
-
-        if (aggregateFunctions.stream().anyMatch(fun -> fun.arity() > 1)) {
-            return canNotPush;
-        }
-
-        // TODO: refactor this to process slot reference or expression together
-        boolean onlyContainsSlotOrNumericCastSlot = aggregateFunctions.stream()
-                .map(ExpressionTrait::getArguments)
-                .flatMap(List::stream)
-                .allMatch(argument -> {
-                    if (argument instanceof SlotReference) {
-                        return true;
-                    }
-                    if (argument instanceof Cast) {
-                        return argument.child(0) instanceof SlotReference
-                            && argument.getDataType().isNumericType()
-                            && argument.child(0).getDataType().isNumericType();
-                    }
-                    return false;
-                });
-        if (!onlyContainsSlotOrNumericCastSlot) {
-            return canNotPush;
-        }
-
-        // we already normalize the arguments to slotReference
-        List<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
-                .flatMap(aggregateFunction -> aggregateFunction.getArguments().stream())
-                .collect(ImmutableList.toImmutableList());
-
-        if (project != null) {
-            argumentsOfAggregateFunction = Project.findProject(
-                    (List<SlotReference>) (List) argumentsOfAggregateFunction, project.getProjects())
-                .stream()
-                .map(p -> p instanceof Alias ? p.child(0) : p)
-                .collect(ImmutableList.toImmutableList());
-        }
-
-        onlyContainsSlotOrNumericCastSlot = argumentsOfAggregateFunction
-            .stream()
-            .allMatch(argument -> {
-                if (argument instanceof SlotReference) {
-                    return true;
-                }
-                if (argument instanceof Cast) {
-                    return argument.child(0) instanceof SlotReference
-                        && argument.getDataType().isNumericType()
-                        && argument.child(0).getDataType().isNumericType();
-                }
-                return false;
-            });
-        if (!onlyContainsSlotOrNumericCastSlot) {
-            return canNotPush;
-        }
-
-        Set<PushDownAggOp> pushDownAggOps = functionClasses.stream()
-                .map(supportedAgg::get)
-                .collect(Collectors.toSet());
-
-        PushDownAggOp aggOp = pushDownAggOps.iterator().next();
-
-        Set<SlotReference> aggUsedSlots =
-                ExpressionUtils.collect(argumentsOfAggregateFunction, SlotReference.class::isInstance);
-
-        List<SlotReference> usedSlotInTable = (List<SlotReference>) (List) Project.findProject(aggUsedSlots,
-                (List<NamedExpression>) (List) fileScan.getOutput());
-
-        for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getColumn().get();
-            if (column.isAllowNull()) {
-                return canNotPush;
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                ));
+            } else {
+                return aggregate.withChildren(ImmutableList.of(
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                ));
             }
-        }
 
-        PhysicalFileScan physicalfileScan = (PhysicalFileScan) new LogicalFileScanToPhysicalFileScan()
-                .build()
-                .transform(fileScan, cascadesContext)
-                .get(0);
-        if (project != null) {
-            return aggregate.withChildren(ImmutableList.of(
-                project.withChildren(
-                    ImmutableList.of(new PhysicalStorageLayerAggregate(physicalfileScan, aggOp)))
-            ));
+        } else if (logicalScan instanceof LogicalFileScan) {
+            PhysicalFileScan physicalScan = (PhysicalFileScan) new LogicalFileScanToPhysicalFileScan()
+                    .build()
+                    .transform((LogicalFileScan) logicalScan, cascadesContext)
+                    .get(0);
+            if (project != null) {
+                return aggregate.withChildren(ImmutableList.of(
+                    project.withChildren(
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                ));
+            } else {
+                return aggregate.withChildren(ImmutableList.of(
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                ));
+            }
+
         } else {
-            return aggregate.withChildren(ImmutableList.of(
-                new PhysicalStorageLayerAggregate(physicalfileScan, aggOp)
-            ));
+            return canNotPush;
         }
     }
 

@@ -636,11 +636,12 @@ struct TOlapScanNode {
   // It's limit for scanner instead of scanNode so we add a new limit.
   10: optional i64 sort_limit
   11: optional bool enable_unique_key_merge_on_write
-  12: optional bool use_topn_opt
-  13: optional list<Descriptors.TOlapTableIndex> indexes_desc
-  14: optional set<i32> output_column_unique_ids
-  15: optional list<i32> distribute_column_ids
-  16: optional i32 schema_version
+  12: optional TPushAggOp push_down_agg_type_opt //Deprecated
+  13: optional bool use_topn_opt
+  14: optional list<Descriptors.TOlapTableIndex> indexes_desc
+  15: optional set<i32> output_column_unique_ids
+  16: optional list<i32> distribute_column_ids
+  17: optional i32 schema_version
 }
 
 struct TEqJoinCondition {

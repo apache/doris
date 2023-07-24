@@ -135,6 +135,7 @@ public:
         }
     }
 
+    TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
@@ -351,8 +352,7 @@ protected:
     std::unordered_map<std::string, int> _colname_to_slot_id;
     std::vector<int> _col_distribute_ids;
 
-public:
-    TPushAggOp::type push_down_agg_type_opt;
+    TPushAggOp::type _push_down_agg_type;
 
 private:
     Status _normalize_conjuncts();

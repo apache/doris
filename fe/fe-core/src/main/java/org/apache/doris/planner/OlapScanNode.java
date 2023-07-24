@@ -78,7 +78,6 @@ import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPrimitiveType;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -101,6 +100,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -355,7 +355,8 @@ public class OlapScanNode extends ScanNode {
             return;
         }
         Expr vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts).replaceSubPredicate(whereExpr);
-        conjuncts = splitAndCompoundPredicateToConjuncts(vconjunct).stream().collect(Collectors.toList());
+        conjuncts = splitAndCompoundPredicateToConjuncts(vconjunct).stream().filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -1360,9 +1361,10 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
-        if (pushDownAggNoGroupingOp != TPushAggOp.NONE) {
-            msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
-        }
+        msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+
+        msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        // In TOlapScanNode , pushDownAggNoGroupingOp field is deprecated.
 
         if (outputColumnUniqueIds != null) {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
