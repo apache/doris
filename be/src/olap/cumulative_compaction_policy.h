@@ -176,8 +176,10 @@ class CumulativeCompactionPolicyFactory {
 public:
     /// Static factory function. It can product different policy according to the `policy` parameter and use tablet ptr
     /// to construct the policy. Now it can product size based and num based policies.
-    static std::shared_ptr<CumulativeCompactionPolicy> create_size_based_cumulative_compaction_policy();
-    static std::shared_ptr<CumulativeCompactionPolicy> create_time_series_cumulative_compaction_policy();
+    static std::shared_ptr<CumulativeCompactionPolicy>
+    create_size_based_cumulative_compaction_policy();
+    static std::shared_ptr<CumulativeCompactionPolicy>
+    create_time_series_cumulative_compaction_policy();
 };
 
 } // namespace doris
