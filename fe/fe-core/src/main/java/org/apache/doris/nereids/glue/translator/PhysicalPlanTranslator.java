@@ -1861,6 +1861,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private PartitionSortNode translatePartitionSortNode(PhysicalPartitionTopN<? extends Plan> partitionTopN,
             PlanNode childNode, PlanTranslatorContext context) {
+        List<Expr> partitionExprs = partitionTopN.getPartitionKeys().stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                .collect(Collectors.toList());
+        // partition key should on child tuple, sort key should on partition top's tuple
         TupleDescriptor sortTuple = generateTupleDesc(partitionTopN.child().getOutput(), null, context);
         List<Expr> orderingExprs = Lists.newArrayList();
         List<Boolean> ascOrders = Lists.newArrayList();
@@ -1871,9 +1875,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             ascOrders.add(k.isAsc());
             nullsFirstParams.add(k.isNullFirst());
         });
-        List<Expr> partitionExprs = partitionTopN.getPartitionKeys().stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .collect(Collectors.toList());
         SortInfo sortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, sortTuple);
         PartitionSortNode partitionSortNode = new PartitionSortNode(context.nextPlanNodeId(), childNode,
                 partitionTopN.getFunction(), partitionExprs, sortInfo, partitionTopN.hasGlobalLimit(),
