@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
@@ -49,8 +51,17 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
             return relation;
         }
         String tableName = table.getName();
-        String dbName = table.getDatabase().getFullName();
-        String ctlName = table.getDatabase().getCatalog().getName();
+        DatabaseIf db = table.getDatabase();
+        // when table inatanceof FunctionGenTable,db will be null
+        if (db == null) {
+            return relation;
+        }
+        String dbName = db.getFullName();
+        CatalogIf catalog = db.getCatalog();
+        if (catalog == null) {
+            return relation;
+        }
+        String ctlName = catalog.getName();
         // TODO: 2023/7/19 checkColumnsPriv
         if (!connectContext.getEnv().getAccessManager().checkTblPriv(connectContext, ctlName, dbName,
                 tableName, PrivPredicate.SELECT)) {
