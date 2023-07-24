@@ -149,7 +149,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        if (Config.mt_enable_parallel_publish) {
+        if (Config.enable_parallel_publish) {
             if (!handlerStarted) {
                 startHandlers();
             }
@@ -214,7 +214,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             if (!stateBatches.isEmpty()) {
                 return false;
             }
-            return (System.currentTimeMillis() - lastVisitTime) / 1000 > Config.mt_publish_table_idle_time_secs;
+            return (System.currentTimeMillis() - lastVisitTime) / 1000 > Config.publish_table_idle_time_secs;
         }
     }
 
@@ -271,9 +271,10 @@ public class PublishVersionDaemon extends MasterDaemon {
         public PublishItem getPublishItem() throws InterruptedException {
             String name = Thread.currentThread().getName();
             long timeMillis = System.currentTimeMillis();
-            LOG.debug("{} get lock for getPublishItem", name);
             lock.lock();
-            LOG.debug("{} get lock spent {} for getPublishItem", name, System.currentTimeMillis() - timeMillis);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("{} get lock spent {} for getPublishItem", name, System.currentTimeMillis() - timeMillis);
+            }
             try {
                 long s1 = System.currentTimeMillis();
                 int size = pendingTransactions.size();
@@ -291,16 +292,20 @@ public class PublishVersionDaemon extends MasterDaemon {
                         publishItem.setRunning(true);
                         result = publishItem;
                         idx = index;
-                        LOG.debug("{} get {} publish transactions. current index : {}/{}",
-                                Thread.currentThread().getName(), publishItem.getTables(),
-                                idx == 0 ? size - 1 : idx - 1, size);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("{} get {} publish transactions. current index : {}/{}",
+                                    Thread.currentThread().getName(), publishItem.getTables(),
+                                    idx == 0 ? size - 1 : idx - 1, size);
+                        }
                         break;
                     }
                     if (index == idx) {
                         break;
                     }
                 }
-                LOG.debug("{} get publish item spent {}", name, System.currentTimeMillis() - s1);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("{} get publish item spent {}", name, System.currentTimeMillis() - s1);
+                }
                 if (Objects.isNull(result)) {
                     condition.await();
                 }
@@ -388,8 +393,10 @@ public class PublishVersionDaemon extends MasterDaemon {
                         TransactionState state = it.next();
                         tryFinishTransaction(state);
                         if (state.isVisible() || state.isAborted()) {
-                            LOG.debug("{} remove transaction state txn id {} | {}", getName(),
-                                    state.getTransactionId(), state.getTransactionStatus());
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("{} remove transaction state txn id {} | {}", getName(),
+                                        state.getTransactionId(), state.getTransactionStatus());
+                            }
                             it.remove();
                         } else {
                             break;
@@ -397,11 +404,15 @@ public class PublishVersionDaemon extends MasterDaemon {
                     }
                 } finally {
                     if (states.isEmpty()) {
-                        LOG.debug("{} pop transaction state batch", getName());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("{} pop transaction state batch", getName());
+                        }
                         publishItem.popBatch();
                     }
                     publishItem.setRunning(false);
-                    LOG.debug("{} have {} txn", publishItem.getTables(), publishItem.getBatches().size());
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("{} have {} txn", publishItem.getTables(), publishItem.getBatches().size());
+                    }
                 }
             }
         }
@@ -409,7 +420,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     private void startHandlers() throws Exception {
         stopHandlers();
-        int handlerCount = Config.mt_parallel_publish_thread_num;
+        int handlerCount = Config.parallel_publish_thread_num;
         handlers = new Handler[handlerCount];
         for (int i = 0; i < handlerCount; i++) {
             handlers[i] = new Handler(i);
@@ -539,8 +550,10 @@ public class PublishVersionDaemon extends MasterDaemon {
                 long nanoTime = System.nanoTime();
                 globalTransactionMgr.finishTransaction(transactionState.getDbId(),
                         transactionState.getTransactionId(), publishErrorReplicaIds);
-                LOG.debug("finish transaction {} spent {} ms", transactionState.getTransactionId(),
-                        (System.nanoTime() - nanoTime) / 1000000L);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("finish transaction {} spent {} ms", transactionState.getTransactionId(),
+                            (System.nanoTime() - nanoTime) / 1000000L);
+                }
             } catch (Exception e) {
                 LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
             }

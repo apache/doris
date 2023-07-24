@@ -2050,12 +2050,12 @@ public class Config extends ConfigBase {
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean mt_enable_parallel_publish = false;
+    public static boolean enable_parallel_publish = false;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int mt_parallel_publish_thread_num = 3;
+    public static int parallel_publish_thread_num = 3;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int mt_publish_table_idle_time_secs = 172800;
+    public static int publish_table_idle_time_secs = 172800;
 
 }
