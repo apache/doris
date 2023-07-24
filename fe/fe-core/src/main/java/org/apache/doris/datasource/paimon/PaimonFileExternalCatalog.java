@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
 import org.apache.logging.log4j.LogManager;
@@ -26,10 +25,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
-public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
-    private static final Logger LOG = LogManager.getLogger(PaimonHMSExternalCatalog.class);
 
-    public PaimonHMSExternalCatalog(long catalogId, String name, String resource,
+public class PaimonFileExternalCatalog extends PaimonExternalCatalog {
+    private static final Logger LOG = LogManager.getLogger(PaimonFileExternalCatalog.class);
+
+    public PaimonFileExternalCatalog(long catalogId, String name, String resource,
             Map<String, String> props, String comment) {
         super(catalogId, name, comment);
         catalogProperty = new CatalogProperty(resource, props);
@@ -37,13 +37,26 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        catalogType = PAIMON_HMS;
+        catalogType = PAIMON_FILESYSTEM;
         catalog = createCatalog();
     }
 
     @Override
     protected void setPaimonCatalogOptions(Map<String, String> properties, Map<String, String> options) {
-        options.put(PaimonProperties.PAIMON_CATALOG_TYPE, getPaimonCatalogType(catalogType));
-        options.put(PaimonProperties.HIVE_METASTORE_URIS, properties.get(HMSProperties.HIVE_METASTORE_URIS));
+        if (properties.containsKey(PaimonProperties.PAIMON_S3_ENDPOINT)) {
+            options.put(PaimonProperties.PAIMON_S3_ENDPOINT,
+                    properties.get(PaimonProperties.PAIMON_S3_ENDPOINT));
+            options.put(PaimonProperties.PAIMON_S3_ACCESS_KEY,
+                    properties.get(PaimonProperties.PAIMON_S3_ACCESS_KEY));
+            options.put(PaimonProperties.PAIMON_S3_SECRET_KEY,
+                    properties.get(PaimonProperties.PAIMON_S3_SECRET_KEY));
+        } else if (properties.containsKey(PaimonProperties.PAIMON_OSS_ENDPOINT)) {
+            options.put(PaimonProperties.PAIMON_OSS_ENDPOINT,
+                    properties.get(PaimonProperties.PAIMON_OSS_ENDPOINT));
+            options.put(PaimonProperties.PAIMON_OSS_ACCESS_KEY,
+                    properties.get(PaimonProperties.PAIMON_OSS_ACCESS_KEY));
+            options.put(PaimonProperties.PAIMON_OSS_SECRET_KEY,
+                    properties.get(PaimonProperties.PAIMON_OSS_SECRET_KEY));
+        }
     }
 }

@@ -19,6 +19,8 @@ package org.apache.doris.datasource.property;
 
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
@@ -30,6 +32,7 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
+import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
@@ -179,7 +182,12 @@ public class PropertyConverter {
     }
 
     private static Map<String, String> convertToS3Properties(Map<String, String> properties,
-                                                             CloudCredential credential) {
+            CloudCredential credential) {
+        // s3 property in paimon is personalized
+        String type = properties.get(CatalogMgr.CATALOG_TYPE_PROP);
+        if (type != null && type.equalsIgnoreCase(Type.PAIMON.toString())) {
+            return PaimonProperties.convertToS3Properties(properties, credential);
+        }
         Map<String, String> s3Properties = Maps.newHashMap();
         String endpoint = properties.get(S3Properties.ENDPOINT);
         s3Properties.put(Constants.ENDPOINT, endpoint);
