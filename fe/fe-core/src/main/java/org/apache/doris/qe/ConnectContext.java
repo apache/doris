@@ -264,7 +264,8 @@ public class ConnectContext {
         }
         sessionVariable = VariableMgr.newSessionVariable();
         if (isMajorVersionUpgrade) {
-            sessionVariable.parallelPipelineTaskNum = sessionVariable.parallelExecInstanceNum;
+            VariableMgr.setGlobalPipelineTask(sessionVariable.parallelExecInstanceNum);
+            sessionVariable = VariableMgr.newSessionVariable();
         }
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
