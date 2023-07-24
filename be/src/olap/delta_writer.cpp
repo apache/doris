@@ -725,4 +725,8 @@ void DeltaWriter::finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succe
     _unfinished_slave_node.erase(node_id);
 }
 
+int64_t DeltaWriter::num_rows_filtered() const {
+    return _rowset_writer == nullptr ? 0 : _rowset_writer->num_rows_filtered();
+}
+
 } // namespace doris
