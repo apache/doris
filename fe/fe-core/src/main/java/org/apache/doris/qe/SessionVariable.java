@@ -615,7 +615,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean extractWideRangeExpr = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
-    public boolean enableNereidsDML = true;
+    public boolean enableNereidsDML = false;
 
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableVectorizedEngine = true;
@@ -1086,26 +1086,21 @@ public class SessionVariable implements Serializable, Writable {
         */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
+            this.enablePipelineEngine = true;
+            this.enableNereidsPlanner = true;
+
             switch (Config.pull_request_id % 4) {
                 case 0:
-                    this.enablePipelineEngine = true;
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                    this.enableNereidsPlanner = true;
                     break;
                 case 1:
-                    this.enablePipelineEngine = true;
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                    this.enableNereidsPlanner = false;
                     break;
                 case 2:
-                    this.enablePipelineEngine = false;
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                    this.enableNereidsPlanner = true;
                     break;
                 case 3:
-                    this.enablePipelineEngine = false;
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                    this.enableNereidsPlanner = false;
                     break;
                 default:
                     break;

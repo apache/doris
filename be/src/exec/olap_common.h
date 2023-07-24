@@ -207,7 +207,7 @@ public:
             }
 
             if (null_pred.condition_values.size() != 0) {
-                filters.push_back(null_pred);
+                filters.push_back(std::move(null_pred));
                 return;
             }
 
@@ -221,7 +221,7 @@ public:
             }
 
             if (low.condition_values.size() != 0) {
-                filters.push_back(low);
+                filters.push_back(std::move(low));
             }
 
             TCondition high;
@@ -234,7 +234,7 @@ public:
             }
 
             if (high.condition_values.size() != 0) {
-                filters.push_back(high);
+                filters.push_back(std::move(high));
             }
         } else {
             // 3. convert to is null and is not null filter condition
@@ -247,7 +247,7 @@ public:
             }
 
             if (null_pred.condition_values.size() != 0) {
-                filters.push_back(null_pred);
+                filters.push_back(std::move(null_pred));
             }
         }
     }
@@ -264,7 +264,7 @@ public:
         }
 
         if (condition.condition_values.size() != 0) {
-            filters.push_back(condition);
+            filters.push_back(std::move(condition));
         }
     }
 
@@ -288,7 +288,7 @@ public:
             condition.condition_values.push_back(
                     cast_to_string<primitive_type, CppType>(value.second, _scale));
             if (condition.condition_values.size() != 0) {
-                filters.push_back(condition);
+                filters.push_back(std::move(condition));
             }
         }
     }
@@ -318,7 +318,7 @@ public:
             condition.condition_values.push_back(
                     cast_to_string<primitive_type, CppType>(value.second, _scale));
             if (condition.condition_values.size() != 0) {
-                filters.push_back(condition);
+                filters.push_back(std::move(condition));
             }
         }
     }

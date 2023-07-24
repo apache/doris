@@ -371,6 +371,10 @@ public class NativeInsertStmt extends InsertStmt {
                     targetPartitionIds.add(part.getId());
                 }
             }
+            if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                    && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+                partialUpdateCols.add(Column.SEQUENCE_COL);
+            }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
@@ -383,6 +387,7 @@ public class NativeInsertStmt extends InsertStmt {
                 slotDesc.setType(col.getType());
                 slotDesc.setColumn(col);
                 slotDesc.setIsNullable(col.isAllowNull());
+                slotDesc.setAutoInc(col.isAutoInc());
             }
         } else if (targetTable instanceof MysqlTable || targetTable instanceof OdbcTable
                 || targetTable instanceof JdbcTable) {

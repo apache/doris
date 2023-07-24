@@ -33,6 +33,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
@@ -60,6 +62,7 @@ public class RuntimeFilterContext {
     // exprId of target to runtime filter.
     private final Map<ExprId, List<RuntimeFilter>> targetExprIdToFilter = Maps.newHashMap();
 
+    private final Map<PlanNodeId, DataStreamSink> planNodeIdToCTEDataSinkMap = Maps.newHashMap();
     private final Map<Plan, List<ExprId>> joinToTargetExprId = Maps.newHashMap();
 
     // olap scan node that contains target of a runtime filter.
@@ -163,6 +166,10 @@ public class RuntimeFilterContext {
 
     public Map<ExprId, SlotRef> getExprIdToOlapScanNodeSlotRef() {
         return exprIdToOlapScanNodeSlotRef;
+    }
+
+    public Map<PlanNodeId, DataStreamSink> getPlanNodeIdToCTEDataSinkMap() {
+        return planNodeIdToCTEDataSinkMap;
     }
 
     public Map<NamedExpression, Pair<PhysicalRelation, Slot>> getAliasTransferMap() {

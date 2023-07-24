@@ -31,12 +31,15 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.planner.CTEScanNode;
+import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
@@ -122,6 +125,7 @@ public class RuntimeFilterTranslator {
                 hasInvalidTarget = true;
                 break;
             }
+            ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetExpr);
             Expr targetExpr;
             if (filter.getType() == TRuntimeFilterType.BITMAP) {
                 if (curTargetExpression.equals(curTargetExpr)) {
@@ -141,7 +145,6 @@ public class RuntimeFilterTranslator {
             SlotRef targetSlot = target.getSrcSlotRef();
             TupleId targetTupleId = targetSlot.getDesc().getParent().getId();
             SlotId targetSlotId = targetSlot.getSlotId();
-            ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(curTargetExpr);
             scanNodeList.add(scanNode);
             targetExprList.add(targetExpr);
             targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
@@ -157,7 +160,8 @@ public class RuntimeFilterTranslator {
                 //bitmap rf requires isBroadCast=false, it always requires merge filter
                 origFilter.setIsBroadcast(false);
             }
-            boolean isLocalTarget = scanNodeList.stream().allMatch(e -> e.getFragmentId().equals(node.getFragmentId()));
+            boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
+                    !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
             for (int i = 0; i < targetExprList.size(); i++) {
                 ScanNode scanNode = scanNodeList.get(i);
                 Expr targetExpr = targetExprList.get(i);
@@ -165,7 +169,15 @@ public class RuntimeFilterTranslator {
                         scanNode, targetExpr, true, isLocalTarget));
             }
             origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
-            context.getLegacyFilters().add(finalize(origFilter));
+            org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
+            scanNodeList.stream().filter(e -> e.getStatisticalType() == StatisticalType.CTE_SCAN_NODE)
+                                 .forEach(f -> {
+                                     DataStreamSink sink = context.getPlanNodeIdToCTEDataSinkMap().get(f.getId());
+                                     if (sink != null) {
+                                         sink.addRuntimeFilter(finalizedFilter);
+                                     }
+                                 });
+            context.getLegacyFilters().add(finalizedFilter);
         }
     }
 

@@ -127,14 +127,16 @@ private:
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
-    // deal with DeltaWriter close_wait(), add tablet to list for return.
-    void _close_wait(DeltaWriter* writer,
+    // deal with DeltaWriter commit_txn(), add tablet to list for return.
+    void _commit_txn(DeltaWriter* writer,
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                     google::protobuf::RepeatedPtrField<PTabletError>* tablet_error,
+                     google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                      PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
     void _build_partition_tablets_relation(const PTabletWriterOpenRequest& request);
 
     void _add_broken_tablet(int64_t tablet_id);
+    void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
+                           int64_t tablet_id, Status error);
     bool _is_broken_tablet(int64_t tablet_id);
     void _init_profile(RuntimeProfile* profile);
 
@@ -200,6 +202,8 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _max_tablet_write_memory_usage_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _max_tablet_flush_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _slave_replica_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _write_block_timer = nullptr;
 };
 
 template <typename Request>
