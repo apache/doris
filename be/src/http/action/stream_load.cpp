@@ -177,6 +177,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 
     url_decode(req->param(HTTP_DB_KEY), &ctx->db);
     url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
+
     ctx->label = req->header(HTTP_LABEL_KEY);
     if (ctx->label.empty()) {
         ctx->label = generate_uuid_string();
@@ -218,6 +219,11 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
         return Status::InternalError("no valid Basic authorization");
+    }
+
+    if (config::check_stream_load_request_fields) {
+        // all available request fields should be registered in kStreamLoadAvailableRequestFields
+        RETURN_IF_ERROR(_is_headers_valid(http_req->headers()));
     }
 
     // get format of this put
@@ -604,6 +610,16 @@ void StreamLoadAction::_save_stream_load_record(std::shared_ptr<StreamLoadContex
     } else {
         LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
     }
+}
+
+Status StreamLoadAction::_is_headers_valid(const StringCaseUnorderedMap<std::string>& headers) {
+    for (auto&& [field, _] : headers) {
+        if (!kAvailableStreamLoadRequestFields.contains(field)) {
+            return Status::InvalidArgument("http request field `{}` not support in stream load.",
+                                           field);
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris

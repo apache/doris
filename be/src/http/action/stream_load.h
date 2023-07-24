@@ -20,8 +20,10 @@
 #include <memory>
 #include <string>
 
+#include "http/http_common.h"
 #include "http/http_handler.h"
 #include "util/metrics.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -49,6 +51,7 @@ private:
     Status _handle(std::shared_ptr<StreamLoadContext> ctx);
     Status _data_saved_path(HttpRequest* req, std::string* file_path);
     Status _process_put(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
+    Status _is_headers_valid(const StringCaseUnorderedMap<std::string>& headers);
     void _save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx, const std::string& str);
 
 private:

@@ -942,5 +942,47 @@ suite("test_stream_load", "p0") {
     // parse k1 default value
     assertEquals(res[0][0], 1)
     assertEquals(res[1][0], 1)
+
+    sql "sync"
+    def tableName15 = "test_invalid_header"
+
+    sql """ DROP TABLE IF EXISTS ${tableName15} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName15} (
+          `id` int(11) NULL,
+          `value` varchar(64) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    streamLoad {
+        table "${tableName15}"
+
+        set 'line_delimiter', 'weizuo'
+        set 'column_separator', '|'
+        set 'columns', 'id, value'
+        set 'invalid_request_field', 'this_is_an_invalid_request_field'
+
+        file 'test_line_delimiter.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("[INVALID_ARGUMENT]http request field `invalid_request_field` not support in stream load.", json.Message)
+        }
+    }
 }
 
