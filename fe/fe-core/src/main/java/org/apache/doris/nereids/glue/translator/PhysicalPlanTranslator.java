@@ -331,6 +331,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.isSingleReplicaLoad()
         );
 
+        if (olapTableSink.isPartialUpdate()) {
+            HashSet<String> partialUpdateCols = new HashSet<String>();
+            for (Column col : olapTableSink.getCols()) {
+                partialUpdateCols.add(col.getName());
+            }
+            sink.setPartialUpdateInputColumns(true, partialUpdateCols);
+        }
+
         rootFragment.setSink(sink);
 
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
