@@ -68,4 +68,9 @@ suite("analyze_agg") {
                  tt2.d,
                  tt2.c;
     """
+
+    test {
+        sql "select count(distinct t2.id), max(distinct t2.c) from t2"
+        exception "max(DISTINCT c#2) can't support multi distinct."
+    }
 }
