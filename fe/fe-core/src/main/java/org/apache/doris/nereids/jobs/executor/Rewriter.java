@@ -40,6 +40,7 @@ import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
+import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -74,6 +75,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
+import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
@@ -262,7 +264,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             //       PhysicalLimits with gather exchange
                             new SplitLimit(),
                             new PruneOlapScanPartition(),
-                            new PruneFileScanPartition()
+                            new PruneFileScanPartition(),
+                            new PushConjunctsIntoJdbcScan()
                     )
             ),
             topic("MV optimization",
@@ -289,6 +292,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                             new CheckMatchExpression(),
+                            new CheckMultiDistinct(),
                             new CheckAfterRewrite()
                     )
             ),

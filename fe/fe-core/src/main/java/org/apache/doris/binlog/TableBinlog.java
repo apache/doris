@@ -77,7 +77,6 @@ public class TableBinlog {
         try {
             binlogs.add(binlog);
             ++binlog.table_ref;
-            LOG.info("[deadlinefen] after add, table {} binlogs: {}", tableId, binlogs);
         } finally {
             lock.writeLock().unlock();
         }
@@ -154,18 +153,10 @@ public class TableBinlog {
 
         TBinlog lastUpsertBinlog = tombstoneInfo.first;
         long largestCommitSeq = tombstoneInfo.second;
-        BinlogTombstone tombstone = new BinlogTombstone(-1, largestCommitSeq);
+        BinlogTombstone tombstone = new BinlogTombstone(tableId, largestCommitSeq);
         if (lastUpsertBinlog != null) {
             UpsertRecord upsertRecord = UpsertRecord.fromJson(lastUpsertBinlog.getData());
             tombstone.addTableRecord(tableId, upsertRecord);
-        }
-
-        lock.readLock().lock();
-        try {
-            LOG.info("[deadlinefen] after gc, table {} binlogs: {}, tombstone.seq: {}",
-                    tableId, binlogs, tombstone.getCommitSeq());
-        } finally {
-            lock.readLock().unlock();
         }
 
         return tombstone;
@@ -191,7 +182,6 @@ public class TableBinlog {
             return null;
         }
 
-        long dbId = db.getId();
         long ttlSeconds = table.getBinlogConfig().getTtlSeconds();
         long expiredMs = BinlogUtils.getExpiredMs(ttlSeconds);
 
@@ -217,20 +207,11 @@ public class TableBinlog {
 
         TBinlog lastUpsertBinlog = tombstoneInfo.first;
         long largestCommitSeq = tombstoneInfo.second;
-        BinlogTombstone tombstone = new BinlogTombstone(dbId, tableId, largestCommitSeq);
+        BinlogTombstone tombstone = new BinlogTombstone(tableId, largestCommitSeq);
         if (lastUpsertBinlog != null) {
             UpsertRecord upsertRecord = UpsertRecord.fromJson(lastUpsertBinlog.getData());
             tombstone.addTableRecord(tableId, upsertRecord);
         }
-
-        lock.readLock().lock();
-        try {
-            LOG.info("[deadlinefen] after gc, table {} binlogs: {}, tombstone.seq: {}",
-                    tableId, binlogs, tombstone.getCommitSeq());
-        } finally {
-            lock.readLock().unlock();
-        }
-
 
         return tombstone;
     }
@@ -238,14 +219,24 @@ public class TableBinlog {
     public void replayGc(long largestExpiredCommitSeq) {
         lock.writeLock().lock();
         try {
+            long lastSeq = -1;
             Iterator<TBinlog> iter = binlogs.iterator();
+            TBinlog dummyBinlog = iter.next();
+
             while (iter.hasNext()) {
                 TBinlog binlog = iter.next();
-                if (binlog.getCommitSeq() <= largestExpiredCommitSeq) {
+                long commitSeq = binlog.getCommitSeq();
+                if (commitSeq <= largestExpiredCommitSeq) {
+                    lastSeq = commitSeq;
+                    --binlog.table_ref;
                     iter.remove();
                 } else {
                     break;
                 }
+            }
+
+            if (lastSeq != -1) {
+                dummyBinlog.setCommitSeq(lastSeq);
             }
         } finally {
             lock.writeLock().unlock();

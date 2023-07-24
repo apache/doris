@@ -740,7 +740,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         db.writeLock();
         try {
-            db.dropTable(table.getName());
+            db.dropTableForReplay(table.getName());
             db.setLastUpdateTime(log.getLastUpdateTime());
         } finally {
             db.writeUnlock();
@@ -811,7 +811,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         db.writeLock();
         try {
-            db.replayCreateTableFromEvent(log.getTableName(), log.getTableId());
+            db.createTableForReplay(log.getTableName(), log.getTableId());
             db.setLastUpdateTime(log.getLastUpdateTime());
         } finally {
             db.writeUnlock();
@@ -857,7 +857,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 LOG.warn("No db found with id:[{}], it may have been dropped.", log.getDbId());
                 return;
             }
-            catalog.dropDatabase(db.getFullName());
+            catalog.dropDatabaseForReplay(db.getFullName());
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(catalog.getId(), db.getFullName());
         } finally {
             writeUnlock();
@@ -898,7 +898,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 LOG.warn("No catalog found with id:[{}], it may have been dropped.", log.getCatalogId());
                 return;
             }
-            catalog.createDatabase(log.getDbId(), log.getDbName());
+            catalog.createDatabaseForReplay(log.getDbId(), log.getDbName());
         } finally {
             writeUnlock();
         }

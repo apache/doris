@@ -57,7 +57,7 @@ suite("test_push_conjuncts_inlineview") {
                     )a
                 where
                     a.px = 1;""")
-        contains "4:VSELECT"
+        contains "5:VSELECT"
     }
 
 explain {
