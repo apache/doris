@@ -1736,15 +1736,7 @@ public class FunctionCallExpr extends Expr {
             this.type = fn.getReturnType();
         }
 
-        if (this.type.isDecimalV2() && ROUND_FUNCTION_SET.contains(fn.getFunctionName().getFunction())) {
-            int scaleArg = 0;
-            if (children.size() == 2) {
-                scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
-            }
-            this.type = ScalarType.createDecimalType(PrimitiveType.DECIMALV2,
-                    scaleArg + ScalarType.MAX_DECIMALV2_PRECISION - ScalarType.MAX_DECIMALV2_SCALE,
-                    scaleArg);
-        } else if (this.type.isDecimalV2()) {
+        if (this.type.isDecimalV2()) {
             this.type = Type.MAX_DECIMALV2_TYPE;
             fn.setReturnType(Type.MAX_DECIMALV2_TYPE);
         }
