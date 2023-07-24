@@ -267,6 +267,21 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
 
+    if (tablet_schema.__isset.compaction_policy) {
+        schema->set_compaction_policy(tablet_schema.compaction_policy);
+    }
+    if (tablet_schema.__isset.time_series_compaction_goal_size_mbytes) {
+        schema->set_time_series_compaction_goal_size_mbytes(
+                tablet_schema.time_series_compaction_goal_size_mbytes);
+    }
+    if (tablet_schema.__isset.time_series_compaction_file_count_threshold) {
+        schema->set_time_series_compaction_file_count_threshold(
+                tablet_schema.time_series_compaction_file_count_threshold);
+    }
+    if (tablet_schema.__isset.time_series_compaction_time_threshold_seconds) {
+        schema->set_time_series_compaction_time_threshold_seconds(
+                tablet_schema.time_series_compaction_time_threshold_seconds);
+    }
     if (binlog_config.has_value()) {
         BinlogConfig tmp_binlog_config;
         tmp_binlog_config = binlog_config.value();

@@ -40,6 +40,7 @@
 #include "gutil/strings/strcat.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -678,7 +679,8 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
         const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
-        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+        const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
+                all_cumulative_compaction_policy) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
@@ -729,7 +731,11 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                     continue;
                 }
             }
-
+            auto cumulative_compaction_policy =
+                    tablet_ptr->tablet_meta()->tablet_schema()->compaction_policy() ==
+                                    CUMULATIVE_TIME_SERIES_POLICY
+                            ? all_cumulative_compaction_policy.at(CUMULATIVE_TIME_SERIES_POLICY)
+                            : all_cumulative_compaction_policy.at(CUMULATIVE_SIZE_BASED_POLICY);
             uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
                     compaction_type, cumulative_compaction_policy);
             if (current_compaction_score < 5) {

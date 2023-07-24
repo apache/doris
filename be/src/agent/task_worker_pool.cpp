@@ -433,6 +433,63 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 tablet->tablet_schema_unlocked()->set_is_in_memory(tablet_meta_info.is_in_memory);
                 need_to_save = true;
             }
+            if (tablet_meta_info.__isset.compaction_policy) {
+                tablet->tablet_meta()->mutable_tablet_schema()->set_compaction_policy(
+                        tablet_meta_info.compaction_policy);
+                std::shared_lock rlock(tablet->get_header_lock());
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_compaction_policy(
+                            tablet_meta_info.compaction_policy);
+                }
+                tablet->tablet_schema_unlocked()->set_compaction_policy(
+                        tablet_meta_info.compaction_policy);
+                need_to_save = true;
+            }
+            if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes &&
+                tablet_meta_info.time_series_compaction_goal_size_mbytes != -1) {
+                tablet->tablet_meta()
+                        ->mutable_tablet_schema()
+                        ->set_time_series_compaction_goal_size_mbytes(
+                                tablet_meta_info.time_series_compaction_goal_size_mbytes);
+                std::shared_lock rlock(tablet->get_header_lock());
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_time_series_compaction_goal_size_mbytes(
+                            tablet_meta_info.time_series_compaction_goal_size_mbytes);
+                }
+                tablet->tablet_schema_unlocked()->set_time_series_compaction_goal_size_mbytes(
+                        tablet_meta_info.time_series_compaction_goal_size_mbytes);
+                need_to_save = true;
+            }
+            if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold &&
+                tablet_meta_info.time_series_compaction_file_count_threshold != -1) {
+                tablet->tablet_meta()
+                        ->mutable_tablet_schema()
+                        ->set_time_series_compaction_file_count_threshold(
+                                tablet_meta_info.time_series_compaction_file_count_threshold);
+                std::shared_lock rlock(tablet->get_header_lock());
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_time_series_compaction_file_count_threshold(
+                            tablet_meta_info.time_series_compaction_file_count_threshold);
+                }
+                tablet->tablet_schema_unlocked()->set_time_series_compaction_file_count_threshold(
+                        tablet_meta_info.time_series_compaction_file_count_threshold);
+                need_to_save = true;
+            }
+            if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds &&
+                tablet_meta_info.time_series_compaction_time_threshold_seconds != -1) {
+                tablet->tablet_meta()
+                        ->mutable_tablet_schema()
+                        ->set_time_series_compaction_time_threshold_seconds(
+                                tablet_meta_info.time_series_compaction_time_threshold_seconds);
+                std::shared_lock rlock(tablet->get_header_lock());
+                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                    rowset_meta->tablet_schema()->set_time_series_compaction_time_threshold_seconds(
+                            tablet_meta_info.time_series_compaction_time_threshold_seconds);
+                }
+                tablet->tablet_schema_unlocked()->set_time_series_compaction_time_threshold_seconds(
+                        tablet_meta_info.time_series_compaction_time_threshold_seconds);
+                need_to_save = true;
+            }
             if (tablet_meta_info.__isset.replica_id) {
                 tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
             }

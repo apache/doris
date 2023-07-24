@@ -256,6 +256,28 @@ public:
     void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
+    void set_compaction_policy(std::string compaction_policy) {
+        _compaction_policy = compaction_policy;
+    }
+    std::string compaction_policy() const { return _compaction_policy; }
+    void set_time_series_compaction_goal_size_mbytes(int64_t goal_size_mbytes) {
+        _time_series_compaction_goal_size_mbytes = goal_size_mbytes;
+    }
+    int64_t time_series_compaction_goal_size_mbytes() const {
+        return _time_series_compaction_goal_size_mbytes;
+    }
+    void set_time_series_compaction_file_count_threshold(int64_t file_count_threshold) {
+        _time_series_compaction_file_count_threshold = file_count_threshold;
+    }
+    int64_t time_series_compaction_file_count_threshold() const {
+        return _time_series_compaction_file_count_threshold;
+    }
+    void set_time_series_compaction_time_threshold_seconds(int64_t time_threshold) {
+        _time_series_compaction_time_threshold_seconds = time_threshold;
+    }
+    int64_t time_series_compaction_time_threshold_seconds() const {
+        return _time_series_compaction_time_threshold_seconds;
+    }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
     std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
@@ -355,6 +377,10 @@ private:
     int64_t _mem_size = 0;
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
+    std::string _compaction_policy;
+    int64_t _time_series_compaction_goal_size_mbytes = 512;
+    int64_t _time_series_compaction_file_count_threshold = 2000;
+    int64_t _time_series_compaction_time_threshold_seconds = 3600;
 
     bool _is_partial_update;
     std::set<std::string> _partial_update_input_columns;

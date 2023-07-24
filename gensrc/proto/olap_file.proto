@@ -236,6 +236,10 @@ message TabletSchemaPB {
     repeated string partial_update_input_columns = 21;
     optional bool enable_single_replica_compaction = 22 [default=false];
     optional bool skip_write_index_on_load = 23 [default=false];
+    optional string compaction_policy = 24;
+    optional int64 time_series_compaction_goal_size_mbytes = 25 [default=512];
+    optional int64 time_series_compaction_file_count_threshold = 26 [default=2000];
+    optional int64 time_series_compaction_time_threshold_seconds = 27 [default=3600];
 }
 
 enum TabletStatePB {

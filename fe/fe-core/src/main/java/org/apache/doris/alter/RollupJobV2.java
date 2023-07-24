@@ -284,6 +284,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.disableAutoCompaction(),
                                 tbl.enableSingleReplicaCompaction(),
                                 tbl.skipWriteIndexOnLoad(),
+                                tbl.compactionPolicy(),
+                                tbl.timeSeriesCompactionGoalSizeMbytes(),
+                                tbl.timeSeriesCompactionFileCountThreshold(),
+                                tbl.timeSeriesCompactionTimeThresholdSeconds(),
                                 tbl.storeRowColumn(),
                                 tbl.isDynamicSchema(),
                                 binlogConfig);

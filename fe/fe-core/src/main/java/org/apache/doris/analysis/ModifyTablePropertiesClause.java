@@ -50,8 +50,52 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         this.isBeingSynced = isBeingSynced;
     }
 
+    public void setCcrEnable(boolean ccrEnable) {
+        this.ccrEnable = ccrEnable;
+    }
+
     public boolean isBeingSynced() {
         return isBeingSynced;
+    }
+
+    private String compactionPolicy;
+
+    private long timeSeriesCompactionGoalSizeMbytes;
+
+    private long timeSeriesCompactionFileCountThreshold;
+
+    private long timeSeriesCompactionTimeThresholdSeconds;
+
+    public void setCompactionPolicy(String compactionPolicy) {
+        this.compactionPolicy = compactionPolicy;
+    }
+
+    public String compactionPolicy() {
+        return compactionPolicy;
+    }
+
+    public void setTimeSeriesCompactionGoalSizeMbytes(long timeSeriesCompactionGoalSizeMbytes) {
+        this.timeSeriesCompactionGoalSizeMbytes = timeSeriesCompactionGoalSizeMbytes;
+    }
+
+    public long timeSeriesCompactionGoalSizeMbytes() {
+        return timeSeriesCompactionGoalSizeMbytes;
+    }
+
+    public void setTimeSeriesCompactionFileCountThreshold(long timeSeriesCompactionFileCountThreshold) {
+        this.timeSeriesCompactionFileCountThreshold = timeSeriesCompactionFileCountThreshold;
+    }
+
+    public Long timeSeriesCompactionFileCountThreshold() {
+        return timeSeriesCompactionFileCountThreshold;
+    }
+
+    public void setTimeSeriesCompactionTimeThresholdSeconds(long timeSeriesCompactionTimeThresholdSeconds) {
+        this.timeSeriesCompactionTimeThresholdSeconds = timeSeriesCompactionTimeThresholdSeconds;
+    }
+
+    public Long timeSeriesCompactionTimeThresholdSeconds() {
+        return timeSeriesCompactionTimeThresholdSeconds;
     }
 
     public ModifyTablePropertiesClause(Map<String, String> properties) {
@@ -142,6 +186,49 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
             // do nothing, will be alter in SchemaChangeHandler.updateBinlogConfig
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
+            String compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
+            if (!Strings.isNullOrEmpty(compactionPolicy)
+                    && !compactionPolicy.equals("time_series") && !compactionPolicy.equals("size_based")) {
+                throw new AnalysisException(
+                        "Table compaction policy only support for time_series or size_based");
+            }
+            this.needTableStable = false;
+            setCompactionPolicy(compactionPolicy);
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            long goalSizeMbytes;
+            String goalSizeMbytesStr = properties
+                                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            try {
+                goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                        + goalSizeMbytesStr);
+            }
+            this.needTableStable = false;
+            setTimeSeriesCompactionGoalSizeMbytes(goalSizeMbytes);
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            long fileCountThreshold;
+            String fileCountThresholdStr = properties
+                                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            try {
+                fileCountThreshold = Long.parseLong(fileCountThresholdStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                                                                                + fileCountThresholdStr);
+            }
+            this.needTableStable = false;
+            setTimeSeriesCompactionFileCountThreshold(fileCountThreshold);
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            long timeThresholdSeconds;
+            try {
+                timeThresholdSeconds = Long.parseLong(properties
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format");
+            }
+            this.needTableStable = false;
+            setTimeSeriesCompactionTimeThresholdSeconds(timeThresholdSeconds);
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
