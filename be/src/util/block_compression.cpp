@@ -499,7 +499,7 @@ private:
     }
     void _release_compression_ctx(Context* context) {
         DCHECK(context);
-        LZ4_resetStreamHC_fast(context->ctx, compression_level);
+        LZ4_resetStreamHC_fast(context->ctx, _compression_level);
         std::lock_guard<std::mutex> l(_ctx_mutex);
         _ctx_pool.push_back(context);
     }
@@ -510,7 +510,7 @@ private:
     }
 
 private:
-    int64_t compression_level = config::LZ4_HC_compression_level;
+    int64_t _compression_level = config::LZ4_HC_compression_level;
     mutable std::mutex _ctx_mutex;
     mutable std::vector<Context*> _ctx_pool;
 };
