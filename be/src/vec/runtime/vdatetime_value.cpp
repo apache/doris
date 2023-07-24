@@ -120,6 +120,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
     int year_len = 4;
     int digits = pos - ptr;
     bool is_interval_format = false;
+    bool has_bar = false;
 
     // Compatible with MySQL.
     // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
@@ -156,8 +157,9 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
         }
 
         // timezone
-        if (UNLIKELY(field_idx > 2 /*for xxxx-xx-xx:xx:xx. dont treat as xxxx-xx(-xx:xx:xx)*/ &&
-                     time_zone_begins(ptr, end))) {
+        if (UNLIKELY((field_idx > 2 ||
+                      !has_bar) /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/
+                     && time_zone_begins(ptr, end))) {
             if (local_time_zone == nullptr || time_zone_cache == nullptr) {
                 return false;
             }
@@ -210,6 +212,9 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
+            }
+            if (*ptr == '-') {
+                has_bar = true;
             }
             ptr++;
         }
@@ -1936,10 +1941,12 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
     int year_len = 4;
     int digits = pos - ptr;
     bool is_interval_format = false;
+    bool has_bar = false;
 
     // Compatible with MySQL.
     // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
-    if (pos == end || *pos == '.' || time_zone_begins(pos, end)) { // no delimeter until ./Asia/Z/GMT...
+    if (pos == end || *pos == '.' ||
+        time_zone_begins(pos, end)) { // no delimeter until ./Asia/Z/GMT...
         if (digits == 4 || digits == 8 || digits >= 14) {
             year_len = 4;
         } else {
@@ -1999,8 +2006,9 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         }
 
         // timezone
-        if (UNLIKELY(field_idx > 2 /*for xxxx-xx-xx:xx:xx. dont treat as xxxx-xx(-xx:xx:xx)*/ &&
-                     time_zone_begins(ptr, end))) {
+        if (UNLIKELY((field_idx > 2 ||
+                      !has_bar) /*dont treat xxxx-xx-xx:xx:xx as xxxx-xx(-xx:xx:xx)*/
+                     && time_zone_begins(ptr, end))) {
             if (local_time_zone == nullptr || time_zone_cache == nullptr) {
                 return false;
             }
@@ -2053,6 +2061,9 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                 if (((1 << field_idx) & allow_space_mask) == 0) {
                     return false;
                 }
+            }
+            if (*ptr == '-') {
+                has_bar = true;
             }
             ptr++;
         }
