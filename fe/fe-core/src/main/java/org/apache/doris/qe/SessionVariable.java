@@ -694,7 +694,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableBushyTree = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
-    private boolean enablePartitionTopN = false;
+    private boolean enablePartitionTopN = true;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
     private boolean enableInferPredicate = true;
