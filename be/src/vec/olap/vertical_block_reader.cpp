@@ -42,6 +42,8 @@
 namespace doris::vectorized {
 using namespace ErrorCode;
 
+uint64_t VerticalBlockReader::nextId = 1;
+
 VerticalBlockReader::~VerticalBlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
         _agg_functions[i]->destroy(_agg_places[i]);
@@ -399,7 +401,12 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         // _vcollect_iter->next_batch(block) will fill row_source_buffer but delete sign is ignored
         // we calc delete sign column if it's base compaction and update row_sourece_buffer's agg flag
         // after we get current block
-        auto row_source_idx = _row_sources_buffer->buffered_size();
+
+        // LOG(INFO) << "DEBUG, reader id: " << _id << ", buffer size: " << _row_sources_buffer->buffered_size();
+        uint64_t row_source_idx = _row_sources_buffer->buffered_size();
+        uint64_t row_buffer_size_start = row_source_idx;
+        uint64_t merged_rows_start = _vcollect_iter->merged_rows();
+        uint64_t filtered_rows_start = _stats.rows_del_filtered;
 
         auto res = _vcollect_iter->next_batch(block);
         if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
@@ -412,7 +419,32 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             }
             DCHECK_EQ(_block_row_locations.size(), block->rows());
         }
-        auto block_rows = block->rows();
+
+        if (_row_sources_buffer->buffered_size() < row_buffer_size_start) {
+            row_buffer_size_start = 0;
+            row_source_idx = 0;
+        }
+
+        size_t merged_rows_in_rs_buffer = 0;
+        for (uint64_t i = row_buffer_size_start; i < _row_sources_buffer->buffered_size(); i++) {
+            if (_row_sources_buffer->get_agg_flag(i)) {
+                merged_rows_in_rs_buffer++;
+            }
+        }
+
+        size_t rows_should_be_deleted = 0;
+        uint64_t row_buffer_size_cur_batch =
+                _row_sources_buffer->buffered_size() - row_buffer_size_start;
+
+        size_t block_rows = block->rows();
+        CHECK_EQ(block_rows, row_buffer_size_cur_batch - merged_rows_in_rs_buffer)
+                << "block rows: " << block_rows
+                << ", row buffer size cur batch: " << row_buffer_size_cur_batch
+                << ", merged rows in rs buffer: " << merged_rows_in_rs_buffer
+                << ", row buffer size in totoal: " << _row_sources_buffer->buffered_size()
+                << ", row_source_idx: " << row_source_idx
+                << ", row_buffer_size_start: " << row_buffer_size_start;
+
         if (_filter_delete && block_rows > 0) {
             int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
             if (ori_delete_sign_idx < 0) {
@@ -433,14 +465,27 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                     reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                             ->get_data()
                             .data();
-            for (int i = 0; i < block_rows; ++i) {
-                bool sign = (delete_data[i] == 0);
-                filter_data[i] = sign;
+
+            int cur_row = 0;
+            while (cur_row < block_rows) {
+                if (_row_sources_buffer->get_agg_flag(row_source_idx)) {
+                    row_source_idx++;
+                    continue;
+                }
+                bool sign = (delete_data[cur_row] == 0);
+                filter_data[cur_row] = sign;
                 if (UNLIKELY(!sign)) {
+                    rows_should_be_deleted++;
                     _row_sources_buffer->set_agg_flag(row_source_idx, true);
                 }
-                // skip same rows filtered in vertical_merge_iterator
-                row_source_idx += _row_sources_buffer->continuous_agg_count(row_source_idx);
+                cur_row++;
+                row_source_idx++;
+            }
+            while (row_source_idx < _row_sources_buffer->buffered_size()) {
+                CHECK(_row_sources_buffer->get_agg_flag(row_source_idx))
+                        << ", row_source_idx: " << row_source_idx
+                        << ", buffer size: " << _row_sources_buffer->buffered_size();
+                row_source_idx++;
             }
 
             ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
@@ -451,6 +496,40 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             _stats.rows_del_filtered += block_rows - block->rows();
             DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
         }
+
+        size_t filtered_rows_in_rs_buffer = 0;
+        for (auto i = row_buffer_size_start; i < _row_sources_buffer->buffered_size(); i++) {
+            if (_row_sources_buffer->get_agg_flag(i)) {
+                filtered_rows_in_rs_buffer++;
+            }
+        }
+        filtered_rows_in_rs_buffer -= merged_rows_in_rs_buffer;
+
+        auto merged_rows_cur_batch = _vcollect_iter->merged_rows() - merged_rows_start;
+        auto filtered_rows_cur_batch = _stats.rows_del_filtered - filtered_rows_start;
+
+        if (merged_rows_in_rs_buffer != merged_rows_cur_batch) {
+            LOG(INFO) << "ERROR: "
+                      << "merged rows in rs buffer: " << merged_rows_in_rs_buffer
+                      << ", cur batch: " << merged_rows_cur_batch;
+        }
+
+        if (filtered_rows_in_rs_buffer != filtered_rows_cur_batch) {
+            LOG(INFO) << "ERROR: "
+                      << "filtered rows in rs buffer: " << filtered_rows_in_rs_buffer
+                      << ", cur batch: " << filtered_rows_cur_batch
+                      << ", should be: " << rows_should_be_deleted;
+        }
+
+        if (row_buffer_size_cur_batch !=
+            block->rows() + merged_rows_cur_batch + filtered_rows_cur_batch) {
+            LOG(INFO) << "DEBUG: row buffer size: " << row_buffer_size_cur_batch
+                      << ", block rows: " << block->rows()
+                      << ", merged rows: " << merged_rows_cur_batch
+                      << ", filtered rows: " << filtered_rows_cur_batch;
+        }
+        CHECK_EQ(row_buffer_size_cur_batch,
+                 block->rows() + merged_rows_cur_batch + filtered_rows_cur_batch);
         *eof = (res.is<END_OF_FILE>());
         _eof = *eof;
         return Status::OK();

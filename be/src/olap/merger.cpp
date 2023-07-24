@@ -240,6 +240,36 @@ Status Merger::vertical_compact_one_group(
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 reader.next_block_with_aggregation(&block, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
+        if (!is_key && eof) {
+            CHECK_EQ(dst_rowset_writer->num_rows(), stats_output->output_rows);
+            auto block_rows = dst_rowset_writer->num_rows();
+            auto buf_size = row_source_buf->buffered_size();
+            auto merged_rows = reader.merged_rows();
+            if (output_rows + block_rows != buf_size - merged_rows) {
+                row_source_buf->seek_to_begin();
+                uint32_t agg_rows = 0;
+                for (int i = 0; i < row_source_buf->buffered_size(); i++) {
+                    row_source_buf->advance();
+                    auto rs = row_source_buf->current();
+                    if (rs.agg_flag()) {
+                        agg_rows++;
+                    }
+                }
+                LOG(INFO) << "DEBUG: reader merge rows: " << reader.merged_rows()
+                          << ", num agg flags: " << agg_rows;
+            }
+            CHECK_EQ(dst_rowset_writer->num_rows(),
+                     row_source_buf->total_size() - reader.merged_rows())
+                    << "dst rowset writer key group rows: " << dst_rowset_writer->num_rows()
+                    << "row source buf size: " << row_source_buf->buffered_size()
+                    << ", merged rows: " << reader.merged_rows();
+
+            CHECK_EQ(output_rows + block.rows(), dst_rowset_writer->num_rows())
+                    << "output_rows: " << output_rows << "block rows: " << block.rows()
+                    << "dst rowset writer key group rows: " << dst_rowset_writer->num_rows()
+                    << "row source buf size: " << row_source_buf->buffered_size()
+                    << ", merged rows: " << reader.merged_rows();
+        }
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());
@@ -264,6 +294,16 @@ Status Merger::vertical_compact_one_group(
         stats_output->filtered_rows = reader.filtered_rows();
     }
     RETURN_IF_ERROR(dst_rowset_writer->flush_columns(is_key));
+
+    if (is_key && tablet_schema->keys_type() == KeysType::UNIQUE_KEYS) {
+        LOG(INFO) << "DEBUG: tablet_id : " << tablet->tablet_id() << " | "
+                  << row_source_buf->buffered_size() << ", " << stats_output->merged_rows << ", "
+                  << stats_output->filtered_rows;
+        CHECK_EQ(row_source_buf->total_size(), stats_output->output_rows +
+                                                       stats_output->merged_rows +
+                                                       stats_output->filtered_rows);
+        CHECK_EQ(stats_output->output_rows, dst_rowset_writer->num_rows());
+    }
 
     return Status::OK();
 }

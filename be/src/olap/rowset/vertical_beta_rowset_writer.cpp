@@ -97,21 +97,51 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
     } else {
         // value columns
         uint32_t num_rows_written = _segment_writers[_cur_writer_idx]->num_rows_written();
-        VLOG_NOTICE << "num_rows_written: " << num_rows_written
-                    << ", _cur_writer_idx: " << _cur_writer_idx;
+        uint32_t num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
+        CHECK(num_rows_key_group > 0);
         // init if it's first value column write in current segment
         if (_cur_writer_idx == 0 && num_rows_written == 0) {
             VLOG_NOTICE << "init first value column segment writer";
             RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
         }
-        if (num_rows_written > max_rows_per_segment) {
+        size_t start_offset = 0, limit = num_rows;
+        if (num_rows_written + num_rows >= num_rows_key_group &&
+            _cur_writer_idx < _segment_writers.size() - 1) {
+            RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(
+                    block, 0, num_rows_key_group - num_rows_written));
             RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx]));
-            // switch to next writer
+            start_offset = num_rows_key_group - num_rows_written;
+            CHECK(start_offset <= num_rows);
+            CHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
+                  _segment_writers[_cur_writer_idx]->row_count())
+                    << "ERROR: "
+                    << "nw before: " << num_rows_written << ", nwk before: " << num_rows_key_group
+                    << ", block rows: " << num_rows
+                    << ", nw after: " << _segment_writers[_cur_writer_idx]->num_rows_written()
+                    << ", nwk after: " << _segment_writers[_cur_writer_idx]->row_count()
+                    << "_cur_writer_idx: " << _cur_writer_idx
+                    << ", size: " << _segment_writers.size();
+            limit = num_rows - start_offset;
             ++_cur_writer_idx;
-            VLOG_NOTICE << "init next value column segment writer: " << _cur_writer_idx;
+            // switch to next writer
+            LOG(INFO) << "DEBUG: init next value column segment writer: " << _cur_writer_idx;
             RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
+            num_rows_written = 0;
+            num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
         }
-        RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
+        if (limit > 0) {
+            RETURN_IF_ERROR(
+                    _segment_writers[_cur_writer_idx]->append_block(block, start_offset, limit));
+            CHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
+                  _segment_writers[_cur_writer_idx]->row_count())
+                    << "ERROR: "
+                    << "nw before: " << num_rows_written << ", nwk before: " << num_rows_key_group
+                    << ", write start: " << start_offset << ", limit: " << limit
+                    << ", nw after: " << _segment_writers[_cur_writer_idx]->num_rows_written()
+                    << ", nwk after: " << _segment_writers[_cur_writer_idx]->row_count()
+                    << "_cur_writer_idx: " << _cur_writer_idx
+                    << ", size: " << _segment_writers.size();
+        }
     }
     if (is_key) {
         _num_rows_written += num_rows;
@@ -125,7 +155,9 @@ Status VerticalBetaRowsetWriter::_flush_columns(
     VLOG_NOTICE << "flush columns index: " << _cur_writer_idx;
     RETURN_IF_ERROR((*segment_writer)->finalize_columns_data());
     RETURN_IF_ERROR((*segment_writer)->finalize_columns_index(&index_size));
+
     if (is_key) {
+        _total_key_group_rows += (*segment_writer)->row_count();
         // record segment key bound
         KeyBoundsPB key_bounds;
         Slice min_key = (*segment_writer)->min_encoded_key();
@@ -147,7 +179,7 @@ Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
         return Status::OK();
     }
 
-    DCHECK(_segment_writers[_cur_writer_idx]);
+    CHECK(_cur_writer_idx < _segment_writers.size() && _segment_writers[_cur_writer_idx]);
     RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx], is_key));
     _cur_writer_idx = 0;
     return Status::OK();
