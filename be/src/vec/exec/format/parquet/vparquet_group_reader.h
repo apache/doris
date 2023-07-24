@@ -209,6 +209,7 @@ private:
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
+    VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;
