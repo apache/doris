@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Release 2.0-beta",
+    "title": "Release 2.0-Beta",
     "language": "en"
 }
 ---
