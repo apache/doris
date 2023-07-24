@@ -1184,7 +1184,9 @@ bool IRuntimeFilter::await() {
                                 ? RuntimeFilterState::TIME_OUT
                                 : RuntimeFilterState::NOT_READY,
                         std::memory_order_acq_rel)) {
-                return true;
+                DCHECK(expected == RuntimeFilterState::READY ||
+                       expected == RuntimeFilterState::TIME_OUT);
+                return (expected == RuntimeFilterState::READY);
             }
             return false;
         } else if (expected == RuntimeFilterState::TIME_OUT) {
