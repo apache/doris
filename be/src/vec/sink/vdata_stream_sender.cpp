@@ -134,7 +134,7 @@ Status Channel::send_local_block(bool eos) {
         return Status::OK();
     } else {
         _mutable_block.reset();
-        return receiver_status_;
+        return _receiver_status;
     }
 }
 
@@ -147,7 +147,7 @@ Status Channel::send_local_block(Block* block) {
         _local_recvr->add_block(block, _parent->_sender_id, false);
         return Status::OK();
     } else {
-        return receiver_status_;
+        return _receiver_status;
     }
 }
 
@@ -256,8 +256,8 @@ Status Channel::close_internal() {
     VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id
              << " #rows= " << ((_mutable_block == nullptr) ? 0 : _mutable_block->rows())
-             << " receiver status: " << receiver_status_;
-    if (receiver_status_.is<ErrorCode::END_OF_FILE>()) {
+             << " receiver status: " << _receiver_status;
+    if (is_receiver_eof()) {
         _mutable_block.reset();
         return Status::OK();
     }
@@ -266,7 +266,13 @@ Status Channel::close_internal() {
         status = send_current_block(true);
     } else {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        status = send_block((PBlock*)nullptr, true);
+        if (is_local()) {
+            if (_recvr_is_valid()) {
+                _local_recvr->remove_sender(_parent->_sender_id, _be_number);
+            }
+        } else {
+            status = send_block((PBlock*)nullptr, true);
+        }
     }
     // Don't wait for the last packet to finish, left it to close_wait.
     if (status.is<ErrorCode::END_OF_FILE>()) {
