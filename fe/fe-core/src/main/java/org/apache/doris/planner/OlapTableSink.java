@@ -146,6 +146,12 @@ public class OlapTableSink extends DataSink {
             singleReplicaLoad = false;
             LOG.warn("Single replica load not supported by TStorageFormat.V1. table: {}", dstTable.getName());
         }
+        if (dstTable.getEnableUniqueKeyMergeOnWrite()) {
+            singleReplicaLoad = false;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Single replica load not supported by merge-on-write table: {}", dstTable.getName());
+            }
+        }
     }
 
     public void setPartialUpdateInputColumns(boolean isPartialUpdate, HashSet<String> columns) {
