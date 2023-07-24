@@ -38,18 +38,23 @@ public class FeNameFormatTest {
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("?id_"));
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkColumnName("#id_"));
         // length 64
-        String tblName = "test_sys_partition_list_basic_test_list_partition_bigint_tb_uniq";
+        String tblName = "test_sys_partition_list_basic_test_list_partition_bigint_tb-uniq";
         ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkTableName(tblName));
         // length 70
         String largeTblName = "test_sys_partition_list_basic_test_list_partition_bigint_tb_uniq_large";
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkTableName(largeTblName));
-
         // check table name use correct regex, not begin with '-'
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkTableName("-" + tblName));
+
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkUserName("a.b"));
+        // check user name use correct regex, not begin with '.'
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkUserName(".a.b"));
 
         // check common name use correct regex, length 65
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", tblName + "t"));
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", "_commonName"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "common-Name"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "commonName-"));
     }
 
 }
