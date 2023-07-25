@@ -24,7 +24,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -371,7 +370,6 @@ public class ConnectProcessor {
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setSqlHash(ctx.getSqlHash());
 
-        Exception nereidsParseException = null;
         List<StatementBase> stmts = null;
 
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
@@ -388,7 +386,6 @@ public class ConnectProcessor {
                 }
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
-                nereidsParseException = e;
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
                         e.getMessage(), originStmt);
             }
@@ -425,17 +422,6 @@ public class ConnectProcessor {
             }
 
             StatementBase parsedStmt = stmts.get(i);
-            if (parsedStmt instanceof SelectStmt && nereidsParseException != null
-                    && ctx.getSessionVariable().isEnableNereidsPlanner()
-                    && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                Exception exception = new Exception(
-                        String.format("Nereids cannot parse the SQL, and fallback disabled. caused by: \n\n%s",
-                                nereidsParseException.getMessage()), nereidsParseException);
-                // audit it and break
-                handleQueryException(exception, auditStmt, null, null);
-                break;
-            }
-
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
