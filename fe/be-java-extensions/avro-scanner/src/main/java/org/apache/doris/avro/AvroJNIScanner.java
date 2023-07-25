@@ -147,7 +147,7 @@ public class AvroJNIScanner extends JniScanner {
                 break;
             case FILE_S3:
                 String bucketName = requiredParams.get(AvroProperties.S3_BUCKET);
-                String key = requiredParams.get(AvroProperties.S3_KEY);
+                String key = requiredParams.get(AvroProperties.S3_PATH_KEY);
                 String accessKey = requiredParams.get(AvroProperties.S3_ACCESS_KEY);
                 String secretKey = requiredParams.get(AvroProperties.S3_SECRET_KEY);
                 String endpoint = requiredParams.get(AvroProperties.S3_ENDPOINT);

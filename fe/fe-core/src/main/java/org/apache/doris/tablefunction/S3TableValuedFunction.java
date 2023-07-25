@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -94,8 +95,12 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         locationProperties = S3Properties.credentialToMap(credential);
         String usePathStyle = tvfParams.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
-        locationProperties.put(S3Properties.VIRTUAL_BUCKET, virtualBucket);
-        locationProperties.put(S3Properties.VIRTUAL_KEY, getVirtualKey());
+        if (StringUtils.isNotEmpty(virtualBucket)) {
+            locationProperties.put(S3Properties.BUCKET, virtualBucket);
+        }
+        if (StringUtils.isNotEmpty(getVirtualKey())) {
+            locationProperties.put(S3Properties.PATH_KEY, getVirtualKey());
+        }
 
         parseProperties(tvfParams);
         if (FeConstants.runningUnitTest) {

@@ -27,8 +27,13 @@ namespace doris::vectorized {
 
 AvroJNIReader::AvroJNIReader(RuntimeState* state, RuntimeProfile* profile,
                              const TFileScanRangeParams& params,
-                             const std::vector<SlotDescriptor*>& file_slot_descs)
-        : _file_slot_descs(file_slot_descs), _state(state), _profile(profile), _params(params) {}
+                             const std::vector<SlotDescriptor*>& file_slot_descs,
+                             const TFileRangeDesc& range)
+        : _file_slot_descs(file_slot_descs),
+          _state(state),
+          _profile(profile),
+          _params(params),
+          _range(range) {}
 
 AvroJNIReader::AvroJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range,
@@ -104,9 +109,20 @@ Status AvroJNIReader::init_fetch_table_reader(
     return _jni_connector->open(_state, _profile);
 }
 
+TFileType::type AvroJNIReader::get_file_type() {
+    TFileType::type type;
+    if (_range.__isset.file_type) {
+        // for compatibility
+        type = _range.file_type;
+    } else {
+        type = _params.file_type;
+    }
+    return type;
+}
+
 Status AvroJNIReader::init_fetch_table_schema_reader() {
     std::map<String, String> required_param = {{"uri", _range.path},
-                                               {"file_type", std::to_string(_params.file_type)},
+                                               {"file_type", std::to_string(get_file_type())},
                                                {"is_get_table_schema", "true"}};
 
     required_param.insert(_params.properties.begin(), _params.properties.end());

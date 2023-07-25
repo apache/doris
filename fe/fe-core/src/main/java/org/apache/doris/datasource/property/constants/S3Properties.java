@@ -55,13 +55,12 @@ public class S3Properties extends BaseProperties {
     // required by storage policy
     public static final String ROOT_PATH = "s3.root.path";
     public static final String BUCKET = "s3.bucket";
-    public static final String VIRTUAL_BUCKET = "s3.virtual.bucket";
-    public static final String VIRTUAL_KEY = "s3.virtual.key";
+    public static final String PATH_KEY = "s3.path.key";
     public static final String VALIDITY_CHECK = "s3_validity_check";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
     public static final List<String> TVF_REQUIRED_FIELDS = Arrays.asList(ACCESS_KEY, SECRET_KEY);
     public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN,
-            ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
+            ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS, PATH_KEY);
 
     public static final List<String> AWS_CREDENTIALS_PROVIDERS = Arrays.asList(
             DataLakeAWSCredentialsProvider.class.getName(),
@@ -95,6 +94,7 @@ public class S3Properties extends BaseProperties {
         // required by storage policy
         public static final String ROOT_PATH = "AWS_ROOT_PATH";
         public static final String BUCKET = "AWS_BUCKET";
+        public static final String PATH_KEY = "AWS_PATH_KEY";
         // optional
         public static final String MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
         public static final String REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";

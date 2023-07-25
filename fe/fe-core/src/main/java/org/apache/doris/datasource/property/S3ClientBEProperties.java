@@ -71,6 +71,9 @@ public class S3ClientBEProperties {
         if (properties.containsKey(S3Properties.BUCKET)) {
             beProperties.put(S3Properties.Env.BUCKET, properties.get(S3Properties.BUCKET));
         }
+        if (properties.containsKey(S3Properties.PATH_KEY)) {
+            beProperties.put(S3Properties.Env.PATH_KEY, properties.get(S3Properties.PATH_KEY));
+        }
         return beProperties;
     }
 }
