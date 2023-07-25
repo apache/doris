@@ -169,3 +169,10 @@ FROM kafka
  "property.group.id" = "xxx"
 );
 ```
+
+### Q12. [Ecological connection] PowerBI connect to  Doris
+When PowerBI is used to connect Doris, the connection cannot be established using the MySQL connection mode. You can use the ODBC connection mode to connect Doris to build the data visualization service.
+
+The steps are as follows:
+
+In the PowerBI operation interface 【 Get data 】- 【 Other 】- 【ODBC】- 【 Enter the connection information of Doris 】

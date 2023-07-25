@@ -167,3 +167,10 @@ FROM kafka
  "property.group.id" = "xxx"
 );
 ```
+
+### Q12.[生态连接] PowerBI连接Doris
+使用 PowerBI 连接 Doris 时，使用 MySQL 的链接方式无法建立连接，可以使用 ODBC 连接的方式来连接Doris构建数据可视化服务。
+
+操作步骤如下：
+
+在PowerBI操作界面【获取数据】 - 【其他】 - 【ODBC】- 【输入连接Doris的连接信息】
