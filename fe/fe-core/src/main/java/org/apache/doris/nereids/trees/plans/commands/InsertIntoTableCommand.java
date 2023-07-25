@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -43,7 +42,6 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -125,11 +123,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 ctx.getExecTimeout(),
                 ctx.getSessionVariable().getSendBatchParallelism(), false, false);
 
-        if (((UnboundOlapTableSink) logicalQuery).isPartialUpdate()) {
-            HashSet<String> partialUpdateCols = new HashSet<String>();
-            partialUpdateCols.addAll(((UnboundOlapTableSink) logicalQuery).getColNames());
-            sink.setPartialUpdateInputColumns(true, partialUpdateCols);
-        }
         sink.complete();
         TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
                 physicalOlapTableSink.getDatabase().getId(),

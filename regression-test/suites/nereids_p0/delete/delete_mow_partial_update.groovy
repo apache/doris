@@ -52,9 +52,8 @@ suite('nereids_delete_mow_partial_update') {
     sql "insert into ${tableName2} values(1),(2),(3);"
     sql "delete from ${tableName1} A using ${tableName2} B where A.uid=B.uid;"
     qt_sql "select * from ${tableName1} order by uid;"
-    sql "set skip_delete_predicate=true;"
-    // if not use partial update insert stmt for delete stmt, it will use delete pedicate to "delete" the rows
     // when using parital update insert stmt for delete stmt, it will use delete bitmap or delete sign rather than 
     // delete predicate to "delete" the rows
+    sql "set skip_delete_predicate=true;"
     qt_sql_skip_delete_predicate "select * from ${tableName1} order by uid;"
 }
