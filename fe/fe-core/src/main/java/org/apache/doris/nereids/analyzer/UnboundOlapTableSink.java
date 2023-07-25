@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -45,31 +44,29 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     private final List<String> colNames;
     private final List<String> hints;
     private final List<String> partitions;
-    private final List<String> partialUpdateCols;
     private final boolean isPartialUpdate;
 
     public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, partitions, ImmutableList.of(), false,
-                Optional.empty(), Optional.empty(), child);
+        this(nameParts, colNames, hints, partitions, false, Optional.empty(), Optional.empty(), child);
     }
 
     public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, List<String> partialUpdateCols, boolean isPartialUpdate, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, partitions, partialUpdateCols, isPartialUpdate,
-                Optional.empty(), Optional.empty(), child);
+            List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, isPartialUpdate, Optional.empty(), Optional.empty(), child);
     }
 
+    /**
+     * constructor
+     */
     public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, List<String> partialUpdateCols, boolean isPartialUpdate,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            CHILD_TYPE child) {
+            List<String> partitions, boolean isPartialUpdate, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.colNames = Utils.copyRequiredList(colNames);
         this.hints = Utils.copyRequiredList(hints);
         this.partitions = Utils.copyRequiredList(partitions);
-        this.partialUpdateCols = partialUpdateCols;
         this.isPartialUpdate = isPartialUpdate;
     }
 
@@ -85,10 +82,6 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         return partitions;
     }
 
-    public List<String> getPartialUpdateeCols() {
-        return partialUpdateCols;
-    }
-
     public boolean isPartialUpdate() {
         return isPartialUpdate;
     }
@@ -96,7 +89,7 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundOlapTableSink only accepts one child");
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, partialUpdateCols, isPartialUpdate,
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, isPartialUpdate,
                 groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
@@ -132,14 +125,14 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, partialUpdateCols,
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions,
                 isPartialUpdate, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, partialUpdateCols,
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions,
                 isPartialUpdate, groupExpression, logicalProperties, children.get(0));
     }
 
