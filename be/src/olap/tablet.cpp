@@ -924,16 +924,16 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
 }
 
 Status Tablet::capture_rs_readers(const Version& spec_version,
-                                  std::vector<RowsetReaderSharedPtr>* rs_readers) const {
+                                  std::vector<RowSetSplits>* rs_splits) const {
     std::vector<Version> version_path;
     RETURN_IF_ERROR(capture_consistent_versions(spec_version, &version_path));
-    RETURN_IF_ERROR(capture_rs_readers(version_path, rs_readers));
+    RETURN_IF_ERROR(capture_rs_readers(version_path, rs_splits));
     return Status::OK();
 }
 
 Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
-                                  std::vector<RowsetReaderSharedPtr>* rs_readers) const {
-    DCHECK(rs_readers != nullptr && rs_readers->empty());
+                                  std::vector<RowSetSplits>* rs_splits) const {
+    DCHECK(rs_splits != nullptr && rs_splits->empty());
     for (auto version : version_path) {
         auto it = _rs_version_map.find(version);
         if (it == _rs_version_map.end()) {
@@ -954,7 +954,7 @@ Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
             return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
                     "failed to create reader for rowset:{}", it->second->rowset_id().to_string());
         }
-        rs_readers->push_back(std::move(rs_reader));
+        rs_splits->push_back(RowSetSplits(std::move(rs_reader)));
     }
     return Status::OK();
 }

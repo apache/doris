@@ -153,7 +153,7 @@ bool TabletReader::_optimize_for_single_rowset(
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
-    if (read_params.rs_readers.empty()) {
+    if (read_params.rs_splits.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
                                      _tablet->full_name());
     }
@@ -636,7 +636,7 @@ Status TabletReader::init_reader_params_and_create_block(
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
-        reader_params->rs_readers.push_back(std::move(rs_reader));
+        reader_params->rs_splits.push_back(RowSetSplits(std::move(rs_reader)));
     }
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(input_rowsets.size());
