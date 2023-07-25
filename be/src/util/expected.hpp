@@ -197,24 +197,8 @@ constexpr bool operator==(const unexpected<E> &lhs, const unexpected<E> &rhs) {
   return lhs.value() == rhs.value();
 }
 template <class E>
-constexpr bool operator!=(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() != rhs.value();
-}
-template <class E>
-constexpr bool operator<(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() < rhs.value();
-}
-template <class E>
-constexpr bool operator<=(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() <= rhs.value();
-}
-template <class E>
-constexpr bool operator>(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() > rhs.value();
-}
-template <class E>
-constexpr bool operator>=(const unexpected<E> &lhs, const unexpected<E> &rhs) {
-  return lhs.value() >= rhs.value();
+constexpr bool operator<=>(const unexpected<E> &lhs, const unexpected<E> &rhs) {
+  return lhs.value() <=> rhs.value();
 }
 
 template <class E>
