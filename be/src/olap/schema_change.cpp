@@ -429,8 +429,6 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
 Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
                                    TabletSharedPtr new_tablet, TabletSharedPtr base_tablet,
                                    TabletSchemaSPtr base_tablet_schema) {
-    // LinkedSchemaChange is useless, will remove it in the future.
-    DCHECK(false);
     // In some cases, there may be more than one type of rowset in a tablet,
     // in which case the conversion cannot be done directly by linked schema change,
     // but requires direct schema change to rewrite the data.
@@ -1273,7 +1271,8 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
-    if (new_tablet->enable_unique_key_merge_on_write()) {
+    if (new_tablet->enable_unique_key_merge_on_write() &&
+        new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
         *sc_directly = true;
         return Status::OK();
     }
