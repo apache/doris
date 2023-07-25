@@ -1155,13 +1155,13 @@ Status IRuntimeFilter::publish() {
 Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs,
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
+    _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
     }
     if (!is_late_arrival) {
         _set_push_down();
     }
-    _profile->add_info_string("Info", _format_status());
     return _wrapper->get_push_exprs(push_exprs, _vprobe_ctx);
 }
 
