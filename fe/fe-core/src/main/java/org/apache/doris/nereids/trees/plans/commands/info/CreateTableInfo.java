@@ -29,22 +29,25 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * table info in creating table.
  */
 public class CreateTableInfo {
+    private final boolean ifNotExists;
     private String dbName;
     private final String tableName;
     private final List<ColumnDefinition> columns;
     private final List<IndexDefinition> indexes;
     private final String engineName;
-    // private final KeysType keyType;
+    private final KeysType keysType;
     private final List<String> keys;
     private final String comment;
     // private final List<PartitionInfo> partitions;
@@ -55,14 +58,16 @@ public class CreateTableInfo {
     /**
      * constructor
      */
-    public CreateTableInfo(String dbName, String tableName, List<ColumnDefinition> columns,
-            List<IndexDefinition> indexes, String engineName, List<String> keys, String comment,
+    public CreateTableInfo(boolean ifNotExists, String dbName, String tableName, List<ColumnDefinition> columns,
+            List<IndexDefinition> indexes, String engineName, KeysType keysType, List<String> keys, String comment,
             DistributionDescriptor distribution, List<RollupDefinition> rollups, Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
         this.dbName = dbName;
         this.tableName = tableName;
         this.columns = Utils.copyRequiredList(columns);
         this.indexes = Utils.copyRequiredList(indexes);
         this.engineName = engineName;
+        this.keysType = keysType;
         this.keys = Utils.copyRequiredList(keys);
         this.comment = comment;
         this.distribution = distribution;
@@ -82,16 +87,21 @@ public class CreateTableInfo {
      * translate to catalog create table stmt
      */
     public CreateTableStmt translateToCatalogStyle() {
-        List<Column> catalogColumns = columns.stream().map(ColumnDefinition::translateToCatalogStyle)
+        Set<String> keysSet = ImmutableSet.copyOf(keys);
+        List<Column> catalogColumns = columns.stream()
+                .map(column -> keysSet.contains(column.getName()) ? column.withIsKey(true) : column)
+                .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
+
         List<Index> catalogIndexes = indexes.stream().map(IndexDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-        return new CreateTableStmt(false, false,
+
+        return new CreateTableStmt(ifNotExists, false,
                 new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
                 catalogColumns,
                 catalogIndexes,
                 engineName,
-                new KeysDesc(KeysType.DUP_KEYS, keys),
+                new KeysDesc(keysType, keys),
                 null,
                 distribution.translateToCatalogStyle(),
                 Maps.newHashMap(properties),

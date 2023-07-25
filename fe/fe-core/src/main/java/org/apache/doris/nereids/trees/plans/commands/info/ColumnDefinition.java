@@ -49,6 +49,14 @@ public class ColumnDefinition {
         this.comment = comment;
     }
 
+    public String getName() {
+        return name;
+    }
+
+    public ColumnDefinition withIsKey(boolean isKey) {
+        return new ColumnDefinition(name, type, isKey, aggType, isNull, defaultValue, comment);
+    }
+
     public Column translateToCatalogStyle() {
         return new Column(name, type.toCatalogDataType(), isKey, null, isNull,
                 false, "", comment, true,

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
@@ -1754,13 +1755,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             throw new AnalysisException("nameParts in create table should be 1 or 2");
         }
+        KeysType keysType = KeysType.DUP_KEYS;
+        if (ctx.AGGREGATE() != null) {
+            keysType = KeysType.AGG_KEYS;
+        } else if (ctx.UNIQUE() != null) {
+            keysType = KeysType.UNIQUE_KEYS;
+        }
         List<ColumnDefinition> cols = visitColumnDefs(ctx.columnDefs());
         String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
                 visitIdentifierList(ctx.hashKeys));
         Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
-        return new CreateTableCommand(Optional.empty(), new CreateTableInfo(dbName, tableName, cols, ImmutableList.of(),
-                engineName, ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(), "",
+        return new CreateTableCommand(Optional.empty(), new CreateTableInfo(ctx.EXISTS() != null,
+                dbName, tableName, cols, ImmutableList.of(),
+                engineName, keysType, ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(), "",
                 desc, ImmutableList.of(), properties));
     }
 
