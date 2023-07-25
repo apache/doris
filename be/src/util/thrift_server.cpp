@@ -333,7 +333,8 @@ Status ThriftServer::start() {
         break;
 
     case THREAD_POOL:
-        fe_server_transport.reset(new apache::thrift::transport::TServerSocket(_port));
+        fe_server_transport.reset(new apache::thrift::transport::TServerSocket(
+                BackendOptions::get_service_bind_address_without_bracket(), _port));
 
         if (transport_factory.get() == nullptr) {
             transport_factory.reset(new apache::thrift::transport::TBufferedTransportFactory());
@@ -344,7 +345,6 @@ Status ThriftServer::start() {
         break;
 
     case THREADED:
-        std::cout << "BackendOptions::get_service_bind_address():" << BackendOptions::get_service_bind_address_without_bracket() << std::endl;
         server_socket = new apache::thrift::transport::TServerSocket(
                 BackendOptions::get_service_bind_address_without_bracket(), _port);
         //      server_socket->setAcceptTimeout(500);
