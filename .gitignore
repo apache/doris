@@ -41,6 +41,9 @@ package-lock.json
 docs/contents/
 docs/.temp
 
+# compile_commands.json
+compile_commands.json
+
 # output, thirdparty, extension
 output/
 output.bak/
