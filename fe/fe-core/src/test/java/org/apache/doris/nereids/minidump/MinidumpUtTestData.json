@@ -10,6 +10,7 @@
     "Tables": [
         {
             "TableType": "OLAP",
+            "TableName": "t1",
             "TableValue": {
                 "clazz": "OlapTable",
                 "state": "NORMAL",
@@ -91,7 +92,7 @@
                         "baseIndex": {
                             "id": 17009,
                             "state": "NORMAL",
-                            "rowCount": 1,
+                            "rowCount": 2,
                             "tablets": [
                                 {
                                     "id": 17010,
@@ -99,7 +100,7 @@
                                         {
                                             "id": 17011,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 247,
                                             "remoteDataSize": 0,
@@ -107,7 +108,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -125,7 +126,7 @@
                                         {
                                             "id": 17013,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 0,
                                             "remoteDataSize": 0,
@@ -133,7 +134,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -151,7 +152,7 @@
                                         {
                                             "id": 17015,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 0,
                                             "remoteDataSize": 0,
@@ -159,7 +160,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -177,7 +178,7 @@
                                         {
                                             "id": 17017,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 0,
                                             "remoteDataSize": 0,
@@ -185,7 +186,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -203,7 +204,7 @@
                                         {
                                             "id": 17019,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 0,
                                             "remoteDataSize": 0,
@@ -211,7 +212,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -229,7 +230,7 @@
                                         {
                                             "id": 17021,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 0,
                                             "remoteDataSize": 0,
@@ -237,7 +238,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -255,7 +256,7 @@
                                         {
                                             "id": 17023,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 0,
                                             "remoteDataSize": 0,
@@ -263,7 +264,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -281,7 +282,7 @@
                                         {
                                             "id": 17025,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 0,
                                             "remoteDataSize": 0,
@@ -289,7 +290,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -307,7 +308,7 @@
                                         {
                                             "id": 17027,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
                                             "dataSize": 0,
                                             "remoteDataSize": 0,
@@ -315,7 +316,7 @@
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -333,15 +334,15 @@
                                         {
                                             "id": 17029,
                                             "backendId": 11003,
-                                            "version": 2,
+                                            "version": 3,
                                             "versionHash": 0,
-                                            "dataSize": 0,
+                                            "dataSize": 227,
                                             "remoteDataSize": 0,
-                                            "rowCount": 0,
+                                            "rowCount": 1,
                                             "state": "NORMAL",
                                             "lastFailedVersion": -1,
                                             "lastFailedVersionHash": 0,
-                                            "lastSuccessVersion": 2,
+                                            "lastSuccessVersion": 3,
                                             "lastSuccessVersionHash": 0
                                         }
                                     ],
@@ -362,10 +363,10 @@
                         "idToVisibleRollupIndex": {},
                         "idToShadowIndex": {},
                         "committedVersionHash": 0,
-                        "visibleVersion": 2,
-                        "visibleVersionTime": 1688625776037,
+                        "visibleVersion": 3,
+                        "visibleVersionTime": 1689754427918,
                         "visibleVersionHash": 0,
-                        "nextVersion": 3,
+                        "nextVersion": 4,
                         "nextVersionHash": 0,
                         "distributionInfo": {
                             "clazz": "HashDistributionInfo",
@@ -509,9 +510,7 @@
                     {
                         "PlanType": "LOGICAL_UNBOUND_RELATION",
                         "Properties": {
-                            "ObjectId": "RelationId#0",
-                            "Table": "Table [id=0, name=null, type=OLAP]",
-                            "Qualifier": "[]"
+                            "RelationId": "RelationId#0"
                         }
                     }
                 ]
@@ -537,7 +536,7 @@
                 "DataSize": 1,
                 "IsUnKnown": true,
                 "Histogram": "",
-                "Original": "unKnown"
+                "LastUpdatedTime": ""
             }
         }
     ],
