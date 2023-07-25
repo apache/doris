@@ -743,14 +743,14 @@ Status OrcReader::set_fill_columns(
     _fill_all_columns = true;
 
     // create orc row reader
-    _row_reader_options.range(_range_start_offset, _range_size);
-    _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
-    _row_reader_options.include(_read_cols);
-    if (_lazy_read_ctx.can_lazy_read) {
-        _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
-        _orc_filter = std::unique_ptr<ORCFilterImpl>(new ORCFilterImpl(this));
-    }
     try {
+        _row_reader_options.range(_range_start_offset, _range_size);
+        _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+        _row_reader_options.include(_read_cols);
+        if (_lazy_read_ctx.can_lazy_read) {
+            _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
+            _orc_filter = std::unique_ptr<ORCFilterImpl>(new ORCFilterImpl(this));
+        }
         _row_reader_options.setEnableLazyDecoding(true);
         if (!_lazy_read_ctx.conjuncts.empty()) {
             _string_dict_filter = std::make_unique<StringDictFilterImpl>(this);
@@ -758,12 +758,12 @@ Status OrcReader::set_fill_columns(
         _row_reader = _reader->createRowReader(_row_reader_options, _orc_filter.get(),
                                                _string_dict_filter.get());
         _batch = _row_reader->createRowBatch(_batch_size);
+        auto& selected_type = _row_reader->getSelectedType();
+        int idx = 0;
+        _init_select_types(selected_type, idx);
     } catch (std::exception& e) {
         return Status::InternalError("Failed to create orc row reader. reason = {}", e.what());
     }
-    auto& selected_type = _row_reader->getSelectedType();
-    int idx = 0;
-    _init_select_types(selected_type, idx);
 
     if (!_slot_id_to_filter_conjuncts) {
         return Status::OK();
@@ -1366,11 +1366,16 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
             // reset decimal_scale_params_index;
             _decimal_scale_params_index = 0;
-            rr = _row_reader->nextBatch(*_batch, block);
-            if (rr == 0) {
-                *eof = true;
-                *read_rows = 0;
-                return Status::OK();
+            try {
+                rr = _row_reader->nextBatch(*_batch, block);
+                if (rr == 0) {
+                    *eof = true;
+                    *read_rows = 0;
+                    return Status::OK();
+                }
+            } catch (std::exception& e) {
+                return Status::InternalError("Orc row reader nextBatch failed. reason = {}",
+                                             e.what());
             }
         }
         std::vector<orc::ColumnVectorBatch*> batch_vec;
@@ -1400,11 +1405,16 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
             // reset decimal_scale_params_index;
             _decimal_scale_params_index = 0;
-            rr = _row_reader->nextBatch(*_batch, block);
-            if (rr == 0) {
-                *eof = true;
-                *read_rows = 0;
-                return Status::OK();
+            try {
+                rr = _row_reader->nextBatch(*_batch, block);
+                if (rr == 0) {
+                    *eof = true;
+                    *read_rows = 0;
+                    return Status::OK();
+                }
+            } catch (std::exception& e) {
+                return Status::InternalError("Orc row reader nextBatch failed. reason = {}",
+                                             e.what());
             }
         }
 
