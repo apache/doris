@@ -984,4 +984,8 @@ public class SystemInfoService {
         }
         return minPipelineExecutorSize;
     }
+
+    public long aliveBECount() {
+        return idToBackendRef.values().stream().filter(Backend::isAlive).count();
+    }
 }

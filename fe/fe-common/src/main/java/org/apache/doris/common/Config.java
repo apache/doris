@@ -1676,13 +1676,6 @@ public class Config extends ConfigBase {
     public static int statistics_simultaneously_running_task_num = 10;
 
     /**
-     * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
-     * otherwise the statistics related internal table creation would be failed.
-     */
-    @ConfField
-    public static int statistic_internal_table_replica_num = 1;
-
-    /**
      * if table has too many replicas, Fe occur oom when schema change.
      * 10W replicas is a reasonable value for testing.
      */
