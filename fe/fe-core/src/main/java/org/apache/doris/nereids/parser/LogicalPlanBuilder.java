@@ -287,7 +287,7 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDef;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -1759,7 +1759,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
                 visitIdentifierList(ctx.hashKeys));
         Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
-        return new CreateTableCommand(null, new CreateTableInfo(dbName, tableName, cols, ImmutableList.of(),
+        return new CreateTableCommand(Optional.empty(), new CreateTableInfo(dbName, tableName, cols, ImmutableList.of(),
                 engineName, ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(), "",
                 desc, ImmutableList.of(), properties));
     }
@@ -1798,17 +1798,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public List<IndexDef> visitIndexDefs(IndexDefsContext ctx) {
+    public List<IndexDefinition> visitIndexDefs(IndexDefsContext ctx) {
         return ctx.indexes.stream().map(this::visitIndexDef).collect(Collectors.toList());
     }
 
     @Override
-    public IndexDef visitIndexDef(IndexDefContext ctx) {
+    public IndexDefinition visitIndexDef(IndexDefContext ctx) {
         String indexName = ctx.indexName.getText();
         List<String> indexCols = visitIdentifierList(ctx.cols);
         boolean isUseBitmap = ctx.USING() != null;
         String comment = ((Literal) visit(ctx.comment)).getStringValue();
-        return new IndexDef(indexName, indexCols, isUseBitmap, comment);
+        return new IndexDefinition(indexName, indexCols, isUseBitmap, comment);
     }
 
     @Override

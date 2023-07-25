@@ -21,8 +21,10 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -70,7 +72,9 @@ public class CreateTableInfo {
 
     public void validate(ConnectContext ctx) {
         if (dbName == null) {
-            dbName = ctx.getDatabase();
+            dbName = ClusterNamespace.getFullName(ctx.getClusterName(), ctx.getDatabase());
+        } else {
+            dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         }
     }
 
@@ -83,7 +87,7 @@ public class CreateTableInfo {
         List<Index> catalogIndexes = indexes.stream().map(IndexDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
         return new CreateTableStmt(false, false,
-                new TableName(null, dbName, tableName),
+                new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
                 catalogColumns,
                 catalogIndexes,
                 engineName,
