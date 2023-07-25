@@ -54,7 +54,6 @@
 #define DISABLE_MREMAP 1
 #endif
 #include "common/exception.h"
-#include "runtime/thread_context.h"
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
@@ -93,11 +92,12 @@ public:
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
 
+    void* alloc(size_t size, size_t alignment = 0);
+    void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
+
     /// Allocate memory range.
-    void* alloc(size_t size, size_t alignment = 0) {
+    void* alloc_impl(size_t size, size_t alignment = 0) {
         memory_check(size);
-        doris::thread_context()->large_memory_check = false;
-        DEFER({ doris::thread_context()->large_memory_check = true; });
         void* buf;
 
         if (use_mmap && size >= doris::config::mmap_threshold) {
@@ -158,9 +158,7 @@ public:
       * Data from old range is moved to the beginning of new range.
       * Address of memory range could change.
       */
-    void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0) {
-        doris::thread_context()->large_memory_check = false;
-        DEFER({ doris::thread_context()->large_memory_check = true; });
+    void* realloc_impl(void* buf, size_t old_size, size_t new_size, size_t alignment = 0) {
         if (old_size == new_size) {
             /// nothing to do.
             /// BTW, it's not possible to change alignment while doing realloc.
