@@ -32,6 +32,7 @@
 #include "util/jni-util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -71,7 +72,8 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
                 jni_env->executor_cl, "convertBasicArguments", "(IZIJJJ)[Ljava/lang/Object;");
         jni_env->executor_convert_array_argument_id = env->GetMethodID(
                 jni_env->executor_cl, "convertArrayArguments", "(IZIJJJJJ)[Ljava/lang/Object;");
-
+        jni_env->executor_convert_map_argument_id = env->GetMethodID(
+                jni_env->executor_cl, "convertMapArguments", "(IZIJJJJJJJJ)[Ljava/lang/Object;");
         jni_env->executor_result_basic_batch_id = env->GetMethodID(
                 jni_env->executor_cl, "copyBatchBasicResult", "(ZI[Ljava/lang/Object;JJJ)V");
         jni_env->executor_result_array_batch_id = env->GetMethodID(
@@ -148,6 +150,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
     ColumnPtr null_cols[arg_size];
     jclass obj_class = env->FindClass("[Ljava/lang/Object;");
     jclass arraylist_class = env->FindClass("Ljava/util/ArrayList;");
+    // jclass hashmap_class = env->FindClass("Ljava/util/HashMap;");
     jobjectArray arg_objects = env->NewObjectArray(arg_size, obj_class, nullptr);
     int64_t nullmap_address = 0;
     for (size_t arg_idx = 0; arg_idx < arg_size; ++arg_idx) {
@@ -218,6 +221,54 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                     jni_env->executor_convert_array_argument_id, arg_idx, arg_column_nullable,
                     num_rows, nullmap_address, offset_address, nested_nullmap_address,
                     nested_data_address, nested_offset_address);
+        } else if (data_cols[arg_idx]->is_column_map()) {
+            const ColumnMap* map_col = assert_cast<const ColumnMap*>(data_cols[arg_idx].get());
+            auto offset_address =
+                    reinterpret_cast<int64_t>(map_col->get_offsets_column().get_raw_data().data);
+            const ColumnNullable& map_key_column_nullable =
+                    assert_cast<const ColumnNullable&>(map_col->get_keys());
+            auto key_data_column_null_map = map_key_column_nullable.get_null_map_column_ptr();
+            auto key_data_column = map_key_column_nullable.get_nested_column_ptr();
+
+            auto key_nested_nullmap_address = reinterpret_cast<int64_t>(
+                    check_and_get_column<ColumnVector<UInt8>>(key_data_column_null_map)
+                            ->get_data()
+                            .data());
+            int64_t key_nested_data_address = 0, key_nested_offset_address = 0;
+            if (key_data_column->is_column_string()) {
+                const ColumnString* col = assert_cast<const ColumnString*>(key_data_column.get());
+                key_nested_data_address = reinterpret_cast<int64_t>(col->get_chars().data());
+                key_nested_offset_address = reinterpret_cast<int64_t>(col->get_offsets().data());
+            } else {
+                key_nested_data_address =
+                        reinterpret_cast<int64_t>(key_data_column->get_raw_data().data);
+            }
+
+            const ColumnNullable& map_value_column_nullable =
+                    assert_cast<const ColumnNullable&>(map_col->get_values());
+            auto value_data_column_null_map = map_value_column_nullable.get_null_map_column_ptr();
+            auto value_data_column = map_value_column_nullable.get_nested_column_ptr();
+            auto value_nested_nullmap_address = reinterpret_cast<int64_t>(
+                    check_and_get_column<ColumnVector<UInt8>>(value_data_column_null_map)
+                            ->get_data()
+                            .data());
+            int64_t value_nested_data_address = 0, value_nested_offset_address = 0;
+            // array type need pass address: [nullmap_address], offset_address, nested_nullmap_address, nested_data_address/nested_char_address,nested_offset_address
+            if (value_data_column->is_column_string()) {
+                const ColumnString* col = assert_cast<const ColumnString*>(value_data_column.get());
+                value_nested_data_address = reinterpret_cast<int64_t>(col->get_chars().data());
+                value_nested_offset_address = reinterpret_cast<int64_t>(col->get_offsets().data());
+            } else {
+                value_nested_data_address =
+                        reinterpret_cast<int64_t>(value_data_column->get_raw_data().data);
+            }
+            arr_obj = (jobjectArray)env->CallNonvirtualObjectMethod(
+                    jni_ctx->executor, jni_env->executor_cl,
+                    jni_env->executor_convert_map_argument_id, arg_idx, arg_column_nullable,
+                    num_rows, nullmap_address, offset_address, key_nested_nullmap_address,
+                    key_nested_data_address, key_nested_offset_address,
+                    value_nested_nullmap_address, value_nested_data_address,
+                    value_nested_offset_address);
         } else {
             return Status::InvalidArgument(
                     strings::Substitute("Java UDF doesn't support type $0 now !",

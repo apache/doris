@@ -18,6 +18,7 @@
 package org.apache.doris.common.jni.utils;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -52,7 +53,7 @@ import java.time.LocalDateTime;
 import java.util.Set;
 
 public class UdfUtils {
-    private static final Logger LOG = Logger.getLogger(UdfUtils.class);
+    public static final Logger LOG = Logger.getLogger(UdfUtils.class);
     public static final Unsafe UNSAFE;
     private static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
     public static final long BYTE_ARRAY_OFFSET;
@@ -95,15 +96,16 @@ public class UdfUtils {
         DECIMAL32("DECIMAL32", TPrimitiveType.DECIMAL32, 4),
         DECIMAL64("DECIMAL64", TPrimitiveType.DECIMAL64, 8),
         DECIMAL128("DECIMAL128", TPrimitiveType.DECIMAL128I, 16),
-        ARRAY_TYPE("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
-
+        ARRAY_TYPE("ARRAY_TYPE", TPrimitiveType.ARRAY, 0),
+        MAP_TYPE("MAP_TYPE", TPrimitiveType.MAP, 0);
         private final String description;
         private final TPrimitiveType thriftType;
         private final int len;
         private int precision;
         private int scale;
         private Type itemType;
-
+        private Type keyType;
+        private Type valueType;
         JavaUdfDataType(String description, TPrimitiveType thriftType, int len) {
             this.description = description;
             this.thriftType = thriftType;
@@ -153,6 +155,8 @@ public class UdfUtils {
                         JavaUdfDataType.DECIMAL128);
             } else if (c == java.util.ArrayList.class) {
                 return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE);
+            } else if (c == java.util.HashMap.class) {
+                return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
             }
             return Sets.newHashSet(JavaUdfDataType.INVALID_TYPE);
         }
@@ -192,6 +196,22 @@ public class UdfUtils {
         public void setItemType(Type type) {
             this.itemType = type;
         }
+
+        public Type getKeyType() {
+            return keyType;
+        }
+
+        public Type getValueType() {
+            return valueType;
+        }
+
+        public void setKeyType(Type type) {
+            this.keyType = type;
+        }
+
+        public void setValueType(Type type) {
+            this.valueType = type;
+        }
     }
 
     public static Pair<Type, Integer> fromThrift(TTypeDesc typeDesc, int nodeIdx) throws InternalException {
@@ -230,6 +250,14 @@ public class UdfUtils {
                 Pair<Type, Integer> childType = fromThrift(typeDesc, nodeIdx + 1);
                 type = new ArrayType(childType.first);
                 nodeIdx = childType.second;
+                break;
+            }
+            case MAP: {
+                Preconditions.checkState(nodeIdx + 1 < typeDesc.getTypesSize());
+                Pair<Type, Integer> keyType = fromThrift(typeDesc, nodeIdx + 1);
+                Pair<Type, Integer> valueType = fromThrift(typeDesc, nodeIdx + 1 + keyType.value());
+                type = new MapType(keyType.key(), valueType.key());
+                nodeIdx = 1 + keyType.value() + valueType.value();
                 break;
             }
 
@@ -307,6 +335,14 @@ public class UdfUtils {
                 result.setPrecision(arrType.getItemType().getPrecision());
                 result.setScale(((ScalarType) arrType.getItemType()).getScalarScale());
             }
+        } else if (retType.isMapType()) {
+            MapType mapType = (MapType) retType;
+            result.setKeyType(mapType.getKeyType());
+            result.setValueType(mapType.getValueType());
+            if (mapType.getKeyType().isDatetimeV2() || mapType.getKeyType().isDecimalV3()) {
+                result.setPrecision(mapType.getKeyType().getPrecision());
+                result.setScale(((ScalarType) mapType.getKeyType()).getScalarScale());
+            }
         }
         return Pair.of(res.length != 0, result);
     }
@@ -332,6 +368,10 @@ public class UdfUtils {
             } else if (parameterTypes[finalI].isArrayType()) {
                 ArrayType arrType = (ArrayType) parameterTypes[finalI];
                 inputArgTypes[i].setItemType(arrType.getItemType());
+            } else if (parameterTypes[finalI].isMapType()) {
+                MapType mapType = (MapType) parameterTypes[finalI];
+                inputArgTypes[i].setKeyType(mapType.getKeyType());
+                inputArgTypes[i].setValueType(mapType.getValueType());
             }
             if (res.length == 0) {
                 return Pair.of(false, inputArgTypes);
