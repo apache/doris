@@ -67,6 +67,31 @@ class ExchangeSinkOperator;
 
 namespace vectorized {
 class Channel;
+class VDataStreamSender;
+
+class BlockSerializer {
+public:
+    BlockSerializer(VDataStreamSender* parent, bool is_local = false)
+            : _parent(parent), _is_local(is_local), _offset(0) {}
+    // Serialize block for UN-PARTITION
+    Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
+                                 bool* has_next);
+    // Serialize block for HASH PARTITION
+    Status next_serialized_block(Block* src, const std::vector<int>& rows, PBlock* dest,
+                                 int num_receivers, bool* serialized, bool* has_next);
+    Status serialize_block(PBlock* dest, int num_receivers = 1);
+
+    MutableBlock* get_block() const { return _mutable_block.get(); }
+
+    void reset_block() { _mutable_block.reset(); }
+
+private:
+    VDataStreamSender* _parent;
+    std::unique_ptr<MutableBlock> _mutable_block;
+
+    bool _is_local;
+    size_t _offset;
+};
 
 class VDataStreamSender : public DataSink {
 public:
@@ -98,6 +123,7 @@ public:
 
     RuntimeState* state() { return _state; }
 
+    // TODO
     Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
 
     void registe_channels(pipeline::ExchangeSinkBuffer* buffer);
@@ -110,6 +136,7 @@ protected:
     friend class Channel;
     friend class PipChannel;
     friend class pipeline::ExchangeSinkBuffer;
+    friend class BlockSerializer;
 
     void _roll_pb_block();
     Status _get_next_available_buffer(BroadcastPBlockHolder** holder);
@@ -133,10 +160,6 @@ protected:
         uint64_t high;
         uint64_t low;
     };
-
-    using hash_128_t = hash_128;
-
-    Status handle_unpartitioned(Block* block);
 
     // Sender instance id, unique within a fragment.
     int _sender_id;
@@ -196,6 +219,8 @@ protected:
 
     bool _only_local_exchange = false;
     bool _enable_pipeline_exec = false;
+
+    std::unique_ptr<BlockSerializer> _serializer;
 };
 
 class Channel {
@@ -224,6 +249,7 @@ public:
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
+        _serializer.reset(new BlockSerializer(_parent, _is_local));
         if (_is_local) {
             VLOG_NOTICE << "will use local Exchange, dest_node_id is : " << _dest_node_id;
         }
@@ -253,7 +279,7 @@ public:
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
-    Status add_rows(Block* block, const std::vector<int>& row);
+    virtual Status add_rows(Block* block, const std::vector<int>& row);
 
     virtual Status send_current_block(bool eos);
 
@@ -342,9 +368,6 @@ protected:
     int64_t _num_data_bytes_sent;
     int64_t _packet_seq;
 
-    // we're accumulating rows into this batch
-    std::unique_ptr<MutableBlock> _mutable_block;
-
     bool _need_close;
     bool _closed;
     int _be_number;
@@ -373,6 +396,8 @@ protected:
     PBlock* _ch_cur_pb_block = nullptr;
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
+
+    std::unique_ptr<BlockSerializer> _serializer;
 };
 
 #define HANDLE_CHANNEL_STATUS(state, channel, status)    \
@@ -469,20 +494,36 @@ public:
         return Status::OK();
     }
 
+    Status add_rows(Block* block, const std::vector<int>& rows) override {
+        if (_fragment_instance_id.lo == -1) {
+            return Status::OK();
+        }
+
+        bool has_next = true;
+        bool serialized = false;
+        while (has_next) {
+            _pblock = std::make_unique<PBlock>();
+            RETURN_IF_ERROR(_serializer->next_serialized_block(block, rows, _pblock.get(), 1,
+                                                               &serialized, &has_next));
+            if (serialized) {
+                RETURN_IF_ERROR(send_current_block(false));
+            }
+        }
+
+        return Status::OK();
+    }
+
     // send _mutable_block
     Status send_current_block(bool eos) override {
         if (is_local()) {
             return send_local_block(eos);
         }
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        auto block_ptr = std::make_unique<PBlock>();
-        if (_mutable_block) {
-            auto block = _mutable_block->to_block();
-            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr.get()));
-            block.clear_column_data();
-            _mutable_block->set_muatable_columns(block.mutate_columns());
+        if (eos) {
+            _pblock = std::make_unique<PBlock>();
+            RETURN_IF_ERROR(_serializer->serialize_block(_ch_cur_pb_block, 1));
         }
-        RETURN_IF_ERROR(send_block(block_ptr.release(), eos));
+        RETURN_IF_ERROR(send_block(_pblock.release(), eos));
         return Status::OK();
     }
 
@@ -508,6 +549,7 @@ private:
     pipeline::ExchangeSinkBuffer* _buffer = nullptr;
     bool _eos_send = false;
     std::unique_ptr<pipeline::SelfDeleteClosure<PTransmitDataResult>> _closure = nullptr;
+    std::unique_ptr<PBlock> _pblock;
 };
 
 } // namespace vectorized

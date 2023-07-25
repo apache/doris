@@ -110,10 +110,9 @@ Status Channel::send_current_block(bool eos) {
         return send_local_block(eos);
     }
     SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-    auto block = _mutable_block->to_block();
-    RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block));
-    block.clear_column_data();
-    _mutable_block->set_muatable_columns(block.mutate_columns());
+    if (eos) {
+        RETURN_IF_ERROR(_serializer->serialize_block(_ch_cur_pb_block, 1));
+    }
     RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
     ch_roll_pb_block();
     return Status::OK();
@@ -121,8 +120,8 @@ Status Channel::send_current_block(bool eos) {
 
 Status Channel::send_local_block(bool eos) {
     SCOPED_TIMER(_parent->_local_send_timer);
-    Block block = _mutable_block->to_block();
-    _mutable_block->set_muatable_columns(block.clone_empty_columns());
+    Block block = _serializer->get_block()->to_block();
+    _serializer->get_block()->set_muatable_columns(block.clone_empty_columns());
     if (_recvr_is_valid()) {
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block.bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block.rows());
@@ -133,7 +132,7 @@ Status Channel::send_local_block(bool eos) {
         }
         return Status::OK();
     } else {
-        _mutable_block.reset();
+        _serializer->reset_block();
         return _receiver_status;
     }
 }
@@ -199,34 +198,12 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
         return Status::OK();
     }
 
-    if (_mutable_block == nullptr) {
-        SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        _mutable_block = MutableBlock::create_unique(block->clone_empty());
-    }
-
-    int row_wait_add = rows.size();
-    int batch_size = _parent->state()->batch_size();
-    const int* begin = &rows[0];
-
-    while (row_wait_add > 0) {
-        int row_add = 0;
-        int max_add = batch_size - _mutable_block->rows();
-        if (row_wait_add >= max_add) {
-            row_add = max_add;
-        } else {
-            row_add = row_wait_add;
-        }
-
-        {
-            SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-            SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
-            _mutable_block->add_rows(block, begin, begin + row_add);
-        }
-
-        row_wait_add -= row_add;
-        begin += row_add;
-
-        if (row_add == max_add) {
+    bool has_next = true;
+    bool serialized = false;
+    while (has_next) {
+        RETURN_IF_ERROR(_serializer->next_serialized_block(block, rows, _ch_cur_pb_block, 1,
+                                                           &serialized, &has_next));
+        if (serialized) {
             RETURN_IF_ERROR(send_current_block(false));
         }
     }
@@ -245,7 +222,7 @@ Status Channel::close_wait(RuntimeState* state) {
         _need_close = false;
         return st;
     }
-    _mutable_block.reset();
+    _serializer->reset_block();
     return Status::OK();
 }
 
@@ -254,15 +231,15 @@ Status Channel::close_internal() {
         return Status::OK();
     }
     VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
-             << " dest_node=" << _dest_node_id
-             << " #rows= " << ((_mutable_block == nullptr) ? 0 : _mutable_block->rows())
+             << " dest_node=" << _dest_node_id << " #rows= "
+             << ((_serializer->get_block() == nullptr) ? 0 : _serializer->get_block()->rows())
              << " receiver status: " << _receiver_status;
     if (is_receiver_eof()) {
-        _mutable_block.reset();
+        _serializer->reset_block();
         return Status::OK();
     }
     Status status;
-    if (_mutable_block != nullptr && _mutable_block->rows() > 0) {
+    if (_serializer->get_block() != nullptr && _serializer->get_block()->rows() > 0) {
         status = send_current_block(true);
     } else {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
@@ -552,42 +529,53 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                RETURN_IF_ERROR(
-                        serialize_block(block, block_holder->get_block(), _channels.size()));
-            }
-
-            Status status;
-            for (auto channel : _channels) {
-                if (!channel->is_receiver_eof()) {
-                    if (channel->is_local()) {
-                        status = channel->send_local_block(block);
-                    } else {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                        status = channel->send_block(block_holder, eos);
+                bool has_next = true;
+                bool serialized = false;
+                while (has_next) {
+                    RETURN_IF_ERROR(_serializer->next_serialized_block(
+                            block, block_holder->get_block(), _channels.size(), &serialized,
+                            &has_next));
+                    if (serialized) {
+                        Status status;
+                        for (auto channel : _channels) {
+                            if (!channel->is_receiver_eof()) {
+                                if (channel->is_local()) {
+                                    status = channel->send_local_block(block);
+                                } else {
+                                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                                    status = channel->send_block(block_holder, eos);
+                                }
+                                HANDLE_CHANNEL_STATUS(state, channel, status);
+                            }
+                        }
                     }
-                    HANDLE_CHANNEL_STATUS(state, channel, status);
                 }
             }
         } else {
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                RETURN_IF_ERROR(serialize_block(block, _cur_pb_block, _channels.size()));
-            }
-
-            Status status;
-            for (auto channel : _channels) {
-                if (!channel->is_receiver_eof()) {
-                    if (channel->is_local()) {
-                        status = channel->send_local_block(block);
-                    } else {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                        status = channel->send_block(_cur_pb_block, eos);
+                bool has_next = true;
+                bool serialized = false;
+                while (has_next) {
+                    RETURN_IF_ERROR(_serializer->next_serialized_block(
+                            block, _cur_pb_block, _channels.size(), &serialized, &has_next));
+                    if (serialized) {
+                        Status status;
+                        for (auto channel : _channels) {
+                            if (!channel->is_receiver_eof()) {
+                                if (channel->is_local()) {
+                                    status = channel->send_local_block(block);
+                                } else {
+                                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                                    status = channel->send_block(_cur_pb_block, eos);
+                                }
+                                HANDLE_CHANNEL_STATUS(state, channel, status);
+                            }
+                        }
+                        _roll_pb_block();
                     }
-                    HANDLE_CHANNEL_STATUS(state, channel, status);
                 }
             }
-            // rollover
-            _roll_pb_block();
         }
     } else if (_part_type == TPartitionType::RANDOM) {
         // 1. select channel
@@ -707,6 +695,101 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
 
     DataSink::close(state, exec_status);
     return final_st;
+}
+
+Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int num_receivers,
+                                              bool* serialized, bool* has_next) {
+    if (_mutable_block == nullptr) {
+        SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
+        _mutable_block = MutableBlock::create_unique(block->clone_empty());
+    }
+
+    const int batch_size = _parent->state()->batch_size();
+
+    int remain_rows = block->rows() - _offset;
+
+    while (remain_rows > 0) {
+        int max_add = batch_size - _mutable_block->rows();
+        int rows_to_add = std::min(max_add, remain_rows);
+
+        {
+            SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
+            SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
+            _mutable_block->add_rows(block, _offset, rows_to_add);
+        }
+
+        remain_rows -= rows_to_add;
+        _offset = remain_rows == 0 ? 0 : _offset + rows_to_add;
+
+        if (_mutable_block->rows() >= batch_size) {
+            if (!_is_local) {
+                RETURN_IF_ERROR(serialize_block(dest));
+            }
+            *serialized = true;
+            *has_next = remain_rows > 0;
+            return Status::OK();
+        }
+    }
+    *has_next = false;
+    return Status::OK();
+}
+
+Status BlockSerializer::next_serialized_block(Block* block, const std::vector<int>& rows,
+                                              PBlock* dest, int num_receivers, bool* serialized,
+                                              bool* has_next) {
+    if (_mutable_block == nullptr) {
+        SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
+        _mutable_block = MutableBlock::create_unique(block->clone_empty());
+    }
+
+    const int batch_size = _parent->state()->batch_size();
+
+    int remain_rows = rows.size() - _offset;
+
+    while (remain_rows > 0) {
+        int max_add = batch_size - _mutable_block->rows();
+        int rows_to_add = std::min(max_add, remain_rows);
+
+        {
+            SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
+            SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
+            const int* begin = &rows[_offset];
+            _mutable_block->add_rows(block, begin, begin + rows_to_add);
+        }
+
+        remain_rows -= rows_to_add;
+        _offset = remain_rows == 0 ? 0 : _offset + rows_to_add;
+
+        if (_mutable_block->rows() >= batch_size) {
+            if (!_is_local) {
+                RETURN_IF_ERROR(serialize_block(dest));
+            }
+            *serialized = true;
+            *has_next = remain_rows > 0;
+            return Status::OK();
+        }
+    }
+    *has_next = false;
+    return Status::OK();
+}
+
+Status BlockSerializer::serialize_block(PBlock* dest, int num_receivers) {
+    if (_mutable_block && _mutable_block->rows() > 0) {
+        SCOPED_TIMER(_parent->_serialize_batch_timer);
+        dest->Clear();
+        size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        auto block = _mutable_block->to_block();
+        RETURN_IF_ERROR(block.serialize(
+                _parent->_state->be_exec_version(), dest, &uncompressed_bytes, &compressed_bytes,
+                _parent->_compression_type, _parent->_transfer_large_data_by_brpc));
+        COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
+        COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
+        COUNTER_UPDATE(_parent->_compress_timer, block.get_compress_time());
+        block.clear_column_data();
+        _mutable_block->set_muatable_columns(block.mutate_columns());
+    }
+
+    return Status::OK();
 }
 
 Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_receivers) {
