@@ -440,7 +440,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items in [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
 
->Note: When synchronizing, you need to add the corresponding Flink CDC dependencies in the $FLINK_HOME/lib directory, such as flink-sql-connector-mysql-cdc-<version>.jar, flink-sql-connector-oracle-cdc-<version>.jar
+>Note: When synchronizing, you need to add the corresponding Flink CDC dependencies in the $FLINK_HOME/lib directory, such as flink-sql-connector-mysql-cdc-${version}.jar, flink-sql-connector-oracle-cdc-${version}.jar
 
 ### MySQL synchronization example
 
@@ -596,6 +596,8 @@ At this time, it cannot be started from the checkpoint, and the expiration time 
 6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
 
 This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `max_running_txn_num_per_db` of fe.conf. For details, please refer to [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+
+At the same time, if a task frequently modifies the label and restarts, it may also cause this error. In the 2pc scenario (Duplicate/Aggregate model), the label of each task needs to be unique, and when restarting from the checkpoint, the Flink task will actively abort the txn that has been successfully precommitted before and has not been committed. Frequently modifying the label and restarting will cause a large number of txn that have successfully precommitted to fail to be aborted, occupying the transaction. Under the Unique model, 2pc can also be turned off, which can realize idempotent writing.
 
 7. **How to ensure the order of a batch of data when Flink writes to the Uniq model?**
 

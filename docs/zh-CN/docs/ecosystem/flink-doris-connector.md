@@ -442,7 +442,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
 - **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
 
->注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-<version>.jar，flink-sql-connector-oracle-cdc-<version>.jar
+>注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 
 ### MySQL同步示例
 ```sql
@@ -596,7 +596,9 @@ Exactly-Once场景下，Flink Job重启时必须从最新的Checkpoint/Savepoint
 
 6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
 
-这是因为同一个库并发导入超过了100，可通过调整 fe.conf的参数 `max_running_txn_num_per_db` 来解决。具体可参考 [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+这是因为同一个库并发导入超过了100，可通过调整 fe.conf的参数 `max_running_txn_num_per_db` 来解决，具体可参考 [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)。
+
+同时，一个任务频繁修改label重启，也可能会导致这个错误。2pc场景下(Duplicate/Aggregate模型)，每个任务的label需要唯一，并且从checkpoint重启时，flink任务才会主动abort掉之前已经precommit成功，没有commit的txn，频繁修改label重启，会导致大量precommit成功的txn无法被abort，占用事务。在Unique模型下也可关闭2pc，可以实现幂等写入。
 
 7. **Flink写入Uniq模型时，如何保证一批数据的有序性？**
 
