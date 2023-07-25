@@ -329,7 +329,7 @@ public class DiskRebalancer extends Rebalancer {
             }
             long destPathHash = slot.takeBalanceSlot(stat.getPathHash());
             if (destPathHash == -1) {
-                throw new SchedException(Status.UNRECOVERABLE, "unable to take dest slot");
+                continue;
             }
             tabletCtx.setDest(beStat.getBeId(), destPathHash, stat.getPath());
             setDest = true;

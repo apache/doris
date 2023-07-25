@@ -948,6 +948,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return cloneTask;
     }
 
+    // for storage migration or cloning a new replica
+    public long getDestEstimatedCopingSize() {
+        if ((cloneTask != null && tabletStatus != TabletStatus.VERSION_INCOMPLETE)
+                || storageMediaMigrationTask != null) {
+            return Math.max(getTabletSize(), 10L);
+        } else {
+            return 0;
+        }
+    }
+
     // timeout is between MIN_CLONE_TASK_TIMEOUT_MS and MAX_CLONE_TASK_TIMEOUT_MS
     private long getApproximateTimeoutMs() {
         long tabletSize = getTabletSize();

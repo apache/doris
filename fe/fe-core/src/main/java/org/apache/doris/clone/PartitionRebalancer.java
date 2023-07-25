@@ -273,9 +273,9 @@ public class PartitionRebalancer extends Rebalancer {
             if (pathHash == -1) {
                 throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
                         "paths has no available balance slot: " + availPath);
-            } else {
-                tabletCtx.setDest(beStat.getBeId(), pathHash);
             }
+
+            tabletCtx.setDest(beStat.getBeId(), pathHash);
 
             // ToDeleteReplica is the source replica
             pair.second = srcReplica.getId();

@@ -68,6 +68,30 @@ public class BackendLoadStatistic {
         }
     }
 
+    public static class BePathLoadStatPair implements Comparable<BePathLoadStatPair> {
+        private BackendLoadStatistic beLoadStatistic;
+        private RootPathLoadStatistic pathLoadStatistic;
+
+        BePathLoadStatPair(BackendLoadStatistic beLoadStatistic, RootPathLoadStatistic pathLoadStatistic) {
+            this.beLoadStatistic = beLoadStatistic;
+            this.pathLoadStatistic = pathLoadStatistic;
+        }
+
+        RootPathLoadStatistic getPathLoadStatistic() {
+            return pathLoadStatistic;
+        }
+
+        @Override
+        public int compareTo(BePathLoadStatPair o) {
+            return Double.compare(getCompareValue(), o.getCompareValue());
+        }
+
+        private double getCompareValue() {
+            return 0.5 * beLoadStatistic.getLoadScore(pathLoadStatistic.getStorageMedium())
+                    + 0.5 * pathLoadStatistic.getUsedPercent();
+        }
+    }
+
     public static final BeStatComparator HDD_COMPARATOR = new BeStatComparator(TStorageMedium.HDD);
     public static final BeStatComparator SSD_COMPARATOR = new BeStatComparator(TStorageMedium.SSD);
     public static final BeStatMixComparator MIX_COMPARATOR = new BeStatMixComparator();
@@ -362,9 +386,9 @@ public class BackendLoadStatistic {
             }
 
             result.add(pathStatistic);
-            return BalanceStatus.OK;
         }
-        return status;
+
+        return result.isEmpty() ? status : BalanceStatus.OK;
     }
 
     /**
@@ -454,6 +478,29 @@ public class BackendLoadStatistic {
 
         LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
                 beId, low.size(), mid.size(), high.size());
+    }
+
+    public void incrPathsCopingSize(Map<Long, Long> pathsCopingSize) {
+        boolean updated = false;
+        for (RootPathLoadStatistic pathStat : pathStatistics) {
+            Long copingSize = pathsCopingSize.get(pathStat.getPathHash());
+            if (copingSize != null && copingSize > 0) {
+                pathStat.incrCopingSizeB(copingSize);
+                updated = true;
+            }
+        }
+        if (updated) {
+            Collections.sort(pathStatistics);
+        }
+    }
+
+    public void incrPathCopingSize(long pathHash, long copingSize) {
+        RootPathLoadStatistic pathStat = pathStatistics.stream().filter(
+                p -> p.getPathHash() == pathHash).findFirst().orElse(null);
+        if (pathStat != null) {
+            pathStat.incrCopingSizeB(copingSize);
+            Collections.sort(pathStatistics);
+        }
     }
 
     public List<RootPathLoadStatistic> getPathStatistics() {
