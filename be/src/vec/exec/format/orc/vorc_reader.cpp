@@ -1385,7 +1385,6 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         if (get_remaining_rows() == 0) {
             *eof = true;
         }
-        *read_rows = rows;
         return Status::OK();
     }
 
