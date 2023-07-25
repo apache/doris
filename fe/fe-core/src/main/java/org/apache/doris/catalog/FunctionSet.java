@@ -200,6 +200,7 @@ public class FunctionSet<T> {
     public static final String COLLECT_SET = "collect_set";
     public static final String HISTOGRAM = "histogram";
     public static final String HIST = "hist";
+    public static final String MAP_AGG = "map_agg";
 
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -1019,6 +1020,15 @@ public class FunctionSet<T> {
                         "",
                         "",
                         true, false, true, true));
+            }
+
+            if (!Type.JSONB.equals(t)) {
+                for (Type valueType : Type.getTrivialTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType), new MapType(t, valueType),
+                            Type.VARCHAR,
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
             }
 
             if (STDDEV_UPDATE_SYMBOL.containsKey(t)) {
