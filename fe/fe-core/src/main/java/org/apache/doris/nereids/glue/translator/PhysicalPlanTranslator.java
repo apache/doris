@@ -1888,7 +1888,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private SortNode translateSortNode(AbstractPhysicalSort<? extends Plan> sort, PlanNode childNode,
             PlanTranslatorContext context) {
-        TupleDescriptor sortTuple = generateTupleDesc(sort.child().getOutput(), null, context);
+        Set<ExprId> deferredMaterializedExprIds = sort
+                .getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS)
+                .map(s -> (Set<ExprId>) s)
+                .orElse(Collections.emptySet());
+        TupleDescriptor sortTuple = generateTupleDesc(sort.child().getOutput(),
+                null, deferredMaterializedExprIds, context);
         List<Expr> orderingExprs = Lists.newArrayList();
         List<Boolean> ascOrders = Lists.newArrayList();
         List<Boolean> nullsFirstParams = Lists.newArrayList();
@@ -1900,12 +1905,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         });
         SortInfo sortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, sortTuple);
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, sort instanceof PhysicalTopN);
-        if (sort.getMutableState(PhysicalTopN.TWO_PHASE_READ_OPT).isPresent()) {
+        if (sort.getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS).isPresent()) {
             sortNode.setUseTwoPhaseReadOpt(true);
             sortNode.getSortInfo().setUseTwoPhaseRead();
             injectRowIdColumnSlot(sortNode.getSortInfo().getSortTupleDescriptor());
-            SlotDescriptor childRowIdDesc = sortTuple.getSlots().get(sortTuple.getSlots().size() - 1);
-            sortNode.getResolvedTupleExprs().add(new SlotRef(childRowIdDesc));
         }
         if (sort.getStats() != null) {
             sortNode.setCardinality((long) sort.getStats().getRowCount());
