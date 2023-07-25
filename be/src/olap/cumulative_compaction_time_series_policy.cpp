@@ -164,7 +164,12 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     input_rowsets->clear();
     int64_t total_size = 0;
 
-    for (auto& rowset : candidate_rowsets) {
+    std::vector<RowsetSharedPtr> filtered_rowsets;
+    const auto& first_rowset_iter = std::find_if(candidate_rowsets.begin(), candidate_rowsets.end(), [](const RowsetSharedPtr& rs){
+        return rs->start_version() == rs->end_version();
+    });
+    filtered_rowsets.assign(first_rowset_iter, candidate_rowsets.end());
+    for (auto& rowset : filtered_rowsets) {
         // check whether this rowset is delete version
         if (rowset->rowset_meta()->has_delete_predicate()) {
             *last_delete_version = rowset->version();
