@@ -584,12 +584,24 @@ public class FunctionCallExpr extends Expr {
             expr = this;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(((FunctionCallExpr) expr).fnName);
-        sb.append(paramsToSql());
-        if (fnName.getFunction().equalsIgnoreCase("json_quote")
-                || fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")) {
-            return forJSON(sb.toString());
+
+        // when function is like or regexp, the expr generated sql should be like this
+        // eg: child1 like child2
+        if (fnName.getFunction().equalsIgnoreCase("like")
+                || fnName.getFunction().equalsIgnoreCase("regexp")) {
+            sb.append(children.get(0).toSql());
+            sb.append(" ");
+            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(" ");
+            sb.append(children.get(1).toSql());
+        } else {
+            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(paramsToSql());
+            if (fnName.getFunction().equalsIgnoreCase("json_quote")
+                    || fnName.getFunction().equalsIgnoreCase("json_array")
+                    || fnName.getFunction().equalsIgnoreCase("json_object")) {
+                return forJSON(sb.toString());
+            }
         }
         return sb.toString();
     }
