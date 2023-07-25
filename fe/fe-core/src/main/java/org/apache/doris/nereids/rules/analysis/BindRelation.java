@@ -33,6 +33,7 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -147,7 +148,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
 
         // TODO: should generate different Scan sub class according to table's type
-        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
+        if (cascadesContext.getStatementContext().getHintMap().get("Leading") != null) {
+            ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
+                    .getTableNameToScanMap().put(tableName, scan);
+        }
+        return scan;
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {

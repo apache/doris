@@ -1,0 +1,188 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.rules.rewrite;
+
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.JoinConstraint;
+import org.apache.doris.nereids.hint.LeadingHint;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+import java.util.Set;
+
+/**
+ * CollectJoinConstraint
+ */
+public class CollectJoinConstraint implements RewriteRuleFactory {
+
+    @Override
+    public List<Rule> buildRules() {
+        return ImmutableList.of(
+            logicalRelation().thenApply(ctx -> {
+                LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                        .getStatementContext().getHintMap().get("Leading");
+                if (leading == null) {
+                    return ctx.root;
+                } else if (leading.isSyntaxError()) {
+                    return ctx.root;
+                }
+                return ctx.root;
+            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
+
+            logicalJoin().thenApply(ctx -> {
+                LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                        .getStatementContext().getHintMap().get("Leading");
+                if (leading == null) {
+                    return ctx.root;
+                }
+                LogicalJoin join = ctx.root;
+                List<Expression> expressions = join.getHashJoinConjuncts();
+                Long totalFilterBitMap = 0L;
+                Long nonNullableSlotBitMap = 0L;
+                for (Expression expression : expressions) {
+                    Long nonNullable = calSlotsTableBitMap(leading, expression.getInputSlots(), true);
+                    nonNullableSlotBitMap = LongBitmap.or(nonNullableSlotBitMap, nonNullable);
+                    Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
+                    totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
+                    leading.getFilters().add(Pair.of(filterBitMap, expression));
+                }
+                expressions = join.getOtherJoinConjuncts();
+                for (Expression expression : expressions) {
+                    Long nonNullable = calSlotsTableBitMap(leading, expression.getInputSlots(), true);
+                    nonNullableSlotBitMap = LongBitmap.or(nonNullableSlotBitMap, nonNullable);
+                    Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
+                    totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
+                    leading.getFilters().add(Pair.of(filterBitMap, expression));
+                }
+                Long leftHand = leading.computeTableBitmap(join.left().getInputRelations());
+                Long rightHand = leading.computeTableBitmap(join.right().getInputRelations());
+                join.setBitmap(LongBitmap.or(leftHand, rightHand));
+                collectJoinConstraintList(leading, leftHand, rightHand, join, totalFilterBitMap, nonNullableSlotBitMap);
+
+                return ctx.root;
+            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
+
+            logicalFilter().thenApply(ctx -> {
+                LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                        .getStatementContext().getHintMap().get("Leading");
+                if (leading == null) {
+                    return ctx.root;
+                }
+                LogicalFilter filter = ctx.root;
+                Set<Expression> expressions = filter.getConjuncts();
+                for (Expression expression : expressions) {
+                    Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
+                    leading.getFilters().add(Pair.of(filterBitMap, expression));
+                }
+                return ctx.root;
+            }).toRule(RuleType.COLLECT_FILTER)
+        );
+    }
+
+    private void collectJoinConstraintList(LeadingHint leading, Long leftHand, Long rightHand, LogicalJoin join,
+                                            Long filterTableBitMap, Long nonNullableSlotBitMap) {
+        Long totalTables = LongBitmap.or(leftHand, rightHand);
+        if (join.getJoinType().isInnerJoin()) {
+            leading.setInnerJoinBitmap(LongBitmap.or(leading.getInnerJoinBitmap(), totalTables));
+            return;
+        }
+        if (join.getJoinType().isFullOuterJoin()) {
+            JoinConstraint newJoinConstraint = new JoinConstraint(leftHand, rightHand, leftHand, rightHand,
+                    JoinType.FULL_OUTER_JOIN, false);
+            leading.getJoinConstraintList().add(newJoinConstraint);
+            return;
+        }
+        boolean isStrict = LongBitmap.isOverlap(nonNullableSlotBitMap, leftHand);
+        Long minLeftHand = LongBitmap.newBitmapIntersect(filterTableBitMap, leftHand);
+        Long innerJoinTableBitmap = LongBitmap.and(totalTables, leading.getInnerJoinBitmap());
+        Long minRightHand = LongBitmap.newBitmapUnion(filterTableBitMap, rightHand);
+        minRightHand = LongBitmap.newBitmapUnion(minRightHand, innerJoinTableBitmap);
+        for (JoinConstraint other : leading.getJoinConstraintList()) {
+            if (other.getJoinType() == JoinType.FULL_OUTER_JOIN) {
+                if (LongBitmap.isOverlap(leftHand, other.getLeftHand())
+                        || LongBitmap.isOverlap(leftHand, other.getRightHand())) {
+                    minLeftHand = LongBitmap.or(minLeftHand,
+                        other.getLeftHand());
+                    minLeftHand = LongBitmap.or(minLeftHand,
+                        other.getRightHand());
+                }
+                if (LongBitmap.isOverlap(rightHand, other.getLeftHand())
+                        || LongBitmap.isOverlap(rightHand, other.getRightHand())) {
+                    minRightHand = LongBitmap.or(minRightHand,
+                        other.getLeftHand());
+                    minRightHand = LongBitmap.or(minRightHand,
+                        other.getRightHand());
+                }
+                /* Needn't do anything else with the full join */
+                continue;
+            }
+
+            if (LongBitmap.isOverlap(leftHand, other.getRightHand())) {
+                if (LongBitmap.isOverlap(filterTableBitMap, other.getRightHand())
+                        && (join.getJoinType().isSemiOrAntiJoin()
+                        || !LongBitmap.isOverlap(nonNullableSlotBitMap, other.getMinRightHand()))) {
+                    minLeftHand = LongBitmap.or(minLeftHand,
+                        other.getLeftHand());
+                    minLeftHand = LongBitmap.or(minLeftHand,
+                        other.getRightHand());
+                }
+            }
+
+            if (LongBitmap.isOverlap(rightHand, other.getRightHand())) {
+                if (LongBitmap.isOverlap(filterTableBitMap, other.getRightHand())
+                        || !LongBitmap.isOverlap(filterTableBitMap, other.getMinLeftHand())
+                        || join.getJoinType().isSemiOrAntiJoin()
+                        || other.getJoinType().isSemiOrAntiJoin()
+                        || !other.isLhsStrict()) {
+                    minRightHand = LongBitmap.or(minRightHand, other.getLeftHand());
+                    minRightHand = LongBitmap.or(minRightHand, other.getRightHand());
+                }
+            }
+        }
+
+        JoinConstraint newJoinConstraint = new JoinConstraint(minLeftHand, minRightHand, leftHand, rightHand,
+                join.getJoinType(), isStrict);
+        leading.getJoinConstraintList().add(newJoinConstraint);
+    }
+
+    private long calSlotsTableBitMap(LeadingHint leading, Set<Slot> slots, boolean getNotNullable) {
+        Preconditions.checkArgument(slots.size() != 0);
+        long bitmap = LongBitmap.newBitmap();
+        for (Slot slot : slots) {
+            if (getNotNullable && slot.nullable()) {
+                continue;
+            }
+            LogicalPlan scan = leading.getTableNameToScanMap().get(slot.getQualifier().get(1));
+            long currBitmap = LongBitmap.set(bitmap, ((LogicalRelation) scan).getRelationId().asInt());
+            bitmap = LongBitmap.or(bitmap, currBitmap);
+        }
+        return bitmap;
+    }
+}

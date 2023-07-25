@@ -42,6 +42,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.rules.rewrite.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
@@ -69,6 +70,7 @@ import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
+import org.apache.doris.nereids.rules.rewrite.LeadingJoin;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
@@ -318,7 +320,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
 
             topic("eliminate empty relation",
-                bottomUp(new EliminateEmptyRelation())
+                bottomUp(new EliminateEmptyRelation()),
+            
+	    topic("LEADING JOIN",
+                custom(RuleType.CHECK_LEADING, CheckLeading::new),
+                bottomUp(
+                    new CollectJoinConstraint()
+                ),
+                custom(RuleType.LEADING_JOIN, LeadingJoin::new)
             )
     );
 
