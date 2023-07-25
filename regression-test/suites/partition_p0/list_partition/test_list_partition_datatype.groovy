@@ -71,7 +71,7 @@ suite("test_list_partition_datatype", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(json.NumberLoadedRows, 15)
+                assertEquals(15, json.NumberLoadedRows)
             }
         }
         test {
