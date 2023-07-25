@@ -301,7 +301,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         && optionStats.maxValue <= compareExprStats.maxValue) {
                     validInOptCount++;
                     LiteralExpr optionLiteralExpr = ((Literal) option).toLegacyLiteral();
-                    if (maxOptionLiteral == null  || optionLiteralExpr.compareTo(maxOptionLiteral) >= 0) {
+                    if (maxOptionLiteral == null || optionLiteralExpr.compareTo(maxOptionLiteral) >= 0) {
                         maxOptionLiteral = optionLiteralExpr;
                         maxOptionValue = optionStats.maxValue;
                     }
