@@ -51,8 +51,7 @@ Status DistinctStreamingAggSinkOperator::sink(RuntimeState* state, vectorized::B
         }
         RETURN_IF_ERROR(
                 _node->_distinct_pre_agg_with_serialized_key(in_block, _output_block.get()));
-        LOG(INFO) << (source_state == SourceState::FINISHED) << " "
-                  << _output_block->dump_structure() << " " << _output_distinct_rows;
+
         // get enough data or reached limit rows, need push block to queue
         if (_node->limit() != -1 &&
             (_output_block->rows() + _output_distinct_rows) >= _node->limit()) {
@@ -83,7 +82,6 @@ Status DistinctStreamingAggSinkOperator::close(RuntimeState* state) {
         // finish should be set, if not set here means error.
         _data_queue->set_canceled();
     }
-    LOG(INFO) << "_output_distinct_rows: " << _output_distinct_rows;
     return StreamingOperator::close(state);
 }
 

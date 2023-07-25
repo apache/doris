@@ -55,15 +55,13 @@ Status DistinctStreamingAggSourceOperator::get_block(RuntimeState* state, vector
     }
     _node->_make_nullable_output_key(block);
     rows_have_returned += block->rows();
-    if (eos) {
+    if (UNLIKELY(eos)) {
         _node->set_num_rows_returned(rows_have_returned);
         source_state = SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }
-    if (eos) {
-        LOG(INFO)<<"update_num_rows_returned: "<<_node->rows_returned();
-    }
+
     return Status::OK();
 }
 
