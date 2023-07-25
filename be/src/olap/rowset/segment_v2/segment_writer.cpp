@@ -370,7 +370,14 @@ Status SegmentWriter::finalize_columns(uint64_t* index_size) {
     if (_has_key) {
         _row_count = _num_rows_written;
     } else {
-        CHECK_EQ(_row_count, _num_rows_written);
+        DCHECK(_row_count == _num_rows_written)
+                << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
+        if (_row_count != _num_rows_written) {
+            std::stringstream ss;
+            ss << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
     }
     _num_rows_written = 0;
 
