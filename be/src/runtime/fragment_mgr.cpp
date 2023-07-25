@@ -138,7 +138,7 @@ public:
     }
 
     // Update status of this fragment execute
-    Status update_status(Status status) {
+    Status update_status(const Status& status) {
         std::lock_guard<std::mutex> l(_status_lock);
         if (!status.ok() && _exec_status.ok()) {
             _exec_status = status;

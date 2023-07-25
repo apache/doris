@@ -1152,35 +1152,17 @@ Status IRuntimeFilter::publish() {
     }
 }
 
-Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs) {
+Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs,
+                                          bool is_late_arrival) {
     DCHECK(is_consumer());
-    if (!_is_ignored) {
-        _set_push_down();
-        _profile->add_info_string("Info", _format_status());
-        return _wrapper->get_push_exprs(push_exprs, _vprobe_ctx);
-    } else {
-        _profile->add_info_string("Info", _format_status());
-        return Status::OK();
-    }
-}
-
-Status IRuntimeFilter::get_prepared_exprs(std::vector<vectorized::VExprSPtr>* vexprs,
-                                          const RowDescriptor& desc, RuntimeState* state) {
-    _profile->add_info_string("Info", _format_status());
     if (_is_ignored) {
         return Status::OK();
     }
-    DCHECK((!_enable_pipeline_exec && _rf_state == RuntimeFilterState::READY) ||
-           (_enable_pipeline_exec &&
-            _rf_state_atomic.load(std::memory_order_acquire) == RuntimeFilterState::READY));
-    DCHECK(is_consumer());
-    std::lock_guard guard(_inner_mutex);
-
-    if (_push_down_vexprs.empty()) {
-        RETURN_IF_ERROR(_wrapper->get_push_exprs(&_push_down_vexprs, _vprobe_ctx));
+    if (!is_late_arrival) {
+        _set_push_down();
     }
-    vexprs->insert(vexprs->end(), _push_down_vexprs.begin(), _push_down_vexprs.end());
-    return Status::OK();
+    _profile->add_info_string("Info", _format_status());
+    return _wrapper->get_push_exprs(push_exprs, _vprobe_ctx);
 }
 
 bool IRuntimeFilter::await() {
@@ -1202,7 +1184,9 @@ bool IRuntimeFilter::await() {
                                 ? RuntimeFilterState::TIME_OUT
                                 : RuntimeFilterState::NOT_READY,
                         std::memory_order_acq_rel)) {
-                return true;
+                DCHECK(expected == RuntimeFilterState::READY ||
+                       expected == RuntimeFilterState::TIME_OUT);
+                return (expected == RuntimeFilterState::READY);
             }
             return false;
         } else if (expected == RuntimeFilterState::TIME_OUT) {

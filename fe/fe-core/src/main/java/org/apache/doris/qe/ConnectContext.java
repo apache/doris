@@ -21,7 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.telemetry.Telemetry;
@@ -68,7 +68,7 @@ import java.util.Set;
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
-
+    public static boolean isMajorVersionUpgrade = false;
     private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
@@ -181,7 +181,7 @@ public class ConnectContext {
     private StatementContext statementContext;
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
 
-    private List<Table> tables = null;
+    private List<TableIf> tables = null;
 
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
@@ -263,6 +263,10 @@ public class ConnectContext {
             mysqlChannel = new DummyMysqlChannel();
         }
         sessionVariable = VariableMgr.newSessionVariable();
+        if (isMajorVersionUpgrade) {
+            VariableMgr.setGlobalPipelineTask(sessionVariable.parallelExecInstanceNum);
+            sessionVariable = VariableMgr.newSessionVariable();
+        }
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
@@ -289,11 +293,11 @@ public class ConnectContext {
         return this.preparedStmtCtxs.get(stmtName);
     }
 
-    public List<Table> getTables() {
+    public List<TableIf> getTables() {
         return tables;
     }
 
-    public void setTables(List<Table> tables) {
+    public void setTables(List<TableIf> tables) {
         this.tables = tables;
     }
 

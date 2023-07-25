@@ -166,7 +166,7 @@ public abstract class ColumnType {
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
-        Preconditions.checkArgument(type.isScalarType() || type.isArrayType(),
+        Preconditions.checkArgument(type.isScalarType() || type.isArrayType() || type.isMapType(),
                 "only support scalar type and array serialization");
         if (type.isScalarType()) {
             ScalarType scalarType = (ScalarType) type;
@@ -181,6 +181,13 @@ public abstract class ColumnType {
             Text.writeString(out, arrayType.getPrimitiveType().name());
             write(out, arrayType.getItemType());
             out.writeBoolean(arrayType.getContainsNull());
+        } else if (type.isMapType()) {
+            MapType mapType = (MapType) type;
+            Text.writeString(out, mapType.getPrimitiveType().name());
+            write(out, mapType.getKeyType());
+            write(out, mapType.getValueType());
+            out.writeBoolean(mapType.getIsKeyContainsNull());
+            out.writeBoolean(mapType.getIsValueContainsNull());
         }
     }
 
@@ -190,6 +197,12 @@ public abstract class ColumnType {
             Type itermType = read(in);
             boolean containsNull = in.readBoolean();
             return ArrayType.create(itermType, containsNull);
+        } else if (primitiveType == PrimitiveType.MAP) {
+            Type keyType = read(in);
+            Type valueType = read(in);
+            boolean keyContainsNull = in.readBoolean();
+            boolean valueContainsNull = in.readBoolean();
+            return new MapType(keyType, valueType, keyContainsNull, valueContainsNull);
         } else {
             int scale = in.readInt();
             int precision = in.readInt();

@@ -60,9 +60,6 @@ Status VPartitionSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _partition_exprs_num = _partition_expr_ctxs.size();
         _partition_columns.resize(_partition_exprs_num);
     }
-    if (_partition_exprs_num == 0) {
-        _value_places.push_back(_pool->add(new PartitionBlocks()));
-    }
 
     _has_global_limit = tnode.partition_sort_node.has_global_limit;
     _top_n_algorithm = tnode.partition_sort_node.top_n_algorithm;
@@ -177,6 +174,9 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
     if (current_rows > 0) {
         child_input_rows = child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
+            if (UNLIKELY(_value_places.empty())) {
+                _value_places.push_back(_pool->add(new PartitionBlocks()));
+            }
             //no partition key
             _value_places[0]->append_whole_block(input_block, child(0)->row_desc());
         } else {

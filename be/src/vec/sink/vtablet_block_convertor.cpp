@@ -457,29 +457,55 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
     DCHECK(slot->type().type == PrimitiveType::TYPE_BIGINT);
     DCHECK(!slot->is_nullable());
 
-    vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    const auto& src_nullable_column =
-            assert_cast<const vectorized::ColumnNullable&>(*src_column_ptr);
-    auto src_nested_column_ptr = src_nullable_column.get_nested_column_ptr();
-    const auto& null_map_data = src_nullable_column.get_null_map_data();
+    size_t null_value_count = 0;
     auto dst_column = vectorized::ColumnInt64::create();
     vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
-    dst_values.reserve(rows);
 
-    size_t null_value_count = 0;
-    for (size_t i = 0; i < rows; i++) {
-        null_value_count += null_map_data[i];
-    }
+    vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
+    DCHECK(vectorized::is_column_const(*src_column_ptr) || src_column_ptr->is_nullable());
+    if (const vectorized::ColumnConst* const_column =
+                check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+        // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
+        // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
+        // will be `ColumnConst`
+        if (const_column->is_null_at(0)) {
+            // the input of autoinc column are all null literals
+            // fill the column with generated ids
+            null_value_count = rows;
+            std::vector<std::pair<int64_t, size_t>> res;
+            RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));
+            for (auto [start, length] : res) {
+                _auto_inc_id_allocator.insert_ids(start, length);
+            }
 
-    std::vector<std::pair<int64_t, size_t>> res;
-    RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));
-    for (auto [start, length] : res) {
-        _auto_inc_id_allocator.insert_ids(start, length);
-    }
+            for (size_t i = 0; i < rows; i++) {
+                dst_values.emplace_back(_auto_inc_id_allocator.next_id());
+            }
+        } else {
+            // the input of autoinc column are all int64 literals
+            // fill the column with that literal
+            int64_t value = const_column->get_int(0);
+            dst_values.resize_fill(rows, value);
+        }
+    } else {
+        const auto& src_nullable_column =
+                assert_cast<const vectorized::ColumnNullable&>(*src_column_ptr);
+        auto src_nested_column_ptr = src_nullable_column.get_nested_column_ptr();
+        const auto& null_map_data = src_nullable_column.get_null_map_data();
+        dst_values.reserve(rows);
+        for (size_t i = 0; i < rows; i++) {
+            null_value_count += null_map_data[i];
+        }
+        std::vector<std::pair<int64_t, size_t>> res;
+        RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));
+        for (auto [start, length] : res) {
+            _auto_inc_id_allocator.insert_ids(start, length);
+        }
 
-    for (size_t i = 0; i < rows; i++) {
-        dst_values.emplace_back((null_map_data[i] != 0) ? _auto_inc_id_allocator.next_id()
-                                                        : src_nested_column_ptr->get_int(i));
+        for (size_t i = 0; i < rows; i++) {
+            dst_values.emplace_back((null_map_data[i] != 0) ? _auto_inc_id_allocator.next_id()
+                                                            : src_nested_column_ptr->get_int(i));
+        }
     }
     block->get_by_position(idx).column = std::move(dst_column);
     block->get_by_position(idx).type =

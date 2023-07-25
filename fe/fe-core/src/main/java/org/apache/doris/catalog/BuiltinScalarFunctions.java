@@ -313,6 +313,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
@@ -645,6 +646,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ToDate.class, "to_date"),
             scalar(ToDateV2.class, "to_datev2"),
             scalar(ToDays.class, "to_days"),
+            scalar(Tokenize.class, "tokenize"),
             scalar(ToMonday.class, "to_monday"),
             scalar(ToQuantileState.class, "to_quantile_state"),
             scalar(Trim.class, "trim"),

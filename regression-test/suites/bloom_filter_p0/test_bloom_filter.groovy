@@ -53,7 +53,7 @@ suite("test_bloom_filter") {
     // bloom filter index for STRUCT column
     def test_struct_tb = "test_struct_bloom_filter_tb"
     sql """DROP TABLE IF EXISTS ${test_struct_tb}"""
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
+
     test {
         sql """CREATE TABLE IF NOT EXISTS ${test_struct_tb} (
                 `k1` int(11) NOT NULL,
@@ -86,7 +86,7 @@ suite("test_bloom_filter") {
     // bloom filter index for MAP column
     def test_map_tb = "test_map_bloom_filter_tb"
     sql """DROP TABLE IF EXISTS ${test_map_tb}"""
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
+
     test {
         sql """CREATE TABLE IF NOT EXISTS ${test_map_tb} (
                 `k1` int(11) NOT NULL,
