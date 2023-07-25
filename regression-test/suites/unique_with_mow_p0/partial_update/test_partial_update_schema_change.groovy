@@ -317,7 +317,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql7 " select * from ${tableName}"
+    qt_sql7 " select * from ${tableName} "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -361,7 +361,7 @@ suite("test_partial_update_schema_change", "p0") {
     qt_sql8 " select * from ${tableName}"
     
     // schema change
-    sql " ALTER table ${tableName} ADD COLUMN c1 int key null"
+    sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
@@ -369,7 +369,7 @@ suite("test_partial_update_schema_change", "p0") {
         }
         Thread.sleep(500)
     }
-    res = sql " ALTER table ${tableName} ADD COLUMN c2 int null"
+    sql " ALTER table ${tableName} ADD COLUMN c2 int null "
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
@@ -862,7 +862,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql20 " select * from ${tableName}"
+    qt_sql20 " select * from ${tableName} "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -905,7 +905,7 @@ suite("test_partial_update_schema_change", "p0") {
     qt_sql21 " select * from ${tableName}"
     
     // schema change
-    sql " ALTER table ${tableName} ADD COLUMN c1 int key null"
+    sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
@@ -913,7 +913,7 @@ suite("test_partial_update_schema_change", "p0") {
         }
         Thread.sleep(500)
     }
-    res = sql " ALTER table ${tableName} ADD COLUMN c2 int null"
+    sql " ALTER table ${tableName} ADD COLUMN c2 int null "
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
         if(res[0][9].toString() == "FINISHED"){
