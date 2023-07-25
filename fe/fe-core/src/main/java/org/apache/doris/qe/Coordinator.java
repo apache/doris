@@ -38,7 +38,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
-import org.apache.doris.nereids.util.PlanNodeUtils;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -1312,9 +1311,10 @@ public class Coordinator {
             // output at the moment
 
             PlanNodeId exchId = sink.getExchNodeId();
-            PlanNode exchNode = PlanNodeUtils.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
+            PlanNode exchNode = PlanNode.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
             Preconditions.checkState(exchNode != null, "exchNode is null");
-            Preconditions.checkState(exchNode instanceof ExchangeNode, "exchNode is not ExchangeNode");
+            Preconditions.checkState(exchNode instanceof ExchangeNode,
+                    "exchNode is not ExchangeNode" + exchNode.getId().toString());
             // we might have multiple fragments sending to this exchange node
             // (distributed MERGE), which is why we need to add up the #senders
             if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
@@ -1419,10 +1419,11 @@ public class Coordinator {
                 multi.getDestFragmentList().get(i).setOutputPartition(params.fragment.getOutputPartition());
 
                 PlanNodeId exchId = sink.getExchNodeId();
-                PlanNode exchNode = PlanNodeUtils.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
+                PlanNode exchNode = PlanNode.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
                 Preconditions.checkState(!destParams.perExchNumSenders.containsKey(exchId.asInt()));
                 Preconditions.checkState(exchNode != null, "exchNode is null");
-                Preconditions.checkState(exchNode instanceof ExchangeNode, "exchNode is not ExchangeNode");
+                Preconditions.checkState(exchNode instanceof ExchangeNode,
+                        "exchNode is not ExchangeNode" + exchNode.getId().toString());
                 if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
                     destParams.perExchNumSenders.put(exchId.asInt(), params.instanceExecParams.size());
                 } else {
