@@ -379,8 +379,48 @@ struct AggregationMethodKeysFixed {
 
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes& key_sizes) {
-        for (size_t i = 0; i != num_rows; ++i) {
-            insert_key_into_columns(keys[i], key_columns, key_sizes);
+        // In any hash key value, column values to be read start just after the bitmap, if it exists.
+        vector<size_t> pos(num_rows,
+                           has_nullable_keys ? std::tuple_size<KeysNullMap<Key>>::value : 0);
+        vector<char> buffer;
+
+        for (size_t i = 0; i < key_columns.size(); ++i) {
+            size_t size = key_sizes[i];
+            buffer.resize(num_rows * size);
+
+            IColumn* observed_column = nullptr;
+
+            // If we have a nullable column, get its nested column and its null map.
+            if (is_column_nullable(*key_columns[i])) {
+                ColumnNullable& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
+                observed_column = &nullable_col.get_nested_column();
+                ColumnUInt8* null_map =
+                        assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column());
+
+                // The current column is nullable. Check if the value of the
+                // corresponding key is nullable. Update the null map accordingly.
+                size_t bucket = i / 8;
+                size_t offset = i % 8;
+                for (size_t j = 0; j < num_rows; j++) {
+                    const Key& key = keys[j];
+                    UInt8 val = (reinterpret_cast<const UInt8*>(&key)[bucket] >> offset) & 1;
+                    null_map->insert_value(val);
+                    if (!val) {
+                        memcpy(buffer.data() + j * size,
+                               reinterpret_cast<const char*>(&key) + pos[j], size);
+                        pos[j] += size;
+                    }
+                }
+            } else {
+                observed_column = key_columns[i].get();
+                for (size_t j = 0; j < num_rows; j++) {
+                    const Key& key = keys[j];
+                    memcpy(buffer.data() + j * size, reinterpret_cast<const char*>(&key) + pos[j],
+                           size);
+                    pos[j] += size;
+                }
+            }
+            observed_column->insert_many_fix_len_data(buffer.data(), num_rows);
         }
     }
 
