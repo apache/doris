@@ -156,7 +156,7 @@ public class ColumnStatistic {
                 }
             }
         } catch (Throwable t) {
-            LOG.warn("Failed to deserialize column stats", t);
+            LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
         Preconditions.checkState(columnStatistic != null, "Column stats is null");

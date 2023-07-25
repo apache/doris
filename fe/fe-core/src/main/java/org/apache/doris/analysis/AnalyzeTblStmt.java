@@ -193,7 +193,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             }
         }
         if (containsUnsupportedTytpe) {
-            if (ConnectContext.get().getSessionVariable().ignoreColumnWithComplexType) {
+            if (!ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
                 columnNames = columnNames.stream()
                         .filter(c -> !StatisticsUtil.isUnsupportedType(table.getColumn(c).getType()))
                         .collect(Collectors.toList());
