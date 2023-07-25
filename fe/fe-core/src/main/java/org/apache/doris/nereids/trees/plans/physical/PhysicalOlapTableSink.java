@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -47,7 +48,8 @@ import java.util.stream.Collectors;
 /**
  * physical olap table sink for insert command
  */
-public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
+public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
+
     private final Database database;
     private final OlapTable targetTable;
     private final List<Column> cols;

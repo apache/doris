@@ -78,7 +78,7 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Relation 
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitPhysicalScan(this, context);
+        return visitor.visitPhysicalRelation(this, context);
     }
 
     @Override

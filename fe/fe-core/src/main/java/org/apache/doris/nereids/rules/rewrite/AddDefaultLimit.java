@@ -22,9 +22,8 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -63,16 +62,9 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
     // we should keep that sink node is the top node of the plan tree.
     // currently, it's one of the olap table sink and file sink.
     @Override
-    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink,
-            StatementContext context) {
-        Plan child = olapTableSink.child().accept(this, context);
-        return olapTableSink.withChildren(child);
-    }
-
-    @Override
-    public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, StatementContext context) {
-        Plan child = fileSink.child().accept(this, context);
-        return fileSink.withChildren(child);
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, StatementContext context) {
+        Plan child = logicalSink.child().accept(this, context);
+        return logicalSink.withChildren(child);
     }
 
     @Override
