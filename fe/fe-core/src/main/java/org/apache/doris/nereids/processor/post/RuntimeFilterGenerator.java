@@ -220,6 +220,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap
                 = context.getRuntimeFilterContext().getAliasTransferMap();
         // change key when encounter alias.
+        // TODO: same action will be taken for set operation
         for (Expression expression : project.getProjects()) {
             if (expression.children().isEmpty()) {
                 continue;
