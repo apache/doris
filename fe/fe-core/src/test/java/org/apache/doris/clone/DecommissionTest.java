@@ -20,17 +20,12 @@ package org.apache.doris.clone;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.clone.RebalancerTestUtil;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
@@ -133,13 +128,13 @@ public class DecommissionTest {
         // test colocate tablet repair
         String createStr = "create table test.tbl1\n"
                 + "(k1 date, k2 int)\n"
-                + "distributed by hash(k2) buckets 2000\n"
+                + "distributed by hash(k2) buckets 1000\n"
                 + "properties\n"
                 + "(\n"
                 + "    \"replication_num\" = \"2\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
-        int totalReplicaNum = 2 * 2000;
+        int totalReplicaNum = 2 * 1000;
         checkBalance(1, totalReplicaNum, 4);
 
         Backend backend = Env.getCurrentSystemInfo().getAllBackends().get(0);
@@ -151,11 +146,11 @@ public class DecommissionTest {
 
         Assert.assertEquals(true, backend.isDecommissioned());
 
-        checkBalance(120, totalReplicaNum, 3);
+        checkBalance(200, totalReplicaNum, 3);
     }
 
     void checkBalance(int tryTimes, int totalReplicaNum, int backendNum) throws Exception {
-        int beReplicaNumLower = totalReplicaNum/backendNum;
+        int beReplicaNumLower = totalReplicaNum / backendNum;
         int beReplicaNumUpper = beReplicaNumLower + 200; // contain other internal table replicas.
         for (int i = 0; i < tryTimes; i++) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
