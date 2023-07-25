@@ -36,6 +36,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPair;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
@@ -72,6 +73,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
@@ -127,6 +129,7 @@ public class TabletScheduler extends MasterDaemon {
     private Map<Long, PathSlot> backendsWorkingSlots = Maps.newConcurrentMap();
     // Tag -> load statistic
     private Map<Tag, LoadStatisticForTag> statisticMap = Maps.newHashMap();
+
     private long lastStatUpdateTime = 0;
 
     private long lastSlotAdjustTime = 0;
@@ -358,6 +361,12 @@ public class TabletScheduler extends MasterDaemon {
             loadStatistic.init();
             newStatisticMap.put(tag, loadStatistic);
             LOG.debug("update load statistic for tag {}:\n{}", tag, loadStatistic.getBrief());
+        }
+        Map<Long, Long> pathsCopingSize = getPathsCopingSize();
+        for (LoadStatisticForTag loadStatistic : newStatisticMap.values()) {
+            for (BackendLoadStatistic beLoadStatistic : loadStatistic.getBackendLoadStatistics()) {
+                beLoadStatistic.incrPathsCopingSize(pathsCopingSize);
+            }
         }
 
         this.statisticMap = newStatisticMap;
@@ -691,6 +700,7 @@ public class TabletScheduler extends MasterDaemon {
 
         // create clone task
         batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
+        incrDestPathCopingSize(tabletCtx);
     }
 
     // In dealing with the case of missing replicas, we need to select a tag with missing replicas
@@ -1177,6 +1187,7 @@ public class TabletScheduler extends MasterDaemon {
 
         // create clone task
         batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
+        incrDestPathCopingSize(tabletCtx);
     }
 
     /**
@@ -1234,6 +1245,7 @@ public class TabletScheduler extends MasterDaemon {
                 "unknown balance type: " + tabletCtx.getBalanceType().toString());
         }
         batchTask.addTask(task);
+        incrDestPathCopingSize(tabletCtx);
     }
 
     // choose a path on a backend which is fit for the tablet
@@ -1269,7 +1281,7 @@ public class TabletScheduler extends MasterDaemon {
 
         // get all available paths which this tablet can fit in.
         // beStatistics is sorted by mix load score in ascend order, so select from first to last.
-        List<RootPathLoadStatistic> allFitPaths = Lists.newArrayList();
+        List<BePathLoadStatPair> allFitPaths = Lists.newArrayList();
         for (BackendLoadStatistic bes : beStatistics) {
             if (!bes.isAvailable()) {
                 LOG.debug("backend {} is not available, skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
@@ -1318,18 +1330,20 @@ public class TabletScheduler extends MasterDaemon {
                 }
             }
 
-            Preconditions.checkState(resultPaths.size() == 1);
-            allFitPaths.add(resultPaths.get(0));
+            resultPaths.stream().forEach(path -> allFitPaths.add(new BePathLoadStatPair(bes, path)));
         }
 
         if (allFitPaths.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find dest path for new replica");
         }
 
+        Collections.sort(allFitPaths);
+
         // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
         // just get first available path.
         // we try to find a path with specified media type, if not find, arbitrarily use one.
-        for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
+        for (BePathLoadStatPair bePathLoadStat : allFitPaths) {
+            RootPathLoadStatistic rootPathLoadStatistic = bePathLoadStat.getPathLoadStatistic();
             if (rootPathLoadStatistic.getStorageMedium() != tabletCtx.getStorageMedium()) {
                 LOG.debug("backend {}'s path {}'s storage medium {} "
                                 + "is not equal to tablet's storage medium {}, skip. tablet: {}",
@@ -1360,7 +1374,8 @@ public class TabletScheduler extends MasterDaemon {
         boolean hasBePath = false;
 
         // no root path with specified media type is found, get arbitrary one.
-        for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
+        for (BePathLoadStatPair bePathLoadStat : allFitPaths) {
+            RootPathLoadStatistic rootPathLoadStatistic = bePathLoadStat.getPathLoadStatistic();
             PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
                 LOG.debug("backend {}'s path {}'s slot is null, skip. tablet: {}",
@@ -1748,6 +1763,35 @@ public class TabletScheduler extends MasterDaemon {
     public synchronized long getBalanceTabletsNumber() {
         return pendingTablets.stream().filter(t -> t.getType() == Type.BALANCE).count()
                 + runningTablets.values().stream().filter(t -> t.getType() == Type.BALANCE).count();
+    }
+
+    private synchronized Map<Long, Long> getPathsCopingSize() {
+        Map<Long, Long> pathsCopingSize = Maps.newHashMap();
+        for (TabletSchedCtx tablet : runningTablets.values()) {
+            long copingSize = tablet.getDestEstimatedCopingSize();
+            if (copingSize > 0) {
+                Long pathHash = tablet.getDestPathHash();
+                Long size = pathsCopingSize.getOrDefault(pathHash, 0L);
+                pathsCopingSize.put(pathHash, size + copingSize);
+            }
+        }
+        return pathsCopingSize;
+    }
+
+    private void incrDestPathCopingSize(TabletSchedCtx tablet) {
+        long destPathHash = tablet.getDestPathHash();
+        if (destPathHash == -1) {
+            return;
+        }
+
+        for (LoadStatisticForTag loadStatistic : statisticMap.values()) {
+            BackendLoadStatistic beLoadStatistic = loadStatistic.getBackendLoadStatistics().stream()
+                    .filter(v -> v.getBeId() == tablet.getDestBackendId()).findFirst().orElse(null);
+            if (beLoadStatistic != null) {
+                beLoadStatistic.incrPathCopingSize(destPathHash, tablet.getDestEstimatedCopingSize());
+                break;
+            }
+        }
     }
 
     /**
