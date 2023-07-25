@@ -478,7 +478,7 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    void try_close(RuntimeState* state, Status exec_status) override;
+    Status try_close(RuntimeState* state, Status exec_status) override;
     // if true, all node channels rpc done, can start close().
     bool is_close_done() override;
     Status close(RuntimeState* state, Status close_status) override;
