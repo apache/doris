@@ -52,6 +52,7 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_channel_mgr.h"
@@ -161,6 +162,12 @@ Status DeltaWriter::init() {
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
         if (_tablet->tablet_state() == TABLET_NOTREADY &&
             SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+            // Disable 'partial_update' when the tablet is undergoing a 'schema changing process'
+            if (_req.table_schema_param->is_partial_update()) {
+                return Status::InternalError(
+                        "Unable to do 'partial_update' when "
+                        "the tablet is undergoing a 'schema changing process'");
+            }
             _rowset_ids.clear();
         } else {
             _rowset_ids = _tablet->all_rs_id(_cur_max_version);
