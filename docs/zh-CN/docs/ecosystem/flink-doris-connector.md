@@ -414,7 +414,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ## 使用FlinkCDC接入多表或整库示例
 ### 语法
-```
+```shell
 <FLINK_HOME>/bin/flink run \
     -c org.apache.doris.flink.tools.cdc.CdcTools \
     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
@@ -445,7 +445,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 >注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 
 ### MySQL同步示例
-```sql
+```shell
 <FLINK_HOME>/bin/flink run \
     -Dexecution.checkpointing.interval=10s \
     -Dparallelism.default=1 \
@@ -468,7 +468,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ### Oracle同步示例
 
-```sql
+```shell
 <FLINK_HOME>/bin/flink run \
      -Dexecution.checkpointing.interval=10s \
      -Dparallelism.default=1 \

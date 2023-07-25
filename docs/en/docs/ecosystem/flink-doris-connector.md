@@ -412,7 +412,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ### grammar
 
-```
+```shell
 <FLINK_HOME>/bin/flink run \
      -c org.apache.doris.flink.tools.cdc.CdcTools \
      lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar\
@@ -444,7 +444,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ### MySQL synchronization example
 
-```sql
+```shell
 <FLINK_HOME>/bin/flink run \
      -Dexecution.checkpointing.interval=10s\
      -Dparallelism.default=1\
@@ -467,7 +467,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
 
 ### Oracle synchronization example
 
-```sql
+```shell
 <FLINK_HOME>/bin/flink run \
       -Dexecution.checkpointing.interval=10s \
       -Dparallelism.default=1 \
