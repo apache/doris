@@ -17,12 +17,39 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.analysis.AlterSystemStmt;
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.clone.RebalancerTestUtil;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.utframe.UtFrameUtils;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
 
 public class DecommissionTest {
     private static final Logger LOG = LogManager.getLogger(TabletReplicaTooSlowTest.class);
@@ -33,8 +60,6 @@ public class DecommissionTest {
     private static ConnectContext connectContext;
 
     private static Random random = new Random(System.currentTimeMillis());
-
-    private static List<Backend> backends = Lists.newArrayList();
 
     private long id = 10086;
 
@@ -58,19 +83,11 @@ public class DecommissionTest {
         // 127.0.0.3
         // 127.0.0.4
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 4);
-        connectContext = UtFrameUtils.createDefaultCtx();
-
-        // create database
-        String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
-
-        // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getAllBackends();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackends();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();
-            tDisk1.setRootPath("/home/doris.HDD");
+            tDisk1.setRootPath("/home/doris1.HDD");
             tDisk1.setDiskTotalCapacity(2000000000);
             tDisk1.setDataUsedCapacity(1);
             tDisk1.setUsed(true);
@@ -80,27 +97,35 @@ public class DecommissionTest {
             backendDisks.put(tDisk1.getRootPath(), tDisk1);
 
             TDisk tDisk2 = new TDisk();
-            tDisk2.setRootPath("/home/doris.SSD");
+            tDisk2.setRootPath("/home/doris2.HHD");
             tDisk2.setDiskTotalCapacity(2000000000);
             tDisk2.setDataUsedCapacity(1);
             tDisk2.setUsed(true);
             tDisk2.setDiskAvailableCapacity(tDisk2.disk_total_capacity - tDisk2.data_used_capacity);
             tDisk2.setPathHash(random.nextLong());
-            tDisk2.setStorageMedium(TStorageMedium.SSD);
+            tDisk2.setStorageMedium(TStorageMedium.HDD);
             backendDisks.put(tDisk2.getRootPath(), tDisk2);
 
             be.updateDisks(backendDisks);
         }
+
+        connectContext = UtFrameUtils.createDefaultCtx();
+
+        // create database
+        String createDbStmtStr = "create database test;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Env.getCurrentEnv().createDb(createDbStmt);
     }
 
     @AfterClass
     public static void tearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDirBase);
+        //UtFrameUtils.cleanDorisFeDir(runningDirBase);
     }
 
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
+        RebalancerTestUtil.updateReplicaPathHash();
     }
 
     @Test
@@ -108,37 +133,44 @@ public class DecommissionTest {
         // test colocate tablet repair
         String createStr = "create table test.tbl1\n"
                 + "(k1 date, k2 int)\n"
-                + "distributed by hash(k2) buckets 4000\n"
+                + "distributed by hash(k2) buckets 2000\n"
                 + "properties\n"
                 + "(\n"
                 + "    \"replication_num\" = \"2\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
-        int totalReplicaNum = 2 * 4000;
+        int totalReplicaNum = 2 * 2000;
         checkBalance(1, totalReplicaNum, 4);
 
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
-        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
+        Backend backend = Env.getCurrentSystemInfo().getAllBackends().get(0);
+        String decommissionStmtStr = "alter system decommission backend \"" + backend.getHost()
+                + ":" + backend.getHeartbeatPort() + "\"";
+        AlterSystemStmt decommissionStmt =
+                (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(decommissionStmtStr, connectContext);
         Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
 
-        Assertions.assertEquals(true, srcBackend.isDecommissioned());
+        Assert.assertEquals(true, backend.isDecommissioned());
 
-        checkBalance(60, totalReplicaNum, 3);
+        checkBalance(120, totalReplicaNum, 3);
     }
 
-    void checkBalance(int tryTimes, int totalReplicaNum, int backendNum) {
+    void checkBalance(int tryTimes, int totalReplicaNum, int backendNum) throws Exception {
         int beReplicaNumLower = totalReplicaNum/backendNum;
-        int beReplicaNumUpper = beReplicaNumLower + 200; // inner database replica.
+        int beReplicaNumUpper = beReplicaNumLower + 200; // contain other internal table replicas.
         for (int i = 0; i < tryTimes; i++) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (backendNum != backends.size() && i != tryTimes - 1) {
+            if (backendNum != backendIds.size() && i != tryTimes - 1) {
                 Thread.sleep(1000);
                 continue;
             }
 
-            Assert.assertEquals(backends, backends.size());
+            List<Integer> tabletNums = Lists.newArrayList();
             for (long beId : backendIds) {
-                int tabletNum = Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
+                tabletNums.add(Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId));
+            }
+
+            Assert.assertEquals("tablet nums = " + tabletNums, backendNum, backendIds.size());
+            for (int tabletNum : tabletNums) {
                 Assert.assertTrue(tabletNum >= beReplicaNumLower);
                 Assert.assertTrue(tabletNum <= beReplicaNumUpper);
             }

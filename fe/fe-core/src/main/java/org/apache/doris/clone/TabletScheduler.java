@@ -1793,9 +1793,13 @@ public class TabletScheduler extends MasterDaemon {
     private synchronized Map<Long, Long> getPathsCopingSize() {
         Map<Long, Long> pathsCopingSize = Maps.newHashMap();
         for (TabletSchedCtx tablet : runningTablets.values()) {
+            long pathHash = tablet.getDestPathHash();
+            if (pathHash == 0 || pathHash == -1) {
+                continue;
+            }
+
             long copingSize = tablet.getDestEstimatedCopingSize();
             if (copingSize > 0) {
-                Long pathHash = tablet.getDestPathHash();
                 Long size = pathsCopingSize.getOrDefault(pathHash, 0L);
                 pathsCopingSize.put(pathHash, size + copingSize);
             }
@@ -1805,7 +1809,7 @@ public class TabletScheduler extends MasterDaemon {
 
     private void incrDestPathCopingSize(TabletSchedCtx tablet) {
         long destPathHash = tablet.getDestPathHash();
-        if (destPathHash == -1) {
+        if (destPathHash == -1 || destPathHash == 0) {
             return;
         }
 
