@@ -117,6 +117,7 @@ suite("test_partial_update_strict_mode", "p0") {
     qt_sql """select * from ${tableName2} order by id;"""
 
     def tableName3 = "test_partial_update_strict_mode3";
+    sql """ DROP TABLE IF EXISTS ${tableName3} """
     sql """
             CREATE TABLE ${tableName3} ( 
                 `id` int(11) NULL, 
@@ -148,7 +149,7 @@ suite("test_partial_update_strict_mode", "p0") {
         set 'strict_mode', 'false'
         set 'max_filter_ratio', '0.5'
 
-        file 'basic_invalid.csv'
+        file 'upsert_invalid.csv'
         time 10000 // limit inflight 10s
 
         check {result, exception, startTime, endTime ->
@@ -166,6 +167,25 @@ suite("test_partial_update_strict_mode", "p0") {
     // all columns valid, partial columns do not exist in file
     def tableName4 = "test_partial_update_strict_mode4"
     sql """ DROP TABLE IF EXISTS ${tableName4} """
+    sql """
+            CREATE TABLE ${tableName4} ( 
+                `id` int(11) NULL, 
+                `name` varchar(10) NULL,
+                `age` int(11) NULL DEFAULT "20", 
+                `city` varchar(10) NOT NULL DEFAULT "beijing", 
+                `balance` decimalv3(9, 0) NULL, 
+                `last_access_time` datetime NULL 
+            ) ENGINE = OLAP UNIQUE KEY(`id`) 
+            COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
+            BUCKETS AUTO PROPERTIES ( 
+                "replication_allocation" = "tag.location.default: 1", 
+                "storage_format" = "V2", 
+                "enable_unique_key_merge_on_write" = "true", 
+                "light_schema_change" = "true", 
+                "disable_auto_compaction" = "false", 
+                "enable_single_replica_compaction" = "false" 
+            );
+    """
     sql """insert into ${tableName4} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
     sql """insert into ${tableName4} values(3,"steve",23,"beijing",500,"2023-07-03 12:00:02");"""
     qt_sql """select * from ${tableName4} order by id;"""
