@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindow
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -248,11 +249,11 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
      * 3. the remaining table in step 2 should be correlated table for inner plan
      */
     private boolean checkRelation(List<Expression> correlatedSlots) {
-        List<LogicalRelation> outerTables = outerPlans.stream().filter(LogicalRelation.class::isInstance)
-                .map(LogicalRelation.class::cast)
+        List<CatalogRelation> outerTables = outerPlans.stream().filter(CatalogRelation.class::isInstance)
+                .map(CatalogRelation.class::cast)
                 .collect(Collectors.toList());
-        List<LogicalRelation> innerTables = innerPlans.stream().filter(LogicalRelation.class::isInstance)
-                .map(LogicalRelation.class::cast)
+        List<CatalogRelation> innerTables = innerPlans.stream().filter(CatalogRelation.class::isInstance)
+                .map(CatalogRelation.class::cast)
                 .collect(Collectors.toList());
 
         List<Long> outerIds = outerTables.stream().map(node -> node.getTable().getId()).collect(Collectors.toList());
@@ -273,15 +274,16 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
 
         Set<ExprId> correlatedRelationOutput = outerTables.stream()
                 .filter(node -> outerIds.contains(node.getTable().getId()))
+                .map(LogicalRelation.class::cast)
                 .map(LogicalRelation::getOutputExprIdSet).flatMap(Collection::stream).collect(Collectors.toSet());
         return ExpressionUtils.collect(correlatedSlots, NamedExpression.class::isInstance).stream()
                 .map(NamedExpression.class::cast)
                 .allMatch(e -> correlatedRelationOutput.contains(e.getExprId()));
     }
 
-    private void createSlotMapping(List<LogicalRelation> outerTables, List<LogicalRelation> innerTables) {
-        for (LogicalRelation outerTable : outerTables) {
-            for (LogicalRelation innerTable : innerTables) {
+    private void createSlotMapping(List<CatalogRelation> outerTables, List<CatalogRelation> innerTables) {
+        for (CatalogRelation outerTable : outerTables) {
+            for (CatalogRelation innerTable : innerTables) {
                 if (innerTable.getTable().getId() == outerTable.getTable().getId()) {
                     for (Slot innerSlot : innerTable.getOutput()) {
                         for (Slot outerSlot : outerTable.getOutput()) {

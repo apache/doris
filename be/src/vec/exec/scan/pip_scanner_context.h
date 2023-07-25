@@ -48,7 +48,7 @@ public:
                 set_status_on_error(Status::Cancelled("cancelled"), false);
             }
 
-            if (!_process_status.ok()) {
+            if (!status().ok()) {
                 return _process_status;
             }
         }

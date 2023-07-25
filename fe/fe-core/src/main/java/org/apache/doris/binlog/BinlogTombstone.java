@@ -36,33 +36,34 @@ public class BinlogTombstone {
     @SerializedName(value = "commitSeq")
     private long commitSeq;
 
+    // TODO(deadlinefen): delete this field later
+    // This is a reserved field for the transition between new and old versions.
+    // It will be deleted later
     @SerializedName(value = "tableIds")
     private List<Long> tableIds;
+
+    @SerializedName(value = "tableCommitSeqMap")
+    private Map<Long, Long> tableCommitSeqMap;
 
     @SerializedName(value = "tableVersionMap")
     // this map keep last upsert record <tableId, UpsertRecord>
     // only for master fe to send be gc task, not need persist
     private Map<Long, UpsertRecord.TableRecord> tableVersionMap = Maps.newHashMap();
 
-    public BinlogTombstone(long dbId, List<Long> tableIds, long commitSeq) {
-        this.dbBinlogTombstone = true;
+    public BinlogTombstone(long dbId, boolean isDbTombstone) {
+        this.dbBinlogTombstone = isDbTombstone;
         this.dbId = dbId;
-        this.tableIds = tableIds;
-        this.commitSeq = commitSeq;
+        this.commitSeq = -1;
+        this.tableIds = Collections.emptyList();
+        this.tableCommitSeqMap = Maps.newHashMap();
     }
 
-    public BinlogTombstone(long dbId, long commitSeq) {
+    public BinlogTombstone(long tableId, long commitSeq) {
         this.dbBinlogTombstone = false;
-        this.dbId = dbId;
-        this.tableIds = null;
+        this.dbId = -1;
         this.commitSeq = commitSeq;
-    }
-
-    public BinlogTombstone(long dbId, long tableId, long commitSeq) {
-        this.dbBinlogTombstone = false;
-        this.dbId = dbId;
-        this.tableIds = Collections.singletonList(tableId);
-        this.commitSeq = commitSeq;
+        this.tableIds = Collections.emptyList();
+        this.tableCommitSeqMap = Collections.singletonMap(tableId, commitSeq);
     }
 
     public void addTableRecord(long tableId, UpsertRecord upsertRecord) {
@@ -75,6 +76,14 @@ public class BinlogTombstone {
         tableVersionMap.putAll(records);
     }
 
+    // Can only be used to merge tombstone of the same db
+    public void mergeTableTombstone(BinlogTombstone tombstone) {
+        if (commitSeq < tombstone.getCommitSeq()) {
+            commitSeq = tombstone.getCommitSeq();
+        }
+        tableCommitSeqMap.putAll(tombstone.getTableCommitSeqMap());
+    }
+
     public boolean isDbBinlogTomstone() {
         return dbBinlogTombstone;
     }
@@ -83,8 +92,19 @@ public class BinlogTombstone {
         return dbId;
     }
 
+    // TODO(deadlinefen): delete this code later
     public List<Long> getTableIds() {
+        if (tableIds == null) {
+            tableIds = Collections.emptyList();
+        }
         return tableIds;
+    }
+
+    public Map<Long, Long> getTableCommitSeqMap() {
+        if (tableCommitSeqMap == null) {
+            tableCommitSeqMap = Collections.emptyMap();
+        }
+        return tableCommitSeqMap;
     }
 
     public long getCommitSeq() {

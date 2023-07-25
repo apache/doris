@@ -159,8 +159,8 @@ DEFINE_Int32(clear_transaction_task_worker_count, "1");
 DEFINE_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 DEFINE_Int32(alter_tablet_worker_count, "3");
-// the count of thread to alter inverted index
-DEFINE_Int32(alter_inverted_index_worker_count, "3");
+// the count of thread to alter index
+DEFINE_Int32(alter_index_worker_count, "3");
 // the count of thread to clone
 DEFINE_Int32(clone_worker_count, "3");
 // the count of thread to clone
@@ -472,9 +472,6 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
-// The configuration is used to enable lazy open feature, and the default value is false.
-// When there is mixed deployment in the upgraded version, it needs to be set to false.
-DEFINE_mBool(enable_lazy_open_partition, "false");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
@@ -1012,6 +1009,7 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
@@ -1032,6 +1030,17 @@ DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
+
+DEFINE_mString(get_stack_trace_tool, "libunwind");
+
+// the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
+DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
+
+// the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
+DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
+
+// number of threads that fetch auto-inc ranges from FE
+DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
 
 #ifdef BE_TEST
 // test s3

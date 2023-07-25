@@ -310,6 +310,8 @@ public class OperationType {
 
     public static final short OP_BARRIER = 436;
 
+    // change an auto increment id for a column
+    public static final short OP_UPDATE_AUTO_INCREMENT_ID = 437;
 
     /**
      * Get opcode name by op code.

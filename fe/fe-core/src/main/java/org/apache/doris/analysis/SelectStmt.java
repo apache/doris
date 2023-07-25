@@ -80,6 +80,7 @@ import java.util.stream.Collectors;
  */
 public class SelectStmt extends QueryStmt {
     private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
+    public static final String DEFAULT_VALUE = "__DEFAULT_VALUE__";
     private UUID id = UUID.randomUUID();
 
     // ///////////////////////////////////////
@@ -575,7 +576,7 @@ public class SelectStmt extends QueryStmt {
             }
             for (Expr expr : valueList.getFirstRow()) {
                 if (expr instanceof DefaultValueExpr) {
-                    resultExprs.add(new IntLiteral(1));
+                    resultExprs.add(new StringLiteral(DEFAULT_VALUE));
                 } else {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(expr, analyzer));
                 }
@@ -722,7 +723,8 @@ public class SelectStmt extends QueryStmt {
         if (getAggInfo() != null
                 || getHavingPred() != null
                 || getWithClause() != null
-                || getAnalyticInfo() != null) {
+                || getAnalyticInfo() != null
+                || hasOutFileClause()) {
             return false;
         }
         // ignore short circuit query
@@ -758,7 +760,7 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("only support duplicate key or MOW model");
             return false;
         }
-        if (!olapTable.getEnableLightSchemaChange()) {
+        if (!olapTable.getEnableLightSchemaChange() || !Strings.isNullOrEmpty(olapTable.getStoragePolicy())) {
             return false;
         }
         if (getOrderByElements() != null) {

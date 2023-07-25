@@ -41,7 +41,7 @@ class PHandShakeResponse;
 class PInternalServiceImpl : public PBackendService {
 public:
     PInternalServiceImpl(ExecEnv* exec_env);
-    virtual ~PInternalServiceImpl();
+    ~PInternalServiceImpl() override;
 
     void transmit_data(::google::protobuf::RpcController* controller,
                        const ::doris::PTransmitDataParams* request,
@@ -85,10 +85,6 @@ public:
                             const PTabletWriterOpenRequest* request,
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
-
-    void open_partition(google::protobuf::RpcController* controller,
-                        const OpenPartitionRequest* request, OpenPartitionResult* response,
-                        google::protobuf::Closure* done) override;
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,

@@ -57,8 +57,8 @@ public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFact
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalJoin(logicalProject(logicalJoin()), group())
-                        .when(j -> j.left().child().getJoinType().isOuterJoin() || j.left().child().getJoinType()
-                                .isInnerJoin())
+                        .when(j -> j.left().child().getJoinType().isOuterJoin()
+                                || j.left().child().getJoinType().isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.left().isAllSlots())
                         .whenNot(j -> j.left().child().hasJoinHint())
@@ -71,8 +71,8 @@ public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                             return topJoin.withChildren(newLeft, topJoin.right());
                         }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN),
                 logicalJoin(group(), logicalProject(logicalJoin()))
-                        .when(j -> j.right().child().getJoinType().isOuterJoin() || j.right().child().getJoinType()
-                                .isInnerJoin())
+                        .when(j -> j.right().child().getJoinType().isOuterJoin()
+                                || j.right().child().getJoinType().isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.right().isAllSlots())
                         .whenNot(j -> j.right().child().hasJoinHint())
@@ -133,6 +133,11 @@ public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFact
         boolean rightContains = bProjects.stream().anyMatch(e -> !(e instanceof Slot));
         // due to JoinCommute, we don't need to consider just right contains.
         if (!leftContains) {
+            return null;
+        }
+        // we could not push nullable side project
+        if ((join.getJoinType().isLeftOuterJoin() && rightContains)
+                || (join.getJoinType().isRightOuterJoin() && leftContains)) {
             return null;
         }
 

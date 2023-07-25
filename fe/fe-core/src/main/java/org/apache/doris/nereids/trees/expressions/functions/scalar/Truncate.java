@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
@@ -40,7 +39,6 @@ public class Truncate extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable, ComputePrecisionForRound {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD, IntegerType.INSTANCE)
     );
 

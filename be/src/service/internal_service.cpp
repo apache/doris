@@ -250,29 +250,6 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     }
 }
 
-void PInternalServiceImpl::open_partition(google::protobuf::RpcController* controller,
-                                          const OpenPartitionRequest* request,
-                                          OpenPartitionResult* response,
-                                          google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
-        VLOG_RPC << "partition open"
-                 << ", index_id=" << request->index_id();
-        brpc::ClosureGuard closure_guard(done);
-        auto st = _exec_env->load_channel_mgr()->open_partition(*request);
-        if (!st.ok()) {
-            LOG(WARNING) << "load channel open failed, message=" << st
-                         << ", index_ids=" << request->index_id();
-        }
-        st.to_protobuf(response->mutable_status());
-    });
-    if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
-    }
-}
-
 void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* controller,
                                               const PExecPlanFragmentRequest* request,
                                               PExecPlanFragmentResult* response,
@@ -351,12 +328,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        // TODO(zxy) delete in 1.2 version
-        google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTabletWriterAddBlockRequest>(request, cntl);
-
-        _tablet_writer_add_block(controller, request, response, new_done);
+        _tablet_writer_add_block(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -1047,13 +1019,9 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        // TODO(zxy) delete in 1.2 version
-        google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
-
-        _transmit_block(controller, request, response, new_done, Status::OK());
+    PriorityThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
+    bool ret = pool.try_offer([this, controller, request, response, done]() {
+        _transmit_block(controller, request, response, done, Status::OK());
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";

@@ -56,7 +56,7 @@ distribution_desc
 * `column_definition`
     列定义：
 
-    `column_name column_type [KEY] [aggr_type] [NULL] [default_value] [column_comment]`
+    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [column_comment]`
     * `column_type`
         列类型，支持以下类型：
         ```
@@ -106,7 +106,12 @@ distribution_desc
         HLL_UNION：HLL 类型的列的聚合方式，通过 HyperLogLog 算法聚合。
         BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。
         ```
-        
+    * `AUTO_INCREMENT`(仅在master分支可用)
+            
+        是否为自增列，自增列可以用来为新插入的行生成一个唯一标识。在插入表数据时如果没有指定自增列的值，则会自动生成一个合法的值。当自增列被显示地插入NULL时，其值也会被替换为生成的合法值。需要注意的是，处于性能考虑，BE会在内存中缓存部分自增列的值，所以自增列自动生成的值只能保证单调性和唯一性，无法保证严格的连续性。
+        一张表中至多有一个列是自增列，自增列必须是BIGINT类型，且必须为NOT NULL。
+        Duplicate模型表和Unique模型表均支持自增列。
+
   * `default_value`
         列默认值，当导入数据未指定该列的值时，系统将赋予该列default_value。
           

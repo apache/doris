@@ -260,9 +260,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void dropDatabase(String dbName) {
+    public void dropDatabaseForReplay(String dbName) {
         LOG.debug("drop database [{}]", dbName);
-        makeSureInitialized();
         Long dbId = dbNameToId.remove(dbName);
         if (dbId == null) {
             LOG.warn("drop database [{}] failed", dbName);
@@ -271,8 +270,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void createDatabase(long dbId, String dbName) {
-        makeSureInitialized();
+    public void createDatabaseForReplay(long dbId, String dbName) {
         LOG.debug("create database [{}]", dbName);
         dbNameToId.put(dbName, dbId);
         ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);

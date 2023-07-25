@@ -1141,7 +1141,7 @@ fetch stream load record interval.
 
 #### `max_bytes_per_broker_scanner`
 
-Default：`3 * 1024 * 1024 * 1024L`  （3G）
+Default：`500 * 1024 * 1024 * 1024L`  （500G）
 
 IsMutable：true
 

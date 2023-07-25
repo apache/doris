@@ -151,6 +151,7 @@ private:
 public:
     static NO_INLINE void apply(const Container& in, UInt32 in_scale, Container& out,
                                 Int16 out_scale) {
+        constexpr bool is_decimalv2 = IsDecimalV2<T>;
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
             size_t scale = int_exp10(scale_arg);
@@ -160,15 +161,15 @@ public:
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
-                size_t target_scale = int_exp10(-out_scale);
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, target_scale);
+                    Op::compute(p_in, scale, p_out,
+                                is_decimalv2 ? int_exp10(9 - out_scale) : int_exp10(-out_scale));
                     ++p_in;
                     ++p_out;
                 }
             } else {
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, 1);
+                    Op::compute(p_in, scale, p_out, is_decimalv2 ? scale : 1);
                     ++p_in;
                     ++p_out;
                 }

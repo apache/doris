@@ -37,6 +37,7 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
+#include "olap/calc_delete_bitmap_executor.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -143,6 +144,9 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
+        return _calc_delete_bitmap_executor.get();
+    }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -209,9 +213,6 @@ public:
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
-    }
-    std::unique_ptr<ThreadPool>& calc_delete_bitmap_thread_pool() {
-        return _calc_delete_bitmap_thread_pool;
     }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
@@ -423,6 +424,7 @@ private:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
@@ -437,7 +439,6 @@ private:
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
-    std::unique_ptr<ThreadPool> _calc_delete_bitmap_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
     std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
