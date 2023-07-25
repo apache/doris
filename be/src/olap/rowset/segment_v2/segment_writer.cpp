@@ -595,7 +595,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             // create primary indexes
             std::string last_key;
-            for (size_t pos = 0; pos < num_rows; pos++) {
+            for (size_t pos = row_pos; pos < num_rows; pos++) {
                 std::string key = _full_encode_keys(key_columns, pos);
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);

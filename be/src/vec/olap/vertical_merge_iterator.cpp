@@ -68,10 +68,15 @@ uint16_t RowSource::data() const {
 Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
     if (_buffer->allocated_bytes() + row_sources.size() * sizeof(UInt16) >
         config::vertical_compaction_max_row_source_memory_mb * 1024 * 1024) {
-        // serialize current buffer
-        RETURN_IF_ERROR(_create_buffer_file());
-        RETURN_IF_ERROR(_serialize());
-        _reset_buffer();
+        if (_buffer->allocated_bytes() - _buffer->size() * sizeof(UInt16) <
+            row_sources.size() * sizeof(UInt16)) {
+            LOG(INFO) << "DEBUG: RowSourceBuffer is too large, serialize and reset buffer: "
+                      << _buffer->allocated_bytes() << ", total size: " << _total_size;
+            // serialize current buffer
+            RETURN_IF_ERROR(_create_buffer_file());
+            RETURN_IF_ERROR(_serialize());
+            _reset_buffer();
+        }
     }
     for (const auto& source : row_sources) {
         _buffer->insert_value(source.data());
@@ -111,9 +116,25 @@ Status RowSourcesBuffer::has_remaining() {
 
 void RowSourcesBuffer::set_agg_flag(uint64_t index, bool agg) {
     DCHECK(index < _buffer->size());
+    if (index >= _buffer->size()) {
+        std::stringstream ss;
+        ss << "DEBUG index:" << index << ",_buffer size:" << _buffer->size();
+        LOG(WARNING) << ss.str();
+    }
     RowSource ori(_buffer->get_data()[index]);
     ori.set_agg_flag(agg);
     _buffer->get_data()[index] = ori.data();
+}
+
+bool RowSourcesBuffer::get_agg_flag(uint64_t index) {
+    DCHECK(index < _buffer->size());
+    if (index >= _buffer->size()) {
+        std::stringstream ss;
+        ss << "DEBUG index:" << index << ",_buffer size:" << _buffer->size();
+        LOG(WARNING) << ss.str();
+    }
+    RowSource ori(_buffer->get_data()[index]);
+    return ori.agg_flag();
 }
 
 size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
@@ -167,8 +188,9 @@ Status RowSourcesBuffer::_create_buffer_file() {
     LOG(INFO) << "Vertical compaction row sources buffer path: " << file_path;
     _fd = mkstemp(file_path.data());
     if (_fd < 0) {
-        LOG(WARNING) << "failed to create tmp file, file_path=" << file_path;
-        return Status::InternalError("failed to create tmp file");
+        LOG(WARNING) << "failed to create tmp file, file_path=" << file_path
+                     << ", err: " << strerror(errno);
+        return Status::InternalError("failed to create tmp file ");
     }
     // file will be released after fd is close
     unlink(file_path.data());
@@ -409,11 +431,13 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
         } else {
             tmp_row_sources.emplace_back(ctx->order(), false);
         }
+        // LOG(INFO) << "DEBUG: "<< "add 1 row to buffer, is_same: " << ctx->is_same();
         if (ctx->is_same() &&
             (_keys_type == KeysType::UNIQUE_KEYS || _keys_type == KeysType::AGG_KEYS)) {
             // skip cur row, copy pre ctx
             ++_merged_rows;
             if (pre_ctx) {
+                // LOG(INFO) << "DEBUG: copied " << pre_ctx->cur_batch_num() << " rows, encounter same key";
                 pre_ctx->copy_rows(block);
                 pre_ctx = nullptr;
             }
@@ -421,6 +445,7 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
             ctx->add_cur_batch();
             if (pre_ctx != ctx) {
                 if (pre_ctx) {
+                    // LOG(INFO) << "DEBUG: copied " << pre_ctx->cur_batch_num() << " rows, switch ctx";
                     pre_ctx->copy_rows(block);
                 }
                 pre_ctx = ctx;
@@ -432,6 +457,7 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
             if (ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
                 // current block finished, ctx not advance
                 // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
+                // LOG(INFO) << "DEBUG: copied " << ctx->cur_batch_num() << " rows, cur block finished";
                 ctx->copy_rows(block, false);
                 pre_ctx = nullptr;
             }
@@ -638,6 +664,9 @@ Status VerticalMaskMergeIterator::next_row(vectorized::IteratorRowRef* ref) {
         // Except first row, we call advance first and than get cur row
         ctx->set_cur_row_ref(ref);
         ref->is_same = row_source.agg_flag();
+        if (ref->is_same) {
+            _filtered_rows++;
+        }
 
         ctx->set_is_first_row(false);
         _row_sources_buf->advance();
@@ -646,6 +675,9 @@ Status VerticalMaskMergeIterator::next_row(vectorized::IteratorRowRef* ref) {
     RETURN_IF_ERROR(ctx->advance());
     ctx->set_cur_row_ref(ref);
     ref->is_same = row_source.agg_flag();
+    if (ref->is_same) {
+        _filtered_rows++;
+    }
 
     _row_sources_buf->advance();
     return Status::OK();
@@ -679,6 +711,7 @@ Status VerticalMaskMergeIterator::unique_key_next_row(vectorized::IteratorRowRef
             ctx->set_cur_row_ref(ref);
             return Status::OK();
         }
+        _filtered_rows++;
         st = _row_sources_buf->has_remaining();
     }
 
