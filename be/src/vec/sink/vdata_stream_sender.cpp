@@ -696,14 +696,15 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
                 final_st = st;
             }
         }
-    }
-    // wait all channels to finish
-    for (int i = 0; i < _channels.size(); ++i) {
-        Status st = _channels[i]->close_wait(state);
-        if (!st.ok() && final_st.ok()) {
-            final_st = st;
+        // wait all channels to finish
+        for (int i = 0; i < _channels.size(); ++i) {
+            Status st = _channels[i]->close_wait(state);
+            if (!st.ok() && final_st.ok()) {
+                final_st = st;
+            }
         }
     }
+
     DataSink::close(state, exec_status);
     return final_st;
 }
