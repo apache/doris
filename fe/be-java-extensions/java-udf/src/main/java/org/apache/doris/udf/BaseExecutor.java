@@ -1202,4 +1202,123 @@ public abstract class BaseExecutor {
         }
         return argument;
     }
+
+    public Object[] convertMapArg(PrimitiveType type, int argIdx, boolean isNullable, int rowStart, int rowEnd,
+            long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+        Object[] argument = (Object[]) Array.newInstance(ArrayList.class, rowEnd - rowStart);
+        for (int row = rowStart; row < rowEnd; ++row) {
+            long offsetStart = UdfUtils.UNSAFE.getLong(null, offsetsAddr + 8L * (row - 1));
+            long offsetEnd = UdfUtils.UNSAFE.getLong(null, offsetsAddr + 8L * (row));
+            int currentRowNum = (int) (offsetEnd - offsetStart);
+            switch (type) {
+                case BOOLEAN: {
+                    argument[row
+                            - rowStart] = UdfConvert
+                                    .convertArrayBooleanArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                            nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case TINYINT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayTinyIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case SMALLINT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArraySmallIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case INT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case BIGINT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayBigIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case LARGEINT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayLargeIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case FLOAT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayFloatArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DOUBLE: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDoubleArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case CHAR:
+                case VARCHAR:
+                case STRING: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayStringArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr, strOffsetAddr);
+                    break;
+                }
+                case DATE: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDateArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATETIME: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDateTimeArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATEV2: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDateV2Arg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATETIMEV2: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDateTimeV2Arg(row, currentRowNum, offsetStart, isNullable,
+                                    nullMapAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMALV2:
+                case DECIMAL128: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 16L, row, currentRowNum,
+                                    offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMAL32: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 4L, row, currentRowNum,
+                                    offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMAL64: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 8L, row, currentRowNum,
+                                    offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                default: {
+                    LOG.info("Not support: " + argTypes[argIdx]);
+                    Preconditions.checkState(false, "Not support type " + argTypes[argIdx].toString());
+                    break;
+                }
+            }
+        }
+        return argument;
+    }
 }
