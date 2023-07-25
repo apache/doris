@@ -56,4 +56,9 @@ suite('nereids_delete_mow_partial_update') {
     // delete predicate to "delete" the rows
     sql "set skip_delete_predicate=true;"
     qt_sql_skip_delete_predicate "select * from ${tableName1} order by uid;"
+
+    sql "set skip_delete_sign=true;"
+    sql "set skip_storage_engine_merge=true;"
+    sql "set skip_delete_bitmap=true;"
+    qt_sql "select uid,v1,__DORIS_DELETE_SIGN__ from ${tableName1} order by uid;"
 }

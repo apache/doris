@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -373,17 +374,9 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     }
 
     @Override
-    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink,
-            DeepCopierContext context) {
-        Plan child = olapTableSink.child().accept(this, context);
-        return new LogicalOlapTableSink<>(olapTableSink.getDatabase(), olapTableSink.getTargetTable(),
-                olapTableSink.getCols(), olapTableSink.getPartitionIds(), olapTableSink.isPartialUpdate(), child);
-    }
-
-    @Override
-    public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, DeepCopierContext context) {
-        Plan child = fileSink.child().accept(this, context);
-        return fileSink.withChildren(child);
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, DeepCopierContext context) {
+        Plan child = logicalSink.child().accept(this, context);
+        return logicalSink.withChildren(child);
     }
 
     @Override
