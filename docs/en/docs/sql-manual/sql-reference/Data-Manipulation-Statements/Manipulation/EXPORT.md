@@ -46,7 +46,11 @@ WITH BROKER/S3/HDFS
 [broker_properties];
 ```
 
-illustrate:
+**principle**
+
+The bottom layer of the `Export` statement actually executes the `select...outfile..` statement. The `Export` task will be decomposed into multiple `select...outfile..` statements to execute concurrently according to the value of the `parallelism` parameter. Each `select...outfile..` is responsible for exporting some tablets of table.
+
+**illustrate:**
 
 - `table_name`
 
@@ -76,6 +80,7 @@ illustrate:
   - `timeout`: The timeout period of the export job, the default is 2 hours, the unit is seconds.
   - `columns`: Specifies certain columns of the export job table
   - `format`: Specifies the file format, support: parquet, orc, csv, csv_with_names, csv_with_names_and_types.The default is csv format.
+  - `parallelism`: The concurrency degree of the `export` job, the default is `1`. The export job will be divided into `select..outfile..` statements of the number of `parallelism` to execute concurrently. (If the value of `parallelism` is greater than the number of tablets in the table, the system will automatically set `parallelism` to the number of tablets, that is, each `select..outfile..` statement is responsible for one tablet)
   - `delete_existing_files`: default `false`. If it is specified as true, you will first delete all files specified in the directory specified by the file_path, and then export the data to the directory.For example: "file_path" = "/user/tmp", then delete all files and directory under "/user/"; "file_path" = "/user/tmp/", then delete all files and directory under "/user/tmp/"
 
   > Note that to use the `delete_existing_files` parameter, you also need to add the configuration `enable_delete_existing_files = true` to the fe.conf file and restart the FE. Only then will the `delete_existing_files` parameter take effect. Setting `delete_existing_files = true` is a dangerous operation and it is recommended to only use it in a testing environment.
@@ -218,7 +223,17 @@ PROPERTIES (
 
 When the exported file size is larger than 5MB, the data will be split into multiple files, with each file containing a maximum of 5MB.
 
-7. set delete_existing_files
+7. set parallelism
+```sql
+EXPORT TABLE test TO "file:///home/user/tmp/"
+PROPERTIES (
+  "format" = "parquet",
+  "max_file_size" = "5MB",
+  "parallelism" = "5"
+);
+```
+
+8. set delete_existing_files
 
 ```sql
 EXPORT TABLE test TO "file:///home/user/tmp"
@@ -348,8 +363,7 @@ WITH BROKER "broker_name"
   #### Precautions
 
   - Exporting a large amount of data at one time is not recommended. The maximum recommended export data volume for an Export job is several tens of GB. An overly large export results in more junk files and higher retry costs. If the amount of table data is too large, it is recommended to export by partition.
-  - If the Export job fails, the `__doris_export_tmp_xxx` temporary directory generated in the remote storage and the generated files will not be deleted, and the user needs to delete it manually.
-  - If the Export job runs successfully, the `__doris_export_tmp_xxx` directory generated in the remote storage may be preserved or cleared according to the file system semantics of the remote storage. For example, in S3 object storage, after the last file in a directory is removed by the rename operation, the directory will also be deleted. If the directory is not cleared, the user can clear it manually.
+  - If the Export job fails, the generated files will not be deleted, and the user needs to delete it manually.
   - The Export job only exports the data of the Base table, not the data of the materialized view.
   - The export job scans data and occupies IO resources, which may affect the query latency of the system.
   - The maximum number of export jobs running simultaneously in a cluster is 5. Only jobs submitted after that will be queued.
