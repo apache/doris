@@ -19,7 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
 
 import java.util.Optional;
 
@@ -28,7 +30,7 @@ import java.util.Optional;
  */
 public class ColumnDefinition {
     private final String name;
-    private final DataType type;
+    private DataType type;
     private final boolean isKey;
     private final String aggType;
     private final boolean isNull;
@@ -55,6 +57,19 @@ public class ColumnDefinition {
 
     public ColumnDefinition withIsKey(boolean isKey) {
         return new ColumnDefinition(name, type, isKey, aggType, isNull, defaultValue, comment);
+    }
+
+    /**
+     * validate column definition and analyze
+     */
+    public void validate() {
+        if (type.isStringLikeType()) {
+            if (type instanceof CharType && ((CharType) type).getLen() == -1) {
+                type = new CharType(1);
+            } else if (type instanceof VarcharType && ((VarcharType) type).getLen() == -1) {
+                type = new VarcharType(VarcharType.MAX_VARCHAR_LENGTH);
+            }
+        }
     }
 
     public Column translateToCatalogStyle() {

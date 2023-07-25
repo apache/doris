@@ -89,6 +89,7 @@ public class CreateTableInfo {
     public CreateTableStmt translateToCatalogStyle() {
         Set<String> keysSet = ImmutableSet.copyOf(keys);
         List<Column> catalogColumns = columns.stream()
+                .peek(ColumnDefinition::validate)
                 .map(column -> keysSet.contains(column.getName()) ? column.withIsKey(true) : column)
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
