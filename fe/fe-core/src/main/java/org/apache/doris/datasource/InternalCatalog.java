@@ -1962,14 +1962,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         // use light schema change optimization
         olapTable.setDisableAutoCompaction(disableAutoCompaction);
 
-        boolean enableSingleReplicaCompaction = false;
-        try {
-            enableSingleReplicaCompaction = PropertyAnalyzer.analyzeEnableSingleReplicaCompaction(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
-
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
         try {
@@ -2002,6 +1994,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+
+        boolean enableSingleReplicaCompaction = false;
+        try {
+            enableSingleReplicaCompaction = PropertyAnalyzer.analyzeEnableSingleReplicaCompaction(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        if (enableUniqueKeyMergeOnWrite && enableSingleReplicaCompaction) {
+            throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
+                    + " property is not supported for merge-on-write table");
+        }
+        olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
         // analyze bloom filter columns
         Set<String> bfColumns = null;
