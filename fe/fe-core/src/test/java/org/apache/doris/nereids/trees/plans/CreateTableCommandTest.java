@@ -34,20 +34,20 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     @Test
     public void testCreateSimpleTable() throws Exception {
-        String ddl = "create table t(" 
-                + "    id int," 
-                + "    v1 int" 
-                + ")" 
-                + "distributed by hash(id) buckets 10 " 
-                + "properties(" 
-                + "   \"replication_num\"=\"1\"" 
+        String ddl = "create table t("
+                + "    id int,"
+                + "    v1 int"
+                + ")"
+                + "distributed by hash(id) buckets 10 "
+                + "properties("
+                + "   \"replication_num\"=\"1\""
                 + ")\n";
         LogicalPlan plan = new NereidsParser().parseSingle(ddl);
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableCommand command = ((CreateTableCommand) plan);
         command.run(connectContext, null);
     }
-    
+
     @Test
     public void testCreateTableWithAllField() throws Exception {
         String ddl = "create table agg_light_sc_not_null_nop_t (\n"
@@ -73,7 +73,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "    `kdcml128v3` decimalv3(20, 8) replace not null\n"
                 + ") engine=OLAP\n"
                 + "aggregate key(id)\n"
-                + "distributed by hash(id) buckets 4\n"
+                + "distributed by hash(`id`) buckets 4\n"
                 + "properties (\n"
                 + "   \"replication_num\"=\"1\",\n"
                 + "   \"light_schema_change\"=\"true\"\n"

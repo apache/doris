@@ -32,7 +32,7 @@ public class DistributionDescriptor {
     private final boolean isAutoBucket;
     private final int bucketNum;
     private final List<String> cols;
-    
+
     public DistributionDescriptor(boolean isHash, boolean isAutoBucket, int bucketNum, List<String> cols) {
         this.isHash = isHash;
         this.isAutoBucket = isAutoBucket;

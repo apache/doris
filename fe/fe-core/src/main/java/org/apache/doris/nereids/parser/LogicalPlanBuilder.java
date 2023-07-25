@@ -1755,7 +1755,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException("nameParts in create table should be 1 or 2");
         }
         List<ColumnDefinition> cols = visitColumnDefs(ctx.columnDefs());
-        String engineName = ctx.engine != null ? ctx.engine.getText() : "olap";
+        String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
                 visitIdentifierList(ctx.hashKeys));
         Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
