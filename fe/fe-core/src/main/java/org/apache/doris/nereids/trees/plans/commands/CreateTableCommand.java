@@ -44,9 +44,11 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        createTableInfo.validate(ctx);
-        CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
-        Env.getCurrentEnv().createTable(createTableStmt);
+        if (!ctasQuery.isPresent()) {
+            createTableInfo.validate(ctx);
+            CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
+            Env.getCurrentEnv().createTable(createTableStmt);
+        }
     }
 
     @Override

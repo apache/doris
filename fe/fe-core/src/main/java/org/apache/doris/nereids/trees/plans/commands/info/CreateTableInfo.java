@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -39,7 +40,7 @@ public class CreateTableInfo {
     private String dbName;
     private final String tableName;
     private final List<ColumnDefinition> columns;
-    private final List<IndexDef> indexes;
+    private final List<IndexDefinition> indexes;
     private final String engineName;
     // private final KeysType keyType;
     private final List<String> keys;
@@ -52,9 +53,9 @@ public class CreateTableInfo {
     /**
      * constructor
      */
-    public CreateTableInfo(String dbName, String tableName, List<ColumnDefinition> columns, List<IndexDef> indexes,
-            String engineName, List<String> keys, String comment, DistributionDescriptor distribution,
-            List<RollupDefinition> rollups, Map<String, String> properties) {
+    public CreateTableInfo(String dbName, String tableName, List<ColumnDefinition> columns,
+            List<IndexDefinition> indexes, String engineName, List<String> keys, String comment,
+            DistributionDescriptor distribution, List<RollupDefinition> rollups, Map<String, String> properties) {
         this.dbName = dbName;
         this.tableName = tableName;
         this.columns = Utils.copyRequiredList(columns);
@@ -79,10 +80,12 @@ public class CreateTableInfo {
     public CreateTableStmt translateToCatalogStyle() {
         List<Column> catalogColumns = columns.stream().map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
+        List<Index> catalogIndexes = indexes.stream().map(IndexDefinition::translateToCatalogStyle)
+                .collect(Collectors.toList());
         return new CreateTableStmt(false, false,
                 new TableName(null, dbName, tableName),
                 catalogColumns,
-                null,
+                catalogIndexes,
                 engineName,
                 new KeysDesc(KeysType.DUP_KEYS, keys),
                 null,

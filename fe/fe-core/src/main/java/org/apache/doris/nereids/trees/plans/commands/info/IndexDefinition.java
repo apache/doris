@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.IndexDef.IndexType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
@@ -24,13 +27,13 @@ import java.util.List;
 /**
  * index definition
  */
-public class IndexDef {
+public class IndexDefinition {
     private final String name;
     private final List<String> cols;
     private final boolean isUseBitmap;
     private final String comment;
 
-    public IndexDef(String name, List<String> cols, boolean isUseBitmap, String comment) {
+    public IndexDefinition(String name, List<String> cols, boolean isUseBitmap, String comment) {
         this.name = name;
         this.cols = Utils.copyRequiredList(cols);
         this.isUseBitmap = isUseBitmap;
@@ -38,5 +41,10 @@ public class IndexDef {
     }
 
     public void validate() {
+    }
+
+    public Index translateToCatalogStyle() {
+        return new Index(Env.getCurrentEnv().getNextId(), name, cols, isUseBitmap ? IndexType.BITMAP : null, null,
+                comment);
     }
 }
