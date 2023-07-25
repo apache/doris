@@ -38,6 +38,7 @@
 #include <sstream>
 #include <thread>
 
+#include "service/backend_options.h"
 #include "util/doris_metrics.h"
 
 namespace apache {
@@ -343,7 +344,9 @@ Status ThriftServer::start() {
         break;
 
     case THREADED:
-        server_socket = new apache::thrift::transport::TServerSocket(_port);
+        std::cout << "BackendOptions::get_service_bind_address():" << BackendOptions::get_service_bind_address_without_bracket() << std::endl;
+        server_socket = new apache::thrift::transport::TServerSocket(
+                BackendOptions::get_service_bind_address_without_bracket(), _port);
         //      server_socket->setAcceptTimeout(500);
         fe_server_transport.reset(server_socket);
 
