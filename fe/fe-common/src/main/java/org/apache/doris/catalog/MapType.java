@@ -63,6 +63,15 @@ public class MapType extends Type {
         this.isValueContainsNull = true;
     }
 
+    public MapType(Type keyType, Type valueType, boolean keyContainsNull, boolean valueContainsNull) {
+        Preconditions.checkNotNull(keyType);
+        Preconditions.checkNotNull(valueType);
+        this.keyType = keyType;
+        this.isKeyContainsNull = keyContainsNull;
+        this.valueType = valueType;
+        this.isValueContainsNull = valueContainsNull;
+    }
+
     @Override
     public PrimitiveType getPrimitiveType() {
         return PrimitiveType.MAP;

@@ -38,6 +38,7 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -258,6 +259,7 @@ public abstract class Type {
                     .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
+                    .put(PrimitiveType.MAP, Sets.newHashSet(HashMap.class))
                     .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
