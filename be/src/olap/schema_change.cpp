@@ -2377,6 +2377,12 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         return Status::OK();
     }
 
+    if (new_tablet->enable_unique_key_merge_on_write() &&
+        new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
+        *sc_directly = true;
+        return Status::OK();
+    }
+
     if (base_tablet_schema->num_short_key_columns() != new_tablet->num_short_key_columns()) {
         // the number of short_keys changed, can't do linked schema change
         *sc_directly = true;
