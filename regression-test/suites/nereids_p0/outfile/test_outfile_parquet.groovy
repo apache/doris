@@ -110,7 +110,7 @@ suite("test_outfile_parquet") {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
         def result = sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/";
+            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/" FORMAT AS PARQUET;
         """
 
         url = result[0][3]
