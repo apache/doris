@@ -128,13 +128,13 @@ public class DecommissionTest {
         // test colocate tablet repair
         String createStr = "create table test.tbl1\n"
                 + "(k1 date, k2 int)\n"
-                + "distributed by hash(k2) buckets 1000\n"
+                + "distributed by hash(k2) buckets 2400\n"
                 + "properties\n"
                 + "(\n"
-                + "    \"replication_num\" = \"2\"\n"
+                + "    \"replication_num\" = \"1\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
-        int totalReplicaNum = 2 * 1000;
+        int totalReplicaNum = 1 * 2400;
         checkBalance(1, totalReplicaNum, 4);
 
         Backend backend = Env.getCurrentSystemInfo().getAllBackends().get(0);
@@ -150,8 +150,7 @@ public class DecommissionTest {
     }
 
     void checkBalance(int tryTimes, int totalReplicaNum, int backendNum) throws Exception {
-        int beReplicaNumLower = totalReplicaNum / backendNum;
-        int beReplicaNumUpper = beReplicaNumLower + 200; // contain other internal table replicas.
+        int beReplicaNum = totalReplicaNum / backendNum;
         for (int i = 0; i < tryTimes; i++) {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendNum != backendIds.size() && i != tryTimes - 1) {
@@ -166,8 +165,7 @@ public class DecommissionTest {
 
             Assert.assertEquals("tablet nums = " + tabletNums, backendNum, backendIds.size());
             for (int tabletNum : tabletNums) {
-                Assert.assertTrue(tabletNum >= beReplicaNumLower);
-                Assert.assertTrue(tabletNum <= beReplicaNumUpper);
+                Assert.assertEquals("tablet nums = " + tabletNums, beReplicaNum, tabletNum);
             }
         }
     }
