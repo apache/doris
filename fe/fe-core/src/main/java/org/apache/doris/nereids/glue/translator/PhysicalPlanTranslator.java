@@ -1014,11 +1014,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hashJoinNode.setColocate(true, "");
             leftFragment.setHasColocatePlanNode(true);
         } else if (JoinUtils.shouldBroadcastJoin(physicalHashJoin)) {
-            Preconditions.checkState(rightFragment.getPlanRoot() instanceof ExchangeNode,
+            Preconditions.checkState(rightPlanRoot instanceof ExchangeNode,
                     "right child of broadcast join must be ExchangeNode but it is " + rightFragment.getPlanRoot());
             Preconditions.checkState(rightFragment.getChildren().size() == 1,
                     "right child of broadcast join must have 1 child, but meet " + rightFragment.getChildren().size());
-            rightFragment.getChild(0).setRightChildOfBroadcastHashJoin(true);
+            ((ExchangeNode) rightPlanRoot).setRightChildOfBroadcastHashJoin(true);
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
         } else if (JoinUtils.shouldBucketShuffleJoin(physicalHashJoin)) {
             hashJoinNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
