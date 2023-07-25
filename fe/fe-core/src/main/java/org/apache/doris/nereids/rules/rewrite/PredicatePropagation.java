@@ -41,10 +41,16 @@ import java.util.stream.Collectors;
 public class PredicatePropagation {
 
     /**
+     * equal predicate with literal in one side would be chosen to be source predicates and used to infer all predicates
+     */
+    private Set<Expression> sourcePredicates = Sets.newHashSet();
+
+    /**
      * infer additional predicates.
      */
     public Set<Expression> infer(Set<Expression> predicates) {
         Set<Expression> inferred = Sets.newHashSet();
+        predicates.addAll(sourcePredicates);
         for (Expression predicate : predicates) {
             if (canEquivalentInfer(predicate)) {
                 List<Expression> newInferred = predicates.stream()
@@ -55,6 +61,7 @@ public class PredicatePropagation {
             }
         }
         inferred.removeAll(predicates);
+        sourcePredicates.addAll(inferred);
         return inferred;
     }
 
@@ -76,8 +83,10 @@ public class PredicatePropagation {
             public Expression visitComparisonPredicate(ComparisonPredicate cp, Void context) {
                 // we need to get expression covered by cast, because we want to infer different datatype
                 if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.left()) && (cp.right().isConstant())) {
+                    sourcePredicates.add(cp);
                     return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.left()));
                 } else if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.right()) && cp.left().isConstant()) {
+                    sourcePredicates.add(cp);
                     return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.right()));
                 }
                 return super.visit(cp, context);

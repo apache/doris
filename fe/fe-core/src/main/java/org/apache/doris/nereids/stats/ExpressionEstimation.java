@@ -163,11 +163,13 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     DateLiteral dateMinLiteral = new DateLiteral(strMin);
                     long min = dateMinLiteral.getValue();
                     builder.setMinValue(min);
+                    builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
 
                     String strMax = colStats.maxExpr.getStringValue();
                     DateLiteral dateMaxLiteral = new DateLiteral(strMax);
                     long max = dateMaxLiteral.getValue();
                     builder.setMaxValue(max);
+                    builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
                 } catch (AnalysisException e) {
                     // ignore exception. do not convert min max
                 }
@@ -189,6 +191,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         columnStatBuilder.setNdv(1);
         columnStatBuilder.setNumNulls(1);
         columnStatBuilder.setAvgSizeByte(1);
+        columnStatBuilder.setMinExpr(literal.toLegacyLiteral());
+        columnStatBuilder.setMaxExpr(literal.toLegacyLiteral());
         return columnStatBuilder.build();
     }
 

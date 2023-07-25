@@ -162,5 +162,48 @@ void IFileCache::QueryFileCacheContext::reserve(const Key& key, size_t offset, s
     }
 }
 
+void IFileCache::set_read_only(bool read_only) {
+    s_read_only = read_only;
+    if (read_only) {
+        std::lock_guard lock(s_file_reader_cache_mtx);
+        s_file_reader_cache.clear();
+        s_file_name_to_reader.clear();
+    }
+}
+
+std::weak_ptr<FileReader> IFileCache::cache_file_reader(const AccessKeyAndOffset& key,
+                                                        std::shared_ptr<FileReader> file_reader) {
+    std::weak_ptr<FileReader> wp;
+    if (!s_read_only) [[likely]] {
+        std::lock_guard lock(s_file_reader_cache_mtx);
+        if (config::file_cache_max_file_reader_cache_size == s_file_reader_cache.size()) {
+            s_file_name_to_reader.erase(s_file_reader_cache.back().first);
+            s_file_reader_cache.pop_back();
+        }
+        wp = file_reader;
+        s_file_reader_cache.emplace_front(key, std::move(file_reader));
+        s_file_name_to_reader.insert(std::make_pair(key, s_file_reader_cache.begin()));
+    }
+    return wp;
+}
+
+void IFileCache::remove_file_reader(const AccessKeyAndOffset& key) {
+    std::lock_guard lock(s_file_reader_cache_mtx);
+    if (auto iter = s_file_name_to_reader.find(key); iter != s_file_name_to_reader.end()) {
+        s_file_reader_cache.erase(iter->second);
+        s_file_name_to_reader.erase(key);
+    }
+}
+
+bool IFileCache::contains_file_reader(const AccessKeyAndOffset& key) {
+    std::lock_guard lock(s_file_reader_cache_mtx);
+    return s_file_name_to_reader.find(key) != s_file_name_to_reader.end();
+}
+
+size_t IFileCache::file_reader_cache_size() {
+    std::lock_guard lock(s_file_reader_cache_mtx);
+    return s_file_name_to_reader.size();
+}
+
 } // namespace io
 } // namespace doris

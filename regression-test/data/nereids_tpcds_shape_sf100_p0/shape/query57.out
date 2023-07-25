@@ -34,13 +34,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------PhysicalDistribute
 --------PhysicalTopN
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN](i_brand = v1_lead.i_brand)(v1.i_category = v1_lead.i_category)(v1.cc_name = v1_lead.cc_name)(v1.rn = expr_(rn - 1))
+------------hashJoin[INNER_JOIN](v1.i_category = v1_lead.i_category)(v1.i_brand = v1_lead.i_brand)(v1.cc_name = v1_lead.cc_name)(v1.rn = expr_(rn - 1))
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------PhysicalDistribute
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN](i_brand = v1_lag.i_brand)(v1.i_category = v1_lag.i_category)(v1.cc_name = v1_lag.cc_name)(v1.rn = expr_(rn + 1))
+------------------hashJoin[INNER_JOIN](v1.i_category = v1_lag.i_category)(v1.i_brand = v1_lag.i_brand)(v1.cc_name = v1_lag.cc_name)(v1.rn = expr_(rn + 1))
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )

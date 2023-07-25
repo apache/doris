@@ -21,26 +21,23 @@ import org.apache.doris.planner.external.FileSplit;
 import org.apache.doris.planner.external.TableFormatType;
 
 import org.apache.hadoop.fs.Path;
-import org.apache.paimon.hive.mapred.PaimonInputSplit;
-
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import org.apache.paimon.table.source.Split;
 
 public class PaimonSplit extends FileSplit {
-    private PaimonInputSplit split;
+    private Split split;
     private TableFormatType tableFormatType;
 
-    public PaimonSplit(PaimonInputSplit split, String path) {
-        super(new Path(path), 0, 0, 0, null, null);
+    public PaimonSplit(Split split) {
+        super(new Path("dummyPath"), 0, 0, 0, null, null);
         this.split = split;
+        this.tableFormatType = TableFormatType.PAIMON;
     }
 
-    public PaimonInputSplit getSplit() {
+    public Split getSplit() {
         return split;
     }
 
-    public void setSplit(PaimonInputSplit split) {
+    public void setSplit(Split split) {
         this.split = split;
     }
 
@@ -52,14 +49,4 @@ public class PaimonSplit extends FileSplit {
         this.tableFormatType = tableFormatType;
     }
 
-    public byte[] getSerializableSplit() {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputStream output = new DataOutputStream(baos);
-        try {
-            split.write(output);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return baos.toByteArray();
-    }
 }
