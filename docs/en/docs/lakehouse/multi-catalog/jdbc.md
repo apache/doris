@@ -700,3 +700,7 @@ When Doris connects to OceanBase, it will automatically recognize that OceanBase
 12. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
 
     Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the lib/java_extensions directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
+
+13. `NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` exception occurs when reading Clickhouse data via jdbc catalog.
+
+    You can download the [lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar) package and put it into the DorisFE `lib` directory and the `lib/java_extensions` directory of BE (the version before Doris 2.0 should be put into the `lib` directory of BE).
