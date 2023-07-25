@@ -82,6 +82,10 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         if (cumu_interval > (config::time_series_compaction_time_threshold_seconds * 1000)) {
             return score;
         }
+    } else {
+        // If the compaction process has not been successfully executed,
+        // the condition for triggering compaction based on the last successful compaction time (condition 3) will never be met
+        tablet->set_last_cumu_compaction_success_time(now);
     }
 
     return 0;
@@ -165,9 +169,12 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     int64_t total_size = 0;
 
     std::vector<RowsetSharedPtr> filtered_rowsets;
-    const auto& first_rowset_iter = std::find_if(candidate_rowsets.begin(), candidate_rowsets.end(), [](const RowsetSharedPtr& rs){
-        return rs->start_version() == rs->end_version();
-    });
+    // when single replica compaction is enabled and BE1 fetchs merged rowsets from BE2, and then BE2 goes offline.
+    // BE1 should performs compaction on its own, the time series compaction may re-compact previously fetched rowsets.
+    // time series compaction policy needs to skip over the fetched rowset
+    const auto& first_rowset_iter = std::find_if(
+            candidate_rowsets.begin(), candidate_rowsets.end(),
+            [](const RowsetSharedPtr& rs) { return rs->start_version() == rs->end_version(); });
     filtered_rowsets.assign(first_rowset_iter, candidate_rowsets.end());
     for (auto& rowset : filtered_rowsets) {
         // check whether this rowset is delete version
