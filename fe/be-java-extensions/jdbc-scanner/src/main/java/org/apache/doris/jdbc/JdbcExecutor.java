@@ -575,6 +575,27 @@ public class JdbcExecutor {
         }
     }
 
+    private void objectPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+                                 long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    String columnStr = String.valueOf(column[i]);
+                    int columnInt = Integer.parseInt(columnStr);
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, (byte) columnInt);
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                String columnStr = String.valueOf(column[i]);
+                int columnInt = Integer.parseInt(columnStr);
+                UdfUtils.UNSAFE.putByte(columnAddr + i, (byte) columnInt);
+            }
+        }
+    }
+
     public void copyBatchTinyIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -593,6 +614,8 @@ public class JdbcExecutor {
             shortPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Byte) {
             bytePutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        }  else if (column[firstNotNullIndex] instanceof java.lang.Object) {
+            objectPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
