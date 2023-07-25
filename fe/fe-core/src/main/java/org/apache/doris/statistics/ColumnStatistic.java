@@ -50,7 +50,7 @@ public class ColumnStatistic {
 
     public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setCount(1).setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
-            .setSelectivity(1.0).setIsUnknown(true)
+            .setSelectivity(1.0).setIsUnknown(true).setUpdatedTime("")
             .build();
 
     public static ColumnStatistic ZERO = new ColumnStatisticBuilder().setAvgSizeByte(0).setNdv(0)
@@ -350,6 +350,7 @@ public class ColumnStatistic {
         statistic.put("IsUnKnown", isUnKnown);
         statistic.put("Histogram", Histogram.serializeToJson(histogram));
         statistic.put("Original", original);
+        statistic.put("LastUpdatedTime", updatedTime);
         return statistic;
     }
 
@@ -399,7 +400,7 @@ public class ColumnStatistic {
             null,
             stat.getBoolean("IsUnKnown"),
             Histogram.deserializeFromJson(stat.getString("Histogram")),
-            stat.getString("lastUpdatedTine")
+            stat.getString("LastUpdatedTime")
         );
     }
 
