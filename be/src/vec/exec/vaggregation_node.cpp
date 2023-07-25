@@ -456,15 +456,9 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
         }
 
         if (_is_streaming_preagg) {
-            if (_aggregate_evaluators.empty()) { // remove pipeline
-                _executor.pre_agg =
-                        std::bind<Status>(&AggregationNode::_distinct_pre_agg_with_serialized_key,
-                                          this, std::placeholders::_1, std::placeholders::_2);
-            } else {
-                _executor.pre_agg =
-                        std::bind<Status>(&AggregationNode::_pre_agg_with_serialized_key, this,
-                                          std::placeholders::_1, std::placeholders::_2);
-            }
+            _executor.pre_agg =
+                    std::bind<Status>(&AggregationNode::_pre_agg_with_serialized_key, this,
+                                      std::placeholders::_1, std::placeholders::_2);
         }
 
         if (_needs_finalize) {

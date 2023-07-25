@@ -26,6 +26,7 @@
 #include "operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/vaggregation_node.h"
 
 namespace doris {
@@ -36,7 +37,7 @@ namespace pipeline {
 class DataQueue;
 
 class DistinctStreamingAggSinkOperatorBuilder final
-        : public OperatorBuilder<vectorized::AggregationNode> {
+        : public OperatorBuilder<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSinkOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<DataQueue>);
 
@@ -61,7 +62,12 @@ public:
 
     Status close(RuntimeState* state) override;
 
+    bool reached_limited_rows() {
+        return _node->limit() != -1 && _output_distinct_rows > _node->limit();
+    }
+
 private:
+    int64_t _output_distinct_rows = 0;
     std::shared_ptr<DataQueue> _data_queue;
     std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
 };

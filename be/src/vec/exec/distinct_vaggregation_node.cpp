@@ -29,32 +29,8 @@ namespace doris::vectorized {
 
 DistinctAggregationNode::DistinctAggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                                  const DescriptorTbl& descs)
-        : AggregationNode(pool, tnode, descs) {}
-
-Status DistinctAggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
-
-    if (_is_streaming_preagg) {
-        RETURN_IF_CANCELLED(state);
-        release_block_memory(_preagg_block);
-        while (_preagg_block.rows() == 0 && !_child_eos) {
-            RETURN_IF_ERROR(_children[0]->get_next_after_projects(
-                    state, &_preagg_block, &_child_eos,
-                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                      ExecNode::get_next,
-                              _children[0], std::placeholders::_1, std::placeholders::_2,
-                              std::placeholders::_3)));
-        };
-        if (_preagg_block.rows() != 0) {
-            RETURN_IF_ERROR(do_pre_agg(&_preagg_block, block));
-        }
-        if (_preagg_block.rows() == 0 || reached_limit()) {
-            *eos = true;
-        }
-    } else {
-        RETURN_IF_ERROR(pull(state, block, eos));
-    }
-    return Status::OK();
+        : AggregationNode(pool, tnode, descs) {
+    dummy_mapped_data = pool->add(new char[1]);
 }
 
 Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
@@ -149,6 +125,7 @@ void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Sele
                     }();
 
                     if (emplace_result.is_inserted()) {
+                        emplace_result.set_mapped(dummy_mapped_data);
                         distinct_row.push_back(i);
                     }
                 }

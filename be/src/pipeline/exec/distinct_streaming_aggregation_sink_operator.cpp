@@ -49,26 +49,31 @@ Status DistinctStreamingAggSinkOperator::sink(RuntimeState* state, vectorized::B
         if (_output_block == nullptr) {
             _output_block = _data_queue->get_free_block();
         }
-        RETURN_IF_ERROR(_node->do_pre_agg(in_block, _output_block.get()));
-
+        RETURN_IF_ERROR(
+                _node->_distinct_pre_agg_with_serialized_key(in_block, _output_block.get()));
+        LOG(INFO) << (source_state == SourceState::FINISHED) << " "
+                  << _output_block->dump_structure() << " " << _output_distinct_rows;
         // get enough data or reached limit rows, need push block to queue
-        if (_output_block->rows() >= state->batch_size() ||
-            (_node->limit() != -1 && _output_block->rows() >= _node->limit())) {
-            reinterpret_cast<vectorized::DistinctAggregationNode*>(_node)
-                    ->update_output_distinct_rows(_output_block->rows());
+        if (_node->limit() != -1 &&
+            (_output_block->rows() + _output_distinct_rows) >= _node->limit()) {
+            auto limit_rows = _node->limit() - _output_block->rows();
+            _output_block->set_num_rows(limit_rows);
+            _output_distinct_rows += limit_rows;
+            _data_queue->push_block(std::move(_output_block));
+        } else if (_output_block->rows() >= state->batch_size()) {
+            _output_distinct_rows += _output_block->rows();
             _data_queue->push_block(std::move(_output_block));
         }
     }
 
     // reach limit or source finish
-    if ((UNLIKELY(source_state == SourceState::FINISHED)) ||
-        reinterpret_cast<vectorized::DistinctAggregationNode*>(_node)->reached_limited_rows()) {
-        if (_output_block != nullptr) {
-            reinterpret_cast<vectorized::DistinctAggregationNode*>(_node)
-                    ->update_output_distinct_rows(_output_block->rows());
+    if ((UNLIKELY(source_state == SourceState::FINISHED)) || reached_limited_rows()) {
+        if (_output_block != nullptr) { //maybe the last block with eos
+            _output_distinct_rows += _output_block->rows();
             _data_queue->push_block(std::move(_output_block));
         }
         _data_queue->set_finish();
+        return Status::Error<ErrorCode::END_OF_FILE>("");
     }
     return Status::OK();
 }
@@ -78,6 +83,7 @@ Status DistinctStreamingAggSinkOperator::close(RuntimeState* state) {
         // finish should be set, if not set here means error.
         _data_queue->set_canceled();
     }
+    LOG(INFO) << "_output_distinct_rows: " << _output_distinct_rows;
     return StreamingOperator::close(state);
 }
 

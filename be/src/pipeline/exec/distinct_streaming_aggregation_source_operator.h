@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/vaggregation_node.h"
 
 namespace doris {
@@ -36,7 +37,7 @@ namespace pipeline {
 class DataQueue;
 
 class DistinctStreamingAggSourceOperatorBuilder final
-        : public OperatorBuilder<vectorized::AggregationNode> {
+        : public OperatorBuilder<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSourceOperatorBuilder(int32_t, ExecNode*, std::shared_ptr<DataQueue>);
 
@@ -57,6 +58,7 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 
 private:
+    int64_t rows_have_returned = 0;
     std::shared_ptr<DataQueue> _data_queue;
 };
 

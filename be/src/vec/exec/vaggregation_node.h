@@ -837,9 +837,7 @@ public:
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
     bool is_streaming_preagg() const { return _is_streaming_preagg; }
     bool is_aggregate_evaluators_empty() const { return _aggregate_evaluators.empty(); }
-    virtual Status _distinct_pre_agg_with_serialized_key(Block* in_block, Block* out_block) {
-        return Status::NotSupported("Do not support distinct pre agg in AggregationNode class");
-    }
+    void _make_nullable_output_key(Block* block);
 
 protected:
     bool _is_streaming_preagg;
@@ -927,8 +925,6 @@ private:
 
     size_t _get_hash_table_size();
 
-    void _make_nullable_output_key(Block* block);
-
     Status _create_agg_status(AggregateDataPtr data);
     Status _destroy_agg_status(AggregateDataPtr data);
 
@@ -958,6 +954,7 @@ private:
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
     void _init_hash_method(const VExprContextSPtrs& probe_exprs);
+
 protected:
     template <typename AggState, typename AggMethod>
     void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,

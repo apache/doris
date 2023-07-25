@@ -36,19 +36,17 @@ namespace vectorized {
 // select c_name from customer union select c_name from customer
 // this sql used agg node to get distinct row of c_name,
 // so it's could output data when it's inserted into hashmap.
+// phase1: (_is_merge:false, _needs_finalize:false, Streaming Preaggregation:true, agg size:0, limit:-1)
+// phase2: (_is_merge:false, _needs_finalize:true,  Streaming Preaggregation:false,agg size:0, limit:-1)
 class DistinctAggregationNode final : public AggregationNode {
 public:
     DistinctAggregationNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~DistinctAggregationNode() override = default;
-    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    Status _distinct_pre_agg_with_serialized_key(Block* in_block, Block* out_block) override;
-
-    void update_output_distinct_rows(int64_t rows) { _output_distinct_rows += rows; }
-    void update_num_rows_returned(int64_t rows) { _num_rows_returned += rows; }
-    bool reached_limited_rows() { return _limit != -1 && _output_distinct_rows > _limit; }
+    Status _distinct_pre_agg_with_serialized_key(Block* in_block, Block* out_block);
+    void set_num_rows_returned(int64_t rows) { _num_rows_returned = rows; }
 
 private:
-    int64_t _output_distinct_rows = 0;
+    char* dummy_mapped_data = nullptr;
     void _emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
                                               ColumnRawPtrs& key_columns, const size_t num_rows);
 };
