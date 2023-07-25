@@ -61,7 +61,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -69,12 +68,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -89,7 +88,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -99,13 +97,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -113,7 +111,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
@@ -242,12 +239,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
-        return groupExpression.childStatistics(0);
-    }
-
-    @Override
-    public Statistics visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, Void context) {
+    public Statistics visitLogicalSink(LogicalSink<? extends Plan> logicalSink, Void context) {
         return groupExpression.childStatistics(0);
     }
 
@@ -379,12 +371,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
-        return groupExpression.childStatistics(0);
-    }
-
-    @Override
-    public Statistics visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, Void context) {
+    public Statistics visitPhysicalSink(PhysicalSink<? extends Plan> physicalSink, Void context) {
         return groupExpression.childStatistics(0);
     }
 
@@ -550,24 +537,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
-        if (totalColumnStatisticMap.get(table.getName() + colName) != null) {
-            return totalColumnStatisticMap.get(table.getName() + colName);
-        } else if (isPlayNereidsDump) {
-            return ColumnStatistic.UNKNOWN;
-        } else {
-            long catalogId;
-            long dbId;
-            try {
-                catalogId = table.getDatabase().getCatalog().getId();
-                dbId = table.getDatabase().getId();
-            } catch (Exception e) {
-                // Use -1 for catalog id and db id when failed to get them from metadata.
-                // This is OK because catalog id and db id is not in the hashcode function of ColumnStatistics cache
-                // and the table id is globally unique.
-                LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
-                catalogId = -1;
-                dbId = -1;
+        long catalogId;
+        long dbId;
+        try {
+            catalogId = table.getDatabase().getCatalog().getId();
+            dbId = table.getDatabase().getId();
+        } catch (Exception e) {
+            // Use -1 for catalog id and db id when failed to get them from metadata.
+            // This is OK because catalog id and db id is not in the hashcode function of ColumnStatistics cache
+            // and the table id is globally unique.
+            LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
+            catalogId = -1;
+            dbId = -1;
+        }
+        if (isPlayNereidsDump) {
+            if (totalColumnStatisticMap.get(table.getName() + colName) != null) {
+                return totalColumnStatisticMap.get(table.getName() + colName);
+            } else {
+                return ColumnStatistic.UNKNOWN;
             }
+        } else {
             return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                 catalogId, dbId, table.getId(), colName);
         }
@@ -633,17 +622,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         new ColumnStatisticBuilder(cache).setHistogram(histogram);
                 columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
                 cache = columnStatisticBuilder.build();
-                if (ConnectContext.get().getSessionVariable().isEnableMinidump()
-                        && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
-                    totalHistogramMap.put(table.getName() + ":" + colName, histogram);
-                }
             }
             columnStatisticMap.put(slotReference, cache);
-            if (ConnectContext.get().getSessionVariable().isEnableMinidump()
-                    && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
-                totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
-                totalHistogramMap.put(table.getName() + colName, histogram);
-            }
         }
         return new Statistics(rowCount, columnStatisticMap);
     }

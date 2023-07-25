@@ -176,8 +176,9 @@ public class ColumnStatisticBuilder {
         return updatedTime;
     }
 
-    public void setUpdatedTime(String updatedTime) {
+    public ColumnStatisticBuilder setUpdatedTime(String updatedTime) {
         this.updatedTime = updatedTime;
+        return this;
     }
 
     public ColumnStatistic build() {

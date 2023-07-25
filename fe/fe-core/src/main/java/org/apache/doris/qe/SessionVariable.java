@@ -159,7 +159,7 @@ public class SessionVariable implements Serializable, Writable {
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
-    public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
+    public static final String BE_NUMBER = "be_number_for_test";
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
@@ -320,6 +320,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_MINIDUMP = "enable_minidump";
 
+    public static final String MINIDUMP_PATH = "minidump_path";
+
     public static final String TRACE_NEREIDS = "trace_nereids";
 
     public static final String PLAN_NEREIDS_DUMP = "plan_nereids_dump";
@@ -349,7 +351,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SCAN_RUN_SERIAL = "enable_scan_node_run_serial";
 
-    public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
+    public static final String ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN = "enable_analyze_complex_type_column";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
@@ -679,12 +681,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
-    public int getBeNumberForTest() {
-        return beNumberForTest;
+    public int getBeNumber() {
+        return beNumber;
     }
 
-    @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
-    private int beNumberForTest = -1;
+    public void setBeNumber(int beNumber) {
+        this.beNumber = beNumber;
+    }
+
+    @VariableMgr.VarAttr(name = BE_NUMBER)
+    private int beNumber = -1;
 
     public double getCboCpuWeight() {
         return cboCpuWeight;
@@ -978,6 +984,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = true;
 
+    @VariableMgr.VarAttr(name = MINIDUMP_PATH)
+    public String minidumpPath = "";
+
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
 
@@ -1027,8 +1036,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CTE_MATERIALIZE)
     public boolean enableCTEMaterialize = true;
 
-    @VariableMgr.VarAttr(name = IGNORE_COMPLEX_TYPE_COLUMN)
-    public boolean ignoreColumnWithComplexType = false;
+    @VariableMgr.VarAttr(name = ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN)
+    public boolean enableAnalyzeComplexTypeColumn = false;
 
     @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY, description = {"用以开启强一致读。Doris 默认支持同一个会话内的"
             + "强一致性，即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。",
@@ -2296,6 +2305,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableMinidump(boolean enableMinidump) {
         this.enableMinidump = enableMinidump;
+    }
+
+    public String getMinidumpPath() {
+        return minidumpPath;
+    }
+
+    public void setMinidumpPath(String minidumpPath) {
+        this.minidumpPath = minidumpPath;
     }
 
     public boolean isTraceNereids() {

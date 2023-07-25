@@ -63,7 +63,7 @@ public class PointQueryExec {
     private ArrayList<Expr> outputExprs;
     private DescriptorTable descriptorTable;
     private long tabletID = 0;
-    private long timeoutMs = 1000; // default 1s
+    private long timeoutMs = Config.point_query_timeout_ms; // default 10s
 
     private boolean isCancel = false;
     private boolean isBinaryProtocol = false;
@@ -185,7 +185,7 @@ public class PointQueryExec {
             while (pResult == null) {
                 InternalService.PTabletKeyLookupRequest request = requestBuilder.build();
                 Future<InternalService.PTabletKeyLookupResponse> futureResponse =
-                        BackendServiceProxy.getInstance().fetchTabletDataAsync(backend.getBrpcAdress(), request);
+                         BackendServiceProxy.getInstance().fetchTabletDataAsync(backend.getBrpcAdress(), request);
                 long currentTs = System.currentTimeMillis();
                 if (currentTs >= timeoutTs) {
                     LOG.warn("fetch result timeout {}", backend.getBrpcAdress());
@@ -201,15 +201,20 @@ public class PointQueryExec {
                         status.setStatus(Status.CANCELLED);
                         return null;
                     }
+                } catch (TimeoutException e) {
+                    futureResponse.cancel(true);
+                    LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAdress());
+                    status.setStatus("query timeout");
+                    return null;
                 }
             }
         } catch (RpcException e) {
-            LOG.warn("fetch result rpc exception {}", backend.getBrpcAdress());
+            LOG.warn("fetch result rpc exception {}, e {}", backend.getBrpcAdress(), e);
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             return null;
         } catch (ExecutionException e) {
-            LOG.warn("fetch result execution exception {}", backend.getBrpcAdress());
+            LOG.warn("fetch result execution exception {}, addr {}", e, backend.getBrpcAdress());
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
                 status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
@@ -217,10 +222,6 @@ public class PointQueryExec {
                 status.setRpcStatus(e.getMessage());
                 SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             }
-            return null;
-        } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout {}", backend.getBrpcAdress());
-            status.setStatus("query timeout");
             return null;
         }
         TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());

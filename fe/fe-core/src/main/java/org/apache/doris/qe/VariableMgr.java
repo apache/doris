@@ -367,6 +367,25 @@ public class VariableMgr {
         }
     }
 
+    public static void setGlobalPipelineTask(int instance) {
+        wlock.lock();
+        try {
+            String name = "parallel_pipeline_task_num";
+            String value = instance + "";
+            VarContext ctx = ctxByVarName.get(name);
+            try {
+                setValue(ctx.getObj(), ctx.getField(), value);
+            } catch (DdlException e) {
+                LOG.error(e.toString());
+            }
+            // write edit log
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
+            Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
     public static void setLowerCaseTableNames(int mode) throws DdlException {
         VarContext ctx = ctxByVarName.get(GlobalVariable.LOWER_CASE_TABLE_NAMES);
         setGlobalVarAndWriteEditLog(ctx, GlobalVariable.LOWER_CASE_TABLE_NAMES, "" + mode);
