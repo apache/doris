@@ -55,9 +55,11 @@ class NewOlapScanner : public VScanner {
 public:
     NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
                    const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   const std::vector<RowsetReaderSharedPtr>& rs_readers,
-                   const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
                    RuntimeProfile* profile);
+
+    NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
+                   const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
+                   const std::vector<RowSetSplits>& rs_splits, RuntimeProfile* profile);
 
     Status init() override;
 
