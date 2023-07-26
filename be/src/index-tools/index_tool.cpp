@@ -15,54 +15,51 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <CLucene/CLConfig.h>
-#include <CLucene/SharedHeader.h>
-#include <CLucene/debug/error.h>
-#include <CLucene/store/Directory.h>
-#include <CLucene/store/FSDirectory.h>
 #include <gflags/gflags.h>
-
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
 
-#include "CLucene/config/repl_wchar.h"
+#include <CLucene.h>
+#include <CLucene/config/repl_wchar.h>
+
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisCompoundDirectory;
+using doris::io::FileInfo;
 using namespace lucene::analysis;
 using namespace lucene::index;
 using namespace lucene::util;
 using namespace lucene::search;
 
-DEFINE_string(operation, "show_files", "valid operation: show_files,check_terms,term_query_equal");
+DEFINE_string(operation, "", "valid operation: show_nested_files,check_terms,term_query");
 
-DEFINE_string(root_path, "./", "storage root path");
+DEFINE_string(directory, "./", "inverted index file directory");
+DEFINE_string(idx_file_name, "", "inverted index file name");
 DEFINE_string(idx_file_path, "", "inverted index file path");
 DEFINE_string(term, "", "inverted index term to query");
 DEFINE_string(column_name, "", "inverted index column_name to query");
-//DEFINE_string(nested_file, "", "inverted index nested file name");
+DEFINE_string(pred_type, "", "inverted index term query predicate, eq/lt/gt/le/ge/match etc.");
+DEFINE_bool(print_row_id, false, "print row id when query terms");
 
 std::string get_usage(const std::string& progname) {
     std::stringstream ss;
-    ss << progname << " is the Doris Inverted index file tool.\n";
+    ss << progname << " is the Doris inverted index file tool.\n";
     ss << "Stop BE first before use this tool.\n";
     ss << "Usage:\n";
-    ss << "./index_tool --operation=show_files --root_path=directory "
-          "--idx_file_path=path/to/file\n";
-    ss << "./index_tool --operation=check_terms_stats --root_path=directory "
-          "--idx_file_path=path/to/file\n";
-    ss << "./index_tool --operation=term_query_equal --root_path=directory "
-          "--idx_file_path=path/to/file --term=term --column_name=column_name\n";
-    //ss << "./index_tool --operation=check_nested_file --root_path=directory --idx_file_path=path/to/file --nested_file=nested_file_name\n";
+    ss << "./index_tool --operation=show_nested_files --idx_file_path=path/to/file\n";
+    ss << "./index_tool --operation=check_terms_stats --idx_file_path=path/to/file\n";
+    ss << "./index_tool --operation=term_query --dir=directory "
+          "--idx_file_name=file --print_row_id --term=term --column_name=column_name --pred_type=eq/lt/gt/le/ge/match etc\n";
     return ss.str();
 }
 
-void SearchFiles(lucene::store::Directory* dir, std::string& field, std::string& token) {
+void search(lucene::store::Directory* dir, std::string& field, std::string& token, std::string& pred) {
     IndexReader* reader = IndexReader::open(dir);
 
     IndexReader* newreader = reader->reopen();
@@ -71,23 +68,38 @@ void SearchFiles(lucene::store::Directory* dir, std::string& field, std::string&
         reader = newreader;
     }
     IndexSearcher s(reader);
+    std::unique_ptr<lucene::search::Query> query;
 
     std::wstring field_ws(field.begin(), field.end());
     std::wstring token_ws(token.begin(), token.end());
     lucene::index::Term* term = _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
-    auto q = _CLNEW lucene::search::TermQuery(term);
+    if (pred == "eq" || pred == "match") {
+        query.reset(new lucene::search::TermQuery(term));
+    } else if (pred == "lt") {
+        query.reset(new lucene::search::RangeQuery(nullptr, term, false));
+    } else if (pred == "gt") {
+        query.reset(new lucene::search::RangeQuery(term, nullptr, false));
+    } else if (pred == "le") {
+        query.reset(new lucene::search::RangeQuery(nullptr, term, true));
+    } else if (pred == "ge") {
+        query.reset(new lucene::search::RangeQuery(term, nullptr, true));
+    } else {
+        std::cout << "invalid predicate type:" << pred << std::endl;
+        exit(-1);
+    }
     _CLDECDELETE(term);
 
     std::vector<uint32_t> result;
     int total = 0;
-    s._search(q, [&result, &total](const int32_t docid, const float_t /*score*/) {
+
+    s._search(query.get(), [&result, &total](const int32_t docid, const float_t /*score*/) {
         // docid equal to rowid in segment
         result.push_back(docid);
-        printf("RowID is %d\n", docid);
+        if(FLAGS_print_row_id)
+            printf("RowID is %d\n", docid);
         total += 1;
     });
     std::cout << "Term queried count:" << total << std::endl;
-    _CLLDELETE(q);
 
     s.close();
     reader->close();
@@ -96,8 +108,6 @@ void SearchFiles(lucene::store::Directory* dir, std::string& field, std::string&
 
 void check_terms_stats(lucene::store::Directory* dir) {
     IndexReader* r = IndexReader::open(dir);
-    //printf("Statistics for %s\n", directory);
-    printf("==================================\n");
 
     printf("Max Docs: %d\n", r->maxDoc());
     printf("Num Docs: %d\n", r->numDocs());
@@ -107,7 +117,7 @@ void check_terms_stats(lucene::store::Directory* dir) {
 
     TermEnum* te = r->terms();
     int32_t nterms;
-    for (nterms = 0; te->next() == true; nterms++) {
+    for (nterms = 0; te->next(); nterms++) {
         /* empty */
         std::string token = lucene_wcstoutf8string(te->term()->text(), te->term()->textLength());
 
@@ -126,17 +136,22 @@ int main(int argc, char** argv) {
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
 
-    if (FLAGS_operation == "show_files") {
+    if (FLAGS_operation == "show_nested_files") {
         if (FLAGS_idx_file_path == "") {
             std::cout << "no file flag for show " << std::endl;
             return -1;
         }
+        std::filesystem::path p(FLAGS_idx_file_path);
+        std::string dir_str = p.parent_path().string();
+        std::string file_str = p.filename().string();
         auto fs = doris::io::global_local_filesystem();
         try {
             lucene::store::Directory* dir =
-                    DorisCompoundDirectory::getDirectory(fs, FLAGS_root_path.c_str());
-            auto reader = new DorisCompoundReader(dir, FLAGS_idx_file_path.c_str(), 4096);
+                    DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
+            auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
             std::vector<std::string> files;
+            std::cout << "Nested files for " << file_str << std::endl;
+            std::cout << "==================================" << std::endl;
             reader->list(&files);
             for (auto& file : files) {
                 std::cout << file << std::endl;
@@ -149,26 +164,61 @@ int main(int argc, char** argv) {
             std::cout << "no file flag for check " << std::endl;
             return -1;
         }
+        std::filesystem::path p(FLAGS_idx_file_path);
+        std::string dir_str = p.parent_path().string();
+        std::string file_str = p.filename().string();
         auto fs = doris::io::global_local_filesystem();
         try {
             lucene::store::Directory* dir =
-                    DorisCompoundDirectory::getDirectory(fs, FLAGS_root_path.c_str());
-            auto reader = new DorisCompoundReader(dir, FLAGS_idx_file_path.c_str(), 4096);
+                    DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
+            auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
+            std::cout << "Term statistics for " << file_str << std::endl;
+            std::cout << "==================================" << std::endl;
             check_terms_stats(reader);
         } catch (CLuceneError& err) {
             std::cerr << "error occurred when check_terms_stats: " << err.what() << std::endl;
         }
-    } else if (FLAGS_operation == "term_query_equal") {
-        if (FLAGS_idx_file_path == "" || FLAGS_term == "" || FLAGS_column_name == "") {
-            std::cout << "invalid params for term_query_equal " << std::endl;
+    } else if (FLAGS_operation == "term_query") {
+        if (FLAGS_directory == "" || FLAGS_term == "" || FLAGS_column_name == "" || FLAGS_pred_type == "") {
+            std::cout << "invalid params for term_query " << std::endl;
             return -1;
         }
         auto fs = doris::io::global_local_filesystem();
         try {
             lucene::store::Directory* dir =
-                    DorisCompoundDirectory::getDirectory(fs, FLAGS_root_path.c_str());
-            auto reader = new DorisCompoundReader(dir, FLAGS_idx_file_path.c_str(), 4096);
-            SearchFiles(reader, FLAGS_column_name, FLAGS_term);
+                    DorisCompoundDirectory::getDirectory(fs, FLAGS_directory.c_str());
+            if (FLAGS_idx_file_name == "") {
+                //try to search from directory's all files
+                std::vector<FileInfo> files;
+                bool exists = false;
+                std::filesystem::path root_dir(FLAGS_directory);
+                fs->list(root_dir, true, &files, &exists);
+                if (!exists) {
+                    std::cout << FLAGS_directory << " is not exists" << std::endl;
+                    return -1;
+                }
+                for(auto& f:files) {
+                    try {
+                        auto file_str = f.file_name;
+                        auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
+                        std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
+                                  << file_str << std::endl;
+                        std::cout << "==================================" << std::endl;
+                        search(reader, FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
+                    } catch (CLuceneError& err) {
+                        std::cerr << "error occurred when search file: " << f.file_name << ", error:" << err.what() << std::endl;
+                    }
+                }
+            } else {
+                auto reader = new DorisCompoundReader(dir, FLAGS_idx_file_name.c_str(), 4096);
+                std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from " << FLAGS_idx_file_name << std::endl;
+                std::cout << "==================================" << std::endl;
+                try {
+                    search(reader, FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
+                } catch (CLuceneError& err) {
+                    std::cerr << "error occurred when search file: " << FLAGS_idx_file_name << ", error:" << err.what() << std::endl;
+                }
+            }
         } catch (CLuceneError& err) {
             std::cerr << "error occurred when check_terms_stats: " << err.what() << std::endl;
         }
