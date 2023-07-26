@@ -45,6 +45,7 @@ suite("test_dup_table_auto_inc_basic_with_null") {
         file 'auto_inc_basic_with_null.csv'
         time 10000 // limit inflight 10s
     }
+    sql """sync"""
     qt_auto_inc_ids "select * from ${table1};"
     sql "drop table if exists ${table1};"
 
