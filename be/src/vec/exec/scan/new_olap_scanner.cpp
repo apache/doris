@@ -127,10 +127,11 @@ Status NewOlapScanner::init() {
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
-    _tablet_reader->set_batch_size(
-            _parent->limit() == -1
-                    ? _state->batch_size()
-                    : std::min(static_cast<int64_t>(_state->batch_size()), _parent->limit()));
+    // batch size is passed down to segment iterator, use _state->batch_size()
+    // instead of _parent->limit(), because if _parent->limit() is a very small
+    // value (e.g. select a from t where a .. and b ... limit 1),
+    // it will be very slow when reading data in segment iterator
+    _tablet_reader->set_batch_size(_state->batch_size());
 
     // Get olap table
     TTabletId tablet_id = _scan_range.tablet_id;
