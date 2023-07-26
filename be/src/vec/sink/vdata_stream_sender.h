@@ -510,7 +510,7 @@ public:
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         if (eos) {
             _pblock = std::make_unique<PBlock>();
-            RETURN_IF_ERROR(_serializer->serialize_block(_ch_cur_pb_block, 1));
+            RETURN_IF_ERROR(_serializer->serialize_block(_pblock.get(), 1));
         }
         RETURN_IF_ERROR(send_block(_pblock.release(), eos));
         return Status::OK();

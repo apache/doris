@@ -649,7 +649,8 @@ Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
         {
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
             auto block = _serializer->get_block()->to_block();
-            RETURN_IF_ERROR(_serializer->serialize_block(&block, _cur_pb_block, _channels.size()));
+            RETURN_IF_ERROR(_serializer->serialize_block(&block, block_holder->get_block(),
+                                                         _channels.size()));
             Status status;
             for (auto channel : _channels) {
                 if (!channel->is_receiver_eof()) {
@@ -731,7 +732,7 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
 
     const int batch_size = _parent->state()->batch_size();
 
-    int remain_rows = rows ? rows->size() : block->rows() - _offset;
+    int remain_rows = rows ? rows->size() - _offset : block->rows() - _offset;
 
     while (remain_rows > 0) {
         int max_add = batch_size - _mutable_block->rows();
@@ -742,6 +743,7 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
             if (rows) {
                 SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
                 const int* begin = &(*rows)[_offset];
+                DCHECK(_offset + rows_to_add <= rows->size());
                 _mutable_block->add_rows(block, begin, begin + rows_to_add);
             } else {
                 SCOPED_TIMER(_parent->_merge_block_timer);
