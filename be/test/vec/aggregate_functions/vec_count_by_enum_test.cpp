@@ -130,8 +130,6 @@ TEST_F(VCountByEnumTest, testNullableSample) {
     column_f1->insert("F");
     column_f1->insert("F");
     column_f1->insert("M");
-    column_f1->insert(NULL);
-    column_f1->insert(NULL);
     ColumnPtr column_f1_ptr = std::move(column_f1);
     auto null_map = ColumnVector<uint8_t>::create();
     std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
