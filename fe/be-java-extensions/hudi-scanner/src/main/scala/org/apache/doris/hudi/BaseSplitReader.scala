@@ -84,7 +84,17 @@ class HoodieSplit(private val params: jutil.Map[String, String]) {
   val hudiColumnTypes: Map[String, String] = hudiColumnNames.zip(
     params.remove("hudi_column_types").split("#")).toMap
 
-  val requiredFields: Array[String] = params.remove("required_fields").split(",")
+  val requiredFields: Array[String] = {
+    val readFields = params.remove("required_fields").split(",").filter(_.nonEmpty)
+    if (readFields.isEmpty) {
+      // If only read the partition columns, the JniConnector will produce empty required fields.
+      // Read the "_hoodie_record_key" field at least to know how many rows in current hoodie split
+      // Even if the JniConnector doesn't read this field, the call of releaseTable will reclaim the resource
+      Array(HoodieRecord.RECORD_KEY_METADATA_FIELD)
+    } else {
+      readFields
+    }
+  }
   val requiredTypes: Array[ColumnType] = requiredFields.map(
     field => ColumnType.parseType(field, hudiColumnTypes(field)))
 
