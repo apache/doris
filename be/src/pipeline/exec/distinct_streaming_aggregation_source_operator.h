@@ -56,6 +56,7 @@ public:
     bool can_read() override;
     Status get_block(RuntimeState*, vectorized::Block*, SourceState& source_state) override;
     Status open(RuntimeState*) override { return Status::OK(); }
+    Status pull_data(RuntimeState* state, vectorized::Block* output_block, bool* eos);
 
 private:
     int64_t rows_have_returned = 0;

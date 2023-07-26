@@ -40,9 +40,8 @@ bool DistinctStreamingAggSourceOperator::can_read() {
     return _data_queue->has_data_or_finished();
 }
 
-Status DistinctStreamingAggSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
-                                                     SourceState& source_state) {
-    bool eos = false;
+Status DistinctStreamingAggSourceOperator::pull_data(RuntimeState* state, vectorized::Block* block,
+                                                     bool* eos) {
     std::unique_ptr<vectorized::Block> agg_block;
     RETURN_IF_ERROR(_data_queue->get_block_from_queue(&agg_block));
     if (agg_block != nullptr) {
@@ -51,17 +50,26 @@ Status DistinctStreamingAggSourceOperator::get_block(RuntimeState* state, vector
         _data_queue->push_free_block(std::move(agg_block));
     }
     if (_data_queue->data_exhausted()) { //the sink is eos or reached limit
-        eos = true;
+        *eos = true;
     }
     _node->_make_nullable_output_key(block);
     rows_have_returned += block->rows();
+    return Status::OK();
+}
+
+Status DistinctStreamingAggSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
+                                                     SourceState& source_state) {
+    bool eos = false;
+    RETURN_IF_ERROR(_node->get_next_after_projects(
+            state, block, &eos,
+            std::bind(&DistinctStreamingAggSourceOperator::pull_data, this, std::placeholders::_1,
+                      std::placeholders::_2, std::placeholders::_3)));
     if (UNLIKELY(eos)) {
         _node->set_num_rows_returned(rows_have_returned);
         source_state = SourceState::FINISHED;
     } else {
         source_state = SourceState::DEPEND_ON_SOURCE;
     }
-
     return Status::OK();
 }
 
