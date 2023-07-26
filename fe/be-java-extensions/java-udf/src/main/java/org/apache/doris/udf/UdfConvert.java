@@ -705,10 +705,10 @@ public class UdfConvert {
     }
 
 
-    ////////////////////////////////////copyBatchArray//////////////////////////////////////////////////////////
+    //////////////////////////////////// copyBatchArray//////////////////////////////////////////////////////////
 
     public static long copyBatchArrayBooleanResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<Boolean> data = (ArrayList<Boolean>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -737,12 +737,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayTinyIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<Byte> data = (ArrayList<Byte>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -771,12 +773,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArraySmallIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<Short> data = (ArrayList<Short>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -805,12 +809,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<Integer> data = (ArrayList<Integer>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -839,12 +845,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayBigIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<Long> data = (ArrayList<Long>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -873,12 +881,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayFloatResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<Float> data = (ArrayList<Float>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -907,12 +917,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayDoubleResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<Double> data = (ArrayList<Double>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -941,12 +953,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayDateResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<LocalDate> data = (ArrayList<LocalDate>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -977,12 +991,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayDateTimeResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<LocalDateTime> data = (ArrayList<LocalDateTime>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -1013,12 +1029,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayDateV2Result(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<LocalDate> data = (ArrayList<LocalDate>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -1049,13 +1067,15 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayDateTimeV2Result(long hasPutElementNum, boolean isNullable, int row,
             Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<LocalDateTime> data = (ArrayList<LocalDateTime>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -1086,12 +1106,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayLargeIntResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<BigInteger> data = (ArrayList<BigInteger>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -1136,12 +1158,14 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayDecimalResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<BigDecimal> data = (ArrayList<BigDecimal>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -1188,14 +1212,16 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayDecimalV3Result(int scale, long typeLen, long hasPutElementNum, boolean isNullable,
             int row,
             Object[] result,
-            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
+            long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr, boolean needPushOffset) {
         ArrayList<BigDecimal> data = (ArrayList<BigDecimal>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -1242,13 +1268,15 @@ public class UdfConvert {
             }
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
     public static long copyBatchArrayStringResult(long hasPutElementNum, boolean isNullable, int row,
             Object[] result, long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr,
-            long strOffsetAddr) {
+            long strOffsetAddr, boolean needPushOffset) {
         ArrayList<String> data = (ArrayList<String>) result[row];
         if (isNullable) {
             if (data == null) {
@@ -1315,7 +1343,9 @@ public class UdfConvert {
                     offsets[num - 1]);
             hasPutElementNum = hasPutElementNum + num;
         }
-        UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        if (needPushOffset) {
+            UdfUtils.UNSAFE.putLong(null, offsetsAddr + 8L * row, hasPutElementNum);
+        }
         return hasPutElementNum;
     }
 
