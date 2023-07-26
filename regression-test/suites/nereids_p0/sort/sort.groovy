@@ -89,4 +89,22 @@ suite("sort") {
     """
 
     qt_sql_orderby_non_overlap_desc """ select * from sort_non_overlap order by time_period desc limit 4; """
+
+    sql """ DROP TABLE if exists `sort_default_value`; """
+    sql """ CREATE TABLE `sort_default_value` (
+      `k1` int NOT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "disable_auto_compaction" = "true"
+    );
+    """
+    sql "insert into sort_default_value values (1)"
+    sql "insert into sort_default_value values (2)"
+    sql """ alter table sort_default_value add column k4 INT default "1024" """
+    sql "insert into sort_default_value values (3, 0)"
+    sql "insert into sort_default_value values (4, null)"
+    qt_sql "select * from sort_default_value order by k1 limit 10"
 }
