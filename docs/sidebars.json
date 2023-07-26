@@ -50,15 +50,12 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
-                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
                     "items": [
                         "data-table/index/prefix-index",
-                        "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
-                        "data-table/index/ngram-bloomfilter-index",
                         "data-table/index/bitmap-index"
                     ]
                 }
@@ -179,9 +176,6 @@
             "type": "category",
             "label": "Query Acceleration",
             "items": [
-                "query-acceleration/pipeline-execution-engine",
-                "query-acceleration/nereids",
-                "query-acceleration/hight-concurrent-point-query",
                 "query-acceleration/materialized-view",
                 {
                     "type": "category",
