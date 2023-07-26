@@ -55,26 +55,35 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     private final List<Column> cols;
     private final List<Long> partitionIds;
     private final boolean singleReplicaLoad;
+    private final boolean isPartialUpdate;
 
-    /**
-     * Constructor
-     */
     public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
-            List<Column> cols, boolean singleReplicaLoad, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
-        this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
-        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
-        this.cols = Utils.copyRequiredList(cols);
-        this.partitionIds = Utils.copyRequiredList(partitionIds);
-        this.singleReplicaLoad = singleReplicaLoad;
+            List<Column> cols, boolean singleReplicaLoad, boolean isPartialUpdate, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
+        this(database, targetTable, partitionIds, cols, singleReplicaLoad, isPartialUpdate,
+                Optional.empty(), logicalProperties, child);
     }
 
     /**
      * Constructor
      */
     public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
-            List<Column> cols, boolean singleReplicaLoad, Optional<GroupExpression> groupExpression,
+            List<Column> cols, boolean singleReplicaLoad, boolean isPartialUpdate,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
+        this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
+        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
+        this.cols = Utils.copyRequiredList(cols);
+        this.partitionIds = Utils.copyRequiredList(partitionIds);
+        this.singleReplicaLoad = singleReplicaLoad;
+        this.isPartialUpdate = isPartialUpdate;
+    }
+
+    /**
+     * Constructor
+     */
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds, List<Column> cols,
+            boolean singleReplicaLoad, boolean isPartialUpdate, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, physicalProperties,
@@ -84,6 +93,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         this.cols = Utils.copyRequiredList(cols);
         this.partitionIds = Utils.copyRequiredList(partitionIds);
         this.singleReplicaLoad = singleReplicaLoad;
+        this.isPartialUpdate = isPartialUpdate;
     }
 
     public Database getDatabase() {
@@ -106,11 +116,15 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         return singleReplicaLoad;
     }
 
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalOlapTableSink only accepts one child");
         return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols,
-                singleReplicaLoad, groupExpression, getLogicalProperties(), physicalProperties,
+                singleReplicaLoad, isPartialUpdate, groupExpression, getLogicalProperties(), physicalProperties,
                 statistics, children.get(0));
     }
 
@@ -124,6 +138,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         }
         PhysicalOlapTableSink<?> that = (PhysicalOlapTableSink<?>) o;
         return singleReplicaLoad == that.singleReplicaLoad
+                && isPartialUpdate == that.isPartialUpdate
                 && Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
                 && Objects.equals(cols, that.cols)
@@ -132,7 +147,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
 
     @Override
     public int hashCode() {
-        return Objects.hash(database, targetTable, cols, partitionIds, singleReplicaLoad);
+        return Objects.hash(database, targetTable, cols, partitionIds, singleReplicaLoad, isPartialUpdate);
     }
 
     @Override
@@ -166,20 +181,20 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols, singleReplicaLoad,
-                groupExpression, getLogicalProperties(), child());
+                isPartialUpdate, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols, singleReplicaLoad,
-                groupExpression, logicalProperties.get(), children.get(0));
+                isPartialUpdate, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols, singleReplicaLoad,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                isPartialUpdate, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
     /**
