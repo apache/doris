@@ -44,6 +44,7 @@ public:
     ~DistinctAggregationNode() override = default;
     Status _distinct_pre_agg_with_serialized_key(Block* in_block, Block* out_block);
     void set_num_rows_returned(int64_t rows) { _num_rows_returned = rows; }
+    vectorized::VExprContextSPtrs get_conjuncts() { return _conjuncts; }
 
 private:
     char* dummy_mapped_data = nullptr;

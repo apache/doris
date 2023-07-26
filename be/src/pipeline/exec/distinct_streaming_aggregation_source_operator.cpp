@@ -53,6 +53,12 @@ Status DistinctStreamingAggSourceOperator::pull_data(RuntimeState* state, vector
         *eos = true;
     }
     _node->_make_nullable_output_key(block);
+    if (_node->is_streaming_preagg() == false) {
+        // dispose the having clause, should not be execute in prestreaming agg
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_node->get_conjuncts(), block,
+                                                               block->columns()));
+    }
+
     rows_have_returned += block->rows();
     return Status::OK();
 }
