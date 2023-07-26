@@ -23,6 +23,8 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
+import org.quartz.CronExpression;
+
 import java.util.Map;
 import java.util.Set;
 
@@ -51,6 +53,8 @@ public class AnalysisInfoBuilder {
     private boolean externalTableLevelTask;
     private boolean partitionOnly;
     private boolean samplingPartition;
+
+    private CronExpression cronExpression;
 
     public AnalysisInfoBuilder() {
     }
@@ -202,11 +206,15 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public void setCronExpression(CronExpression cronExpression) {
+        this.cronExpression = cronExpression;
+    }
+
     public AnalysisInfo build() {
         return new AnalysisInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, state, scheduleType,
-                externalTableLevelTask, partitionOnly, samplingPartition);
+                externalTableLevelTask, partitionOnly, samplingPartition, cronExpression);
     }
 
     public AnalysisInfoBuilder copy() {
