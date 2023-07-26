@@ -285,6 +285,10 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
+    public void removePrepareStmt(String stmtName) {
+        this.preparedStmtCtxs.remove(stmtName);
+    }
+
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
     }
