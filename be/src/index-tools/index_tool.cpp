@@ -204,6 +204,9 @@ int main(int argc, char** argv) {
                 for (auto& f : files) {
                     try {
                         auto file_str = f.file_name;
+                        if (!file_str.ends_with(".idx")) {
+                            continue;
+                        }
                         auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
                         std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                                   << file_str << std::endl;
