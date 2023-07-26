@@ -64,7 +64,7 @@ Apache Doris Community is a warm & lovely place, with users and developers from 
 
 
 ## 🌟 More Stars on Github
-[![Star History Chart](https://api.star-history.com/svg?repos=apache/doris&type=Date)](https://star-history.com/#apache/doris&Date)
+[![Star History Chart](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/c6113fbeec93458b931014aafc40ab0b~tplv-k3u1fbpfcp-zoom-1.image)](https://star-history.com/#Apache/doris\&Date)
 
 
 
