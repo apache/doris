@@ -31,7 +31,7 @@ suite("test_partial_update_schema_change", "p0") {
                 `c6` int NULL,
                 `c7` int NULL,
                 `c8` int NULL,
-                `c9` int NULL,)
+                `c9` int NULL)
                 UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
@@ -573,7 +573,7 @@ suite("test_partial_update_schema_change", "p0") {
                 `c6` int NULL,
                 `c7` int NULL,
                 `c8` int NULL,
-                `c9` int NULL,)
+                `c9` int NULL)
                 UNIQUE KEY(`c0`) DISTRIBUTED BY HASH(`c0`) BUCKETS 1
                 PROPERTIES(
                     "replication_num" = "1",
