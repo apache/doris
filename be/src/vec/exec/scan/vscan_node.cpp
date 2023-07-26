@@ -115,7 +115,7 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
-    // Introduced a new field : tnode.push_down_agg_type_opt 
+    // Introduced a new field : tnode.push_down_agg_type_opt
     //
     // make it compatible here
     if (tnode.__isset.push_down_agg_type_opt) {
