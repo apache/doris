@@ -272,7 +272,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
         if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
             type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte" &&
             type_str != "com.clickhouse.data.value.UnsignedByte" &&
-            type_str != "com.clickhouse.data.value.UnsignedShort") {
+            type_str != "com.clickhouse.data.value.UnsignedShort" &&
+            type_str != "java.lang.Long") {
             return Status::InternalError(error_msg);
         }
         break;
