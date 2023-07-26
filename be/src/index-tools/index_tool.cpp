@@ -54,7 +54,7 @@ std::string get_usage(const std::string& progname) {
     ss << "Usage:\n";
     ss << "./index_tool --operation=show_nested_files --idx_file_path=path/to/file\n";
     ss << "./index_tool --operation=check_terms_stats --idx_file_path=path/to/file\n";
-    ss << "./index_tool --operation=term_query --dir=directory "
+    ss << "./index_tool --operation=term_query --directory=directory "
           "--idx_file_name=file --print_row_id --term=term --column_name=column_name "
           "--pred_type=eq/lt/gt/le/ge/match etc\n";
     return ss.str();
