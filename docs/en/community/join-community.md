@@ -25,7 +25,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Thrive Together in the Apache Doris Community.
+# Thrive Together in the [Apache Doris](https://github.com/apache/doris) Community.
 
 Apache Doris Community is a warm & lovely place, with users and developers from all around the world. **We have graduated from Apache incubator succesffully and become an Top-Level Project in June 2022**.
 
@@ -63,9 +63,10 @@ Apache Doris Community is a warm & lovely place, with users and developers from 
 
 
 
-## 🌟 More Stars on [Github](https://github.com/apache/doris)
+## 🌟 More Stars on Github
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Apache/doris&type=Date)](https://star-history.com/#Apache/doris&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=&type=Date)](https://star-history.com/)
+
 
 
 
