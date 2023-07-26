@@ -376,7 +376,7 @@ protected:
     // this filter won't filter any data
     bool _always_true;
 
-    doris::vectorized::VExprContextSPtr _vprobe_ctx;
+    const TExpr* _probe_expr;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
