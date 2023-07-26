@@ -778,5 +778,16 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
     return newToken(SqlParserSymbols.NUMERIC_OVERFLOW, yytext());
 }
 
+{DoubleLiteral} {
+  BigDecimal decimal_val;
+  try {
+    decimal_val = new BigDecimal(yytext());
+  } catch (NumberFormatException e) {
+    return newToken(SqlParserSymbols.NUMERIC_OVERFLOW, yytext());
+  }
+
+  return newToken(SqlParserSymbols.DECIMAL_LITERAL, decimal_val);
+}
+
 {Comment} { /* ignore */ }
 {Whitespace} { /* ignore */ }
