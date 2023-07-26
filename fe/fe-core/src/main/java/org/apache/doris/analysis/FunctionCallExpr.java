@@ -1626,7 +1626,6 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-<<<<<<< HEAD
         Type[] args = fn.getArgs();
         if (args.length > 0) {
             // Implicitly cast all the children to match the function if necessary
