@@ -3165,7 +3165,6 @@ public class Env {
                                     .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
-            
 
             // dynamic schema
             if (olapTable.isDynamicSchema()) {
