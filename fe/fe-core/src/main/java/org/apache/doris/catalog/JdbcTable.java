@@ -312,7 +312,8 @@ public class JdbcTable extends Table {
 
         String urlType = jdbcUrl.split(":")[1];
         if (!jdbcTypeName.equalsIgnoreCase(urlType)) {
-            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))) {
+            if (!(jdbcTypeName.equalsIgnoreCase("oceanbase_oracle") && urlType.equalsIgnoreCase("oceanbase"))
+                    && !(jdbcTypeName.equalsIgnoreCase("sap_hana") && urlType.equalsIgnoreCase("sap"))) {
                 throw new DdlException("property " + TABLE_TYPE + " must be same with resource url");
             }
         }
