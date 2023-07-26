@@ -284,8 +284,24 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         }
 
         if (context.isBroadcastJoin()) {
-            double broadcastJoinPenalty = broadCastJoinBalancePenalty(probeStats, buildStats);
-            return CostV1.of(leftRowCount * broadcastJoinPenalty + rightRowCount + outputRowCount,
+            // compared with shuffle join, bc join will be taken a penalty for both build and probe side;
+            // currently we use the following factor as the penalty factor:
+            // build side factor: totalInstanceNumber to the power of 2, standing for the additional effort for
+            //                    bigger cost for building hash table, taken on rightRowCount
+            // probe side factor: totalInstanceNumber to the power of 2, standing for the additional effort for
+            //                    bigger cost for ProbeWhenBuildSideOutput effort and ProbeWhenSearchHashTableTime
+            //                    on the output rows, taken on outputRowCount()
+            double probeSideFactor = 1.0;
+            double buildSideFactor = ConnectContext.get().getSessionVariable().getBroadcastRightTableScaleFactor();
+            int parallelInstance = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+            int totalInstanceNumber = parallelInstance * beNumber;
+            if (buildSideFactor <= 1.0) {
+                // use totalInstanceNumber to the power of 2 as the default factor value
+                buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+            }
+            // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
+            // will refine this in next generation cost model.
+            return CostV1.of(leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0,
                     0
