@@ -1436,19 +1436,19 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.skipWriteIndexOnLoad().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, olapTable.compactionPolicy());
+                properties.put(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, olapTable.getCompactionPolicy());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
-                                                    olapTable.timeSeriesCompactionGoalSizeMbytes().toString());
+                                                olapTable.getTimeSeriesCompactionGoalSizeMbytes().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
-                                                    olapTable.timeSeriesCompactionFileCountThreshold().toString());
+                                                olapTable.getTimeSeriesCompactionFileCountThreshold().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
-                                                    olapTable.timeSeriesCompactionTimeThresholdSeconds().toString());
+                                                olapTable.getTimeSeriesCompactionTimeThresholdSeconds().toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA,
@@ -1546,10 +1546,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
                     olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy, idGeneratorBuffer,
                     olapTable.disableAutoCompaction(), olapTable.enableSingleReplicaCompaction(),
-                    olapTable.skipWriteIndexOnLoad(), olapTable.compactionPolicy(),
-                    olapTable.timeSeriesCompactionGoalSizeMbytes(),
-                    olapTable.timeSeriesCompactionFileCountThreshold(),
-                    olapTable.timeSeriesCompactionTimeThresholdSeconds(),
+                    olapTable.skipWriteIndexOnLoad(), olapTable.getCompactionPolicy(),
+                    olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
+                    olapTable.getTimeSeriesCompactionFileCountThreshold(),
+                    olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
                     olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
                     binlogConfig, dataProperty.isStorageMediumSpecified());
 
@@ -2384,9 +2384,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
                         idGeneratorBuffer, olapTable.disableAutoCompaction(),
                         olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
-                        olapTable.compactionPolicy(), olapTable.timeSeriesCompactionGoalSizeMbytes(),
-                        olapTable.timeSeriesCompactionFileCountThreshold(),
-                        olapTable.timeSeriesCompactionTimeThresholdSeconds(),
+                        olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
+                        olapTable.getTimeSeriesCompactionFileCountThreshold(),
+                        olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
                         storeRowColumn, isDynamicSchema, binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
                 olapTable.addPartition(partition);
@@ -2454,9 +2454,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                             olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
                             idGeneratorBuffer, olapTable.disableAutoCompaction(),
                             olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
-                            olapTable.compactionPolicy(), olapTable.timeSeriesCompactionGoalSizeMbytes(),
-                            olapTable.timeSeriesCompactionFileCountThreshold(),
-                            olapTable.timeSeriesCompactionTimeThresholdSeconds(),
+                            olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
+                            olapTable.getTimeSeriesCompactionFileCountThreshold(),
+                            olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
                             storeRowColumn, isDynamicSchema, binlogConfigForTask,
                             dataProperty.isStorageMediumSpecified());
                     olapTable.addPartition(partition);
@@ -2881,9 +2881,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
                         idGeneratorBuffer, olapTable.disableAutoCompaction(),
                         olapTable.enableSingleReplicaCompaction(), olapTable.skipWriteIndexOnLoad(),
-                        olapTable.compactionPolicy(), olapTable.timeSeriesCompactionGoalSizeMbytes(),
-                        olapTable.timeSeriesCompactionFileCountThreshold(),
-                        olapTable.timeSeriesCompactionTimeThresholdSeconds(),
+                        olapTable.getCompactionPolicy(), olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
+                        olapTable.getTimeSeriesCompactionFileCountThreshold(),
+                        olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
                         olapTable.storeRowColumn(), olapTable.isDynamicSchema(), binlogConfig,
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified());
                 newPartitions.add(newPartition);

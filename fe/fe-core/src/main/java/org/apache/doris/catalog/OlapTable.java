@@ -1874,7 +1874,7 @@ public class OlapTable extends Table {
         tableProperty.buildCompactionPolicy();
     }
 
-    public String compactionPolicy() {
+    public String getCompactionPolicy() {
         if (tableProperty != null) {
             return tableProperty.compactionPolicy();
         }
@@ -1888,7 +1888,7 @@ public class OlapTable extends Table {
         tableProperty.buildTimeSeriesCompactionGoalSizeMbytes();
     }
 
-    public Long timeSeriesCompactionGoalSizeMbytes() {
+    public Long getTimeSeriesCompactionGoalSizeMbytes() {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionGoalSizeMbytes();
         }
@@ -1902,7 +1902,7 @@ public class OlapTable extends Table {
         tableProperty.buildTimeSeriesCompactionFileCountThreshold();
     }
 
-    public Long timeSeriesCompactionFileCountThreshold() {
+    public Long getTimeSeriesCompactionFileCountThreshold() {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionFileCountThreshold();
         }
@@ -1917,7 +1917,7 @@ public class OlapTable extends Table {
         tableProperty.buildTimeSeriesCompactionTimeThresholdSeconds();
     }
 
-    public Long timeSeriesCompactionTimeThresholdSeconds() {
+    public Long getTimeSeriesCompactionTimeThresholdSeconds() {
         if (tableProperty != null) {
             return tableProperty.timeSeriesCompactionTimeThresholdSeconds();
         }
