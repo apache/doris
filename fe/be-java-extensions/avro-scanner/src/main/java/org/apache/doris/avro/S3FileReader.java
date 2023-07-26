@@ -29,24 +29,28 @@ import org.apache.avro.Schema;
 import org.apache.avro.file.DataFileStream;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class S3FileReader implements AvroReader {
 
     private static final Logger LOG = LogManager.getLogger(S3FileReader.class);
-    private final String bucketName;
-    private final String key;
+    private String bucketName;
+    private String key;
     private AmazonS3 s3Client;
     private DataFileStream<GenericRecord> reader;
     private InputStream s3ObjectInputStream;
     private final AWSCredentials credentials;
     private final String endpoint;
-    private final String region;
+    private String region;
+    private final String urlPatter = "(?:https?://)?[^/]+/([^/]+)/(.*)";
 
     public S3FileReader(String accessKey, String secretKey, String endpoint, String region,
             String bucketName, String key) {
@@ -55,6 +59,24 @@ public class S3FileReader implements AvroReader {
         this.endpoint = endpoint;
         this.region = region;
         credentials = new BasicAWSCredentials(accessKey, secretKey);
+        checkParams();
+    }
+
+    /**
+     * use to adapt minio.
+     * If querying minio, the bucketName will be empty and you need to get it again from the key.
+     * like: 10.10.10.1:9000/bucket1/path/person.avro
+     */
+    private void checkParams() {
+        if (StringUtils.isEmpty(bucketName)) {
+            Pattern pattern = Pattern.compile(urlPatter);
+            Matcher matcher = pattern.matcher(key);
+            if (matcher.find()) {
+                bucketName = matcher.group(1);
+                key = matcher.group(2);
+                region = "";
+            }
+        }
     }
 
     @Override
@@ -63,6 +85,9 @@ public class S3FileReader implements AvroReader {
                 .withCredentials(new AWSStaticCredentialsProvider(credentials))
                 .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endpoint, region))
                 .build();
+        if (!s3Client.doesBucketExistV2(bucketName)) {
+            throw new IOException("The bucket does not exist, please check your url. bucket=" + bucketName + "");
+        }
         S3Object object = s3Client.getObject(new GetObjectRequest(bucketName, key));
         s3ObjectInputStream = object.getObjectContent();
         reader = new DataFileStream<>(s3ObjectInputStream, new GenericDatumReader<>());
