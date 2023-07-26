@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <CLucene.h>
+#include <CLucene/config/repl_wchar.h>
 #include <gflags/gflags.h>
+
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <filesystem>
-
-#include <CLucene.h>
-#include <CLucene/config/repl_wchar.h>
 
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
@@ -55,11 +55,13 @@ std::string get_usage(const std::string& progname) {
     ss << "./index_tool --operation=show_nested_files --idx_file_path=path/to/file\n";
     ss << "./index_tool --operation=check_terms_stats --idx_file_path=path/to/file\n";
     ss << "./index_tool --operation=term_query --dir=directory "
-          "--idx_file_name=file --print_row_id --term=term --column_name=column_name --pred_type=eq/lt/gt/le/ge/match etc\n";
+          "--idx_file_name=file --print_row_id --term=term --column_name=column_name "
+          "--pred_type=eq/lt/gt/le/ge/match etc\n";
     return ss.str();
 }
 
-void search(lucene::store::Directory* dir, std::string& field, std::string& token, std::string& pred) {
+void search(lucene::store::Directory* dir, std::string& field, std::string& token,
+            std::string& pred) {
     IndexReader* reader = IndexReader::open(dir);
 
     IndexReader* newreader = reader->reopen();
@@ -95,8 +97,9 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
     s._search(query.get(), [&result, &total](const int32_t docid, const float_t /*score*/) {
         // docid equal to rowid in segment
         result.push_back(docid);
-        if(FLAGS_print_row_id)
+        if (FLAGS_print_row_id) {
             printf("RowID is %d\n", docid);
+        }
         total += 1;
     });
     std::cout << "Term queried count:" << total << std::endl;
@@ -179,7 +182,8 @@ int main(int argc, char** argv) {
             std::cerr << "error occurred when check_terms_stats: " << err.what() << std::endl;
         }
     } else if (FLAGS_operation == "term_query") {
-        if (FLAGS_directory == "" || FLAGS_term == "" || FLAGS_column_name == "" || FLAGS_pred_type == "") {
+        if (FLAGS_directory == "" || FLAGS_term == "" || FLAGS_column_name == "" ||
+            FLAGS_pred_type == "") {
             std::cout << "invalid params for term_query " << std::endl;
             return -1;
         }
@@ -197,7 +201,7 @@ int main(int argc, char** argv) {
                     std::cout << FLAGS_directory << " is not exists" << std::endl;
                     return -1;
                 }
-                for(auto& f:files) {
+                for (auto& f : files) {
                     try {
                         auto file_str = f.file_name;
                         auto reader = new DorisCompoundReader(dir, file_str.c_str(), 4096);
@@ -206,17 +210,20 @@ int main(int argc, char** argv) {
                         std::cout << "==================================" << std::endl;
                         search(reader, FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
                     } catch (CLuceneError& err) {
-                        std::cerr << "error occurred when search file: " << f.file_name << ", error:" << err.what() << std::endl;
+                        std::cerr << "error occurred when search file: " << f.file_name
+                                  << ", error:" << err.what() << std::endl;
                     }
                 }
             } else {
                 auto reader = new DorisCompoundReader(dir, FLAGS_idx_file_name.c_str(), 4096);
-                std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from " << FLAGS_idx_file_name << std::endl;
+                std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
+                          << FLAGS_idx_file_name << std::endl;
                 std::cout << "==================================" << std::endl;
                 try {
                     search(reader, FLAGS_column_name, FLAGS_term, FLAGS_pred_type);
                 } catch (CLuceneError& err) {
-                    std::cerr << "error occurred when search file: " << FLAGS_idx_file_name << ", error:" << err.what() << std::endl;
+                    std::cerr << "error occurred when search file: " << FLAGS_idx_file_name
+                              << ", error:" << err.what() << std::endl;
                 }
             }
         } catch (CLuceneError& err) {
