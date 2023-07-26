@@ -49,6 +49,7 @@ import javax.servlet.http.HttpServletRequest;
  */
 public class HttpUtils {
     static final int REQUEST_SUCCESS_CODE = 0;
+    static final int DEFAULT_TIME_OUT = 2000;
 
     static List<Pair<String, Integer>> getFeList() {
         return Env.getCurrentEnv().getFrontends(null)
@@ -74,10 +75,14 @@ public class HttpUtils {
         return url.toString();
     }
 
-    static String doGet(String url, Map<String, String> headers) throws IOException {
+    public static String doGet(String url, Map<String, String> headers, int timeout) throws IOException {
         HttpGet httpGet = new HttpGet(url);
-        setRequestConfig(httpGet, headers);
+        setRequestConfig(httpGet, headers,timeout);
         return executeRequest(httpGet);
+    }
+
+    public static String doGet(String url, Map<String, String> headers) throws IOException {
+       return doGet(url,headers,DEFAULT_TIME_OUT);
     }
 
     static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
@@ -88,11 +93,11 @@ public class HttpUtils {
             httpPost.setEntity(stringEntity);
         }
 
-        setRequestConfig(httpPost, headers);
+        setRequestConfig(httpPost, headers,DEFAULT_TIME_OUT);
         return executeRequest(httpPost);
     }
 
-    private static void setRequestConfig(HttpRequestBase request, Map<String, String> headers) {
+    private static void setRequestConfig(HttpRequestBase request, Map<String, String> headers, int timeout) {
         if (null != headers) {
             for (String key : headers.keySet()) {
                 request.setHeader(key, headers.get(key));
@@ -100,9 +105,9 @@ public class HttpUtils {
         }
 
         RequestConfig config = RequestConfig.custom()
-                .setConnectTimeout(2000)
-                .setConnectionRequestTimeout(2000)
-                .setSocketTimeout(2000)
+                .setConnectTimeout(timeout)
+                .setConnectionRequestTimeout(timeout)
+                .setSocketTimeout(timeout)
                 .build();
         request.setConfig(config);
     }

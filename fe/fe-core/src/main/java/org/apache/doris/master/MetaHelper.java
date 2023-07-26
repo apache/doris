@@ -20,12 +20,19 @@ package org.apache.doris.master;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.httpv2.entity.ResponseBody;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.reflect.TypeToken;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 
@@ -60,6 +67,11 @@ public class MetaHelper {
         return new FileOutputStream(file);
     }
 
+    public static ResponseBody doGet(String url, int timeout) throws IOException {
+        String response = HttpUtils.doGet(url, HttpURLUtil.getNodeIdentHeaders(), timeout);
+        return parseResponse(response);
+    }
+
     // download file from remote node
     public static void getRemoteFile(String urlStr, int timeout, OutputStream out)
             throws IOException {
@@ -75,6 +87,9 @@ public class MetaHelper {
             String imageSizeStr = conn.getHeaderField(X_IMAGE_SIZE);
             if (imageSizeStr != null) {
                 imageSize = Long.parseLong(imageSizeStr);
+            }
+            if (imageSize < 0) {
+                throw new IOException(getResponse(conn));
             }
 
             BufferedInputStream bin = new BufferedInputStream(conn.getInputStream());
@@ -93,6 +108,25 @@ public class MetaHelper {
                 out.close();
             }
         }
+    }
+
+    public static String getResponse(HttpURLConnection conn) throws IOException {
+        String response;
+        try (BufferedReader bufferedReader = new BufferedReader(
+                new InputStreamReader(conn.getInputStream()))) {
+            String line;
+            StringBuilder sb = new StringBuilder();
+            while ((line = bufferedReader.readLine()) != null) {
+                sb.append(line);
+            }
+            response = sb.toString();
+        }
+        return response;
+    }
+
+    public static ResponseBody parseResponse(String response) {
+        return GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {
+        }.getType());
     }
 
 }
