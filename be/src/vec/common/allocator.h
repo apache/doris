@@ -92,8 +92,11 @@ public:
     void release_memory(size_t size) const;
     void throw_bad_alloc(const std::string& err) const;
 
+    void* alloc(size_t size, size_t alignment = 0);
+    void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
+
     /// Allocate memory range.
-    void* alloc(size_t size, size_t alignment = 0) {
+    void* alloc_impl(size_t size, size_t alignment = 0) {
         memory_check(size);
         void* buf;
 
@@ -155,7 +158,7 @@ public:
       * Data from old range is moved to the beginning of new range.
       * Address of memory range could change.
       */
-    void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0) {
+    void* realloc_impl(void* buf, size_t old_size, size_t new_size, size_t alignment = 0) {
         if (old_size == new_size) {
             /// nothing to do.
             /// BTW, it's not possible to change alignment while doing realloc.

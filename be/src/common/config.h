@@ -169,6 +169,11 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
+// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// will print a warning containing the stacktrace, but not prevent memory alloc.
+// large memory alloc looking forward to using Allocator.
+DECLARE_mInt64(large_memory_check_bytes);
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
 
