@@ -63,8 +63,8 @@ public class S3FileReader implements AvroReader {
     }
 
     /**
-     * use to adapt minio.
-     * If querying minio, the bucketName will be empty and you need to get it again from the key.
+     * use to adapt MinIO.
+     * If querying MinIO, the bucketName will be empty and you need to get it again from the key.
      * like: 10.10.10.1:9000/bucket1/path/person.avro
      */
     private void checkParams() {
