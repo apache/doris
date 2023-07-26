@@ -118,6 +118,7 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
 
 int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     static int pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
+    const static int64_t max_time = (int64_t)3020399 * 1000 * 1000;
     char* begin = buffer;
     if (time < 0) {
         time = -time;
@@ -125,6 +126,9 @@ int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     }
     int64_t m_time = time;
     // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
+    if (m_time > max_time) {
+        m_time = max_time;
+    }
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
     if (hour >= 100) {
         auto f = fmt::format_int(hour);
@@ -185,12 +189,16 @@ std::string time_to_buffer_from_double(double time) {
 
 std::string timev2_to_buffer_from_double(double time, int scale) {
     static int pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
+    const static int64_t max_time = (int64_t)3020399 * 1000 * 1000;
     fmt::memory_buffer buffer;
     if (time < 0) {
         time = -time;
         fmt::format_to(buffer, "-");
     }
     int64_t m_time = time;
+    if (m_time > max_time) {
+        m_time = max_time;
+    }
     // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
     int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
     if (hour >= 100) {
