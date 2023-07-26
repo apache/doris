@@ -19,6 +19,12 @@
 -- !select --
 2	2020-01-01
 
+-- !test --
+false
+false
+true
+true
+
 -- !select --
 1	2017-01-01T00:00
 2	2017-02-02T00:00
