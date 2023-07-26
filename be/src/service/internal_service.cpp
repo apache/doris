@@ -1020,7 +1020,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
     PriorityThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.try_offer([this, controller, request, response, done]() {
+    bool ret = pool.offer([this, controller, request, response, done]() {
         _transmit_block(controller, request, response, done, Status::OK());
     });
     if (!ret) {
@@ -1035,7 +1035,7 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
                                                   const PEmptyRequest* request,
                                                   PTransmitDataResult* response,
                                                   google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, response, done]() {
+    bool ret = _heavy_work_pool.offer([this, controller, response, done]() {
         PTransmitDataParams* new_request = new PTransmitDataParams();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTransmitDataParams>(new_request, done);
