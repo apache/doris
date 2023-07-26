@@ -60,7 +60,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql1 " select * from ${tableName}"
+    qt_sql1 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
@@ -96,7 +96,7 @@ suite("test_partial_update_schema_change", "p0") {
         }
     }
     // check data, new column is filled by default value.
-    qt_sql2 " select * from ${tableName} "
+    qt_sql2 " select * from ${tableName} order by c0 "
 
     // test load data with new column
     streamLoad {
@@ -122,7 +122,7 @@ suite("test_partial_update_schema_change", "p0") {
         }
     }
     // check data, new column is filled by given value.
-    qt_sql3 " select * from ${tableName}"
+    qt_sql3 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -153,8 +153,7 @@ suite("test_partial_update_schema_change", "p0") {
         table "${tableName}"
 
         set 'column_separator', ','
-        set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'
-        set 'strict_mode', 'true'
+        set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'        
 
         file 'schema_change/load.csv'
         time 10000 // limit inflight 10s
@@ -171,7 +170,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql4 " select * from ${tableName} "
+    qt_sql4 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
@@ -206,8 +205,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    // check data, new column is filled by given value.
-    qt_sql5 " select * from ${tableName} "
+    qt_sql5 " select * from ${tableName} order by c0 "
     
     // test load data with delete column
     // todo bug
@@ -265,7 +263,6 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'
-        set 'strict_mode', 'true'
 
         file 'schema_change/load.csv'
         time 10000 // limit inflight 10s
@@ -282,7 +279,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql6 " select * from ${tableName} "
+    qt_sql6 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
@@ -317,7 +314,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql7 " select * from ${tableName} "
+    qt_sql7 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -341,7 +338,6 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'columns', 'c0'
-        set 'strict_mode', 'true'
 
         file 'schema_change/load1.csv'
         time 10000 // limit inflight 10s
@@ -358,7 +354,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql8 " select * from ${tableName}"
+    qt_sql8 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
@@ -385,7 +381,6 @@ suite("test_partial_update_schema_change", "p0") {
 
     //     set 'column_separator', ','
     //     set 'partial_columns', 'true'
-    //     // Partial update should include all key columns.
     //     set 'columns', 'c0, c1'
 
     //     file 'schema_change/load_with_key_column.csv'
@@ -404,7 +399,7 @@ suite("test_partial_update_schema_change", "p0") {
     //     }
     // }
     // //check data
-    // qt_sql9 " select * from ${tableName} order by c1 "
+    // qt_sql9 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -436,7 +431,7 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'
-        set 'strict_mode', 'true'
+        
 
         file 'schema_change/load.csv'
         time 10000 // limit inflight 10s
@@ -453,7 +448,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql10 " select * from ${tableName}"
+    qt_sql10 " select * from ${tableName} order by c0 "
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
     while(true){
@@ -487,7 +482,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql11 " select * from ${tableName} "
+    qt_sql11 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -518,7 +513,6 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'
-        set 'strict_mode', 'true'
 
         file 'schema_change/load.csv'
         time 10000 // limit inflight 10s
@@ -535,7 +529,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql12 " select * from ${tableName}"
+    qt_sql12 " select * from ${tableName} order by c0 "
     
     sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
 
@@ -561,7 +555,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql13 " select * from ${tableName} "
+    qt_sql13 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -607,7 +601,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql14 " select * from ${tableName}"
+    qt_sql14 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
@@ -643,7 +637,7 @@ suite("test_partial_update_schema_change", "p0") {
         }
     }
     // check data, new column is filled by default value.
-    qt_sql15 " select * from ${tableName} "
+    qt_sql15 " select * from ${tableName} order by c0 "
 
     // test load data with new column
     streamLoad {
@@ -669,7 +663,7 @@ suite("test_partial_update_schema_change", "p0") {
         }
     }
     // check data, new column is filled by given value.
-    qt_sql16 " select * from ${tableName}"
+    qt_sql16 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -700,7 +694,6 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'
-        set 'strict_mode', 'true'
 
         file 'schema_change/load.csv'
         time 10000 // limit inflight 10s
@@ -717,7 +710,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql17 " select * from ${tableName} "
+    qt_sql17 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
@@ -752,8 +745,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    // check data, new column is filled by given value.
-    qt_sql18 " select * from ${tableName} "
+    qt_sql18 " select * from ${tableName} order by c0 "
     
     // test load data with delete column
     // todo bug
@@ -810,7 +802,6 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'
-        set 'strict_mode', 'true'
 
         file 'schema_change/load.csv'
         time 10000 // limit inflight 10s
@@ -827,7 +818,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql19 " select * from ${tableName} "
+    qt_sql19 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
@@ -862,7 +853,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql20 " select * from ${tableName} "
+    qt_sql20 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -885,7 +876,6 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'columns', 'c0'
-        set 'strict_mode', 'true'
 
         file 'schema_change/load1.csv'
         time 10000 // limit inflight 10s
@@ -902,7 +892,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql21 " select * from ${tableName}"
+    qt_sql21 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
@@ -929,7 +919,6 @@ suite("test_partial_update_schema_change", "p0") {
 
     //     set 'column_separator', ','
     //     set 'partial_columns', 'true'
-    //     // Partial update should include all key columns.
     //     set 'columns', 'c0, c1'
 
     //     file 'schema_change/load_with_key_column.csv'
@@ -948,7 +937,7 @@ suite("test_partial_update_schema_change", "p0") {
     //     }
     // }
     // //check data
-    // qt_sql22 " select * from ${tableName} order by c1 "
+    // qt_sql22 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -979,7 +968,6 @@ suite("test_partial_update_schema_change", "p0") {
 
         set 'column_separator', ','
         set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'
-        set 'strict_mode', 'true'
 
         file 'schema_change/load.csv'
         time 10000 // limit inflight 10s
@@ -996,7 +984,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql23 " select * from ${tableName}"
+    qt_sql23 " select * from ${tableName} order by c0 "
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
     while(true){
@@ -1030,7 +1018,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql24 " select * from ${tableName} "
+    qt_sql24 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -1059,8 +1047,7 @@ suite("test_partial_update_schema_change", "p0") {
         table "${tableName}"
 
         set 'column_separator', ','
-        set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'
-        set 'strict_mode', 'true'
+        set 'columns', 'c0, c1, c2, c3, c4, c5, c6, c7, c8, c9'        
 
         file 'schema_change/load.csv'
         time 10000 // limit inflight 10s
@@ -1077,7 +1064,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql25 " select * from ${tableName}"
+    qt_sql25 " select * from ${tableName} order by c0 "
     
     sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
 
@@ -1103,7 +1090,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql26 " select * from ${tableName} "
+    qt_sql26 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }
