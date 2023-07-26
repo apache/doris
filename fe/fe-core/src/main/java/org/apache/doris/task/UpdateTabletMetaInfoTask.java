@@ -133,7 +133,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 if (compactionPolicy != null) {
                     metaInfo.setCompactionPolicy(compactionPolicy);
                 }
-                if (!timeSeriesCompactionConfig.isEmpty()) {
+                if (timeSeriesCompactionConfig != null && !timeSeriesCompactionConfig.isEmpty()) {
                     if (timeSeriesCompactionConfig
                             .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
                         metaInfo.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionConfig
