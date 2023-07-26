@@ -322,8 +322,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             topic("eliminate empty relation",
                 bottomUp(new EliminateEmptyRelation()),
             
-	    topic("LEADING JOIN",
-                custom(RuleType.CHECK_LEADING, CheckLeading::new),
+            topic("LEADING JOIN",
                 bottomUp(
                     new CollectJoinConstraint()
                 ),

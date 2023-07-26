@@ -19,6 +19,7 @@ package org.apache.doris.nereids.hint;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -28,10 +29,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Maps;
-import org.apache.doris.nereids.util.JoinUtils;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -51,6 +51,8 @@ public class LeadingHint extends Hint {
     private final List<Integer> levellist = new ArrayList<>();
 
     private final Map<String, LogicalPlan> tableNameToScanMap = Maps.newLinkedHashMap();
+
+    private final Map<ExprId, String> exprIdToTableNameMap = Maps.newLinkedHashMap();
 
     private final List<Pair<Long, Expression>> filters = new ArrayList<>();
 
@@ -92,6 +94,10 @@ public class LeadingHint extends Hint {
 
     public Map<String, LogicalPlan> getTableNameToScanMap() {
         return tableNameToScanMap;
+    }
+
+    public Map<ExprId, String> getExprIdToTableNameMap() {
+        return exprIdToTableNameMap;
     }
 
     public List<Pair<Long, Expression>> getFilters() {
@@ -219,8 +225,7 @@ public class LeadingHint extends Hint {
         Pair<JoinConstraint, Boolean> joinConstraintBooleanPair
                 = getJoinConstraint(LongBitmap.or(left, right), left, right);
         if (!joinConstraintBooleanPair.second) {
-            assert (1 != 1);
-            //throw exception
+            this.setStatus(HintStatus.UNUSED);
         } else if (joinConstraintBooleanPair.first == null) {
             return JoinType.INNER_JOIN;
         } else {
@@ -239,6 +244,7 @@ public class LeadingHint extends Hint {
      * @return plan
      */
     public Plan generateLeadingJoinPlan() {
+        this.setStatus(HintStatus.SUCCESS);
         Stack<Pair<Integer, LogicalPlan>> stack = new Stack<>();
         int index = 0;
         LogicalPlan logicalPlan = getTableNameToScanMap().get(getTablelist().get(index));
@@ -259,8 +265,11 @@ public class LeadingHint extends Hint {
                     List<Expression> conditions = getJoinConditions(
                             getFilters(), newStackTop.second, logicalPlan);
                     Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
-                        newStackTop.second.getOutput(), logicalPlan.getOutput(), conditions);
+                            newStackTop.second.getOutput(), logicalPlan.getOutput(), conditions);
                     JoinType joinType = computeJoinType(getBitmap(newStackTop.second), getBitmap(logicalPlan));
+                    if (!this.isSuccess()) {
+                        return null;
+                    }
                     // get joinType
                     LogicalJoin logicalJoin = new LogicalJoin<>(joinType, pair.first,
                             pair.second,
@@ -268,6 +277,7 @@ public class LeadingHint extends Hint {
                             Optional.empty(),
                             newStackTop.second,
                             logicalPlan);
+                    logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second), getBitmap(logicalPlan)));
                     if (stackTopLevel > 0) {
                         stackTopLevel--;
                     }
@@ -280,14 +290,29 @@ public class LeadingHint extends Hint {
             } else {
                 // push
                 logicalPlan = getTableNameToScanMap().get(getTablelist().get(index++));
+                logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
                 stack.push(Pair.of(currentLevel, logicalPlan));
                 stackTopLevel = currentLevel;
             }
         }
 
+        LogicalJoin finalJoin = (LogicalJoin) stack.pop().second;
         // we want all filters been remove
-        assert (getFilters().isEmpty());
-        return stack.pop().second;
+        if (!getFilters().isEmpty()) {
+            List<Expression> conditions = getLastConditions(getFilters());
+            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
+                    finalJoin.left().getOutput(), finalJoin.right().getOutput(), conditions);
+            finalJoin = new LogicalJoin<>(finalJoin.getJoinType(), pair.first,
+                pair.second,
+                JoinHint.NONE,
+                Optional.empty(),
+                finalJoin.left(),
+                finalJoin.right());
+        }
+        if (finalJoin != null) {
+            this.setStatus(HintStatus.SUCCESS);
+        }
+        return finalJoin;
     }
 
     private List<Expression> getJoinConditions(List<Pair<Long, Expression>> filters,
@@ -296,10 +321,21 @@ public class LeadingHint extends Hint {
         for (int i = filters.size() - 1; i >= 0; i--) {
             Pair<Long, Expression> filterPair = filters.get(i);
             Long tablesBitMap = LongBitmap.or(getBitmap(left), getBitmap(right));
+            // left one is smaller set
             if (LongBitmap.isSubset(filterPair.first, tablesBitMap)) {
                 joinConditions.add(filterPair.second);
                 filters.remove(i);
             }
+        }
+        return joinConditions;
+    }
+
+    private List<Expression> getLastConditions(List<Pair<Long, Expression>> filters) {
+        List<Expression> joinConditions = new ArrayList<>();
+        for (int i = filters.size() - 1; i >= 0; i--) {
+            Pair<Long, Expression> filterPair = filters.get(i);
+            joinConditions.add(filterPair.second);
+            filters.remove(i);
         }
         return joinConditions;
     }

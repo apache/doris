@@ -122,8 +122,8 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
         boolean isStrict = LongBitmap.isOverlap(nonNullableSlotBitMap, leftHand);
         Long minLeftHand = LongBitmap.newBitmapIntersect(filterTableBitMap, leftHand);
         Long innerJoinTableBitmap = LongBitmap.and(totalTables, leading.getInnerJoinBitmap());
-        Long minRightHand = LongBitmap.newBitmapUnion(filterTableBitMap, rightHand);
-        minRightHand = LongBitmap.newBitmapUnion(minRightHand, innerJoinTableBitmap);
+        Long filterAndInnerBelow = LongBitmap.newBitmapUnion(filterTableBitMap, innerJoinTableBitmap);
+        Long minRightHand = LongBitmap.newBitmapIntersect(filterAndInnerBelow, rightHand);
         for (JoinConstraint other : leading.getJoinConstraintList()) {
             if (other.getJoinType() == JoinType.FULL_OUTER_JOIN) {
                 if (LongBitmap.isOverlap(leftHand, other.getLeftHand())
@@ -179,7 +179,14 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             if (getNotNullable && slot.nullable()) {
                 continue;
             }
-            LogicalPlan scan = leading.getTableNameToScanMap().get(slot.getQualifier().get(1));
+            LogicalPlan scan = null;
+            String tableName = leading.getExprIdToTableNameMap().get(slot.getExprId());
+            if (tableName != null) {
+                scan = leading.getTableNameToScanMap().get(tableName);
+            } else {
+                scan = leading.getTableNameToScanMap().get(slot.getQualifier().get(1));
+                leading.getExprIdToTableNameMap().put(slot.getExprId(), slot.getQualifier().get(1));
+            }
             long currBitmap = LongBitmap.set(bitmap, ((LogicalRelation) scan).getRelationId().asInt());
             bitmap = LongBitmap.or(bitmap, currBitmap);
         }

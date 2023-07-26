@@ -37,11 +37,14 @@ public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements 
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         Hint leadingHint = jobContext.getCascadesContext().getStatementContext().getHintMap().get("Leading");
         if (leadingHint != null) {
-            return plan.accept(this, new LeadingContext(
-                (LeadingHint) leadingHint, ((LeadingHint) leadingHint).getLeadingTableBitmap()));
-        }
-        if (leadingHint.isSuccess()) {
-            jobContext.getCascadesContext().getConnectContext().getSessionVariable().setDisableJoinReorder(true);
+            Plan leadingPlan = plan.accept(this, new LeadingContext(
+                    (LeadingHint) leadingHint, ((LeadingHint) leadingHint).getLeadingTableBitmap()));
+            if (leadingHint.isSuccess()) {
+                jobContext.getCascadesContext().getConnectContext().getSessionVariable().setDisableJoinReorder(true);
+            } else {
+                return plan;
+            }
+            return leadingPlan;
         }
         return plan;
     }
@@ -51,8 +54,10 @@ public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements 
         Long currentBitMap = context.leading.computeTableBitmap(plan.getInputRelations());
         if (LongBitmap.isSubset(context.totalBitmap, currentBitMap)
                 && plan instanceof LogicalJoin) {
-            context.leading.setStatus(Hint.HintStatus.SUCCESS);
-            return context.leading.generateLeadingJoinPlan();
+            Plan leadingJoin = context.leading.generateLeadingJoinPlan();
+            if (context.leading.isSuccess() && leadingJoin != null) {
+                return leadingJoin;
+            }
         } else if (!(plan instanceof LogicalJoin)) {
             return (LogicalPlan) super.visit(plan, context);
         }
