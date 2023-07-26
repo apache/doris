@@ -88,7 +88,7 @@ public class JdbcExecutor {
     private int minPoolSize;
     private int maxPoolSize;
     private int minIdleSize;
-    private int maxIdelTime;
+    private int maxIdleTime;
     private int maxWaitTime;
     private TOdbcTableType tableType;
 
@@ -103,12 +103,12 @@ public class JdbcExecutor {
         tableType = request.table_type;
         minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
-        maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
+        maxIdleTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDLE_TIME", "300000"));
         maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
         minIdleSize = minPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
-                + ", maxIdelTime = " + maxIdelTime
+                + ", maxIdleTime = " + maxIdleTime
                 + ", maxWaitTime = " + maxWaitTime
                 + ", minIdleSize = " + minIdleSize);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
@@ -423,8 +423,8 @@ public class JdbcExecutor {
                     ds.setTestWhileIdle(true);
                     ds.setTestOnBorrow(false);
                     setValidationQuery(ds, tableType);
-                    ds.setTimeBetweenEvictionRunsMillis(maxIdelTime / 5);
-                    ds.setMinEvictableIdleTimeMillis(maxIdelTime);
+                    ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
+                    ds.setMinEvictableIdleTimeMillis(maxIdleTime);
                     druidDataSource = ds;
                     // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
                     // jdbcPassword) as key.
@@ -469,9 +469,8 @@ public class JdbcExecutor {
         }
     }
 
-    public void copyBatchBooleanResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
-        Object[] column = (Object[]) columnObj;
+    public void booleanPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr, long columnAddr,
+            int startRow) {
         if (isNullable) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
@@ -484,6 +483,25 @@ public class JdbcExecutor {
             for (int i = 0; i < numRows; i++) {
                 UdfUtils.UNSAFE.putByte(columnAddr + i, (Boolean) column[i] ? (byte) 1 : 0);
             }
+        }
+    }
+
+    public void copyBatchBooleanResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        Object[] column = (Object[]) columnObj;
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof Boolean) {
+            booleanPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Integer) {
+            integerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Byte) {
+            bytePutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -557,6 +575,27 @@ public class JdbcExecutor {
         }
     }
 
+    private void objectPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+                                 long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    String columnStr = String.valueOf(column[i]);
+                    int columnInt = Integer.parseInt(columnStr);
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, (byte) columnInt);
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                String columnStr = String.valueOf(column[i]);
+                int columnInt = Integer.parseInt(columnStr);
+                UdfUtils.UNSAFE.putByte(columnAddr + i, (byte) columnInt);
+            }
+        }
+    }
+
     public void copyBatchTinyIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -575,6 +614,8 @@ public class JdbcExecutor {
             shortPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Byte) {
             bytePutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        }  else if (column[firstNotNullIndex] instanceof java.lang.Object) {
+            objectPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -1100,6 +1141,29 @@ public class JdbcExecutor {
         }
     }
 
+    private void timestampPutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L),
+                            UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth()));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 4L),
+                        UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(),
+                                date.getDayOfMonth()));
+            }
+        }
+    }
+
     public void copyBatchDateV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -1114,6 +1178,8 @@ public class JdbcExecutor {
             localDatePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Date) {
             datePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Timestamp) {
+            timestampPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 

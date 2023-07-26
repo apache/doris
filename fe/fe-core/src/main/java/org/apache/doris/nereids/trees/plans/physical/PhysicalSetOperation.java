@@ -146,7 +146,7 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
         boolean pushedDown = false;
         for (int i = 0; i < this.children().size(); i++) {
             AbstractPhysicalPlan child = (AbstractPhysicalPlan) this.child(i);
-            // TODO: replace this special logic with dynamic handling
+            // TODO: replace this special logic with dynamic handling and the name matching
             if (child instanceof PhysicalDistribute) {
                 child = (AbstractPhysicalPlan) child.child(0);
             }
@@ -154,7 +154,7 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                 PhysicalProject project = (PhysicalProject) child;
                 int projIndex = -1;
                 Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-                if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+                if (probeSlot == null) {
                     continue;
                 }
                 for (int j = 0; j < project.getProjects().size(); j++) {
@@ -170,6 +170,10 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                 NamedExpression newProbeExpr = (NamedExpression) project.getProjects().get(projIndex);
                 if (newProbeExpr instanceof Alias) {
                     newProbeExpr = (NamedExpression) newProbeExpr.child(0);
+                }
+                Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
+                if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, newProbeSlot)) {
+                    continue;
                 }
                 pushedDown |= child.pushDownRuntimeFilter(context, generator, builderNode, src,
                         newProbeExpr, type, buildSideNdv, exprOrder);

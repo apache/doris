@@ -145,8 +145,9 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
                                          AbstractPhysicalJoin builderNode,
                                          Expression src, Expression probeExpr,
                                          TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
-        // TODO: current cte internal pushing down is too complicated and it is not convenient to move the logic here.
-        // will refine it in the future.
-        return false;
+        // push down rf on cte sender
+        // TODO: refactor pushing down into cte internal here
+        return super.pushDownRuntimeFilter(context, generator, builderNode,
+                src, probeExpr, type, buildSideNdv, exprOrder);
     }
 }
