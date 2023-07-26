@@ -17,8 +17,39 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import com.google.common.collect.Maps;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
 /**
  * represent fixed range partition
  */
 public class FixedRangePartition extends PartitionDefinition {
+    private final String partitionName;
+    private final List<Expression> lowerBounds;
+    private final List<Expression> upperBounds;
+    
+    public FixedRangePartition(String partitionName, List<Expression> lowerBounds, List<Expression> upperBounds) {
+        this.partitionName = partitionName;
+        this.lowerBounds = lowerBounds;
+        this.upperBounds = upperBounds;
+    }
+
+    /**
+     * translate to catalog objects.
+     */
+    public SinglePartitionDesc translateToCatalogStyle() {
+        List<PartitionValue> lowerValues = lowerBounds.stream().map(e -> new PartitionValue(e.toSql()))
+                .collect(Collectors.toList());
+        List<PartitionValue> upperValues = upperBounds.stream().map(e -> new PartitionValue(e.toSql()))
+                .collect(Collectors.toList());
+        return new SinglePartitionDesc(false, partitionName,
+                PartitionKeyDesc.createFixed(lowerValues, upperValues), Maps.newHashMap());
+    }
 }

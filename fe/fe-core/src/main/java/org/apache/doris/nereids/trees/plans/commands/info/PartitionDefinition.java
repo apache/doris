@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AllPartitionDesc;
+
 /**
  * abstract class for partition definition
  */
-public class PartitionDefinition {
+public abstract class PartitionDefinition {
+    public abstract AllPartitionDesc translateToCatalogStyle();
 }

@@ -17,8 +17,43 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.collect.Maps;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
 /**
  * represent less than partition
  */
 public class LessThanPartition extends PartitionDefinition {
+    private final String partitionName;
+    private final List<Expression> values;
+    private final boolean isMaxValue;
+    
+    public LessThanPartition(String partitionName, List<Expression> values, boolean isMaxValue) {
+        this.partitionName = partitionName;
+        this.values = values;
+        this.isMaxValue = isMaxValue;
+    }
+
+    /**
+     * translate to catalog objects.
+     */
+    public SinglePartitionDesc translateToCatalogStyle() {
+        if (isMaxValue) {
+            return new SinglePartitionDesc(false, partitionName, PartitionKeyDesc.createMaxKeyDesc(),
+                    Maps.newHashMap());
+        }
+        List<PartitionValue> partitionValues = values.stream().map(e -> new PartitionValue(e.toSql()))
+                .collect(Collectors.toList());
+        return new SinglePartitionDesc(false, partitionName,
+                PartitionKeyDesc.createLessThan(partitionValues), Maps.newHashMap());
+    }
 }

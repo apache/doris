@@ -19,12 +19,15 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -50,7 +53,8 @@ public class CreateTableInfo {
     private final KeysType keysType;
     private final List<String> keys;
     private final String comment;
-    // private final List<PartitionInfo> partitions;
+    private final List<String> partitionColumns;
+    private final List<PartitionDefinition> partitions;
     private final DistributionDescriptor distribution;
     private final List<RollupDefinition> rollups;
     private final Map<String, String> properties;
@@ -60,7 +64,8 @@ public class CreateTableInfo {
      */
     public CreateTableInfo(boolean ifNotExists, String dbName, String tableName, List<ColumnDefinition> columns,
             List<IndexDefinition> indexes, String engineName, KeysType keysType, List<String> keys, String comment,
-            DistributionDescriptor distribution, List<RollupDefinition> rollups, Map<String, String> properties) {
+            List<String> partitionColumns, List<PartitionDefinition> partitions, DistributionDescriptor distribution,
+            List<RollupDefinition> rollups, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.dbName = dbName;
         this.tableName = tableName;
@@ -70,6 +75,8 @@ public class CreateTableInfo {
         this.keysType = keysType;
         this.keys = Utils.copyRequiredList(keys);
         this.comment = comment;
+        this.partitionColumns = Utils.copyRequiredList(partitionColumns);
+        this.partitions = Utils.copyRequiredList(partitions);
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
@@ -96,20 +103,25 @@ public class CreateTableInfo {
 
         List<Index> catalogIndexes = indexes.stream().map(IndexDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-
-        return new CreateTableStmt(ifNotExists, false,
-                new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
-                catalogColumns,
-                catalogIndexes,
-                engineName,
-                new KeysDesc(keysType, keys),
-                null,
-                distribution.translateToCatalogStyle(),
-                Maps.newHashMap(properties),
-                null,
-                comment,
-                ImmutableList.of(),
-                false,
-                null);
+        try {
+            PartitionDesc partitionDesc = new RangePartitionDesc(partitionColumns, partitions.stream()
+                    .map(PartitionDefinition::translateToCatalogStyle).collect(Collectors.toList()));
+            return new CreateTableStmt(ifNotExists, false,
+                    new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
+                    catalogColumns,
+                    catalogIndexes,
+                    engineName,
+                    new KeysDesc(keysType, keys),
+                    partitionDesc,
+                    distribution.translateToCatalogStyle(),
+                    Maps.newHashMap(properties),
+                    null,
+                    comment,
+                    ImmutableList.of(),
+                    false,
+                    null);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 }
