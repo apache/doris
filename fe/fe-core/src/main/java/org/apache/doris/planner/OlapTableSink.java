@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -164,7 +165,7 @@ public class OlapTableSink extends DataSink {
     }
 
     // must called after tupleDescriptor is computed
-    public void complete() throws UserException {
+    public void complete(Analyzer analyzer) throws UserException {
         TOlapTableSink tSink = tDataSink.getOlapTableSink();
 
         tSink.setTableId(dstTable.getId());
@@ -176,7 +177,7 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setNumReplicas(numReplicas);
         tSink.setNeedGenRollup(dstTable.shouldLoadToNewRollup());
-        tSink.setSchema(createSchema(tSink.getDbId(), dstTable));
+        tSink.setSchema(createSchema(tSink.getDbId(), dstTable, analyzer));
         tSink.setPartition(createPartition(tSink.getDbId(), dstTable));
         List<TOlapTableLocationParam> locationParams = createLocation(dstTable);
         tSink.setLocation(locationParams.get(0));
@@ -214,7 +215,7 @@ public class OlapTableSink extends DataSink {
         return tDataSink;
     }
 
-    private TOlapTableSchemaParam createSchema(long dbId, OlapTable table) {
+    private TOlapTableSchemaParam createSchema(long dbId, OlapTable table, Analyzer analyzer) throws AnalysisException {
         TOlapTableSchemaParam schemaParam = new TOlapTableSchemaParam();
         schemaParam.setDbId(dbId);
         schemaParam.setTableId(table.getId());
@@ -253,6 +254,10 @@ public class OlapTableSink extends DataSink {
             if (indexMeta.getWhereClause() != null) {
                 Expr expr = indexMeta.getWhereClause().clone();
                 expr.replaceSlot(tupleDescriptor);
+                if (analyzer != null) {
+                    analyzer.addSlotDescriptor(tupleDescriptor);
+                    expr.analyze(analyzer);
+                }
                 indexSchema.setWhereClause(expr.treeToThrift());
             }
             indexSchema.setColumnsDesc(columnsDesc);
