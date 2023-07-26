@@ -125,6 +125,9 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
+        if (FeConstants.disableInternalSchemaDb) {
+            return Collections.emptyList();
+        }
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);

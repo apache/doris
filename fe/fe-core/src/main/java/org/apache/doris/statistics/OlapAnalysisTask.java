@@ -59,7 +59,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         super(info);
     }
 
-    public void execute() throws Exception {
+    public void doExecute() throws Exception {
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);

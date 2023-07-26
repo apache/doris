@@ -810,7 +810,7 @@ public class AnalysisManager extends Daemon implements Writable {
                     continue;
                 }
                 try {
-                    task.execute();
+                    task.doExecute();
                     updateSyncTaskStatus(task, AnalysisState.FINISHED);
                 } catch (Throwable t) {
                     colNames.add(task.info.colName);
