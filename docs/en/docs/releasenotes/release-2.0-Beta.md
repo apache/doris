@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Release 2.0-beta",
+    "title": "Release 2.0-Beta",
     "language": "en"
 }
 ---
@@ -287,7 +287,7 @@ For data synchronization across multiple clusters, Apache Doris used to require 
 
 # Behavior Change
 
-- 1.2-lts can be scrolled and upgraded to 2.0-beta, while 2.0-alpha can be shut down and upgraded to 2.0-beta
+- 1.2-lts can be scrolled and upgraded to 2.0-Beta, while 2.0-Alpha can be shut down and upgraded to 2.0-Beta
 - Query optimizer switch default on ` enable_ Nereids_ Planner=true `;
 - Non vectorized code has been removed from the system, so 'enable'_ Vectorized_ The 'engine' parameter will no longer be effective;
 - Add Parameter ` enable_ Single_ Replica_ Compaction `;
@@ -309,5 +309,5 @@ During the recent one and a half months after Apache Doris 2.0 Alpha was release
 
 If you have any questions when investigating, testing, and deploying Apache Doris, please find us on [Slack](https://t.co/ZxJuNJHXb2). Our developers will be happy to provide targeted support. 
 
-In addition to the foregoing functionality, some new features are undergoing the final debugging and will be available in Apache Doris 2.0.0 GA and the subsequent versions, including multi-table materialized view, expression support in single-table materialized view, dynamic schema table, and Doris binlog. We will keep you informed of our progress.
+In addition to the foregoing functionality, some new features are undergoing the final debugging and will be available in Apache Doris 2.0 GA and the subsequent versions, including multi-table materialized view, expression support in single-table materialized view, dynamic schema table, and Doris binlog. We will keep you informed of our progress.
 
