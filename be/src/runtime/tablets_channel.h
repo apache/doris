@@ -169,7 +169,7 @@ private:
     std::map<int64, int64> _tablet_partition_map;
 
     // tablet_id -> TabletChannel
-    // when you erase, you should call deregister_writer method in MemTableMemLimitMgr;
+    // when you erase, you should call deregister_writer method in MemTableMemoryLimiter;
     std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.
