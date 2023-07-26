@@ -50,6 +50,7 @@ public class S3Properties extends BaseProperties {
     public static final String MAX_CONNECTIONS = "s3.connection.maximum";
     public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
     public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
+    public static final String USE_PATH_STYLE = "use_path_style";
 
     // required by storage policy
     public static final String ROOT_PATH = "s3.root.path";
@@ -98,9 +99,11 @@ public class S3Properties extends BaseProperties {
         public static final String MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
         public static final String REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
         public static final String CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
+        public static final String USE_PATH_STYLE = "USE_PATH_STYLE";
         public static final String DEFAULT_MAX_CONNECTIONS = "50";
         public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
+        public static final String DEFAULT_USE_PATH_STYLE = "FALSE";
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
                 ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
@@ -241,6 +244,9 @@ public class S3Properties extends BaseProperties {
         if (properties.containsKey(S3Properties.Env.BUCKET)) {
             properties.putIfAbsent(S3Properties.BUCKET, properties.get(S3Properties.Env.BUCKET));
         }
+        if (properties.containsKey(S3Properties.Env.USE_PATH_STYLE)) {
+            properties.putIfAbsent(S3Properties.USE_PATH_STYLE, properties.get(S3Properties.Env.USE_PATH_STYLE));
+        }
     }
 
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
@@ -261,6 +267,9 @@ public class S3Properties extends BaseProperties {
         String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
         s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+        String usePathStyle = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
+        s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle == null
+                ? S3Properties.Env.DEFAULT_USE_PATH_STYLE : usePathStyle));
         return s3Info;
     }
 }
