@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <cctype>
 // IWYU pragma: no_include <bthread/errno.h>
+#include <lz4/lz4hc.h>
+
 #include <cerrno> // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
@@ -1034,6 +1036,9 @@ DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 // enable window_funnel_function with different modes
 DEFINE_mBool(enable_window_funnel_function_v2, "false");
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 #ifdef BE_TEST
 // test s3
