@@ -138,28 +138,28 @@ Note that you need to modify `${intranet IP of the current machine}` to replace 
 ```yaml
 version: "3"
 services:
-   fe:
-     image: apache/doris:2.0.0_alpha-fe-x86_64
-     hostname: fe
-     environment:
-      - FE_SERVERS=fe1:${intranet IP of the current machine}:9010
-      - FE_ID=1
-     volumes:
+  fe1:
+    image: apache/doris:2.0.0_alpha-fe-x86_64
+    hostname: fe1
+    environment:
+      FE_SERVERS: "fe1:${intranet IP of the current machine}:9010"
+      FE_ID: "1"
+    volumes:
       - /data/fe/doris-meta/:/opt/apache-doris/fe/doris-meta/
       - /data/fe/log/:/opt/apache-doris/fe/log/
-     network_mode: host
-   be:
-     image: apache/doris:2.0.0_alpha-be-x86_64
-     hostname: be
-     environment:
-      - FE_SERVERS=fe1:${intranet IP of the current machine}:9010
-      - BE_ADDR=${intranet IP of the current machine}:9050
-     volumes:
+    network_mode: host
+  be:
+    image: apache/doris:2.0.0_alpha-be-x86_64
+    hostname: be
+    environment:
+      FE_SERVERS: "fe1:${intranet IP of the current machine}:9010"
+      BE_ADDR: "${intranet IP of the current machine}:9050"
+    volumes:
       - /data/be/storage/:/opt/apache-doris/be/storage/
       - /data/be/script/:/docker-entrypoint-initdb.d/
-     depends_on:
-       -fe
-     network_mode: host
+    depends_on:
+      - fe1
+    network_mode: host
 ```
 
 3FE & 3BE Docker Compose script template if needed [click here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/docker-compose/ 3fe_3be/docker-compose.yaml) access to download.
