@@ -1152,7 +1152,8 @@ using FunctionToFloat64 =
         FunctionConvert<DataTypeFloat64, NameToFloat64, ToNumberMonotonicity<Float64>>;
 
 using FunctionToTime = FunctionConvert<DataTypeTime, NameToFloat64, ToNumberMonotonicity<Float64>>;
-using FunctionToTimeV2 = FunctionConvert<DataTypeTimeV2, NameToFloat64, ToNumberMonotonicity<Float64>>;
+using FunctionToTimeV2 =
+        FunctionConvert<DataTypeTimeV2, NameToFloat64, ToNumberMonotonicity<Float64>>;
 using FunctionToString = FunctionConvert<DataTypeString, NameToString, ToStringMonotonicity>;
 using FunctionToDecimal32 =
         FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32, UnknownMonotonicity>;
