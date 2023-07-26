@@ -555,7 +555,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         } else if (_enable_pipeline_exec) {
             BroadcastPBlockHolder* block_holder = nullptr;
             RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
-            BROADCAST_ALL_CHANNELS(block_holder->get_block(), block_holder, );
+            BROADCAST_ALL_CHANNELS(block_holder->get_block(), block_holder,
+                                   RETURN_IF_ERROR(_get_next_available_buffer(&block_holder)));
         } else {
             BROADCAST_ALL_CHANNELS(_cur_pb_block, _cur_pb_block, _roll_pb_block());
         }
