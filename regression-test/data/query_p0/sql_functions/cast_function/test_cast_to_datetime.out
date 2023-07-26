@@ -20,3 +20,12 @@
 -- !select_cast_date1 --
 1	\N
 
+-- !select_cast_date2 --
+1	\N
+
+-- !select_cast_date3 --
+1	\N
+
+-- !select_cast_date4 --
+1	\N
+
