@@ -221,7 +221,8 @@ public:
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
-    Status get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs, bool is_late_arrival);
+    Status get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+                              std::vector<vectorized::VExprSPtr>& push_exprs, bool is_late_arrival);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 

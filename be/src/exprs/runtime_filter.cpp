@@ -609,7 +609,8 @@ public:
         return 0;
     }
 
-    Status get_push_exprs(std::vector<vectorized::VExprSPtr>* container, const TExpr& probe_expr);
+    Status get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+                          std::vector<vectorized::VExprSPtr>& push_exprs, const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
         bool can_not_merge_in_or_bloom = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -1068,7 +1069,6 @@ private:
     int32_t _max_in_num = -1;
 
     vectorized::SharedRuntimeFilterContext _context;
-    std::list<vectorized::VExprContextSPtr> _probe_ctxs;
     bool _is_bloomfilter = false;
     bool _is_ignored_in_filter = false;
     std::string* _ignored_in_filter_msg = nullptr;
@@ -1152,7 +1152,8 @@ Status IRuntimeFilter::publish() {
     }
 }
 
-Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs,
+Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+                                          std::vector<vectorized::VExprSPtr>& push_exprs,
                                           bool is_late_arrival) {
     DCHECK(is_consumer());
     if (_is_ignored) {
@@ -1162,7 +1163,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* pu
         _set_push_down();
     }
     _profile->add_info_string("Info", _format_status());
-    return _wrapper->get_push_exprs(push_exprs, _probe_expr);
+    return _wrapper->get_push_exprs(probe_ctxs, push_exprs, _probe_expr);
 }
 
 bool IRuntimeFilter::await() {
@@ -1838,11 +1839,12 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
     return Status::OK();
 }
 
-Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr>* container,
+Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+                                               std::vector<vectorized::VExprSPtr>& container,
                                                const TExpr& probe_expr) {
     vectorized::VExprContextSPtr probe_ctx;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
-    _probe_ctxs.push_back(probe_ctx);
+    probe_ctxs.push_back(probe_ctx);
 
     DCHECK(probe_ctx->root()->type().type == _column_return_type ||
            (is_string_type(probe_ctx->root()->type().type) &&
@@ -1871,7 +1873,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr
             in_pred->set_filter(_context.hybrid_set);
             in_pred->add_child(probe_ctx->root());
             auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, in_pred);
-            container->push_back(wrapper);
+            container.push_back(wrapper);
         }
         break;
     }
@@ -1886,12 +1888,12 @@ Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr
                                        max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
-        container->push_back(
+        container.push_back(
                 vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node, max_pred));
 
         vectorized::VExprContextSPtr new_probe_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
-        _probe_ctxs.push_back(new_probe_ctx);
+        probe_ctxs.push_back(new_probe_ctx);
 
         // create min filter
         vectorized::VExprSPtr min_pred;
@@ -1903,7 +1905,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr
                                        _context.minmax_func->get_min(), min_literal));
         min_pred->add_child(new_probe_ctx->root());
         min_pred->add_child(min_literal);
-        container->push_back(
+        container.push_back(
                 vectorized::VRuntimeFilterWrapper::create_shared(min_pred_node, min_pred));
         break;
     }
@@ -1922,7 +1924,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr
         bloom_pred->set_filter(_context.bloom_filter_func);
         bloom_pred->add_child(probe_ctx->root());
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bloom_pred);
-        container->push_back(wrapper);
+        container.push_back(wrapper);
         break;
     }
     case RuntimeFilterType::BITMAP_FILTER: {
@@ -1940,7 +1942,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr
         bitmap_pred->set_filter(_context.bitmap_filter_func);
         bitmap_pred->add_child(probe_ctx->root());
         auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(node, bitmap_pred);
-        container->push_back(wrapper);
+        container.push_back(wrapper);
         break;
     }
     default:

@@ -95,7 +95,7 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter() {
             ready = runtime_filter->await();
         }
         if (ready && !_runtime_filter_ctxs[i].apply_mark) {
-            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&vexprs, false));
+            RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(_probe_ctxs, vexprs, false));
             _runtime_filter_ctxs[i].apply_mark = true;
         } else if (runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
                    !_runtime_filter_ctxs[i].apply_mark) {
@@ -151,8 +151,8 @@ Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrive
             ++current_arrived_rf_num;
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
-            RETURN_IF_ERROR(
-                    _runtime_filter_ctxs[i].runtime_filter->get_push_expr_ctxs(&exprs, true));
+            RETURN_IF_ERROR(_runtime_filter_ctxs[i].runtime_filter->get_push_expr_ctxs(
+                    _probe_ctxs, exprs, true));
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }
