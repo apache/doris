@@ -1141,6 +1141,29 @@ public class JdbcExecutor {
         }
     }
 
+    private void timestampPutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L),
+                            UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth()));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 4L),
+                        UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(),
+                                date.getDayOfMonth()));
+            }
+        }
+    }
+
     public void copyBatchDateV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
@@ -1155,6 +1178,8 @@ public class JdbcExecutor {
             localDatePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Date) {
             datePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof Timestamp) {
+            timestampPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
