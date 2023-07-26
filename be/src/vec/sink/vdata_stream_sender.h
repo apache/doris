@@ -73,13 +73,11 @@ class BlockSerializer {
 public:
     BlockSerializer(VDataStreamSender* parent, bool is_local = false)
             : _parent(parent), _is_local(is_local), _offset(0) {}
-    // Serialize block for UN-PARTITION
+    // Serialize block for UN-PARTITION / RANDOM
     Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
-                                 bool* has_next);
-    // Serialize block for HASH PARTITION
-    Status next_serialized_block(Block* src, const std::vector<int>& rows, PBlock* dest,
-                                 int num_receivers, bool* serialized, bool* has_next);
+                                 bool* has_next, const std::vector<int>* rows = nullptr);
     Status serialize_block(PBlock* dest, int num_receivers = 1);
+    Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
 
@@ -122,9 +120,6 @@ public:
     RuntimeProfile* profile() override { return _profile; }
 
     RuntimeState* state() { return _state; }
-
-    // TODO
-    Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
 
     void registe_channels(pipeline::ExchangeSinkBuffer* buffer);
 
@@ -503,8 +498,8 @@ public:
         bool serialized = false;
         while (has_next) {
             _pblock = std::make_unique<PBlock>();
-            RETURN_IF_ERROR(_serializer->next_serialized_block(block, rows, _pblock.get(), 1,
-                                                               &serialized, &has_next));
+            RETURN_IF_ERROR(_serializer->next_serialized_block(block, _pblock.get(), 1, &serialized,
+                                                               &has_next, &rows));
             if (serialized) {
                 RETURN_IF_ERROR(send_current_block(false));
             }
