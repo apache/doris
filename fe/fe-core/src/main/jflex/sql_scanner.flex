@@ -697,6 +697,17 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 "`" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "?" { return newToken(SqlParserSymbols.PLACEHOLDER, null); }
 
+{DoubleLiteral} {
+  BigDecimal decimal_val;
+  try {
+    decimal_val = new BigDecimal(yytext());
+  } catch (NumberFormatException e) {
+    return newToken(SqlParserSymbols.NUMERIC_OVERFLOW, yytext());
+  }
+
+  return newToken(SqlParserSymbols.DECIMAL_LITERAL, decimal_val);
+}
+
 {QuotedIdentifier} {
     // Remove the quotes
     String trimmedIdent = yytext().substring(1, yytext().length() - 1);
@@ -764,17 +775,6 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
         return newToken(SqlParserSymbols.LARGE_INTEGER_LITERAL, val.toString());
     }
     return newToken(SqlParserSymbols.NUMERIC_OVERFLOW, yytext());
-}
-
-{DoubleLiteral} {
-  BigDecimal decimal_val;
-  try {
-    decimal_val = new BigDecimal(yytext());
-  } catch (NumberFormatException e) {
-    return newToken(SqlParserSymbols.NUMERIC_OVERFLOW, yytext());
-  }
-
-  return newToken(SqlParserSymbols.DECIMAL_LITERAL, decimal_val);
 }
 
 {Comment} { /* ignore */ }
