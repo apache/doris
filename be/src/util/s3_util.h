@@ -19,7 +19,6 @@
 
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
-#include <bvar/reducer.h>
 #include <fmt/format.h>
 #include <stdint.h>
 
@@ -37,6 +36,10 @@ namespace S3 {
 class S3Client;
 } // namespace S3
 } // namespace Aws
+namespace bvar {
+template <typename T>
+class Adder;
+}
 
 namespace doris {
 

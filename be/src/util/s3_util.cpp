@@ -23,6 +23,7 @@
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/s3/S3Client.h>
+#include <bvar/reducer.h>
 #include <util/string_util.h>
 
 #include <atomic>
