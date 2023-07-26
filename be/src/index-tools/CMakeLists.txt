@@ -37,3 +37,11 @@ target_link_libraries(index_tool
 
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
 install(TARGETS index_tool DESTINATION ${OUTPUT_DIR}/lib/)
+if (NOT OS_MACOSX)
+# strip debug info to save space
+add_custom_command(TARGET index_tool POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:index_tool> $<TARGET_FILE:index_tool>.dbg
+    COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:index_tool>
+    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:index_tool>.dbg $<TARGET_FILE:index_tool>
+    )
+endif()
