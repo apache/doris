@@ -88,7 +88,7 @@ public class JdbcExecutor {
     private int minPoolSize;
     private int maxPoolSize;
     private int minIdleSize;
-    private int maxIdelTime;
+    private int maxIdleTime;
     private int maxWaitTime;
     private TOdbcTableType tableType;
 
@@ -103,12 +103,12 @@ public class JdbcExecutor {
         tableType = request.table_type;
         minPoolSize = Integer.valueOf(System.getProperty("JDBC_MIN_POOL", "1"));
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
-        maxIdelTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDEL_TIME", "300000"));
+        maxIdleTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDLE_TIME", "300000"));
         maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
         minIdleSize = minPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
-                + ", maxIdelTime = " + maxIdelTime
+                + ", maxIdleTime = " + maxIdleTime
                 + ", maxWaitTime = " + maxWaitTime
                 + ", minIdleSize = " + minIdleSize);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
@@ -423,8 +423,8 @@ public class JdbcExecutor {
                     ds.setTestWhileIdle(true);
                     ds.setTestOnBorrow(false);
                     setValidationQuery(ds, tableType);
-                    ds.setTimeBetweenEvictionRunsMillis(maxIdelTime / 5);
-                    ds.setMinEvictableIdleTimeMillis(maxIdelTime);
+                    ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
+                    ds.setMinEvictableIdleTimeMillis(maxIdleTime);
                     druidDataSource = ds;
                     // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
                     // jdbcPassword) as key.
