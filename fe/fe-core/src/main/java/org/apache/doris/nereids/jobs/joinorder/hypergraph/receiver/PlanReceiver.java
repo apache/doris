@@ -57,6 +57,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -132,7 +133,7 @@ public class PlanReceiver implements AbstractReceiver {
         }
         Group group = planTable.get(fullKey);
         for (Plan plan : physicalPlans) {
-            CopyInResult copyInResult = memo.copyIn(plan, group, false);
+            CopyInResult copyInResult = memo.copyIn(plan, group, false, planTable);
             GroupExpression physicalExpression = copyInResult.correspondingExpression;
             proposeAllDistributedPlans(physicalExpression);
         }
@@ -266,7 +267,7 @@ public class PlanReceiver implements AbstractReceiver {
         usdEdges.put(bitmap, new BitSet());
         Plan plan = proposeProject(Lists.newArrayList(new GroupPlan(group)), new ArrayList<>(), bitmap, bitmap).get(0);
         if (!(plan instanceof GroupPlan)) {
-            CopyInResult copyInResult = jobContext.getCascadesContext().getMemo().copyIn(plan, null, false);
+            CopyInResult copyInResult = jobContext.getCascadesContext().getMemo().copyIn(plan, null, false, planTable);
             group = copyInResult.correspondingExpression.getOwnerGroup();
         }
         planTable.put(bitmap, group);
@@ -289,23 +290,21 @@ public class PlanReceiver implements AbstractReceiver {
 
     @Override
     public Group getBestPlan(long bitmap) {
-        Group root = planTable.get(bitmap);
-        Preconditions.checkState(root != null);
         // If there are some rules relied on the logical join, we need to make logical Expression
         // However, it cost 15% of total optimized time.
-        makeLogicalExpression(root);
-        return root;
+        makeLogicalExpression(() -> planTable.get(bitmap));
+        return planTable.get(bitmap);
     }
 
-    private void makeLogicalExpression(Group root) {
-        if (!root.getLogicalExpressions().isEmpty()) {
+    private void makeLogicalExpression(Supplier<Group> root) {
+        if (!root.get().getLogicalExpressions().isEmpty()) {
             return;
         }
 
         // only makeLogicalExpression for those winners
         Set<GroupExpression> hasGenerated = new HashSet<>();
-        for (PhysicalProperties physicalProperties : root.getAllProperties()) {
-            GroupExpression groupExpression = root.getBestPlan(physicalProperties);
+        for (PhysicalProperties physicalProperties : root.get().getAllProperties()) {
+            GroupExpression groupExpression = root.get().getBestPlan(physicalProperties);
             if (hasGenerated.contains(groupExpression) || groupExpression.getPlan() instanceof PhysicalDistribute) {
                 continue;
             }
@@ -313,8 +312,9 @@ public class PlanReceiver implements AbstractReceiver {
 
             // process child first, plan's child may be changed due to mergeGroup
             Plan physicalPlan = groupExpression.getPlan();
-            for (Group child : groupExpression.children()) {
-                makeLogicalExpression(child);
+            for (int i = 0; i < groupExpression.children().size(); i++) {
+                int childIdx = i;
+                makeLogicalExpression(() -> groupExpression.child(childIdx));
             }
 
             Plan logicalPlan;
@@ -330,7 +330,7 @@ public class PlanReceiver implements AbstractReceiver {
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");
             }
-            jobContext.getCascadesContext().getMemo().copyIn(logicalPlan, root, false);
+            jobContext.getCascadesContext().getMemo().copyIn(logicalPlan, root.get(), false, planTable);
         }
     }
 
