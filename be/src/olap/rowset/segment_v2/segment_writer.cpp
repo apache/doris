@@ -367,7 +367,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     use_default_or_null_flag.reserve(num_rows);
     const vectorized::Int8* delete_sign_column_data = nullptr;
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
-                block->try_get_by_name(DELETE_SIGN);
+                full_block.try_get_by_name(DELETE_SIGN);
         delete_sign_column != nullptr) {
         delete_sign_column_data =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column))
@@ -579,7 +579,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                             mutable_full_columns[cids_missing[i]].get());
                     nullable_column->insert_null_elements(1);
                 } else {
-                    // If the control flow reaches this branch, the column neither has default value 
+                    // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
                     mutable_full_columns[cids_missing[i]]->insert_default();
