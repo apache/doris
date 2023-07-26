@@ -790,7 +790,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     load_id.set_hi(0);
     load_id.set_lo(0);
     WriteRequest write_req = {
-            10005, 270068377, 20003, 30003, load_id, tuple_desc, &(tuple_desc->slots()),
+            10005, 270068377, WriteType::LOAD, 20003, 30003, load_id, tuple_desc, &(tuple_desc->slots()),
             false, &param};
     DeltaWriter* delta_writer1 = nullptr;
     DeltaWriter* delta_writer2 = nullptr;
