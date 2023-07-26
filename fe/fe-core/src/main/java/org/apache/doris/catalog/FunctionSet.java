@@ -456,13 +456,15 @@ public class FunctionSet<T> {
             }
         }
         // If set `roundPreciseDecimalV2Value`, only use decimalv3 as target type to execute round function
-        if (ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
-                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName()) &&
-                descArgType.isDecimalV2() && candicateArgType.getPrimitiveType() != PrimitiveType.DECIMAL128) {
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName())
+                && descArgType.isDecimalV2() && candicateArgType.getPrimitiveType() != PrimitiveType.DECIMAL128) {
             return false;
-        } else if (ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
-                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName()) &&
-                descArgType.isDecimalV2() && candicateArgType.getPrimitiveType() == PrimitiveType.DECIMAL128) {
+        } else if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName())
+                && descArgType.isDecimalV2() && candicateArgType.getPrimitiveType() == PrimitiveType.DECIMAL128) {
             return true;
         }
         if ((descArgType.isDecimalV3() && candicateArgType.isDecimalV2())
