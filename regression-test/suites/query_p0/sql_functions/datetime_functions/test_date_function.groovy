@@ -713,6 +713,6 @@ suite("test_date_function") {
         result([[null, null]])
     }
     
-    res = sql "explain date_trunc('2022-04-24', 'day'), date_trunc('1999-03-12 00:31:23', 'hour')"
+    res = sql "explain select date_trunc('2022-04-24', 'day'), date_trunc('1999-03-12 00:31:23', 'hour')"
     assertFalse(res.contains("date_trunc"))
 }
