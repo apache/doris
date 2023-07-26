@@ -27,11 +27,11 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/memtable_mem_limit_mgr.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
 
 namespace doris {
-class MemTableMemLimitMgr;
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
@@ -177,7 +177,7 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
-    MemTableMemLimitMgr* memtable_mem_limit_mgr() { return _memtable_mem_limit_mgr; }
+    MemTableMemLimitMgr* memtable_mem_limit_mgr() { return _memtable_mem_limit_mgr.get(); }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -263,7 +263,7 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
-    MemTableMemLimitMgr* _memtable_mem_limit_mgr = nullptr;
+    std::unique_ptr<MemTableMemLimitMgr> _memtable_mem_limit_mgr;
 };
 
 template <>

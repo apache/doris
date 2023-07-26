@@ -169,7 +169,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
-    _memtable_mem_limit_mgr = new MemTableMemLimitMgr();
+    _memtable_mem_limit_mgr = std::make_unique<MemTableMemLimitMgr>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -401,7 +401,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
     SAFE_DELETE(_file_meta_cache);
-    SAFE_DELETE(_memtable_mem_limit_mgr);
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
     // access master_info.backend id to access some info. If there is a running query and master
@@ -409,6 +408,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_master_info);
 
     _new_load_stream_mgr.reset();
+    _memtable_mem_limit_mgr.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);

@@ -73,9 +73,6 @@ static TDescriptorTable create_descriptor_tablet() {
 }
 
 class MemTableMemLimitMgrTest : public testing::Test {
-public:
-    ~MemTableMemLimitMgrTest() override { delete _mgr; }
-
 protected:
     void SetUp() override {
         // set path
@@ -86,6 +83,7 @@ protected:
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
+        _mgr = new MemTableMemLimitMgr();
         doris::EngineOptions options;
         options.store_paths = paths;
         Status s = doris::StorageEngine::open(options, &_engine);
@@ -110,7 +108,7 @@ protected:
     }
 
     StorageEngine* _engine = nullptr;
-    MemTableMemLimitMgr* _mgr = new MemTableMemLimitMgr();
+    MemTableMemLimitMgr* _mgr = nullptr;
 };
 
 TEST_F(MemTableMemLimitMgrTest, handle_memtable_flush_test) {
