@@ -609,7 +609,7 @@ public:
         return 0;
     }
 
-    Status get_push_exprs(std::vector<vectorized::VExprSPtr>* container, const TExpr* probe_expr);
+    Status get_push_exprs(std::vector<vectorized::VExprSPtr>* container, const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
         bool can_not_merge_in_or_bloom = _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -1068,7 +1068,7 @@ private:
     int32_t _max_in_num = -1;
 
     vectorized::SharedRuntimeFilterContext _context;
-    std::vector<vectorized::VExprContextSPtr> _probe_ctxs;
+    std::list<vectorized::VExprContextSPtr> _probe_ctxs;
     bool _is_bloomfilter = false;
     bool _is_ignored_in_filter = false;
     std::string* _ignored_in_filter_msg = nullptr;
@@ -1359,7 +1359,7 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         if (iter == desc->planId_to_target_expr.end()) {
             return Status::InternalError("not found a node id:{}", node_id);
         }
-        _probe_expr = &iter->second;
+        _probe_expr = iter->second;
     }
 
     if (_state) {
@@ -1839,9 +1839,9 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
 }
 
 Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr>* container,
-                                               const TExpr* probe_expr) {
+                                               const TExpr& probe_expr) {
     vectorized::VExprContextSPtr probe_ctx;
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*probe_expr, probe_ctx));
+    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
     _probe_ctxs.push_back(probe_ctx);
 
     DCHECK(probe_ctx->root()->type().type == _column_return_type ||
@@ -1890,7 +1890,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::vector<vectorized::VExprSPtr
                 vectorized::VRuntimeFilterWrapper::create_shared(max_pred_node, max_pred));
 
         vectorized::VExprContextSPtr new_probe_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*probe_expr, new_probe_ctx));
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
         _probe_ctxs.push_back(new_probe_ctx);
 
         // create min filter
