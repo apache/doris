@@ -154,14 +154,6 @@ struct AggregationMethodSerialized {
         return max_one_row_byte_size;
     }
 
-    static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
-                                        const Sizes&) {
-        auto pos = key.data;
-        for (auto& column : key_columns) {
-            pos = column->deserialize_and_insert_from_arena(pos);
-        }
-    }
-
     static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
         for (auto& column : key_columns) {
@@ -215,11 +207,6 @@ struct AggregationMethodStringNoCache {
 
     static const bool low_cardinality_optimization = false;
 
-    static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
-                                        const Sizes&) {
-        key_columns[0]->insert_data(key.data, key.size);
-    }
-
     static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
         key_columns[0]->reserve(num_rows);
@@ -255,14 +242,6 @@ struct AggregationMethodOneNumber {
     /// To use one `Method` in different threads, use different `State`.
     using State = ColumnsHashing::HashMethodOneNumber<typename Data::value_type, Mapped, FieldType,
                                                       consecutive_keys_optimization>;
-
-    // Insert the key from the hash table into columns.
-    static void insert_key_into_columns(const Key& key, MutableColumns& key_columns,
-                                        const Sizes& /*key_sizes*/) {
-        const auto* key_holder = reinterpret_cast<const char*>(&key);
-        auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
-        column->insert_raw_data<sizeof(FieldType)>(key_holder);
-    }
 
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
@@ -328,59 +307,44 @@ struct AggregationMethodKeysFixed {
     using State = ColumnsHashing::HashMethodKeysFixed<typename Data::value_type, Key, Mapped,
                                                       has_nullable_keys, false>;
 
-    static void insert_key_into_columns(const Key& key, MutableColumns& key_columns,
-                                        const Sizes& key_sizes) {
-        size_t keys_size = key_columns.size();
-
-        static constexpr auto bitmap_size =
-                has_nullable_keys ? std::tuple_size<KeysNullMap<Key>>::value : 0;
-        /// In any hash key value, column values to be read start just after the bitmap, if it exists.
-        size_t pos = bitmap_size;
-
-        for (size_t i = 0; i < keys_size; ++i) {
-            IColumn* observed_column;
-            ColumnUInt8* null_map;
-
-            bool column_nullable = false;
-            if constexpr (has_nullable_keys) {
-                column_nullable = is_column_nullable(*key_columns[i]);
-            }
-
-            /// If we have a nullable column, get its nested column and its null map.
-            if (column_nullable) {
-                ColumnNullable& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
-                observed_column = &nullable_col.get_nested_column();
-                null_map = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column());
-            } else {
-                observed_column = key_columns[i].get();
-                null_map = nullptr;
-            }
-
-            bool is_null = false;
-            if (column_nullable) {
-                /// The current column is nullable. Check if the value of the
-                /// corresponding key is nullable. Update the null map accordingly.
-                size_t bucket = i / 8;
-                size_t offset = i % 8;
-                UInt8 val = (reinterpret_cast<const UInt8*>(&key)[bucket] >> offset) & 1;
-                null_map->insert_value(val);
-                is_null = val == 1;
-            }
-
-            if (has_nullable_keys && is_null) {
-                observed_column->insert_default();
-            } else {
-                size_t size = key_sizes[i];
-                observed_column->insert_data(reinterpret_cast<const char*>(&key) + pos, size);
-                pos += size;
-            }
-        }
-    }
-
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes& key_sizes) {
-        for (size_t i = 0; i != num_rows; ++i) {
-            insert_key_into_columns(keys[i], key_columns, key_sizes);
+        // In any hash key value, column values to be read start just after the bitmap, if it exists.
+        size_t pos = has_nullable_keys ? std::tuple_size<KeysNullMap<Key>>::value : 0;
+
+        for (size_t i = 0; i < key_columns.size(); ++i) {
+            size_t size = key_sizes[i];
+            key_columns[i]->resize(num_rows);
+            // If we have a nullable column, get its nested column and its null map.
+            if (is_column_nullable(*key_columns[i])) {
+                ColumnNullable& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
+
+                char* data =
+                        const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
+                UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
+                                         ->get_data()
+                                         .data();
+
+                // The current column is nullable. Check if the value of the
+                // corresponding key is nullable. Update the null map accordingly.
+                size_t bucket = i / 8;
+                size_t offset = i % 8;
+                for (size_t j = 0; j < num_rows; j++) {
+                    const Key& key = keys[j];
+                    UInt8 val = (reinterpret_cast<const UInt8*>(&key)[bucket] >> offset) & 1;
+                    nullmap[j] = val;
+                    if (!val) {
+                        memcpy(data + j * size, reinterpret_cast<const char*>(&key) + pos, size);
+                    }
+                }
+            } else {
+                char* data = const_cast<char*>(key_columns[i]->get_raw_data().data);
+                for (size_t j = 0; j < num_rows; j++) {
+                    const Key& key = keys[j];
+                    memcpy(data + j * size, reinterpret_cast<const char*>(&key) + pos, size);
+                }
+            }
+            pos += size;
         }
     }
 
@@ -410,17 +374,6 @@ struct AggregationMethodSingleNullableColumn : public SingleColumnMethod {
     explicit AggregationMethodSingleNullableColumn(const Other& other) : Base(other) {}
 
     using State = ColumnsHashing::HashMethodSingleLowNullableColumn<BaseState, Mapped, true>;
-
-    static void insert_key_into_columns(const Key& key, MutableColumns& key_columns,
-                                        const Sizes& /*key_sizes*/) {
-        auto col = key_columns[0].get();
-
-        if constexpr (std::is_same_v<Key, StringRef>) {
-            col->insert_data(key.data, key.size);
-        } else {
-            col->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
-        }
-    }
 
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
