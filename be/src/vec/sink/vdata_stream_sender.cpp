@@ -95,6 +95,8 @@ Status Channel::init(RuntimeState* state) {
                 _fragment_instance_id, _dest_node_id);
     }
 
+    _serializer.reset(new BlockSerializer(_parent, _is_local));
+
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
@@ -529,7 +531,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                             status = channel->send_local_block(block);                          \
                         } else {                                                                \
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());                     \
-                            status = channel->send_block(PBLOCK_TO_SEND, eos);                  \
+                            status = channel->send_block(PBLOCK_TO_SEND, false);                \
                         }                                                                       \
                         HANDLE_CHANNEL_STATUS(state, channel, status);                          \
                     }                                                                           \
@@ -658,7 +660,7 @@ Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
                         status = channel->send_local_block(block);
                     } else {
                         SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                        status = channel->send_block(block_holder, true);
+                        status = channel->send_block(block_holder, false);
                     }
                     HANDLE_CHANNEL_STATUS(state, channel, status);
                 }
@@ -696,7 +698,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
                             status = channel->send_local_block(block);
                         } else {
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                            status = channel->send_block(_cur_pb_block, true);
+                            status = channel->send_block(_cur_pb_block, false);
                         }
                         HANDLE_CHANNEL_STATUS(state, channel, status);
                     }
@@ -763,6 +765,7 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
             return Status::OK();
         }
     }
+    *serialized = false;
     *has_next = false;
     return Status::OK();
 }
