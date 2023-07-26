@@ -160,7 +160,22 @@ public abstract class BaseAnalysisTask {
 
     }
 
-    public abstract void execute() throws Exception;
+    public void execute() {
+        int retriedTimes = 0;
+        while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+            if (killed) {
+                break;
+            }
+            try {
+                doExecute();
+                break;
+            } catch (Throwable t) {
+                LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
+            }
+        }
+    }
+
+    public abstract void doExecute() throws Exception;
 
     public void cancel() {
         killed = true;

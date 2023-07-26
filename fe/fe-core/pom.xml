@@ -820,7 +820,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
+                        -Xmx512m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
                     </argLine>
                 </configuration>
             </plugin>
