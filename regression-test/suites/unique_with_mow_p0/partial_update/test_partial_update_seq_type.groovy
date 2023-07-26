@@ -142,7 +142,7 @@ suite("test_primary_key_partial_update_seq_type", "p0") {
         set 'columns', 'id,score,test,update_time'
         set 'function_column.sequence_col', 'score'
 
-        file 'basic_with_test.csv'
+        file 'basic_with_test2.csv'
         time 10000 // limit inflight 10s
     }
 
@@ -162,7 +162,7 @@ suite("test_primary_key_partial_update_seq_type", "p0") {
         set 'columns', 'id,score,test,update_time'
         set 'function_column.sequence_col', 'test'
 
-        file 'basic_with_test.csv'
+        file 'basic_with_test2.csv'
         time 10000 // limit inflight 10s
     }
 
