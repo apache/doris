@@ -247,21 +247,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
         const FilterPredicates& filter_predicates,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
-    bool single_version =
-            (_tablet_reader_params.rs_readers.size() == 1 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->start_version() == 0 &&
-             !_tablet_reader_params.rs_readers[0]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping()) ||
-            (_tablet_reader_params.rs_readers.size() == 2 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
-             _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
-             !_tablet_reader_params.rs_readers[1]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping());
-    if (_state->skip_storage_engine_merge()) {
+    const bool single_version = _tablet_reader_params.has_single_version();
+
+	if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
