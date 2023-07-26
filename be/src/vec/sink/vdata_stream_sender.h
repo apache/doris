@@ -151,11 +151,6 @@ protected:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    struct hash_128 {
-        uint64_t high;
-        uint64_t low;
-    };
-
     // Sender instance id, unique within a fragment.
     int _sender_id;
 
@@ -166,7 +161,6 @@ protected:
     int _current_channel_idx; // index of current channel to send to if _random == true
 
     TPartitionType::type _part_type;
-    bool _ignore_not_found;
 
     // serialized batches for broadcasting; we need two so we can write
     // one while the other one is still being sent
@@ -191,12 +185,12 @@ protected:
     RuntimeProfile::Counter* _brpc_wait_timer;
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
-    RuntimeProfile::Counter* _ignore_rows;
     RuntimeProfile::Counter* _local_sent_rows;
     RuntimeProfile::Counter* _local_send_timer;
     RuntimeProfile::Counter* _split_block_hash_compute_timer;
     RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
     RuntimeProfile::Counter* _blocks_sent_counter;
+    RuntimeProfile::Counter* _merge_block_timer;
 
     std::unique_ptr<MemTracker> _mem_tracker;
 

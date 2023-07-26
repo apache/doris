@@ -286,7 +286,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
           _row_desc(row_desc),
           _current_channel_idx(0),
           _part_type(sink.output_partition.type),
-          _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _bytes_sent_counter(nullptr),
@@ -351,7 +350,6 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
           _row_desc(row_desc),
           _current_channel_idx(0),
           _part_type(TPartitionType::UNPARTITIONED),
-          _ignore_not_found(true),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _compress_timer(nullptr),
@@ -389,7 +387,6 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_
           _pool(pool),
           _row_desc(row_desc),
           _current_channel_idx(0),
-          _ignore_not_found(true),
           _profile(nullptr),
           _serialize_batch_timer(nullptr),
           _compress_timer(nullptr),
@@ -457,7 +454,6 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
 
     _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
     _uncompressed_bytes_counter = ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
-    _ignore_rows = ADD_COUNTER(profile(), "IgnoreRows", TUnit::UNIT);
     _local_sent_rows = ADD_COUNTER(profile(), "LocalSentRows", TUnit::UNIT);
     _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
     _compress_timer = ADD_TIMER(profile(), "CompressTime");
@@ -467,6 +463,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _split_block_hash_compute_timer = ADD_TIMER(profile(), "SplitBlockHashComputeTime");
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(profile(), "SplitBlockDistributeByChannelTime");
+    _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
     _blocks_sent_counter = ADD_COUNTER(profile(), "BlocksSent", TUnit::UNIT);
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
@@ -747,6 +744,7 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
                 const int* begin = &(*rows)[_offset];
                 _mutable_block->add_rows(block, begin, begin + rows_to_add);
             } else {
+                SCOPED_TIMER(_parent->_merge_block_timer);
                 _mutable_block->add_rows(block, _offset, rows_to_add);
             }
         }
