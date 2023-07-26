@@ -39,6 +39,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/timezone_utils.h"
+#include "vec/common/int_exp.h"
 
 namespace doris::vectorized {
 
@@ -249,7 +250,9 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                                   date_val[5], _type)) {
         return false;
     }
-    return date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, sec_offset, false});
+    return sec_offset ? date_add_interval<TimeUnit::SECOND>(
+                                TimeInterval {TimeUnit::SECOND, sec_offset, false})
+                      : true;
 }
 
 // [0, 101) invalid
@@ -1968,7 +1971,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (field_idx == 6) {
             // Microsecond
             const auto ms_part = ptr - start;
-            temp_val *= std::pow(10, std::max(0L, 6 - ms_part));
+            temp_val *= int_exp10(std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
                 if (scale >= 0) {
                     if (scale == 6 && ms_part > 6) {
@@ -1976,7 +1979,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                             temp_val += 1;
                         }
                     } else {
-                        const int divisor = std::pow(10, 6 - scale);
+                        const int divisor = int_exp10(6 - scale);
                         int remainder = temp_val % divisor;
                         temp_val /= divisor;
                         if (scale < 6 && std::abs(remainder) >= (divisor >> 1)) {
@@ -2096,7 +2099,9 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                                   date_val[5], date_val[6])) {
         return false;
     }
-    return date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, sec_offset, false});
+    return sec_offset ? date_add_interval<TimeUnit::SECOND>(
+                                TimeInterval {TimeUnit::SECOND, sec_offset, false})
+                      : true;
 }
 
 template <typename T>
@@ -2258,7 +2263,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 if (!str_to_int64(val, &tmp, &int_value)) {
                     return false;
                 }
-                microsecond = int_value * std::pow(10, 6 - min(6, val_end - val));
+                microsecond = int_value * int_exp10(6 - min(6, val_end - val));
                 val = tmp;
                 time_part_used = true;
                 frac_part_used = true;
@@ -2573,8 +2578,8 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
             uint32_t ms = date_v2_value_.microsecond_;
             int ms_width = scale == -1 ? 6 : std::min(6, scale);
             for (int i = 0; i < ms_width; i++) {
-                *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
-                ms %= (uint32_t)std::pow(10, 5 - i);
+                *buffer++ = (char)('0' + (ms / int_exp10(5 - i)));
+                ms %= (uint32_t)int_exp10(5 - i);
             }
         } else if (scale > 0) {
             *buffer++ = '.';
@@ -2582,8 +2587,8 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
             uint32_t ms = date_v2_value_.microsecond_;
             int ms_width = std::min(6, scale);
             for (int i = 0; i < ms_width; i++) {
-                *buffer++ = (char)('0' + (ms / std::pow(10, 5 - i)));
-                ms %= (uint32_t)std::pow(10, 5 - i);
+                *buffer++ = (char)('0' + (ms / int_exp10(5 - i)));
+                ms %= (uint32_t)int_exp10(5 - i);
             }
         }
     }
@@ -2990,7 +2995,7 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
 
 template <typename T>
 bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
-                                   const cctz::time_zone& ctz, const int scale) {
+                                   const cctz::time_zone& ctz, int scale) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
                     std::chrono::system_clock::from_time_t(0));
@@ -2998,8 +3003,12 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
 
     const auto tp = cctz::convert(t, ctz);
 
+    if (scale > 6) [[unlikely]] {
+        scale = 6;
+    }
+
     set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
-             nano_seconds / std::pow(10, 9 - scale) * std::pow(10, 6 - scale));
+             nano_seconds / int_exp10(9 - scale) * int_exp10(6 - scale));
     return true;
 }
 
