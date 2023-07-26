@@ -393,6 +393,21 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
+                }
+                if constexpr (IsDataTypeNumber<FromDataType> &&
+                              std::is_same_v<ToDataType, DataTypeTimeV2>) {
+                    // 300 -> 00:03:00  360 will be parse failed , so value maybe null
+                    ColumnUInt8::MutablePtr col_null_map_to;
+                    ColumnUInt8::Container* vec_null_map_to = nullptr;
+                    col_null_map_to = ColumnUInt8::create(size);
+                    vec_null_map_to = &col_null_map_to->get_data();
+                    for (size_t i = 0; i < size; ++i) {
+                        (*vec_null_map_to)[i] = !TimeCast::try_parse_time(vec_from[i], vec_to[i]);
+                        vec_to[i] *= (1000 * 1000);
+                    }
+                    block.get_by_position(result).column =
+                            ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+                    return Status::OK();
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
@@ -847,7 +862,16 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
         rb.position() = rb.end(); // make is_all_read = true
         return TimeCast::try_parse_time(s, len, x);
     }
-
+    if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
+                  std::is_same_v<DataTypeTimeV2, DataType>) {
+        // cast from string to time(float64)
+        auto len = rb.count();
+        auto s = rb.position();
+        rb.position() = rb.end(); // make is_all_read = true
+        auto ret = TimeCast::try_parse_time(s, len, x);
+        x *= (1000 * 1000);
+        return ret;
+    }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
         return try_read_float_text(x, rb);
     }
@@ -1128,6 +1152,7 @@ using FunctionToFloat64 =
         FunctionConvert<DataTypeFloat64, NameToFloat64, ToNumberMonotonicity<Float64>>;
 
 using FunctionToTime = FunctionConvert<DataTypeTime, NameToFloat64, ToNumberMonotonicity<Float64>>;
+using FunctionToTimeV2 = FunctionConvert<DataTypeTimeV2, NameToFloat64, ToNumberMonotonicity<Float64>>;
 using FunctionToString = FunctionConvert<DataTypeString, NameToString, ToStringMonotonicity>;
 using FunctionToDecimal32 =
         FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32, UnknownMonotonicity>;
@@ -1225,6 +1250,10 @@ struct FunctionTo<DataTypeDateTimeV2> {
 template <>
 struct FunctionTo<DataTypeTime> {
     using Type = FunctionToTime;
+};
+template <>
+struct FunctionTo<DataTypeTimeV2> {
+    using Type = FunctionToTimeV2;
 };
 class PreparedFunctionCast : public PreparedFunctionImpl {
 public:
@@ -2011,7 +2040,8 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTime>) {
+                          std::is_same_v<ToDataType, DataTypeTime> ||
+                          std::is_same_v<ToDataType, DataTypeTimeV2>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;
