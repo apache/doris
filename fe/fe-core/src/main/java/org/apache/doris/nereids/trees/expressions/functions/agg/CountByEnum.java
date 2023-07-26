@@ -20,10 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -31,31 +32,23 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** count_by_enum agg function. */
-public class CountByEnum extends AggregateFunction implements CustomSignature, AlwaysNotNullable {
+public class CountByEnum extends AggregateFunction implements ExplicitlyCastableSignature, AlwaysNotNullable {
 
-    public CountByEnum() {
-        super("count_by_enum");
-    }
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(StringType.INSTANCE)
+    );
 
-    public CountByEnum(AggregateParam aggregateParam) {
-        super("count_by_enum", aggregateParam);
-    }
-
-    public CountByEnum(Expression child) {
-        super("count_by_enum", child);
-    }
-
-    public CountByEnum(AggregateParam aggregateParam, Expression... varArgs) {
-        super("count_by_enum", aggregateParam, varArgs);
+    /**
+     * constructor with 1 or more arguments.
+     */
+    public CountByEnum(Expression arg, Expression... varArgs) {
+        super("count_by_enum", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
     @Override
-    public AggregateFunction withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0 || children.size() == 1);
-        if (children.size() == 0) {
-            return this;
-        }
-        return new CountByEnum(getAggregateParam(), children.get(0));
+    public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new CollectList(distinct, children.get(0));
     }
 
     @Override
@@ -64,21 +57,7 @@ public class CountByEnum extends AggregateFunction implements CustomSignature, A
     }
 
     @Override
-    public AggregateFunction withAggregateParam(AggregateParam aggregateParam) {
-        if (arity() == 0) {
-            return new CountByEnum(aggregateParam);
-        } else {
-            return new CountByEnum(aggregateParam, child(0));
-        }
-    }
-
-    @Override
-    protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
-        return ImmutableList.of(StringType.INSTANCE);
-    }
-
-    @Override
-    public FunctionSignature customSignature(List<DataType> argumentTypes, List<Expression> arguments) {
-        return FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE);
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }
