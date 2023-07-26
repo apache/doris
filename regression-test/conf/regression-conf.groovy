@@ -24,8 +24,8 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:55557/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:55557/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -34,7 +34,7 @@ feTargetThriftAddress = "127.0.0.1:9020"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:55555"
+feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -101,8 +101,8 @@ es_8_port=39200
 
 
 //hive  catalog test config for bigdata
-enableExternalHiveTest = true
-extHiveHmsHost = "172.21.16.47"
+enableExternalHiveTest = false
+extHiveHmsHost = "***.**.**.**"
 extHiveHmsPort = 7004
 extHdfsPort = 4007
 extHiveHmsUser = "****"
