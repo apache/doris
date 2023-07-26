@@ -264,11 +264,16 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
+    public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
+    public boolean roundPreciseDecimalV2Value = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
