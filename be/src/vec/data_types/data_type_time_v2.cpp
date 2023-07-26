@@ -67,6 +67,9 @@ void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWrit
 
     UInt32 int_val = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
+    // if this is an invalid date, write nothing(instead of 0000-00-00) to output string, or else
+    // it will cause problem for null DataTypeDateV2 value in cast function,
+    // e.g. cast(cast(null_date as char) as date)
     if (!val.is_valid_date()) {
         return;
     }
