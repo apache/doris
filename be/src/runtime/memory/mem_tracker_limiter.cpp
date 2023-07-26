@@ -26,7 +26,7 @@
 #include <queue>
 #include <utility>
 
-#include "olap/memtable_flush_mgr.h"
+#include "olap/memtable_mem_limit_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/task_group/task_group.h"
@@ -240,7 +240,7 @@ std::string MemTrackerLimiter::log_process_usage_str() {
 
     // Add additional tracker printed when memory exceeds limit.
     snapshots.emplace_back(
-            ExecEnv::GetInstance()->memtable_flush_mgr()->mem_tracker()->make_snapshot());
+            ExecEnv::GetInstance()->memtable_mem_limit_mgr()->mem_tracker()->make_snapshot());
 
     detail += "\nMemory Tracker Summary:";
     for (const auto& snapshot : snapshots) {

@@ -83,7 +83,7 @@ LoadChannelMgr::~LoadChannelMgr() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _memtable_flush_mgr = ExecEnv::GetInstance()->memtable_flush_mgr();
+    _memtable_mem_limit_mgr = ExecEnv::GetInstance()->memtable_mem_limit_mgr();
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
@@ -161,7 +161,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
-        _memtable_flush_mgr->handle_memtable_flush();
+        _memtable_mem_limit_mgr->handle_memtable_flush();
     }
 
     // 3. add batch to load channel

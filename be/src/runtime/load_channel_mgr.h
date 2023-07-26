@@ -30,7 +30,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
-#include "olap/memtable_flush_mgr.h"
+#include "olap/memtable_mem_limit_mgr.h"
 #include "runtime/load_channel.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
@@ -72,7 +72,7 @@ private:
     void _register_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
         for (auto& tablet_channel_it : channel->get_tablets_channels()) {
             for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
-                _memtable_flush_mgr->register_writer(writer_it.second);
+                _memtable_mem_limit_mgr->register_writer(writer_it.second);
             }
         }
     }
@@ -80,7 +80,7 @@ private:
     void _deregister_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
         for (auto& tablet_channel_it : channel->get_tablets_channels()) {
             for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
-                _memtable_flush_mgr->deregister_writer(writer_it.second);
+                _memtable_mem_limit_mgr->deregister_writer(writer_it.second);
             }
         }
     }
@@ -89,11 +89,11 @@ protected:
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel
-    // when you erase, you should call deregister_writer method in MemtableFlushMgr;
+    // when you erase, you should call deregister_writer method in MemTableMemLimitMgr ;
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     Cache* _last_success_channel = nullptr;
 
-    MemtableFlushMgr* _memtable_flush_mgr = nullptr;
+    MemTableMemLimitMgr* _memtable_mem_limit_mgr = nullptr;
 
     CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels

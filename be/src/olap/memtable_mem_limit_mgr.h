@@ -29,10 +29,10 @@ struct WriterMemItem {
     DeltaWriter* writer;
     int64_t mem_size;
 };
-class MemtableFlushMgr {
+class MemTableMemLimitMgr {
 public:
-    MemtableFlushMgr();
-    ~MemtableFlushMgr();
+    MemTableMemLimitMgr();
+    ~MemTableMemLimitMgr();
 
     Status init(int64_t process_mem_limit);
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memtable_flush_mgr.h"
+#include "olap/memtable_mem_limit_mgr.h"
 
 #include "common/config.h"
 #include "olap/delta_writer.h"
@@ -24,8 +24,9 @@
 #include "util/metrics.h"
 
 namespace doris {
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memtable_flush_mgr_mem_consumption, MetricUnit::BYTES, "",
-                                   memtable_flush_mgr_mem_consumption, Labels({{"type", "load"}}));
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memtable_mem_limit_mgr_mem_consumption, MetricUnit::BYTES, "",
+                                   memtable_mem_limit_mgr_mem_consumption,
+                                   Labels({{"type", "load"}}));
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -37,10 +38,10 @@ static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
     return process_mem_limit * max_load_memory_percent / 100;
 }
 
-MemtableFlushMgr::MemtableFlushMgr() {}
+MemTableMemLimitMgr::MemTableMemLimitMgr() {}
 
-MemtableFlushMgr::~MemtableFlushMgr() {
-    DEREGISTER_HOOK_METRIC(memtable_flush_mgr_mem_consumption);
+MemTableMemLimitMgr::~MemTableMemLimitMgr() {
+    DEREGISTER_HOOK_METRIC(memtable_mem_limit_mgr_mem_consumption);
     for (auto writer : _writers) {
         if (writer != nullptr) {
             delete writer;
@@ -50,27 +51,27 @@ MemtableFlushMgr::~MemtableFlushMgr() {
     _writers.clear();
 }
 
-Status MemtableFlushMgr::init(int64_t process_mem_limit) {
+Status MemTableMemLimitMgr::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
-    _mem_tracker =
-            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD, "MemtableFlushMgr");
-    REGISTER_HOOK_METRIC(memtable_flush_mgr_mem_consumption,
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
+                                                       "MemTableMemLimitMgr");
+    REGISTER_HOOK_METRIC(memtable_mem_limit_mgr_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     return Status::OK();
 }
 
-void MemtableFlushMgr::register_writer(DeltaWriter* writer) {
+void MemTableMemLimitMgr::register_writer(DeltaWriter* writer) {
     std::lock_guard<std::mutex> l(_lock);
     _writers.insert(writer);
 }
 
-void MemtableFlushMgr::deregister_writer(DeltaWriter* writer) {
+void MemTableMemLimitMgr::deregister_writer(DeltaWriter* writer) {
     std::lock_guard<std::mutex> l(_lock);
     _writers.erase(writer);
 }
 
-void MemtableFlushMgr::handle_memtable_flush() {
+void MemTableMemLimitMgr::handle_memtable_flush() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     // Record current memory status.
@@ -210,7 +211,7 @@ void MemtableFlushMgr::handle_memtable_flush() {
     }
 }
 
-void MemtableFlushMgr::_refresh_mem_tracker_without_lock() {
+void MemTableMemLimitMgr::_refresh_mem_tracker_without_lock() {
     int64_t mem_usage = 0;
     for (auto& writer : _writers) {
         mem_usage += writer->mem_consumption(MemType::ALL);

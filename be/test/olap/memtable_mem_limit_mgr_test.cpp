@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memtable_flush_mgr.h"
+#include "olap/memtable_mem_limit_mgr.h"
 
 #include "exec/tablet_info.h"
 #include "gtest/gtest_pred_impl.h"
@@ -72,9 +72,9 @@ static TDescriptorTable create_descriptor_tablet() {
     return dtb.desc_tbl();
 }
 
-class MemtableFlushMgrTest : public testing::Test {
+class MemTableMemLimitMgrTest : public testing::Test {
 public:
-    ~MemtableFlushMgrTest() override { delete _mgr; }
+    ~MemTableMemLimitMgrTest() override { delete _mgr; }
 
 protected:
     void SetUp() override {
@@ -110,10 +110,10 @@ protected:
     }
 
     StorageEngine* _engine = nullptr;
-    MemtableFlushMgr* _mgr = new MemtableFlushMgr();
+    MemTableMemLimitMgr* _mgr = new MemTableMemLimitMgr();
 };
 
-TEST_F(MemtableFlushMgrTest, handle_memtable_flush_test) {
+TEST_F(MemTableMemLimitMgrTest, handle_memtable_flush_test) {
     TCreateTabletReq request;
     create_tablet_request(10000, 270068372, &request);
     Status res = _engine->create_tablet(request);
@@ -134,7 +134,7 @@ TEST_F(MemtableFlushMgrTest, handle_memtable_flush_test) {
             false, &param};
     DeltaWriter* delta_writer = nullptr;
     std::unique_ptr<RuntimeProfile> profile;
-    profile = std::make_unique<RuntimeProfile>("MemtableFlushMgrTest");
+    profile = std::make_unique<RuntimeProfile>("MemTableMemLimitMgrTest");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
