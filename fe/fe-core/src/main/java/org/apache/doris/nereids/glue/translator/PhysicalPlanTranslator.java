@@ -586,7 +586,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
             Expr expr = legacyExprs.get(i);
             slotDescriptor.setSourceExpr(expr);
-            slotDescriptor.setIsNullable(expr.isNullable());
+            slotDescriptor.setIsNullable(slots.get(i).nullable());
         }
 
         UnionNode unionNode = new UnionNode(context.nextPlanNodeId(), oneRowTuple.getId());
