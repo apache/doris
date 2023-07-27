@@ -748,7 +748,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             //
             // If we do not reset this replica state to NORMAL, the tablet's health status will be in VERSION_INCOMPLETE
             // forever, because the replica in the DECOMMISSION state will not receive the load task.
-            chosenReplica.setWatermarkTxnId(-1);
+            chosenReplica.setPreWatermarkTxnId(-1);
+            chosenReplica.setPostWatermarkTxnId(-1);
             chosenReplica.setState(ReplicaState.NORMAL);
             setDecommissionTime(-1);
             LOG.info("choose replica {} on backend {} of tablet {} as dest replica for version incomplete,"
@@ -1142,6 +1143,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         value += (Priority.VERY_HIGH.ordinal() - priority.ordinal() + 1) * 60  * 1000L;
         value += 5000L * (failedSchedCounter / 10);
 
+        if (schedFailedCode == SubCode.WAITING_DECOMMISSION) {
+            value += 5 * 1000L;
+        }
+
         if (type == Type.BALANCE) {
             value += 30 * 60 * 1000L;
         }
@@ -1200,7 +1205,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 // any intermediate state it set during the scheduling process.
                 if (replica.getState() == ReplicaState.DECOMMISSION) {
                     replica.setState(ReplicaState.NORMAL);
-                    replica.setWatermarkTxnId(-1);
+                    replica.setPreWatermarkTxnId(-1);
+                    replica.setPostWatermarkTxnId(-1);
                     LOG.debug("reset replica {} on backend {} of tablet {} state from DECOMMISSION to NORMAL",
                             replica.getId(), replica.getBackendId(), tabletId);
                 }
