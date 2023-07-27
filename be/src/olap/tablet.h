@@ -486,7 +486,8 @@ public:
     Status update_delete_bitmap(const RowsetSharedPtr& rowset,
                                 const RowsetIdUnorderedSet& pre_rowset_ids,
                                 DeleteBitmapPtr delete_bitmap, int64_t txn_id,
-                                RowsetWriter* rowset_writer = nullptr);
+                                RowsetWriter* rowset_writer = nullptr,
+                                bool do_correctness_check = false);
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
@@ -553,8 +554,7 @@ public:
     void add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
                                             const RowsetIdUnorderedSet& rowsetids);
     void remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap,
-                                           int64_t max_version) const;
+    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version);
 
 private:
     Status _init_once_action();

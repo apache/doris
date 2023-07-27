@@ -59,6 +59,7 @@ struct TabletTxnInfo {
     RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
     bool ingest {false};
+    bool do_correctness_check {false};
 
     TabletTxnInfo(PUniqueId load_id, RowsetSharedPtr rowset)
             : load_id(load_id), rowset(rowset), creation_time(UnixSeconds()) {}
@@ -123,7 +124,8 @@ public:
 
     Status commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                       TTransactionId transaction_id, const PUniqueId& load_id,
-                      const RowsetSharedPtr& rowset_ptr, bool is_recovery);
+                      const RowsetSharedPtr& rowset_ptr, bool is_recovery,
+                      bool do_correctness_check = false);
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
@@ -138,8 +140,8 @@ public:
 
     Status commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                       TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                      const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
-                      bool is_recovery);
+                      const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr, bool is_recovery,
+                      bool do_correctness_check = false);
 
     // remove a txn from txn manager
     // not persist rowset meta because

@@ -56,12 +56,6 @@ Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur
                 _status = st;
             }
         }
-
-        RowsetIdUnorderedSet rowsetids;
-        for (const auto& rowset : target_rowsets) {
-            rowsetids.emplace(rowset->rowset_id());
-        }
-        tablet->add_sentinel_mark_to_delete_bitmap(bitmap, rowsetids);
     });
 }
 

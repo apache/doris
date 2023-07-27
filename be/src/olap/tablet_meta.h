@@ -336,7 +336,7 @@ public:
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
     std::map<BitmapKey, roaring::Roaring> delete_bitmap; // Ordered map
-    constexpr static uint32_t ROWSET_SENTINEL_MARK = std::numeric_limits<uint32_t>::max() - 1;
+    constexpr static inline uint32_t ROWSET_SENTINEL_MARK = std::numeric_limits<uint32_t>::max() - 1;
 
     /**
      * 
