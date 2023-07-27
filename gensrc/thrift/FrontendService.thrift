@@ -964,6 +964,8 @@ enum TBinlogType {
   ALTER_JOB = 5,
   MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 6,
   DUMMY = 7,
+  ALTER_DATABASE_PROPERTY = 8,
+  MODIFY_TABLE_PROPERTY = 9,
 }
 
 struct TBinlog {
@@ -975,6 +977,7 @@ struct TBinlog {
     6: optional string data
     7: optional i64 belong  // belong == -1 if type is not DUMMY
     8: optional i64 table_ref // only use for gc
+    9: optional bool remove_enable_cache
 }
 
 struct TGetBinlogResult {

@@ -4443,8 +4443,9 @@ public class Env {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table, false);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(table.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME,
                 TimeUtils.getCurrentFormatTime());
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                logProperties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        logProperties);
         editLog.logDynamicPartition(info);
     }
 
@@ -4516,9 +4517,9 @@ public class Env {
     public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         table.setReplicaAllocation(properties);
-        // log
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                properties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        properties);
         editLog.logModifyReplicationNum(info);
         LOG.debug("modify table[{}] replication num to {}", table.getName(),
                 properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
@@ -4543,8 +4544,9 @@ public class Env {
             table.getPartitionInfo().setStoragePolicy(partition.getId(), tableProperty.getStoragePolicy());
         }
 
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                properties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        properties);
         editLog.logModifyInMemory(info);
     }
 
@@ -4553,8 +4555,9 @@ public class Env {
 
         table.setBinlogConfig(newBinlogConfig);
 
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                newBinlogConfig.toProperties());
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        newBinlogConfig.toProperties());
         editLog.logUpdateBinlogConfig(info);
     }
 
