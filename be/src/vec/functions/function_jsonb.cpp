@@ -66,7 +66,7 @@
 
 namespace doris::vectorized {
 
-enum class NullalbeMode {
+enum class NullableMode {
     NULLABLE = 0,
     NOT_NULL,
     FOLLOW_INPUT,
@@ -74,8 +74,77 @@ enum class NullalbeMode {
 
 enum class JsonbParseErrorMode { FAIL = 0, RETURN_NULL, RETURN_VALUE, RETURN_INVALID };
 
+inline static JsonbValue* find_value(const std::unique_ptr<JsonbWriter>& writer,
+                                     JsonbValue* param_json, JsonbPath& path, int path_idx,
+                                     hDictFind handler) {
+    JsonbValue* pval = param_json;
+    for (size_t i = path_idx; i < path.get_leg_vector_size(); ++i) {
+        switch (path.get_leg_from_leg_vector(i)->type) {
+        case MEMBER_CODE: {
+            if (LIKELY(pval->type() == JsonbType::T_Object)) {
+                if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
+                    *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
+                    continue;
+                }
+
+                pval = ((ObjectVal*)pval)
+                               ->find(path.get_leg_from_leg_vector(i)->leg_ptr,
+                                      path.get_leg_from_leg_vector(i)->leg_len, handler);
+
+                if (!pval) return nullptr;
+                continue;
+            } else {
+                return nullptr;
+            }
+        }
+        case ARRAY_CODE: {
+            if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
+                *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
+                if (LIKELY(pval->type() == JsonbType::T_Array)) {
+                    // make array value
+                    writer->writeStartArray();
+                    for (int j = 0; j < ((ArrayVal*)pval)->numElem(); ++j) {
+                        JsonbValue* v =
+                                find_value(writer, ((ArrayVal*)pval)->get(j), path, i + 1, handler);
+                        if (v) {
+                            writer->writeValue(v);
+                        }
+                    }
+                    writer->writeEndArray();
+                    return writer->getValue();
+                } else {
+                    return nullptr;
+                }
+            }
+
+            if (pval->type() == JsonbType::T_Object &&
+                path.get_leg_from_leg_vector(i)->array_index == 0) {
+                continue;
+            }
+
+            if (pval->type() != JsonbType::T_Array ||
+                path.get_leg_from_leg_vector(i)->leg_ptr != nullptr ||
+                path.get_leg_from_leg_vector(i)->leg_len != 0)
+                return nullptr;
+
+            if (path.get_leg_from_leg_vector(i)->array_index >= 0) {
+                pval = ((ArrayVal*)pval)->get(path.get_leg_from_leg_vector(i)->array_index);
+            } else {
+                pval = ((ArrayVal*)pval)
+                               ->get(((ArrayVal*)pval)->numElem() +
+                                     path.get_leg_from_leg_vector(i)->array_index);
+            }
+
+            if (!pval) return nullptr;
+            continue;
+        }
+        }
+    }
+    return pval;
+}
+
 // func(string,string) -> json
-template <NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
+template <NullableMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
 class FunctionJsonbParseBase : public IFunction {
 private:
     struct FunctionJsonbParseState {
@@ -91,13 +160,13 @@ public:
     String get_name() const override {
         String nullable;
         switch (nullable_mode) {
-        case NullalbeMode::NULLABLE:
+        case NullableMode::NULLABLE:
             nullable = "_nullable";
             break;
-        case NullalbeMode::NOT_NULL:
+        case NullableMode::NOT_NULL:
             nullable = "_notnull";
             break;
-        case NullalbeMode::FOLLOW_INPUT:
+        case NullableMode::FOLLOW_INPUT:
             nullable = "";
             break;
         }
@@ -136,13 +205,13 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         bool is_nullable = true;
         switch (nullable_mode) {
-        case NullalbeMode::NULLABLE:
+        case NullableMode::NULLABLE:
             is_nullable = true;
             break;
-        case NullalbeMode::NOT_NULL:
+        case NullableMode::NOT_NULL:
             is_nullable = false;
             break;
-        case NullalbeMode::FOLLOW_INPUT:
+        case NullableMode::FOLLOW_INPUT:
             is_nullable = arguments[0]->is_nullable();
             break;
         }
@@ -191,15 +260,15 @@ public:
         auto null_map = ColumnUInt8::create(0, 0);
         bool is_nullable = false;
         switch (nullable_mode) {
-        case NullalbeMode::NULLABLE: {
+        case NullableMode::NULLABLE: {
             is_nullable = true;
             null_map = ColumnUInt8::create(input_rows_count, 0);
             break;
         }
-        case NullalbeMode::NOT_NULL:
+        case NullableMode::NOT_NULL:
             is_nullable = false;
             break;
-        case NullalbeMode::FOLLOW_INPUT: {
+        case NullableMode::FOLLOW_INPUT: {
             auto argument_column = col_from.convert_to_full_column_if_const();
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_column)) {
                 is_nullable = true;
@@ -279,8 +348,8 @@ public:
                                         .getOutput()
                                         ->getSize());
                     } else {
-                        auto val = block.get_by_position(arguments[1]).column->get_data_at(i);
-                        if (parser.parse(val.data, val.size)) {
+                        auto data_val = block.get_by_position(arguments[1]).column->get_data_at(i);
+                        if (parser.parse(data_val.data, data_val.size)) {
                             // insert jsonb format data
                             col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
                                                 (size_t)parser.getWriter().getOutput()->getSize());
@@ -288,7 +357,7 @@ public:
                             return Status::InvalidArgument(
                                     "json parse error: {} for default value: {}",
                                     JsonbErrMsg::getErrMsg(error),
-                                    std::string_view(val.data, val.size));
+                                    std::string_view(data_val.data, data_val.size));
                         }
                     }
                     continue;
@@ -313,31 +382,31 @@ public:
 
 // jsonb_parse return type nullable as input
 using FunctionJsonbParse =
-        FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::FAIL>;
+        FunctionJsonbParseBase<NullableMode::FOLLOW_INPUT, JsonbParseErrorMode::FAIL>;
 using FunctionJsonbParseErrorNull =
-        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_NULL>;
+        FunctionJsonbParseBase<NullableMode::NULLABLE, JsonbParseErrorMode::RETURN_NULL>;
 using FunctionJsonbParseErrorValue =
-        FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::RETURN_VALUE>;
+        FunctionJsonbParseBase<NullableMode::FOLLOW_INPUT, JsonbParseErrorMode::RETURN_VALUE>;
 using FunctionJsonbParseErrorInvalid =
-        FunctionJsonbParseBase<NullalbeMode::FOLLOW_INPUT, JsonbParseErrorMode::RETURN_INVALID>;
+        FunctionJsonbParseBase<NullableMode::FOLLOW_INPUT, JsonbParseErrorMode::RETURN_INVALID>;
 
 // jsonb_parse return type is nullable
 using FunctionJsonbParseNullable =
-        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::FAIL>;
+        FunctionJsonbParseBase<NullableMode::NULLABLE, JsonbParseErrorMode::FAIL>;
 using FunctionJsonbParseNullableErrorNull =
-        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_NULL>;
+        FunctionJsonbParseBase<NullableMode::NULLABLE, JsonbParseErrorMode::RETURN_NULL>;
 using FunctionJsonbParseNullableErrorValue =
-        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_VALUE>;
+        FunctionJsonbParseBase<NullableMode::NULLABLE, JsonbParseErrorMode::RETURN_VALUE>;
 using FunctionJsonbParseNullableErrorInvalid =
-        FunctionJsonbParseBase<NullalbeMode::NULLABLE, JsonbParseErrorMode::RETURN_INVALID>;
+        FunctionJsonbParseBase<NullableMode::NULLABLE, JsonbParseErrorMode::RETURN_INVALID>;
 
 // jsonb_parse return type is not nullable
 using FunctionJsonbParseNotnull =
-        FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::FAIL>;
+        FunctionJsonbParseBase<NullableMode::NOT_NULL, JsonbParseErrorMode::FAIL>;
 using FunctionJsonbParseNotnullErrorValue =
-        FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::RETURN_VALUE>;
+        FunctionJsonbParseBase<NullableMode::NOT_NULL, JsonbParseErrorMode::RETURN_VALUE>;
 using FunctionJsonbParseNotnullErrorInvalid =
-        FunctionJsonbParseBase<NullalbeMode::NOT_NULL, JsonbParseErrorMode::RETURN_INVALID>;
+        FunctionJsonbParseBase<NullableMode::NOT_NULL, JsonbParseErrorMode::RETURN_INVALID>;
 
 // func(jsonb, [varchar, varchar, ...]) -> nullable(type)
 template <typename Impl>
@@ -450,7 +519,7 @@ private:
         }
 
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value = doc->getValue()->findValue(path, nullptr);
+        JsonbValue* value = find_value(writer, doc->getValue(), path, 0, nullptr);
 
         if (UNLIKELY(!value)) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
@@ -516,6 +585,7 @@ public:
 
         auto writer = std::make_unique<JsonbWriter>();
         std::unique_ptr<JsonbToJson> formater;
+        auto inner_writer = std::make_unique<JsonbWriter>();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
@@ -580,7 +650,8 @@ public:
                     }
 
                     // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-                    JsonbValue* value = doc->getValue()->findValue(path, nullptr);
+                    inner_writer->reset();
+                    JsonbValue* value = find_value(inner_writer, doc->getValue(), path, 0, nullptr);
 
                     if (UNLIKELY(!value)) {
                         writer->writeNull();

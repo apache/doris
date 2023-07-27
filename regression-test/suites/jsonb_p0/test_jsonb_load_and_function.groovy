@@ -100,6 +100,7 @@ suite("test_jsonb_load_and_function", "p0") {
     sql """INSERT INTO ${testTable} VALUES(26, NULL)"""
     sql """INSERT INTO ${testTable} VALUES(27, '{"k1":"v1", "k2": 200}')"""
     sql """INSERT INTO ${testTable} VALUES(28, '{"a.b.c":{"k1.a1":"v31", "k2": 300},"a":"niu"}')"""
+    sql """INSERT INTO ${testTable} VALUES(29, '[{"a":[{"b":12,"c":22,"d":33},{"c":"ss"}]},{"a":[{"c":12},{"c":"12"}],"s":11}]')"""
 
     // insert into invalid json rows with enable_insert_strict=true
     // expect excepiton and no rows not changed
@@ -146,6 +147,9 @@ suite("test_jsonb_load_and_function", "p0") {
     // jsonb_extract
     qt_jsonb_extract_select "SELECT id, j, jsonb_extract(j, '\$') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract(j, '\$.*') FROM ${testTable} ORDER BY id"
+    // jsonb_extract with array [*]
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[*].a[*]') FROM ${testTable} ORDER BY id"
+    qt_select "SELECT id, j, jsonb_extract(j, '\$[*].a[*].c') FROM ${testTable} ORDER BY id"
 
     qt_select "SELECT id, j, jsonb_extract(j, '\$.k1') FROM ${testTable} ORDER BY id"
     qt_select "SELECT id, j, jsonb_extract(j, '\$.\"a.b.c\"') FROM ${testTable} ORDER BY id"
@@ -180,6 +184,7 @@ suite("test_jsonb_load_and_function", "p0") {
 
     // jsonb_extract_multipath
     qt_jsonb_extract_multipath "SELECT id, j, jsonb_extract(j, '\$', '\$.*', '\$.k1', '\$[0]') FROM ${testTable} ORDER BY id"
+    qt_jsonb_extract_multipath "SELECT id, j, jsonb_extract(j, '\$[0]', '\$.*', '\$[*].a[*]', '\$[*].a[*].c') FROM ${testTable} ORDER BY id"
 
     // jsonb_extract_string
     qt_jsonb_extract_string_select "SELECT id, j, jsonb_extract_string(j, '\$') FROM ${testTable} ORDER BY id"
