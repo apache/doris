@@ -33,6 +33,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris {
 namespace vectorized {
@@ -64,7 +65,7 @@ public:
                 << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
     }
-    void _execute_constant(const ColumnString& src_column_string, const StringRef& delimiter_ref,
+    void _do_tokenize(const ColumnString& src_column_string, InvertedIndexCtx& inverted_index_ctx,
                            IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
                            NullMapType* dest_nested_null_map);
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
