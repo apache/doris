@@ -24,7 +24,6 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.reflect.TypeToken;
 import org.apache.commons.codec.digest.DigestUtils;
 
 import java.io.BufferedInputStream;
@@ -74,9 +73,9 @@ public class MetaHelper {
         return new File(dir, filename + MetaHelper.PART_SUFFIX);
     }
 
-    public static ResponseBody doGet(String url, int timeout) throws IOException {
+    public static <T> ResponseBody doGet(String url, int timeout, Class<T> clazz) throws IOException {
         String response = HttpUtils.doGet(url, HttpURLUtil.getNodeIdentHeaders(), timeout);
-        return parseResponse(response);
+        return parseResponse(response, clazz);
     }
 
     // download file from remote node
@@ -139,9 +138,9 @@ public class MetaHelper {
         return response;
     }
 
-    public static ResponseBody parseResponse(String response) {
-        return GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {
-        }.getType());
+    public static <T> ResponseBody parseResponse(String response, Class<T> clazz) {
+        return GsonUtils.GSON.fromJson(response,
+                com.google.gson.internal.$Gson$Types.newParameterizedTypeWithOwner(null, ResponseBody.class, clazz));
     }
 
 }

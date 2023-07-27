@@ -1640,7 +1640,8 @@ public class Env {
         try {
             String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
             String infoUrl = "http://" + hostPort + "/info";
-            ResponseBody<StorageInfo> responseBody = MetaHelper.doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000);
+            ResponseBody<StorageInfo> responseBody = MetaHelper
+                    .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
             if (responseBody.getCode() != RestApiStatusCode.OK.code) {
                 LOG.warn("get image failed,responseBody:{}", responseBody);
                 throw new IOException(responseBody.toString());

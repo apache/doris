@@ -203,7 +203,7 @@ public class Checkpoint extends MasterDaemon {
                 LOG.info("Put image:{}", url);
 
                 try {
-                    ResponseBody responseBody = MetaHelper.doGet(url, PUT_TIMEOUT_SECOND * 1000);
+                    ResponseBody responseBody = MetaHelper.doGet(url, PUT_TIMEOUT_SECOND * 1000, Object.class);
                     if (responseBody.getCode() == RestApiStatusCode.OK.code) {
                         successPushed++;
                     } else {
