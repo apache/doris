@@ -232,7 +232,7 @@ public class RebalanceTest {
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
         PartitionRebalancer rebalancer = new PartitionRebalancer(Env.getCurrentSystemInfo(),
-                Env.getCurrentInvertedIndex());
+                Env.getCurrentInvertedIndex(), tabletScheduler.getBackendsWorkingSlots());
         TabletScheduler tabletScheduler = new TabletScheduler(env, systemInfoService, invertedIndex, stat, "");
         // The rebalancer inside the scheduler will use this rebalancer, for getToDeleteReplicaId
         Deencapsulation.setField(tabletScheduler, "rebalancer", rebalancer);
@@ -256,7 +256,7 @@ public class RebalanceTest {
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 
                 // createCloneReplicaAndTask, create replica will change invertedIndex too.
-                AgentTask task = rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots());
+                AgentTask task = rebalancer.createBalanceTask(tabletCtx);
                 batchTask.addTask(task);
             } catch (SchedException e) {
                 LOG.warn("schedule tablet {} failed: {}", tabletCtx.getTabletId(), e.getMessage());

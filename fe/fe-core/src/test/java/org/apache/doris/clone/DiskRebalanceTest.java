@@ -229,7 +229,9 @@ public class DiskRebalanceTest {
         // case start
         Configurator.setLevel("org.apache.doris.clone.DiskRebalancer", Level.DEBUG);
 
-        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
+        Map<Long, PathSlot> backendsWorkingSlots = Maps.newConcurrentMap();
+        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(),
+                backendsWorkingSlots);
         generateStatisticMap();
         rebalancer.updateLoadStatistic(statisticMap);
         for (Map.Entry<Tag, LoadStatisticForTag> s : statisticMap.entrySet()) {
@@ -240,7 +242,6 @@ public class DiskRebalanceTest {
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
         Assert.assertEquals(2, alternativeTablets.size());
-        Map<Long, PathSlot> backendsWorkingSlots = Maps.newConcurrentMap();
         for (Backend be : Env.getCurrentSystemInfo().getAllBackends()) {
             if (!backendsWorkingSlots.containsKey(be.getId())) {
                 List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash)
@@ -259,7 +260,7 @@ public class DiskRebalanceTest {
                 tabletCtx.setSchemaHash(olapTable.getSchemaHashByIndexId(tabletCtx.getIndexId()));
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 
-                AgentTask task = rebalancer.createBalanceTask(tabletCtx, backendsWorkingSlots);
+                AgentTask task = rebalancer.createBalanceTask(tabletCtx);
                 if (tabletCtx.getTabletSize() == 0) {
                     Assert.fail("no exception");
                 } else {

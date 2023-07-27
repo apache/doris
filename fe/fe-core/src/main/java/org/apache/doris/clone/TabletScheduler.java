@@ -131,8 +131,6 @@ public class TabletScheduler extends MasterDaemon {
 
     private long lastSlotAdjustTime = 0;
 
-    private long lastCheckTimeoutTime = 0;
-
     private Env env;
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
@@ -158,12 +156,12 @@ public class TabletScheduler extends MasterDaemon {
         this.colocateTableIndex = env.getColocateTableIndex();
         this.stat = stat;
         if (rebalancerType.equalsIgnoreCase("partition")) {
-            this.rebalancer = new PartitionRebalancer(infoService, invertedIndex);
+            this.rebalancer = new PartitionRebalancer(infoService, invertedIndex, backendsWorkingSlots);
         } else {
-            this.rebalancer = new BeLoadRebalancer(infoService, invertedIndex);
+            this.rebalancer = new BeLoadRebalancer(infoService, invertedIndex, backendsWorkingSlots);
         }
         // if rebalancer can not get new task, then use diskRebalancer to get task
-        this.diskRebalancer = new DiskRebalancer(infoService, invertedIndex);
+        this.diskRebalancer = new DiskRebalancer(infoService, invertedIndex, backendsWorkingSlots);
     }
 
     public TabletSchedulerStat getStat() {
@@ -209,6 +207,7 @@ public class TabletScheduler extends MasterDaemon {
         for (Backend be : backends.values()) {
             if (!backendsWorkingSlots.containsKey(be.getId())) {
                 List<Long> pathHashes = be.getDisks().values().stream()
+                        .filter(v -> v.getState() == DiskState.ONLINE)
                         .map(DiskInfo::getPathHash).collect(Collectors.toList());
                 PathSlot slot = new PathSlot(pathHashes, be.getId());
                 backendsWorkingSlots.put(be.getId(), slot);
@@ -319,24 +318,16 @@ public class TabletScheduler extends MasterDaemon {
             return;
         }
 
-        if (System.currentTimeMillis() - lastCheckTimeoutTime >= 1000L) {
-            updateLoadStatisticsAndPriorityIfNecessary();
-            handleRunningTablets();
-            selectTabletsForBalance();
-            lastCheckTimeoutTime = System.currentTimeMillis();
-        }
-
+        updateLoadStatistics();
+        handleRunningTablets();
+        selectTabletsForBalance();
         schedulePendingTablets();
 
         stat.counterTabletScheduleRound.incrementAndGet();
     }
 
 
-    private void updateLoadStatisticsAndPriorityIfNecessary() {
-        if (System.currentTimeMillis() - lastStatUpdateTime < STAT_UPDATE_INTERVAL_MS) {
-            return;
-        }
-
+    private void updateLoadStatistics() {
         updateLoadStatistic();
         rebalancer.updateLoadStatistic(statisticMap);
         diskRebalancer.updateLoadStatistic(statisticMap);
@@ -782,6 +773,7 @@ public class TabletScheduler extends MasterDaemon {
     private void handleReplicaRelocating(TabletSchedCtx tabletCtx, AgentBatchTask batchTask)
             throws SchedException {
         stat.counterReplicaUnavailableErr.incrementAndGet();
+        tabletCtx.setTabletStatus(TabletStatus.VERSION_INCOMPLETE);
         handleReplicaVersionIncomplete(tabletCtx, batchTask);
     }
 
@@ -1249,11 +1241,11 @@ public class TabletScheduler extends MasterDaemon {
         stat.counterBalanceSchedule.incrementAndGet();
         AgentTask task = null;
         if (tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.DISK_BALANCE) {
-            task = diskRebalancer.createBalanceTask(tabletCtx, backendsWorkingSlots);
+            task = diskRebalancer.createBalanceTask(tabletCtx);
             checkDiskBalanceLastSuccTime(tabletCtx.getSrcBackendId(), tabletCtx.getSrcPathHash());
             checkDiskBalanceLastSuccTime(tabletCtx.getDestBackendId(), tabletCtx.getDestPathHash());
         } else if (tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
-            task = rebalancer.createBalanceTask(tabletCtx, backendsWorkingSlots);
+            task = rebalancer.createBalanceTask(tabletCtx);
         } else {
             throw new SchedException(Status.UNRECOVERABLE,
                 "unknown balance type: " + tabletCtx.getBalanceType().toString());
@@ -1829,6 +1821,20 @@ public class TabletScheduler extends MasterDaemon {
             return true;
         }
 
+        public synchronized boolean hasAvailableBalanceSlot(long pathHash) {
+            if (pathHash == -1) {
+                return false;
+            }
+            Slot slot = pathSlots.get(pathHash);
+            if (slot == null) {
+                return false;
+            }
+            if (slot.getAvailableBalance() == 0) {
+                return false;
+            }
+            return true;
+        }
+
         /**
          * If the specified 'pathHash' has available slot, decrease the slot number and return this path hash
          */
@@ -1872,25 +1878,25 @@ public class TabletScheduler extends MasterDaemon {
             return total;
         }
 
+        public synchronized int getTotalAvailBalanceSlotNum() {
+            int num = 0;
+            for (Slot slot : pathSlots.values()) {
+                num += slot.getAvailableBalance();
+            }
+            return num;
+        }
+
         /**
          * get path whose balance slot num is larger than 0
          */
         public synchronized Set<Long> getAvailPathsForBalance() {
             Set<Long> pathHashs = Sets.newHashSet();
             for (Map.Entry<Long, Slot> entry : pathSlots.entrySet()) {
-                if (entry.getValue().getBalanceAvailable() > 0) {
+                if (entry.getValue().getAvailableBalance() > 0) {
                     pathHashs.add(entry.getKey());
                 }
             }
             return pathHashs;
-        }
-
-        public synchronized int getAvailBalanceSlotNum() {
-            int num = 0;
-            for (Map.Entry<Long, Slot> entry : pathSlots.entrySet()) {
-                num += entry.getValue().getBalanceAvailable();
-            }
-            return num;
         }
 
         public synchronized List<List<String>> getSlotInfo(long beId) {
@@ -1901,11 +1907,16 @@ public class TabletScheduler extends MasterDaemon {
                 result.add(String.valueOf(key));
                 result.add(String.valueOf(value.getAvailable()));
                 result.add(String.valueOf(value.getTotal()));
-                result.add(String.valueOf(value.getBalanceAvailable()));
+                result.add(String.valueOf(value.getAvailableBalance()));
                 result.add(String.valueOf(value.getAvgRate()));
                 results.add(result);
             });
             return results;
+        }
+
+        public synchronized int getAvailableBalanceNum(long pathHash) {
+            Slot slot = pathSlots.get(pathHash);
+            return slot != null ? slot.getAvailableBalance() : 0;
         }
 
         public synchronized long takeBalanceSlot(long pathHash) {
@@ -2003,8 +2014,9 @@ public class TabletScheduler extends MasterDaemon {
             return total;
         }
 
-        public int getBalanceAvailable() {
-            return Math.max(0, getBalanceTotal() - balanceUsed);
+        public int getAvailableBalance() {
+            int leftBalance = Math.max(0, getBalanceTotal() - balanceUsed);
+            return Math.min(leftBalance, getAvailable());
         }
 
         public int getBalanceTotal() {

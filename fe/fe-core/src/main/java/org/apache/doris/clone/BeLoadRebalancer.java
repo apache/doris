@@ -51,8 +51,9 @@ import java.util.Set;
 public class BeLoadRebalancer extends Rebalancer {
     private static final Logger LOG = LogManager.getLogger(BeLoadRebalancer.class);
 
-    public BeLoadRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
-        super(infoService, invertedIndex);
+    public BeLoadRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
+            Map<Long, PathSlot> backendsWorkingSlots) {
+        super(infoService, invertedIndex, backendsWorkingSlots);
     }
 
     /*
@@ -100,9 +101,16 @@ public class BeLoadRebalancer extends Rebalancer {
             return alternativeTablets;
         }
 
-        // get the number of low load paths. and we should at most select this number of tablets
-        long numOfLowPaths = lowBEs.stream().filter(b -> b.isAvailable() && b.hasAvailDisk()).mapToLong(
-                b -> b.getAvailPathNum(medium)).sum();
+        long numOfLowPaths = 0;
+        for (BackendLoadStatistic backendLoadStatistic : lowBEs) {
+            if (!backendLoadStatistic.isAvailable()) {
+                continue;
+            }
+            PathSlot pathSlot = backendsWorkingSlots.get(backendLoadStatistic.getBeId());
+            if (pathSlot != null) {
+                numOfLowPaths += pathSlot.getTotalAvailBalanceSlotNum();
+            }
+        }
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
@@ -113,6 +121,10 @@ public class BeLoadRebalancer extends Rebalancer {
         OUTER:
         for (int i = highBEs.size() - 1; i >= 0; i--) {
             BackendLoadStatistic beStat = highBEs.get(i);
+            PathSlot pathSlot = backendsWorkingSlots.get(beStat.getBeId());
+            if (pathSlot == null) {
+                continue;
+            }
 
             // classify the paths.
             Set<Long> pathLow = Sets.newHashSet();
@@ -129,7 +141,10 @@ public class BeLoadRebalancer extends Rebalancer {
             // for each path, we try to select at most BALANCE_SLOT_NUM_FOR_PATH tablets
             Map<Long, Integer> remainingPaths = Maps.newHashMap();
             for (Long pathHash : pathHigh) {
-                remainingPaths.put(pathHash, Config.balance_slot_num_per_path);
+                int availBalanceNum = pathSlot.getAvailableBalanceNum(pathHash);
+                if (availBalanceNum > 0) {
+                    remainingPaths.put(pathHash, availBalanceNum);
+                }
             }
 
             if (remainingPaths.isEmpty()) {
@@ -201,8 +216,7 @@ public class BeLoadRebalancer extends Rebalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx,
-            Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    public void completeSchedCtx(TabletSchedCtx tabletCtx) throws SchedException {
         LoadStatisticForTag clusterStat = statisticMap.get(tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE,
