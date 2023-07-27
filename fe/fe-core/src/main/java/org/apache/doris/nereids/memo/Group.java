@@ -375,9 +375,10 @@ public class Group {
      */
     public boolean isValidJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
-        return plan instanceof LogicalJoin
-                && !((LogicalJoin) plan).isMarkJoin()
-                && ((LogicalJoin) plan).getExpressions().size() > 0;
+            return plan instanceof LogicalJoin
+                    && ((LogicalJoin) plan).getJoinType().isInnerJoin()
+                    && !((LogicalJoin) plan).isMarkJoin()
+                    && ((LogicalJoin) plan).getExpressions().size() > 0;
     }
 
     public boolean isProjectGroup() {
