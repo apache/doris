@@ -171,6 +171,9 @@ public class StreamLoadPlanner {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
             }
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+                partialUpdateInputColumns.add(Column.DELETE_SIGN);
+            }
         }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
