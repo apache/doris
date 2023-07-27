@@ -88,7 +88,7 @@ protected:
                             ->create_directory(absolute_dir + "/tablet_path")
                             .ok());
 
-        _data_dir = new DataDir(absolute_dir, 1000000000);
+        _data_dir = new DataDir(absolute_dir, 100000000);
         _data_dir->init();
 
         doris::EngineOptions options;
@@ -466,7 +466,7 @@ TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 2 * 1024 * 1024;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -573,7 +573,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
 TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 2 * 1024 * 1024;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -681,7 +681,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
 TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 2 * 1024 * 1024;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -781,7 +781,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
 TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 2 * 1024 * 1024;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -875,7 +875,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
 TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 2 * 1024 * 1024;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
@@ -969,7 +969,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
 TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     auto num_input_rowset = 2;
     auto num_segments = 2;
-    auto rows_per_segment = 2 * 1024 * 1024;
+    auto rows_per_segment = 2 * 100 * 1024;
     SegmentsOverlapPB overlap = NONOVERLAPPING;
     std::vector<std::vector<std::vector<std::tuple<int64_t, int64_t>>>> input_data;
     generate_input_data(num_input_rowset, num_segments, rows_per_segment, overlap, input_data);
