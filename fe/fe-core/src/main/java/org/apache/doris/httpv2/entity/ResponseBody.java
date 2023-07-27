@@ -96,4 +96,14 @@ public class ResponseBody<T> {
         this.msg = msg;
         return this;
     }
+
+    @Override
+    public String toString() {
+        return "ResponseBody{"
+                + "msg='" + msg + '\''
+                + ", code=" + code
+                + ", data=" + data
+                + ", count=" + count
+                + '}';
+    }
 }

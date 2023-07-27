@@ -77,12 +77,12 @@ public class HttpUtils {
 
     public static String doGet(String url, Map<String, String> headers, int timeout) throws IOException {
         HttpGet httpGet = new HttpGet(url);
-        setRequestConfig(httpGet, headers,timeout);
+        setRequestConfig(httpGet, headers, timeout);
         return executeRequest(httpGet);
     }
 
     public static String doGet(String url, Map<String, String> headers) throws IOException {
-       return doGet(url,headers,DEFAULT_TIME_OUT);
+        return doGet(url, headers, DEFAULT_TIME_OUT);
     }
 
     static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
@@ -93,7 +93,7 @@ public class HttpUtils {
             httpPost.setEntity(stringEntity);
         }
 
-        setRequestConfig(httpPost, headers,DEFAULT_TIME_OUT);
+        setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT);
         return executeRequest(httpPost);
     }
 
