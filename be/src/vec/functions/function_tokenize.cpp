@@ -41,7 +41,8 @@ Status parse(const std::string& str, std::map<std::string, std::string>& result)
 
     while (start < str.size()) {
         std::string::size_type end = str.find(',', start);
-        std::string pair = (end == std::string::npos) ? str.substr(start) : str.substr(start, end - start);
+        std::string pair =
+                (end == std::string::npos) ? str.substr(start) : str.substr(start, end - start);
 
         std::string::size_type eq_pos = pair.find('=');
         if (eq_pos == std::string::npos) {
@@ -49,9 +50,21 @@ Status parse(const std::string& str, std::map<std::string, std::string>& result)
                     fmt::format("invalid params {} for function tokenize", str));
         }
         std::string key = pair.substr(0, eq_pos);
-        key = key.substr(key.find_first_not_of(" '\"" "\t\n\r"), key.find_last_not_of(" '\"" "\t\n\r") - key.find_first_not_of(" '\"" "\t\n\r") + 1);
+        key = key.substr(key.find_first_not_of(" '\""
+                                               "\t\n\r"),
+                         key.find_last_not_of(" '\""
+                                              "\t\n\r") -
+                                 key.find_first_not_of(" '\""
+                                                       "\t\n\r") +
+                                 1);
         std::string value = pair.substr(eq_pos + 1);
-        value = value.substr(value.find_first_not_of(" '\"" "\t\n\r"), value.find_last_not_of(" '\"" "\t\n\r") - value.find_first_not_of(" '\"" "\t\n\r") + 1);
+        value = value.substr(value.find_first_not_of(" '\""
+                                                     "\t\n\r"),
+                             value.find_last_not_of(" '\""
+                                                    "\t\n\r") -
+                                     value.find_first_not_of(" '\""
+                                                             "\t\n\r") +
+                                     1);
 
         result[key] = value;
 
@@ -62,10 +75,10 @@ Status parse(const std::string& str, std::map<std::string, std::string>& result)
 }
 
 void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
-                                 InvertedIndexCtx& inverted_index_ctx,
-                                         IColumn& dest_nested_column,
-                                         ColumnArray::Offsets64& dest_offsets,
-                                         NullMapType* dest_nested_null_map) {
+                                    InvertedIndexCtx& inverted_index_ctx,
+                                    IColumn& dest_nested_column,
+                                    ColumnArray::Offsets64& dest_offsets,
+                                    NullMapType* dest_nested_null_map) {
     ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
     ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
     ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -140,10 +153,11 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
             if (!st.ok()) {
                 return st;
             }
-            inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(get_parser_string_from_properties(properties));
+            inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
+                    get_parser_string_from_properties(properties));
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
-            _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column,
-                              dest_offsets, dest_nested_null_map);
+            _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
+                         dest_nested_null_map);
 
             block.replace_by_position(result, std::move(dest_column_ptr));
             return Status::OK();

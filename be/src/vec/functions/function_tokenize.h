@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "udf/udf.h"
 #include "vec/columns/column_array.h"
 #include "vec/core/column_numbers.h"
@@ -33,7 +34,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris {
 namespace vectorized {
@@ -66,8 +66,8 @@ public:
         return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
     }
     void _do_tokenize(const ColumnString& src_column_string, InvertedIndexCtx& inverted_index_ctx,
-                           IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
-                           NullMapType* dest_nested_null_map);
+                      IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
+                      NullMapType* dest_nested_null_map);
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override;
 
