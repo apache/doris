@@ -818,7 +818,7 @@ public class PropertyAnalyzer {
     }
 
     public static boolean analyzeIsBeingSynced(Map<String, String> properties, boolean defaultValue) {
-        if (properties.containsKey(PROPERTIES_IS_BEING_SYNCED)) {
+        if (properties != null && properties.containsKey(PROPERTIES_IS_BEING_SYNCED)) {
             String value = properties.remove(PROPERTIES_IS_BEING_SYNCED);
             return Boolean.valueOf(value);
         }
