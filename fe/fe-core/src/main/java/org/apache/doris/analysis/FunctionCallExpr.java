@@ -584,12 +584,24 @@ public class FunctionCallExpr extends Expr {
             expr = this;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(((FunctionCallExpr) expr).fnName);
-        sb.append(paramsToSql());
-        if (fnName.getFunction().equalsIgnoreCase("json_quote")
-                || fnName.getFunction().equalsIgnoreCase("json_array")
-                || fnName.getFunction().equalsIgnoreCase("json_object")) {
-            return forJSON(sb.toString());
+
+        // when function is like or regexp, the expr generated sql should be like this
+        // eg: child1 like child2
+        if (fnName.getFunction().equalsIgnoreCase("like")
+                || fnName.getFunction().equalsIgnoreCase("regexp")) {
+            sb.append(children.get(0).toSql());
+            sb.append(" ");
+            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(" ");
+            sb.append(children.get(1).toSql());
+        } else {
+            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(paramsToSql());
+            if (fnName.getFunction().equalsIgnoreCase("json_quote")
+                    || fnName.getFunction().equalsIgnoreCase("json_array")
+                    || fnName.getFunction().equalsIgnoreCase("json_object")) {
+                return forJSON(sb.toString());
+            }
         }
         return sb.toString();
     }
@@ -1475,34 +1487,9 @@ public class FunctionCallExpr extends Expr {
 
                 // find user defined functions
                 if (fn == null) {
-                    if (!analyzer.isUDFAllowed()) {
-                        throw new AnalysisException(
-                                "Does not support non-builtin functions, or function does not exist: "
-                                        + this.toSqlImpl());
-                    }
-
-                    String dbName = fnName.analyzeDb(analyzer);
-                    if (!Strings.isNullOrEmpty(dbName)) {
-                        // check operation privilege
-                        if (!Env.getCurrentEnv().getAccessManager()
-                                .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
-                            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
-                        }
-                        // TODO(gaoxin): ExternalDatabase not implement udf yet.
-                        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
-                        if (db != null && (db instanceof Database)) {
-                            Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()),
-                                    Type.INVALID, false);
-                            fn = ((Database) db).getFunction(searchDesc,
-                                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-                        }
-                    }
-                    // find from the internal database first, if not, then from the global functions
-                    if (fn == null) {
-                        Function searchDesc =
-                                new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-                        fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
-                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    fn = findUdf(fnName, analyzer);
+                    if (analyzer.isReAnalyze() && fn instanceof AliasFunction) {
+                        throw new AnalysisException("a UDF in the original function of a alias function");
                     }
                 }
             }
@@ -1703,6 +1690,14 @@ public class FunctionCallExpr extends Expr {
                         && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
                 } else if (!argTypes[i].matchesType(args[ix])
+                        && ROUND_FUNCTION_SET.contains(fnName.getFunction())
+                        && ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                        && argTypes[i].isDecimalV2()
+                        && args[ix].isDecimalV3()) {
+                    uncheckedCastChild(ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMALV2_PRECISION,
+                            ((ScalarType) argTypes[i]).getScalarScale()), i);
+                } else if (!argTypes[i].matchesType(args[ix])
                         && !(argTypes[i].isDecimalV3OrContainsDecimalV3()
                         && args[ix].isDecimalV3OrContainsDecimalV3())) {
                     // Do not do this cast if types are both decimalv3 with different precision/scale.
@@ -1773,6 +1768,20 @@ public class FunctionCallExpr extends Expr {
             // it to a double function
             this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
                     .apply(children, this.type);
+        }
+
+        // cast(xx as char(N)/varchar(N)) will be handled as substr(cast(xx as char, varchar), 1, N),
+        // but type is varchar(*), we change it to varchar(N);
+        if (fn.getFunctionName().getFunction().equals("substr")
+                && children.size() == 3
+                && children.get(1) instanceof IntLiteral
+                && children.get(2) instanceof IntLiteral) {
+            long len = ((IntLiteral) children.get(2)).getValue();
+            if (type.isWildcardChar()) {
+                this.type = ScalarType.createCharType(((int) (len)));
+            } else if (type.isWildcardVarchar()) {
+                this.type = ScalarType.createVarchar(((int) (len)));
+            }
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
@@ -1953,7 +1962,7 @@ public class FunctionCallExpr extends Expr {
      * @return
      * @throws AnalysisException
      */
-    public Expr rewriteExpr() throws AnalysisException {
+    public Expr rewriteExpr(Analyzer analyzer) throws AnalysisException {
         if (isRewrote) {
             return this;
         }
@@ -1963,6 +1972,7 @@ public class FunctionCallExpr extends Expr {
         retExpr.originStmtFnExpr = clone();
         // clone alias function origin expr for alias
         FunctionCallExpr oriExpr = (FunctionCallExpr) ((AliasFunction) retExpr.fn).getOriginFunction().clone();
+
         // reset fn name
         retExpr.fnName = oriExpr.getFnName();
         // reset fn params
@@ -1982,13 +1992,14 @@ public class FunctionCallExpr extends Expr {
 
         retExpr.fnParams = new FunctionParams(oriExpr.fnParams.isDistinct(), oriParamsExprs);
 
-        // retExpr changed to original function, so the fn should be null.
+        // retExpr changed to original function, should be analyzed again.
         retExpr.fn = null;
 
         // reset children
         retExpr.children.clear();
         retExpr.children.addAll(oriExpr.getChildren());
         retExpr.isRewrote = true;
+        retExpr.analyze(analyzer);
         return retExpr;
     }
 
@@ -2158,5 +2169,39 @@ public class FunctionCallExpr extends Expr {
             return true;
         }
         return super.haveFunction(functionName);
+    }
+
+    public Function findUdf(FunctionName fnName, Analyzer analyzer) throws AnalysisException {
+        if (!analyzer.isUDFAllowed()) {
+            throw new AnalysisException(
+                    "Does not support non-builtin functions, or function does not exist: "
+                            + this.toSqlImpl());
+        }
+
+        Function fn = null;
+        String dbName = fnName.analyzeDb(analyzer);
+        if (!Strings.isNullOrEmpty(dbName)) {
+            // check operation privilege
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
+            }
+            // TODO(gaoxin): ExternalDatabase not implement udf yet.
+            DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
+            if (db != null && (db instanceof Database)) {
+                Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()),
+                        Type.INVALID, false);
+                fn = ((Database) db).getFunction(searchDesc,
+                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            }
+        }
+        // find from the internal database first, if not, then from the global functions
+        if (fn == null) {
+            Function searchDesc =
+                    new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+            fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        }
+        return fn;
     }
 }

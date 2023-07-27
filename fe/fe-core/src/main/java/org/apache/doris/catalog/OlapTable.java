@@ -40,6 +40,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -71,6 +72,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -113,32 +115,45 @@ public class OlapTable extends Table {
         WAITING_STABLE
     }
 
+    @SerializedName(value = "state")
     private volatile OlapTableState state;
 
     // index id -> index meta
+    @SerializedName("indexIdToMeta")
     private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
     // index name -> index id
+    @SerializedName("indexNameToId")
     private Map<String, Long> indexNameToId = Maps.newHashMap();
 
+    @SerializedName("keysType")
     private KeysType keysType;
+    @SerializedName("partitionInfo")
     private PartitionInfo partitionInfo;
+    @SerializedName("idToPartition")
     private Map<Long, Partition> idToPartition = new HashMap<>();
     private Map<String, Partition> nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
+    @SerializedName(value = "distributionInfo")
     private DistributionInfo defaultDistributionInfo;
 
     // all info about temporary partitions are save in "tempPartitions"
+    @SerializedName(value = "tempPartitions")
     private TempPartitions tempPartitions = new TempPartitions();
 
     // bloom filter columns
+    @SerializedName(value = "bfColumns")
+
     private Set<String> bfColumns;
+    @SerializedName(value = "bfFpp")
     private double bfFpp;
+    @SerializedName(value = "colocateGroup")
 
     private String colocateGroup;
 
     private boolean hasSequenceCol;
     private Type sequenceType;
 
+    @SerializedName(value = "indexes")
     private TableIndexes indexes;
 
     // In former implementation, base index id is same as table id.
@@ -147,9 +162,13 @@ public class OlapTable extends Table {
     // So we add this 'baseIndexId' to explicitly specify the base index id,
     // which should be different with table id.
     // The init value is -1, which means there is not partition and index at all.
+    @SerializedName(value = "baseIndexId")
     private long baseIndexId = -1;
 
+    @SerializedName(value = "tableProperty")
     private TableProperty tableProperty;
+
+    private AutoIncrementGenerator autoIncrementGenerator;
 
     public OlapTable() {
         // for persist
@@ -575,7 +594,7 @@ public class OlapTable extends Table {
                     try {
                         Map<Tag, List<Long>> tag2beIds =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                        replicaAlloc, null);
+                                        replicaAlloc, null, false, false);
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -1265,6 +1284,14 @@ public class OlapTable extends Table {
             tableProperty.write(out);
         }
 
+        // autoIncrementGenerator
+        if (autoIncrementGenerator == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            autoIncrementGenerator.write(out);
+        }
+
         tempPartitions.write(out);
     }
 
@@ -1345,6 +1372,15 @@ public class OlapTable extends Table {
         if (in.readBoolean()) {
             tableProperty = TableProperty.read(in);
         }
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124) {
+            // autoIncrementGenerator
+            if (in.readBoolean()) {
+                autoIncrementGenerator = AutoIncrementGenerator.read(in);
+                autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
+            }
+        }
+
         if (isAutoBucket()) {
             defaultDistributionInfo.markAutoBucket();
         }
@@ -2108,5 +2144,19 @@ public class OlapTable extends Table {
         return getKeysType() == KeysType.DUP_KEYS
                 || (getKeysType() == KeysType.UNIQUE_KEYS
                 && getEnableUniqueKeyMergeOnWrite());
+    }
+
+    public void initAutoIncrentGenerator(long dbId) {
+        for (Column column : fullSchema) {
+            if (column.isAutoInc()) {
+                autoIncrementGenerator = new AutoIncrementGenerator(dbId, id, column.getUniqueId());
+                autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
+                break;
+            }
+        }
+    }
+
+    public AutoIncrementGenerator getAutoIncrementGenerator() {
+        return autoIncrementGenerator;
     }
 }

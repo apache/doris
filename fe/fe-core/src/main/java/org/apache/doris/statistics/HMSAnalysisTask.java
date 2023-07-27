@@ -104,7 +104,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         table = (HMSExternalTable) tbl;
     }
 
-    public void execute() throws Exception {
+    public void doExecute() throws Exception {
         if (isTableLevelTask) {
             getTableStats();
         } else {

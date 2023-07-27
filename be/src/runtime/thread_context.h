@@ -86,11 +86,11 @@
 #define SCOPED_TRACK_MEMORY_TO_UNKNOWN() (void)0
 #endif
 
-#define SKIP_MEMORY_CHECK(...)                  \
-    do {                                        \
-        doris::skip_memory_check++;             \
-        DEFER({ doris::skip_memory_check--; }); \
-        __VA_ARGS__;                            \
+#define SKIP_MEMORY_CHECK(...)                                    \
+    do {                                                          \
+        doris::thread_context()->skip_memory_check++;             \
+        DEFER({ doris::thread_context()->skip_memory_check--; }); \
+        __VA_ARGS__;                                              \
     } while (0)
 
 namespace doris {
@@ -137,7 +137,6 @@ public:
 };
 
 inline thread_local ThreadContextPtr thread_context_ptr;
-inline thread_local int skip_memory_check = 0;
 
 // To avoid performance problems caused by frequently calling `bthread_getspecific` to obtain bthread TLS
 // in tcmalloc hook, cache the key and value of bthread TLS in pthread TLS.
@@ -201,7 +200,13 @@ public:
         return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
     }
 
+    void consume_memory(const int64_t size) const {
+        thread_mem_tracker_mgr->consume(size, large_memory_check);
+    }
+
     int switch_bthread_local_count = 0;
+    int skip_memory_check = 0;
+    bool large_memory_check = true;
 
 private:
     TUniqueId _task_id;
@@ -364,10 +369,8 @@ private:
 // Basic macros for mem tracker, usually do not need to be modified and used.
 #ifdef USE_MEM_TRACKER
 // For the memory that cannot be counted by mem hook, manually count it into the mem tracker, such as mmap.
-#define CONSUME_THREAD_MEM_TRACKER(size) \
-    doris::thread_context()->thread_mem_tracker_mgr->consume(size)
-#define RELEASE_THREAD_MEM_TRACKER(size) \
-    doris::thread_context()->thread_mem_tracker_mgr->consume(-size)
+#define CONSUME_THREAD_MEM_TRACKER(size) doris::thread_context()->consume_memory(size)
+#define RELEASE_THREAD_MEM_TRACKER(size) doris::thread_context()->consume_memory(-size)
 
 // used to fix the tracking accuracy of caches.
 #define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                        \
@@ -385,7 +388,7 @@ private:
 #define CONSUME_MEM_TRACKER(size)                                                                  \
     do {                                                                                           \
         if (doris::thread_context_ptr.init) {                                                      \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(size);                        \
+            doris::thread_context()->consume_memory(size);                                         \
         } else if (doris::ExecEnv::GetInstance()->initialized()) {                                 \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
         }                                                                                          \
@@ -393,7 +396,7 @@ private:
 #define RELEASE_MEM_TRACKER(size)                                                            \
     do {                                                                                     \
         if (doris::thread_context_ptr.init) {                                                \
-            doris::thread_context()->thread_mem_tracker_mgr->consume(-size);                 \
+            doris::thread_context()->consume_memory(-size);                                  \
         } else if (doris::ExecEnv::GetInstance()->initialized()) {                           \
             doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak( \
                     -size);                                                                  \

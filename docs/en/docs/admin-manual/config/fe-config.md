@@ -181,7 +181,7 @@ The replica ack timeout when writing to bdbje ， When writing some relatively l
 
 #### `bdbje_lock_timeout_second`
 
-Default：1
+Default：5
 
 The lock timeout of bdbje operation， If there are many LockTimeoutException in FE WARN log, you can try to increase this value
 
@@ -1141,7 +1141,7 @@ fetch stream load record interval.
 
 #### `max_bytes_per_broker_scanner`
 
-Default：`3 * 1024 * 1024 * 1024L`  （3G）
+Default：`500 * 1024 * 1024 * 1024L`  （500G）
 
 IsMutable：true
 

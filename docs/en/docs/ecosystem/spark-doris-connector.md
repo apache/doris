@@ -305,15 +305,13 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | DOUBLE     | DataTypes.DoubleType             |
 | DATE       | DataTypes.StringType<sup>1</sup> |
 | DATETIME   | DataTypes.StringType<sup>1</sup> |
-| BINARY     | DataTypes.BinaryType             |
 | DECIMAL    | DecimalType                      |
 | CHAR       | DataTypes.StringType             |
 | LARGEINT   | DataTypes.StringType             |
 | VARCHAR    | DataTypes.StringType             |
-| DECIMALV2  | DecimalType                      |
+| DECIMAL    | DecimalType                      |
 | TIME       | DataTypes.DoubleType             |
 | HLL        | Unsupported datatype             |
+| Bitmap     | Unsupported datatype             |
 
-* Note: In Connector, `DATE` and` DATETIME` are mapped to `String`. Due to the processing logic of the Doris underlying
-  storage engine, when the time type is used directly, the time range covered cannot meet the demand. So use `String`
-  type to directly return the corresponding time readable text.
+* Note: In Connector, `DATE` and` DATETIME` are mapped to `String`. Due to the processing logic of the Doris underlying storage engine, when the time type is used directly, the time range covered cannot meet the demand. So use `String` type to directly return the corresponding time readable text.

@@ -243,11 +243,6 @@ Status StorageEngine::start_bg_threads() {
             .set_max_threads(config::tablet_publish_txn_max_thread)
             .build(&_tablet_publish_txn_thread_pool);
 
-    ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
-            .set_min_threads(1)
-            .set_max_threads(config::calc_delete_bitmap_max_thread)
-            .build(&_calc_delete_bitmap_thread_pool);
-
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "aync_publish_version_thread",
             [this]() { this->_async_publish_callback(); }, &_async_publish_thread));
@@ -1272,11 +1267,7 @@ void StorageEngine::_async_publish_callback() {
                 int64_t version = task_iter->first;
                 int64_t transaction_id = task_iter->second.first;
                 int64_t partition_id = task_iter->second.second;
-                int64_t max_version;
-                {
-                    std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version().second;
-                }
+                int64_t max_version = tablet->max_version().second;
 
                 if (version <= max_version) {
                     need_removed_tasks.emplace_back(tablet, version);

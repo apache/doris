@@ -13,8 +13,8 @@ PhysicalTopN
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](web_sales.ws_warehouse_sk = warehouse.w_warehouse_sk)
---------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_time_sk = time_dim.t_time_sk)
-----------------------------PhysicalProject
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_time_sk = time_dim.t_time_sk)
 ------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
 --------------------------------hashJoin[INNER_JOIN](web_sales.ws_ship_mode_sk = ship_mode.sm_ship_mode_sk)
 ----------------------------------PhysicalProject
@@ -27,10 +27,10 @@ PhysicalTopN
 ----------------------------------PhysicalProject
 ------------------------------------filter((date_dim.d_year = 1998))
 --------------------------------------PhysicalOlapScan[date_dim]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((cast(t_time as BIGINT) <= 77621)(cast(t_time as BIGINT) >= 48821))
-----------------------------------PhysicalOlapScan[time_dim]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((cast(t_time as BIGINT) <= 77621)(cast(t_time as BIGINT) >= 48821))
+------------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[warehouse]
@@ -40,8 +40,8 @@ PhysicalTopN
 --------------------hashAgg[LOCAL]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)
---------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_time_sk = time_dim.t_time_sk)
-----------------------------PhysicalProject
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_time_sk = time_dim.t_time_sk)
 ------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
 --------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_ship_mode_sk = ship_mode.sm_ship_mode_sk)
 ----------------------------------PhysicalProject
@@ -54,10 +54,10 @@ PhysicalTopN
 ----------------------------------PhysicalProject
 ------------------------------------filter((date_dim.d_year = 1998))
 --------------------------------------PhysicalOlapScan[date_dim]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((cast(t_time as BIGINT) <= 77621)(cast(t_time as BIGINT) >= 48821))
-----------------------------------PhysicalOlapScan[time_dim]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((cast(t_time as BIGINT) <= 77621)(cast(t_time as BIGINT) >= 48821))
+------------------------------------PhysicalOlapScan[time_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[warehouse]

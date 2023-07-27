@@ -158,6 +158,11 @@ public class StreamLoadPlanner {
                                 + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
+                        if (destTable.hasSequenceCol() && (taskInfo.hasSequenceCol() || (
+                                destTable.getSequenceMapCol() != null
+                                        && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())))) {
+                            partialUpdateInputColumns.add(Column.SEQUENCE_COL);
+                        }
                         existInExpr = true;
                         break;
                     }
@@ -176,10 +181,18 @@ public class StreamLoadPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+            slotDesc.setAutoInc(col.isAutoInc());
             SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
             scanSlotDesc.setIsMaterialized(true);
             scanSlotDesc.setColumn(col);
             scanSlotDesc.setIsNullable(col.isAllowNull());
+            scanSlotDesc.setAutoInc(col.isAutoInc());
+            if (col.isAutoInc()) {
+                // auto-increment column should be non-nullable
+                // however, here we use `NullLiteral` to indicate that a cell should
+                // be filled with generated value in `VOlapTableSink::_fill_auto_inc_cols()`
+                scanSlotDesc.setIsNullable(true);
+            }
             for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                 try {
                     if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
@@ -378,10 +391,18 @@ public class StreamLoadPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+            slotDesc.setAutoInc(col.isAutoInc());
             SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
             scanSlotDesc.setIsMaterialized(true);
             scanSlotDesc.setColumn(col);
             scanSlotDesc.setIsNullable(col.isAllowNull());
+            scanSlotDesc.setAutoInc(col.isAutoInc());
+            if (col.isAutoInc()) {
+                // auto-increment column should be non-nullable
+                // however, here we use `NullLiteral` to indicate that a cell should
+                // be filled with generated value in `VOlapTableSink::_fill_auto_inc_cols()`
+                scanSlotDesc.setIsNullable(true);
+            }
             for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                 try {
                     if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null

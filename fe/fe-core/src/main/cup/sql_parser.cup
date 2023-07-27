@@ -654,6 +654,7 @@ terminal BigDecimal DECIMAL_LITERAL;
 terminal String STRING_LITERAL;
 terminal String UNMATCHED_STRING_LITERAL;
 terminal String COMMENTED_PLAN_HINTS;
+terminal String KW_CRON;
 
 // Statement that the result of this parser.
 nonterminal List<StatementBase> stmts;
@@ -2397,6 +2398,7 @@ data_desc ::=
     KW_INTO KW_TABLE ident:tableName
     opt_partition_names:partitionNames
     opt_field_term:colSep
+    opt_line_term:lineDelimiter
     opt_file_format:fileFormat
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
@@ -2407,7 +2409,7 @@ data_desc ::=
     sequence_col_clause:sequenceColName
     opt_properties:properties
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat,
         columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName, properties);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
@@ -5933,6 +5935,12 @@ with_analysis_properties ::=
             put("analysis.type", "HISTOGRAM");
         }};
     :}
+    | KW_CRON STRING_LITERAL:cron_expr
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.cron", cron_expr);
+        }};
+    :}
     ;
 
 opt_with_analysis_properties ::=
@@ -7662,6 +7670,8 @@ keyword ::=
     | KW_PERIOD:id
     {: RESULT = id; :}
     | KW_PERCENT:id
+    {: RESULT = id; :}
+    | KW_CRON:id
     {: RESULT = id; :}
     ;
 

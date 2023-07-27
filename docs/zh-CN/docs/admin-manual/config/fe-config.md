@@ -181,7 +181,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 #### `bdbje_lock_timeout_second`
 
-默认值：1
+默认值：5
 
 bdbje 操作的 lock timeout  如果 FE WARN 日志中有很多 LockTimeoutException，可以尝试增加这个值
 
@@ -1141,7 +1141,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：3 * 1024 * 1024 * 1024L  （3G）
+默认值：500 * 1024 * 1024 * 1024L  （500G）
 
 是否可以动态配置：true
 

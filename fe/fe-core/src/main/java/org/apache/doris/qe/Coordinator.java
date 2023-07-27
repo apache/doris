@@ -478,7 +478,8 @@ public class Coordinator {
         Map<String, Integer> result = Maps.newTreeMap();
         if (enablePipelineEngine) {
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port), ctxs.ctxs.size());
+                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port),
+                        ctxs.getInstanceNumber());
             }
         } else {
             for (BackendExecStates states : beToExecStates.values()) {
@@ -842,7 +843,8 @@ public class Coordinator {
                     PipelineExecContexts ctxs = beToPipelineExecCtxs.get(pipelineExecContext.backend.getId());
                     if (ctxs == null) {
                         ctxs = new PipelineExecContexts(pipelineExecContext.backend.getId(),
-                                pipelineExecContext.brpcAddress, twoPhaseExecution);
+                                pipelineExecContext.brpcAddress, twoPhaseExecution,
+                                entry.getValue().getFragmentNumOnHost());
                         beToPipelineExecCtxs.putIfAbsent(pipelineExecContext.backend.getId(), ctxs);
                     }
                     ctxs.addContext(pipelineExecContext);
@@ -1292,6 +1294,9 @@ public class Coordinator {
         // compute destinations and # senders per exchange node
         // (the root fragment doesn't have a destination)
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
+            if (params.fragment instanceof MultiCastPlanFragment) {
+                continue;
+            }
             PlanFragment destFragment = params.fragment.getDestFragment();
             if (destFragment == null) {
                 // root plan fragment
@@ -1306,6 +1311,10 @@ public class Coordinator {
             // output at the moment
 
             PlanNodeId exchId = sink.getExchNodeId();
+            PlanNode exchNode = PlanNode.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
+            Preconditions.checkState(exchNode != null, "exchNode is null");
+            Preconditions.checkState(exchNode instanceof ExchangeNode,
+                    "exchNode is not ExchangeNode" + exchNode.getId().toString());
             // we might have multiple fragments sending to this exchange node
             // (distributed MERGE), which is why we need to add up the #senders
             if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
@@ -1355,7 +1364,7 @@ public class Coordinator {
                 }
             } else {
                 if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
-                        && params.fragment.isRightChildOfBroadcastHashJoin()) {
+                        && ((ExchangeNode) exchNode).isRightChildOfBroadcastHashJoin()) {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
                     destParams.instanceExecParams.forEach(param -> {
@@ -1410,7 +1419,11 @@ public class Coordinator {
                 multi.getDestFragmentList().get(i).setOutputPartition(params.fragment.getOutputPartition());
 
                 PlanNodeId exchId = sink.getExchNodeId();
+                PlanNode exchNode = PlanNode.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
                 Preconditions.checkState(!destParams.perExchNumSenders.containsKey(exchId.asInt()));
+                Preconditions.checkState(exchNode != null, "exchNode is null");
+                Preconditions.checkState(exchNode instanceof ExchangeNode,
+                        "exchNode is not ExchangeNode" + exchNode.getId().toString());
                 if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
                     destParams.perExchNumSenders.put(exchId.asInt(), params.instanceExecParams.size());
                 } else {
@@ -1420,7 +1433,7 @@ public class Coordinator {
 
                 List<TPlanFragmentDestination> destinations = multiSink.getDestinations().get(i);
                 if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
-                        && params.fragment.isRightChildOfBroadcastHashJoin()) {
+                        && ((ExchangeNode) exchNode).isRightChildOfBroadcastHashJoin()) {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
 
@@ -2996,15 +3009,22 @@ public class Coordinator {
         List<PipelineExecContext> ctxs = Lists.newArrayList();
         boolean twoPhaseExecution = false;
         ScopedSpan scopedSpan = new ScopedSpan();
+        int instanceNumber;
 
-        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
+        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
+                int instanceNumber) {
             this.beId = beId;
             this.brpcAddr = brpcAddr;
             this.twoPhaseExecution = twoPhaseExecution;
+            this.instanceNumber = instanceNumber;
         }
 
         public void addContext(PipelineExecContext ctx) {
             this.ctxs.add(ctx);
+        }
+
+        public int getInstanceNumber() {
+            return instanceNumber;
         }
 
         /**

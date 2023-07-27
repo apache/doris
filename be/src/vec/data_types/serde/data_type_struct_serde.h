@@ -39,6 +39,17 @@ public:
     DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elemSerDeSPtrs)
             : elemSerDeSPtrs(_elemSerDeSPtrs) {}
 
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support serialize struct column to buffer";
+    }
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support deserialize from buffer to struct";
+        return Status::NotSupported("Not support deserialize from buffer to struct");
+    }
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
         LOG(FATAL) << "Not support write struct column to pb";

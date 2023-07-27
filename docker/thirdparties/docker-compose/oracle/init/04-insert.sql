@@ -75,4 +75,6 @@ insert into doris_test.test_number3 values (4, 0.99999);
 
 insert into doris_test.test_number4 values (1, 12345678);
 insert into doris_test.test_number4 values (2, 123456789012);
+insert into doris_test.test_clob values (10086, 'yidong');
+insert into doris_test.test_clob values (10010, 'liantong');
 commit;

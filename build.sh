@@ -335,6 +335,14 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
+if [[ -z "${USE_UNWIND}" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        USE_UNWIND='ON'
+    else
+        USE_UNWIND='OFF'
+    fi
+fi
+
 if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
     DISPLAY_BUILD_TIME='OFF'
 fi
@@ -374,7 +382,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -n "${CAUSE}" ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with BE Java extensions due to ${CAUSE}.\033[0m"
         BUILD_BE_JAVA_EXTENSIONS=0
-        BUILD_BE_JAVA_EXTENSIONS_IN_CONF=1
+        BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF=1
     fi
 fi
 
@@ -395,6 +403,7 @@ echo "Get params:
     USE_AVX2                    -- ${USE_AVX2}
     USE_LIBCPP                  -- ${USE_LIBCPP}
     USE_DWARF                   -- ${USE_DWARF}
+    USE_UNWIND                  -- ${USE_UNWIND}
     STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
     USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                -- ${USE_JEMALLOC}
@@ -480,6 +489,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
+        -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
@@ -575,6 +585,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
+    cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
@@ -604,7 +615,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
     fi
 
-    if [[ "${BUILD_BE_JAVA_EXTENSIONS_IN_CONF}" -eq 1 ]]; then
+    if [[ "${BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
 

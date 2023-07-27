@@ -291,15 +291,12 @@ struct TIcebergFileDesc {
 }
 
 struct TPaimonFileDesc {
-    1: optional binary paimon_split
-    2: optional string paimon_column_ids
-    3: optional string paimon_column_types
-    4: optional string paimon_column_names
-    5: optional string hive_metastore_uris
-    6: optional string warehouse
-    7: optional string db_name
-    8: optional string table_name
-    9: optional string length_byte
+    1: optional string paimon_split
+    2: optional string paimon_column_names
+    3: optional string db_name
+    4: optional string table_name
+    5: optional string paimon_predicate
+    6: optional map<string, string> paimon_options
 }
 
 
@@ -792,7 +789,7 @@ struct TAggregationNode {
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
-  9: optional bool use_fixed_length_serialization_opt
+  // 9: optional bool use_fixed_length_serialization_opt
 }
 
 struct TRepeatNode {

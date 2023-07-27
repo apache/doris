@@ -38,6 +38,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.external.jdbc.JdbcScanNode;
+import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartitionType;
@@ -386,7 +388,7 @@ public class DistributedPlanner {
             node.setChild(0, leftChildFragment.getPlanRoot());
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
-            rightChildFragment.setRightChildOfBroadcastHashJoin(true);
+            ((ExchangeNode) node.getChild(1)).setRightChildOfBroadcastHashJoin(true);
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);

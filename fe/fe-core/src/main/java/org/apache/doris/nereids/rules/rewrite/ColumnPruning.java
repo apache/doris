@@ -29,9 +29,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -161,8 +161,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     @Override
-    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink olapTableSink, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(olapTableSink);
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(logicalSink);
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,

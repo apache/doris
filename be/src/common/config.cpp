@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <cctype>
 // IWYU pragma: no_include <bthread/errno.h>
+#include <lz4/lz4hc.h>
+
 #include <cerrno> // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
@@ -128,6 +130,8 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
+DEFINE_mInt64(large_memory_check_bytes, "1073741824");
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
@@ -159,8 +163,8 @@ DEFINE_Int32(clear_transaction_task_worker_count, "1");
 DEFINE_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 DEFINE_Int32(alter_tablet_worker_count, "3");
-// the count of thread to alter inverted index
-DEFINE_Int32(alter_inverted_index_worker_count, "3");
+// the count of thread to alter index
+DEFINE_Int32(alter_index_worker_count, "3");
 // the count of thread to clone
 DEFINE_Int32(clone_worker_count, "3");
 // the count of thread to clone
@@ -453,9 +457,9 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
-DEFINE_Int32(brpc_heavy_work_pool_threads, "192");
+DEFINE_Int32(brpc_heavy_work_pool_threads, "128");
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
-DEFINE_Int32(brpc_light_work_pool_threads, "32");
+DEFINE_Int32(brpc_light_work_pool_threads, "128");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "10240");
 
@@ -472,9 +476,6 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
-// The configuration is used to enable lazy open feature, and the default value is false.
-// When there is mixed deployment in the upgraded version, it needs to be set to false.
-DEFINE_mBool(enable_lazy_open_partition, "false");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
@@ -580,10 +581,10 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-DEFINE_mInt32(thrift_rpc_timeout_ms, "20000");
+DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
 // txn commit rpc timeout
-DEFINE_mInt32(txn_commit_rpc_timeout_ms, "10000");
+DEFINE_mInt32(txn_commit_rpc_timeout_ms, "60000");
 
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");
@@ -1012,6 +1013,7 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
@@ -1032,6 +1034,20 @@ DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
+
+DEFINE_mString(get_stack_trace_tool, "libunwind");
+
+// the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
+DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
+
+// the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
+DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
+
+// number of threads that fetch auto-inc ranges from FE
+DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 #ifdef BE_TEST
 // test s3

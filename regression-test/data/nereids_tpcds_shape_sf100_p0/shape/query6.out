@@ -15,23 +15,22 @@ PhysicalTopN
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](s.ss_item_sk = i.i_item_sk)
 ----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN](s.ss_sold_date_sk = d.d_date_sk)
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales]
-----------------------------------PhysicalDistribute
-------------------------------------hashJoin[INNER_JOIN](d.d_month_seq = date_dim.d_month_seq)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalAssertNumRows
-------------------------------------------PhysicalDistribute
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute
-------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_year = 2002)(date_dim.d_moy = 3))
-------------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------hashJoin[INNER_JOIN](s.ss_sold_date_sk = d.d_date_sk)
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[store_sales]
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[INNER_JOIN](d.d_month_seq = date_dim.d_month_seq)
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalAssertNumRows
+----------------------------------------PhysicalDistribute
+------------------------------------------hashAgg[GLOBAL]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------hashAgg[LOCAL]
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter((date_dim.d_year = 2002)(date_dim.d_moy = 3))
+----------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[item]

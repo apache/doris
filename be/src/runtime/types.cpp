@@ -199,6 +199,9 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         }
     } else if (type == TYPE_MAP) {
         node->set_type(TTypeNodeType::MAP);
+        DCHECK_EQ(2, contains_nulls.size());
+        node->add_contains_nulls(contains_nulls[0]);
+        node->add_contains_nulls(contains_nulls[1]);
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
@@ -252,6 +255,10 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+        if (node.contains_nulls_size() > 1) {
+            contains_nulls.push_back(node.contains_nulls(0));
+            contains_nulls.push_back(node.contains_nulls(1));
+        }
         break;
     }
     case TTypeNodeType::STRUCT: {

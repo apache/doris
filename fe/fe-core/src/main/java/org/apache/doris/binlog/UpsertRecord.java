@@ -29,12 +29,17 @@ import com.google.gson.annotations.SerializedName;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class UpsertRecord {
     public static class TableRecord {
         public static class PartitionRecord {
             @SerializedName(value = "partitionId")
             public long partitionId;
+
+            @SerializedName(value = "range")
+            private String range;
+
             @SerializedName(value = "version")
             public long version;
         }
@@ -42,13 +47,18 @@ public class UpsertRecord {
         @SerializedName(value = "partitionRecords")
         private List<PartitionRecord> partitionRecords;
 
-        public TableRecord() {
+        @SerializedName(value = "indexIds")
+        private Set<Long> indexIds;
+
+        public TableRecord(Set<Long> indexIds) {
             partitionRecords = Lists.newArrayList();
+            this.indexIds = indexIds;
         }
 
         public void addPartitionRecord(PartitionCommitInfo partitionCommitInfo) {
             PartitionRecord partitionRecord = new PartitionRecord();
             partitionRecord.partitionId = partitionCommitInfo.getPartitionId();
+            partitionRecord.range = partitionCommitInfo.getPartitionRange();
             partitionRecord.version = partitionCommitInfo.getVersion();
             partitionRecords.add(partitionRecord);
         }
@@ -83,8 +93,10 @@ public class UpsertRecord {
         dbId = state.getDbId();
         tableRecords = Maps.newHashMap();
 
+        Map<Long, Set<Long>> loadedTableIndexIds = state.getLoadedTblIndexes();
         for (TableCommitInfo info : state.getIdToTableCommitInfos().values()) {
-            TableRecord tableRecord = new TableRecord();
+            Set<Long> indexIds = loadedTableIndexIds.get(info.getTableId());
+            TableRecord tableRecord = new TableRecord(indexIds);
             tableRecords.put(info.getTableId(), tableRecord);
 
             for (PartitionCommitInfo partitionCommitInfo : info.getIdToPartitionCommitInfo().values()) {

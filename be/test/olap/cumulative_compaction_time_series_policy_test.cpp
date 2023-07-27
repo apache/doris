@@ -305,7 +305,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calculate_cumulative_point_over
     _tablet->init();
     _tablet->calculate_cumulative_point();
 
-    EXPECT_EQ(2, _tablet->cumulative_layer_point());
+    EXPECT_EQ(4, _tablet->cumulative_layer_point());
 }
 
 TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calculate_cumulative_point_big_rowset) {
@@ -375,7 +375,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_candidate_rowsets) {
     _tablet->calculate_cumulative_point();
 
     auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
-    EXPECT_EQ(4, candidate_rowsets.size());
+    EXPECT_EQ(5, candidate_rowsets.size());
 }
 
 TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_candidate_rowsets_big_rowset) {
@@ -442,8 +442,8 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_file_count) 
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
             &compaction_score);
 
-    EXPECT_EQ(4, input_rowsets.size());
-    EXPECT_EQ(10, compaction_score);
+    EXPECT_EQ(0, input_rowsets.size());
+    EXPECT_EQ(0, compaction_score);
     EXPECT_EQ(-1, last_delete_version.first);
     EXPECT_EQ(-1, last_delete_version.second);
 }
@@ -471,8 +471,8 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_time_interva
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
             &compaction_score);
 
-    EXPECT_EQ(4, input_rowsets.size());
-    EXPECT_EQ(4, compaction_score);
+    EXPECT_EQ(3, input_rowsets.size());
+    EXPECT_EQ(3, compaction_score);
     EXPECT_EQ(-1, last_delete_version.first);
     EXPECT_EQ(-1, last_delete_version.second);
 }
@@ -528,8 +528,8 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_delete) {
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
             &compaction_score);
 
-    EXPECT_EQ(2, input_rowsets.size());
-    EXPECT_EQ(4, compaction_score);
+    EXPECT_EQ(1, input_rowsets.size());
+    EXPECT_EQ(3, compaction_score);
     EXPECT_EQ(5, last_delete_version.first);
     EXPECT_EQ(5, last_delete_version.second);
 }

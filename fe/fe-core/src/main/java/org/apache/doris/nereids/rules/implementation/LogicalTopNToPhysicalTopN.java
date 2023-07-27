@@ -44,14 +44,15 @@ public class LogicalTopNToPhysicalTopN extends OneImplementationRuleFactory {
      *     gatherTopN(limit, off, require gather)
      *     mergeTopN(limit, off, require gather) -> localTopN(off+limit, 0, require any)
      */
-    private List<PhysicalTopN<? extends Plan>> twoPhaseSort(LogicalTopN logicalTopN) {
-        PhysicalTopN localSort = new PhysicalTopN(logicalTopN.getOrderKeys(),
+    private List<PhysicalTopN<? extends Plan>> twoPhaseSort(LogicalTopN<? extends Plan> logicalTopN) {
+        PhysicalTopN<Plan> localSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(),
                 logicalTopN.getLimit() + logicalTopN.getOffset(), 0, SortPhase.LOCAL_SORT,
                 logicalTopN.getLogicalProperties(), logicalTopN.child(0));
-        PhysicalTopN twoPhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
+        PhysicalTopN<Plan> twoPhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
                 logicalTopN.getOffset(), SortPhase.MERGE_SORT, logicalTopN.getLogicalProperties(), localSort);
-        PhysicalTopN onePhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
-                logicalTopN.getOffset(), SortPhase.GATHER_SORT, logicalTopN.getLogicalProperties(), localSort.child(0));
+        PhysicalTopN<Plan> onePhaseSort = new PhysicalTopN<>(logicalTopN.getOrderKeys(), logicalTopN.getLimit(),
+                logicalTopN.getOffset(), SortPhase.GATHER_SORT,
+                logicalTopN.getLogicalProperties(), localSort.child(0));
         return Lists.newArrayList(twoPhaseSort, onePhaseSort);
     }
 }

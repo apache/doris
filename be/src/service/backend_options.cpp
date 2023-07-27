@@ -111,6 +111,13 @@ const char* BackendOptions::get_service_bind_address() {
     return _service_bind_address;
 }
 
+const char* BackendOptions::get_service_bind_address_without_bracket() {
+    if (_bind_ipv6) {
+        return "::0";
+    }
+    return _service_bind_address;
+}
+
 bool BackendOptions::analyze_priority_cidrs() {
     if (config::priority_networks == "") {
         return true;

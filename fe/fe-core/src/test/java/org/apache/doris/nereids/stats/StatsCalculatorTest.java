@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -37,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -252,7 +252,7 @@ public class StatsCalculatorTest {
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(RelationUtil.newRelationId(), table1,
+        LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
                 Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))), ImmutableList.of());
         Group childGroup = newGroup();
