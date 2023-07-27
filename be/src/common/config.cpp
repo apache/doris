@@ -301,7 +301,7 @@ DEFINE_String(row_cache_mem_limit, "20%");
 DEFINE_String(storage_page_cache_limit, "20%");
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
-DEFINE_Int32(storage_page_cache_shard_size, "16");
+DEFINE_Int32(storage_page_cache_shard_size, "256");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
@@ -371,7 +371,7 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 
 // cumulative compaction policy: min and max delta file's number
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
-DEFINE_mInt64(cumulative_compaction_max_deltas, "100");
+DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
 
 // This config can be set to limit thread number in  segcompaction thread pool.
 DEFINE_mInt32(seg_compaction_max_threads, "10");
@@ -658,11 +658,11 @@ DEFINE_mInt64(max_runnings_transactions_per_txn_map, "2000");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
-DEFINE_Int32(tablet_map_shard_size, "4");
+DEFINE_Int32(tablet_map_shard_size, "256");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
-DEFINE_Int32(txn_map_shard_size, "128");
+DEFINE_Int32(txn_map_shard_size, "1024");
 
 // txn_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to commit and publish txn
@@ -686,7 +686,7 @@ DEFINE_Int32(query_cache_max_partition_count, "1024");
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
 // the load process will reject new incoming load job of this tablet.
 // This is to avoid too many version num.
-DEFINE_mInt32(max_tablet_version_num, "500");
+DEFINE_mInt32(max_tablet_version_num, "2000");
 
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
@@ -747,7 +747,7 @@ DEFINE_Int64(download_cache_buffer_size, "10485760");
 // so if there are too many segment in a rowset, the compaction process
 // will run out of memory.
 // When doing compaction, each segment may take at least 1MB buffer.
-DEFINE_mInt32(max_segment_num_per_rowset, "200");
+DEFINE_mInt32(max_segment_num_per_rowset, "1000");
 DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
 // The connection timeout when connecting to external table such as odbc table.
