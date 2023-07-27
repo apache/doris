@@ -1682,13 +1682,6 @@ public class Config extends ConfigBase {
     public static int statistics_simultaneously_running_task_num = 10;
 
     /**
-     * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
-     * otherwise the statistics related internal table creation would be failed.
-     */
-    @ConfField
-    public static int statistic_internal_table_replica_num = 1;
-
-    /**
      * if table has too many replicas, Fe occur oom when schema change.
      * 10W replicas is a reasonable value for testing.
      */
@@ -2047,4 +2040,10 @@ public class Config extends ConfigBase {
                     + "and modifying table properties. "
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
+
+    @ConfField
+    public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
+
+    @ConfField
+    public static int statistics_sql_parallel_exec_instance_num = 1;
 }
