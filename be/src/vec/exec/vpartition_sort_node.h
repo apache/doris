@@ -103,7 +103,10 @@ struct PartitionMethodSerialized {
     bool inited = false;
     std::vector<StringRef> keys;
     size_t keys_memory_usage = 0;
-    PartitionMethodSerialized() : _serialized_key_buffer_size(0), _serialized_key_buffer(nullptr) {}
+    PartitionMethodSerialized() : _serialized_key_buffer_size(0), _serialized_key_buffer(nullptr) {
+        _arena.reset(new Arena());
+        _serialize_key_arena.reset(new Arena());
+    }
 
     using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
 
