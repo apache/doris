@@ -83,6 +83,11 @@ pg_14_port=7121
 enableHiveTest=false
 hms_port=7141
 
+enableEsTest=false
+es_6_port=19200
+es_7_port=29200
+es_8_port=39200
+
 cacheDataPath = "/data/regression/"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
