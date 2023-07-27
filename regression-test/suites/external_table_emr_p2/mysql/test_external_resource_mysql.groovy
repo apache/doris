@@ -23,7 +23,7 @@ suite("test_external_resource_mysql", "p2") {
         String extMysqlPort = context.config.otherConfigs.get("extMysqlPort")
         String extMysqlUser = context.config.otherConfigs.get("extMysqlUser")
         String extMysqlPassword = context.config.otherConfigs.get("extMysqlPassword")
-        String mysqlResourceName = "jdbc_resource_mysql_57"
+        String mysqlResourceName = "jdbc_resource_mysql_57_y"
         String mysqlDatabaseName01 = "external_mysql_database_ssb"
         String mysqlTableNameLineOrder = "external_mysql_table_lineorder"
         String mysqlTableNameCustomer = "external_mysql_table_customer"
@@ -38,7 +38,7 @@ suite("test_external_resource_mysql", "p2") {
 
         sql """drop resource if exists ${mysqlResourceName};"""
         sql """
-            create external resource ${mysqlResourceName}
+            create external resource if not exists ${mysqlResourceName}
             properties (
                 "type"="jdbc",
                 "user"="${extMysqlUser}",

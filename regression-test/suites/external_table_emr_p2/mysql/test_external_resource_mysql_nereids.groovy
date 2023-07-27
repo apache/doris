@@ -23,11 +23,11 @@ suite("test_external_resource_mysql_nereids", "p2") {
         String extMysqlPort = context.config.otherConfigs.get("extMysqlPort")
         String extMysqlUser = context.config.otherConfigs.get("extMysqlUser")
         String extMysqlPassword = context.config.otherConfigs.get("extMysqlPassword")
-        String mysqlResourceName = "jdbc_resource_mysql_57"
-        String mysqlDatabaseName01 = "external_mysql_database_ssb"
-        String mysqlTableNameLineOrder = "external_mysql_table_lineorder"
-        String mysqlTableNameCustomer = "external_mysql_table_customer"
-        String mysqlTableNameSupplier = "external_mysql_table_supplier"
+        String mysqlResourceName = "jdbc_resource_mysql_57_n"
+        String mysqlDatabaseName01 = "external_mysql_database_ssb_n"
+        String mysqlTableNameLineOrder = "external_mysql_table_lineorder_n"
+        String mysqlTableNameCustomer = "external_mysql_table_customer_n"
+        String mysqlTableNameSupplier = "external_mysql_table_supplier_n"
 
 
 
