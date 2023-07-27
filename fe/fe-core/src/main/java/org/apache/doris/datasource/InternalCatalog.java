@@ -763,7 +763,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         db.writeLockOrDdlException();
         try {
-            db.updateDbProperties(properties);
+            boolean update = db.updateDbProperties(properties);
+            if (!update) {
+                return;
+            }
 
             AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbName, properties);
             Env.getCurrentEnv().getEditLog().logAlterDatabaseProperty(info);
@@ -777,7 +780,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = (Database) getDbOrMetaException(dbName);
         db.writeLock();
         try {
-            db.updateDbProperties(properties);
+            db.replayUpdateDbProperties(properties);
         } finally {
             db.writeUnlock();
         }
