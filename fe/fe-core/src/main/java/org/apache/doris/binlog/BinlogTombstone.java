@@ -92,7 +92,7 @@ public class BinlogTombstone {
         return dbId;
     }
 
-    // TODO(deadlinefen): delete this code later
+    // TODO(deadlinefen): deprecated this code later
     public List<Long> getTableIds() {
         if (tableIds == null) {
             tableIds = Collections.emptyList();
@@ -102,7 +102,7 @@ public class BinlogTombstone {
 
     public Map<Long, Long> getTableCommitSeqMap() {
         if (tableCommitSeqMap == null) {
-            tableCommitSeqMap = Collections.emptyMap();
+            tableCommitSeqMap = Maps.newHashMap();
         }
         return tableCommitSeqMap;
     }

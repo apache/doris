@@ -759,6 +759,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         Database db = (Database) getDbOrDdlException(dbName);
+        long dbId = db.getId();
         Map<String, String> properties = stmt.getProperties();
 
         db.writeLockOrDdlException();
@@ -768,7 +769,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 return;
             }
 
-            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbName, properties);
+            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbId, dbName, properties);
             Env.getCurrentEnv().getEditLog().logAlterDatabaseProperty(info);
         } finally {
             db.writeUnlock();
