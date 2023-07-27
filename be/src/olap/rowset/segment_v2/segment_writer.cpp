@@ -369,10 +369,11 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
                 full_block.try_get_by_name(DELETE_SIGN);
         delete_sign_column != nullptr) {
-        delete_sign_column_data =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column))
-                        .get_data()
-                        .data();
+        auto& delete_sign_col =
+                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+        if (delete_sign_col.size() == num_rows) {
+            delete_sign_column_data = delete_sign_col.get_data().data();
+        }
     }
 
     std::vector<RowsetSharedPtr> specified_rowsets;
