@@ -156,6 +156,10 @@ protected:
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    std::unique_ptr<std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>>
+            _partition_columns;
+    std::unique_ptr<std::unordered_map<std::string, VExprContextSPtr>> _missing_columns;
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _open_reader_timer = nullptr;
