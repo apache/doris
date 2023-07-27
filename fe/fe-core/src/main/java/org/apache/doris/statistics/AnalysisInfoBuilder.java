@@ -45,6 +45,7 @@ public class AnalysisInfoBuilder {
     private int sampleRows;
     private long periodTimeInMs;
     private long lastExecTimeInMs;
+    private long timeCostInMs;
     private AnalysisState state;
     private ScheduleType scheduleType;
     private String message = "";
@@ -75,6 +76,7 @@ public class AnalysisInfoBuilder {
         maxBucketNum = info.maxBucketNum;
         message = info.message;
         lastExecTimeInMs = info.lastExecTimeInMs;
+        timeCostInMs = info.timeCostInMs;
         state = info.state;
         scheduleType = info.scheduleType;
         externalTableLevelTask = info.externalTableLevelTask;
@@ -177,6 +179,11 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setTimeCostInMs(long timeCostInMs) {
+        this.timeCostInMs = timeCostInMs;
+        return this;
+    }
+
     public AnalysisInfoBuilder setState(AnalysisState state) {
         this.state = state;
         return this;
@@ -205,7 +212,7 @@ public class AnalysisInfoBuilder {
     public AnalysisInfo build() {
         return new AnalysisInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
-                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, state, scheduleType,
+                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 externalTableLevelTask, partitionOnly, samplingPartition);
     }
 
@@ -229,6 +236,7 @@ public class AnalysisInfoBuilder {
                 .setMaxBucketNum(maxBucketNum)
                 .setMessage(message)
                 .setLastExecTimeInMs(lastExecTimeInMs)
+                .setTimeCostInMs(timeCostInMs)
                 .setState(state)
                 .setScheduleType(scheduleType)
                 .setExternalTableLevelTask(externalTableLevelTask);
