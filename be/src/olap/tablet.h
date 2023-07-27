@@ -550,6 +550,12 @@ public:
 
     void set_binlog_config(BinlogConfig binlog_config);
 
+    void add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
+                                            const RowsetIdUnorderedSet& rowsetids);
+    void remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
+    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap,
+                                           int64_t max_version) const;
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;

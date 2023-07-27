@@ -3026,6 +3026,11 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
             RETURN_IF_ERROR(calc_segment_delete_bitmap(rowset, segments[i], specified_rowsets,
                                                        seg_delete_bitmap, end_version,
                                                        rowset_writer));
+            RowsetIdUnorderedSet rowsetids;
+            for (const auto& rowset : specified_rowsets) {
+                rowsetids.emplace(rowset->rowset_id());
+            }
+            add_sentinel_mark_to_delete_bitmap(seg_delete_bitmap, rowsetids);
         }
     }
 
@@ -3317,6 +3322,10 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
               << ", rowset_ids to del: " << rowset_ids_to_del.size()
               << ", cur max_version: " << cur_version << ", transaction_id: " << txn_id
               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+
+    // check if all the rowset has ROWSET_SENTINEL_MARK
+    RETURN_IF_ERROR(check_delete_bitmap_correctness(delete_bitmap, cur_version - 1));
+    remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
 
     // update version without write lock, compaction and publish_txn
     // will update delete bitmap, handle compaction with _rowset_update_lock
@@ -3651,4 +3660,43 @@ Status Tablet::calc_delete_bitmap_between_segments(
     return Status::OK();
 }
 
+void Tablet::add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
+                                                const RowsetIdUnorderedSet& rowsetids) {
+    for (const auto& rowsetid : rowsetids) {
+        delete_bitmap->add({rowsetid, 0, 0}, DeleteBitmap::ROWSET_SENTINEL_MARK);
+    }
+}
+
+void Tablet::remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap) {
+    for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
+        bitmap.remove(DeleteBitmap::ROWSET_SENTINEL_MARK);
+    }
+}
+
+Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap,
+                                               int64_t max_version) const {
+    std::map<RowsetId, bool> result;
+    for (const auto& rowsetid : all_rs_id(max_version)) {
+        result.emplace(rowsetid, false);
+    }
+    for (const auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
+        auto it = result.find(std::get<0>(key));
+        if (it == result.end()) {
+            LOG(WARNING) << "can't find rowsetid when checking delete bitmap correctness";
+            return Status::InternalError("check delete bitmap correctness failed");
+        }
+        if (bitmap.contains(DeleteBitmap::ROWSET_SENTINEL_MARK)) {
+            it->second = true;
+        }
+    }
+    for (const auto& [rowsetid, value] : result) {
+        if (!value) {
+            LOG(WARNING) << "check delete bitmap correctness failed, can't find setinel mark in "
+                            "rowset with RowsetId: "
+                         << rowsetid;
+            return Status::InternalError("check delete bitmap correctness failed");
+        }
+    }
+    return Status::OK();
+}
 } // namespace doris
