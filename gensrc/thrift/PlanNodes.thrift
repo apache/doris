@@ -506,6 +506,7 @@ struct TBrokerScanNode {
 
 struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
+    2: optional string table_name
 }
 
 struct TEsScanNode {
