@@ -1683,6 +1683,14 @@ public class FunctionCallExpr extends Expr {
                         && ((ArrayType) args[ix]).getItemType().isDecimalV3()))) {
                     continue;
                 } else if (!argTypes[i].matchesType(args[ix])
+                        && ROUND_FUNCTION_SET.contains(fnName.getFunction())
+                        && ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                        && argTypes[i].isDecimalV2()
+                        && args[ix].isDecimalV3()) {
+                    uncheckedCastChild(ScalarType.createDecimalV3Type(ScalarType.MAX_DECIMALV2_PRECISION,
+                            ((ScalarType) argTypes[i]).getScalarScale()), i);
+                } else if (!argTypes[i].matchesType(args[ix])
                         && !(argTypes[i].isDecimalV3OrContainsDecimalV3()
                         && args[ix].isDecimalV3OrContainsDecimalV3())) {
                     // Do not do this cast if types are both decimalv3 with different precision/scale.
