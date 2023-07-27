@@ -96,7 +96,15 @@ public:
 
     bool operator==(const uint24_t& value) const { return cmp(value) == 0; }
 
-    auto operator<=>(const uint24_t& value) const { return cmp(value) <=> 0; }
+    bool operator!=(const uint24_t& value) const { return cmp(value) != 0; }
+
+    bool operator<(const uint24_t& value) const { return cmp(value) < 0; }
+
+    bool operator<=(const uint24_t& value) const { return cmp(value) <= 0; }
+
+    bool operator>(const uint24_t& value) const { return cmp(value) > 0; }
+
+    bool operator>=(const uint24_t& value) const { return cmp(value) >= 0; }
 
     int32_t cmp(const uint24_t& other) const {
         if (data[2] > other.data[2]) {
