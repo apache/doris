@@ -54,10 +54,13 @@ jobs:
     if: ${{ needs.changes.outputs.broker_changes == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Install Clang 16
+      - name: Add LLVM repository
         run: |
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal main" | sudo tee -a /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y clang-16
+      - name: Install Clang 16
+        run: sudo apt-get install -y clang-16
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v3
 
