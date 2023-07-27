@@ -395,7 +395,7 @@ public class SessionVariable implements Serializable, Writable {
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
     @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
-    public long defaultOrderByLimit = -1;
+    private long defaultOrderByLimit = -1;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
@@ -474,7 +474,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean sqlAutoIsNull = false;
 
     @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
-    public long sqlSelectLimit = 9223372036854775807L;
+    private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
@@ -1266,7 +1266,14 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public long getSqlSelectLimit() {
+        if (sqlSelectLimit < 0 || sqlSelectLimit >= Long.MAX_VALUE) {
+            return -1;
+        }
         return sqlSelectLimit;
+    }
+
+    public long getDefaultOrderByLimit() {
+        return defaultOrderByLimit;
     }
 
     public int getMaxAllowedPacket() {
