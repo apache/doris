@@ -20,17 +20,27 @@ suite("test_external_catalog_icebergv2", "p2") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
         String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "test_external_catalog_iceberg"
+        String hms_catalog_name = "test_external_hms_catalog_iceberg"
+        String iceberg_catalog_name = "test_external_iceberg_catalog_iceberg"
 
-        sql """drop catalog if exists ${catalog_name};"""
+        sql """drop catalog if exists ${hms_catalog_name};"""
         sql """
-            create catalog if not exists ${catalog_name} properties (
+            create catalog if not exists ${hms_catalog_name} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
             );
         """
 
-        sql """switch ${catalog_name};"""
+        sql """drop catalog if exists ${iceberg_catalog_name};"""
+        sql """
+            create catalog if not exists ${iceberg_catalog_name} properties (
+                'type'='iceberg',
+                'iceberg.catalog.type'='hms',
+                'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}'
+            );
+        """
+
+        sql """switch ${hms_catalog_name};"""
         // test parquet format format
         def q01 = {
             qt_q01 """ select count(1) as c from customer_small """
@@ -54,9 +64,19 @@ suite("test_external_catalog_icebergv2", "p2") {
             qt_q13 """ select c_custkey from customer_small where c_custkey in (1, 2, 4, 7) order by c_custkey """
             qt_q14 """ select c_name from customer_small where c_name in ('Customer#000000004', 'Customer#000000007') order by c_custkey """
         }
+
+        // test for 'FOR TIME AS OF' and 'FOR VERSION AS OF'
+        def q04 = {
+            qt_q15 """ select count(*) from ${hms_catalog_name}.tpch_1000_icebergv2.customer_small FOR TIME AS OF '2022-12-22 02:29:30' """
+            qt_q16 """ select count(*) from ${hms_catalog_name}.tpch_1000_icebergv2.customer_small FOR VERSION AS OF 6113938156088124425 """
+            qt_q17 """ select count(*) from ${iceberg_catalog_name}.tpch_1000_icebergv2.customer_small FOR TIME AS OF '2022-12-22 02:29:30' """
+            qt_q18 """ select count(*) from ${iceberg_catalog_name}.tpch_1000_icebergv2.customer_small FOR VERSION AS OF 6113938156088124425 """
+        }
+        
         sql """ use `tpch_1000_icebergv2`; """
         q01()
         q02()
         q03()
+        q04()
     }
 }
