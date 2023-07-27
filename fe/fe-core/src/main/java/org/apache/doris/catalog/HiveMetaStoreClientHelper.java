@@ -781,20 +781,18 @@ public class HiveMetaStoreClientHelper {
             }
         }
         if (lowerCaseType.startsWith("char")) {
-            ScalarType type = ScalarType.createType(PrimitiveType.CHAR);
             Matcher match = digitPattern.matcher(lowerCaseType);
             if (match.find()) {
-                type.setLength(Integer.parseInt(match.group(1)));
+                return ScalarType.createType(PrimitiveType.CHAR, Integer.parseInt(match.group(1)), 0, 0);
             }
-            return type;
+            return ScalarType.createType(PrimitiveType.CHAR);
         }
         if (lowerCaseType.startsWith("varchar")) {
-            ScalarType type = ScalarType.createType(PrimitiveType.VARCHAR);
             Matcher match = digitPattern.matcher(lowerCaseType);
             if (match.find()) {
-                type.setLength(Integer.parseInt(match.group(1)));
+                return ScalarType.createType(PrimitiveType.VARCHAR, Integer.parseInt(match.group(1)), 0, 0);
             }
-            return type;
+            return ScalarType.createType(PrimitiveType.VARCHAR);
         }
         if (lowerCaseType.startsWith("decimal")) {
             Matcher match = digitPattern.matcher(lowerCaseType);

@@ -362,6 +362,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
+    public static final String TRUNCATE_CHAR_OR_VARCHAR_COLUMNS = "truncate_char_or_varchar_columns";
+
     public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
 
     public static final String CBO_MEM_WEIGHT = "cbo_mem_weight";
@@ -630,7 +632,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean extractWideRangeExpr = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
-    public boolean enableNereidsDML = false;
+    public boolean enableNereidsDML = true;
 
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableVectorizedEngine = true;
@@ -1068,6 +1070,19 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
     public int parallelSyncAnalyzeTaskNum = 2;
 
+    @VariableMgr.VarAttr(name = TRUNCATE_CHAR_OR_VARCHAR_COLUMNS,
+            description = {"是否按照表的 schema 来截断 char 或者 varchar 列。默认为 false。\n"
+                    + "因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致"
+                    + "的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。",
+                    "Whether to truncate char or varchar columns according to the table's schema. "
+                            + "The default is false.\n"
+                    + "Because the maximum length of the char or varchar column in the schema of the table"
+                            + " is inconsistent with the schema in the underlying parquet or orc file."
+                    + " At this time, if the option is turned on, it will be truncated according to the maximum length"
+                            + " in the schema of the table."},
+            needForward = true)
+    public boolean truncateCharOrVarcharColumns = false;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -1116,21 +1131,26 @@ public class SessionVariable implements Serializable, Writable {
         */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
-            this.enablePipelineEngine = true;
-            this.enableNereidsPlanner = true;
-
             switch (Config.pull_request_id % 4) {
                 case 0:
+                    this.enablePipelineEngine = true;
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = true;
                     break;
                 case 1:
+                    this.enablePipelineEngine = true;
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = false;
                     break;
                 case 2:
+                    this.enablePipelineEngine = false;
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = true;
                     break;
                 case 3:
+                    this.enablePipelineEngine = false;
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = false;
                     break;
                 default:
                     break;
@@ -1148,10 +1168,7 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         // set random 1, 10, 100, 1000, 10000
-        // this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
-        // Now P0 test have some failed cese about topn, but can't reproduce at local
-        // So set this threshold to 0 temporary.
-        this.topnOptLimitThreshold = 0;
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {
@@ -2038,6 +2055,14 @@ public class SessionVariable implements Serializable, Writable {
         return externalTableAnalyzePartNum;
     }
 
+    public boolean isTruncateCharOrVarcharColumns() {
+        return truncateCharOrVarcharColumns;
+    }
+
+    public void setTruncateCharOrVarcharColumns(boolean truncateCharOrVarcharColumns) {
+        this.truncateCharOrVarcharColumns = truncateCharOrVarcharColumns;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2122,6 +2147,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
 
         tResult.setEnableInsertStrict(enableInsertStrict);
+        tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
 
         return tResult;
     }
@@ -2435,3 +2461,4 @@ public class SessionVariable implements Serializable, Writable {
         return connectContext.getSessionVariable().enableAggState;
     }
 }
+
