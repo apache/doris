@@ -102,15 +102,14 @@ public class PlanReceiver implements AbstractReceiver {
     public boolean emitCsgCmp(long left, long right, List<Edge> edges) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
-
         processMissedEdges(left, right, edges);
 
-        Memo memo = jobContext.getCascadesContext().getMemo();
         emitCount += 1;
         if (emitCount > limit) {
             return false;
         }
 
+        Memo memo = jobContext.getCascadesContext().getMemo();
         GroupPlan leftPlan = new GroupPlan(planTable.get(left));
         GroupPlan rightPlan = new GroupPlan(planTable.get(right));
 
@@ -188,7 +187,7 @@ public class PlanReceiver implements AbstractReceiver {
         // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
         for (Edge edge : hyperGraph.getEdges()) {
             long referenceNodes =
-                    LongBitmap.newBitmapUnion(edge.getOriginalLeft(), edge.getOriginalRight());
+                    LongBitmap.newBitmapUnion(edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
             if (LongBitmap.isSubset(referenceNodes, allReferenceNodes)
                     && !usedEdgesBitmap.get(edge.getIndex())) {
                 // add the missed edge to edges
@@ -416,7 +415,13 @@ public class PlanReceiver implements AbstractReceiver {
                     .map(c -> new PhysicalProject<>(projects, projectProperties, c))
                     .collect(Collectors.toList());
         }
-        Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size());
+        if (!(!projects.isEmpty() && projects.size() == allProjects.size())) {
+            Set<NamedExpression> s1 = projects.stream().collect(Collectors.toSet());
+            List<NamedExpression> s2 = allProjects.stream().filter(e -> !s1.contains(e)).collect(Collectors.toList());
+            System.out.println(s2);
+        }
+        Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size(),
+                " there are some projects left " + projects + allProjects);
 
         return allChild;
     }
