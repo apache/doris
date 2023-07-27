@@ -460,7 +460,7 @@ public class JdbcExecutor {
     }
 
     private void setValidationQuery(DruidDataSource ds, TOdbcTableType tableType) {
-        if (tableType == TOdbcTableType.ORACLE) {
+        if (tableType == TOdbcTableType.ORACLE || tableType == TOdbcTableType.OCEANBASE_ORACLE) {
             ds.setValidationQuery("SELECT 1 FROM dual");
         } else if (tableType == TOdbcTableType.SAP_HANA) {
             ds.setValidationQuery("SELECT 1 FROM DUMMY");
@@ -1699,7 +1699,7 @@ public class JdbcExecutor {
             if (hex.length() == 1) {
                 hexString.append('0');
             }
-            hexString.append(hex);
+            hexString.append(hex.toUpperCase());
         }
         return hexString.toString();
     }
@@ -1724,7 +1724,8 @@ public class JdbcExecutor {
                 && tableType == TOdbcTableType.CLICKHOUSE) {
             // for clickhouse ipv4 and ipv6 type
             ipPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
-        } else if (column[firstNotNullIndex] instanceof byte[] && tableType == TOdbcTableType.MYSQL) {
+        } else if (column[firstNotNullIndex] instanceof byte[] && (tableType == TOdbcTableType.MYSQL
+                || tableType == TOdbcTableType.OCEANBASE)) {
             // for mysql bytea type
             byteaPutToMySQLString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
