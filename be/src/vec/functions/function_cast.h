@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -213,7 +214,24 @@ struct TimeCast {
         x = hour * 3600 + minute * 60 + second;
         return true;
     }
+    template <typename S>
+    static bool try_parse_time(__int128 from, S& x) {
+        from %= (int64)(1000000000000);
+        int64 seconds = from / 100;
+        int64 hour = 0, minute = 0, second = 0;
+        second = from - 100 * seconds;
+        from /= 100;
+        seconds = from / 100;
+        minute = from - 100 * seconds;
+        hour = seconds;
+        if (minute >= 60 || second >= 60) {
+            return false;
+        }
+        x = hour * 3600 + minute * 60 + second;
+        return true;
+    }
 };
+
 /** Conversion of number types to each other, enums to numbers, dates and datetimes to numbers and back: done by straight assignment.
   *  (Date is represented internally as number of days from some day; DateTime - as unix timestamp)
   */
