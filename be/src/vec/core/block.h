@@ -91,6 +91,9 @@ public:
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
+    // Make sure the nammes is useless when use block
+    void clear_names();
+
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
     void insert(size_t position, ColumnWithTypeAndName&& elem);
