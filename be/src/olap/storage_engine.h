@@ -288,8 +288,6 @@ private:
 
     void _start_clean_cache();
 
-    void _start_clean_lookup_cache();
-
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
     // When the disk status is unusable, but the unused logo is not _push_tablet_into_submitted_compactiondetected, you need to download it from root_path
