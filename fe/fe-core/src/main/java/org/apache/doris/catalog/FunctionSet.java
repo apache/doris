@@ -459,7 +459,7 @@ public class FunctionSet<T> {
         if (ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
                 && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName())
-                && descArgType.isDecimalV2() && ) {
+                && descArgType.isDecimalV2()) {
             return candicateArgType.getPrimitiveType() == PrimitiveType.DECIMAL128;
         }
         if ((descArgType.isDecimalV3() && candicateArgType.isDecimalV2())
