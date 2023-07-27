@@ -617,6 +617,11 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     // flushed, that is, the current _segment_writer is nullptr
     DCHECK(_segment_writer == nullptr) << "segment must be null when build rowset";
     _build_rowset_meta(_rowset_meta);
+    status = _check_segment_number_limit(_rowset_meta->num_segments());
+    if (!status.ok()) {
+        LOG(WARNING) << "too many segments in rowset, res=" << status;
+        return nullptr;
+    }
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
@@ -791,7 +796,6 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
 Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                                 int32_t segment_id, bool no_compression,
                                                 TabletSchemaSPtr flush_schema) {
-    RETURN_IF_ERROR(_check_segment_number_limit());
     io::FileWriterPtr file_writer;
     RETURN_IF_ERROR(create_file_writer(segment_id, file_writer));
 
@@ -820,14 +824,13 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_check_segment_number_limit() {
-    size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
-    if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
+Status BetaRowsetWriter::_check_segment_number_limit(int64_t num_segment) {
+    if (UNLIKELY(num_segment > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
-                "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
-                "_segcompacted_point:{}, _num_segcompacted:{}",
+                "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, num_segment: {}, "
+                "_num_segment:{}, _segcompacted_point:{}, _num_segcompacted:{}",
                 _context.tablet_id, _context.rowset_id.to_string(),
-                config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
+                config::max_segment_num_per_rowset, num_segment, _num_segment, _segcompacted_point,
                 _num_segcompacted);
     }
     return Status::OK();

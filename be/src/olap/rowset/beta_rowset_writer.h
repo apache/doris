@@ -147,7 +147,7 @@ private:
                       std::unique_ptr<segment_v2::SegmentWriter>& writer);
 
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
-    Status _check_segment_number_limit();
+    Status _check_segment_number_limit(int64_t num_segment);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false,
                                   TabletSchemaSPtr flush_schema = nullptr);
