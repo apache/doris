@@ -113,6 +113,7 @@ public:
     uint64_t total_size() const { return _total_size; }
     uint64_t buffered_size() { return _buffer->size(); }
     void set_agg_flag(uint64_t index, bool agg);
+    bool get_agg_flag(uint64_t index);
 
     Status has_remaining();
 
@@ -180,6 +181,8 @@ public:
     bool is_same() const { return _is_same; }
 
     void add_cur_batch() { _cur_batch_num++; }
+
+    size_t cur_batch_num() { return _cur_batch_num; }
 
     bool is_cur_block_finished() { return _index_in_block == _block->rows() - 1; }
 
@@ -374,6 +377,8 @@ public:
 
     Status unique_key_next_row(IteratorRowRef* ref) override;
 
+    uint64_t merged_rows() const override { return _filtered_rows; }
+
 private:
     int _get_size(Block* block) { return block->rows(); }
 
@@ -388,6 +393,7 @@ private:
     const Schema* _schema = nullptr;
 
     int _block_row_max = 0;
+    size_t _filtered_rows = 0;
     RowSourcesBuffer* _row_sources_buf;
     StorageReadOptions _opts;
 };
