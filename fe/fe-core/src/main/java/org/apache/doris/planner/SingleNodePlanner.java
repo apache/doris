@@ -2051,7 +2051,7 @@ public class SingleNodePlanner {
 
         for (Expr e : candidates) {
             // Ignore predicate if one of its children is a constant.
-            if (e.getChild(0).isConstant() || e.getChild(1).isConstant()) {
+            if (e.getChild(0).isLiteral() || e.getChild(1).isLiteral()) {
                 LOG.debug("double is constant.");
                 continue;
             }
@@ -2740,7 +2740,7 @@ public class SingleNodePlanner {
                 GroupByClause groupByClause = stmt.getGroupByClause();
                 List<Expr> exprs = groupByClause.getGroupingExprs();
                 final Expr srcExpr = sourceExpr;
-                if (!exprs.stream().anyMatch(expr -> expr.comeFrom(srcExpr))) {
+                if (!exprs.contains(srcExpr) && !exprs.stream().anyMatch(expr -> expr.comeFrom(srcExpr))) {
                     // the sourceExpr doesn't come from any of the group by exprs
                     isAllSlotReferToGroupBys = false;
                     break;
