@@ -17,12 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Maps;
 
@@ -36,7 +34,7 @@ public class LessThanPartition extends PartitionDefinition {
     private final String partitionName;
     private final List<Expression> values;
     private final boolean isMaxValue;
-    
+
     public LessThanPartition(String partitionName, List<Expression> values, boolean isMaxValue) {
         this.partitionName = partitionName;
         this.values = values;

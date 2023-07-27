@@ -147,7 +147,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'int');"));
 
-        /**
+        /*
          * create table with list partition
          */
         // single partition column with single key
@@ -314,7 +314,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_col' = 'k1');"));
 
-        /**
+        /*
          * create table with list partition
          */
         // single partition column with single key
@@ -382,7 +382,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "distributed by hash(k2) buckets 1\n"
                         + "properties('replication_num' = '1');"));
 
-        /**
+        /*
          * create table with both list and range partition
          */
         // list contain less than
@@ -463,7 +463,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
-        /**
+        /*
          * dynamic partition table
          */
         // list partition with dynamic properties

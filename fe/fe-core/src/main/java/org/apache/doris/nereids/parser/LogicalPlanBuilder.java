@@ -127,6 +127,7 @@ import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
 import org.apache.doris.nereids.DorisParser.StepContext;
+import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
@@ -295,6 +296,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -1771,10 +1773,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
                 visitIdentifierList(ctx.hashKeys));
         Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
-        return new CreateTableCommand(Optional.empty(), new CreateTableInfo(ctx.EXISTS() != null,
-                dbName, tableName, cols, ImmutableList.of(),
-                engineName, keysType, ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.<String>of(), "",
-                null, null, desc, ImmutableList.of(), properties));
+
+        return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
+                ctx.EXISTS() != null,
+                dbName,
+                tableName,
+                cols,
+                ImmutableList.of(),
+                engineName,
+                keysType,
+                ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
+                "",
+                ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
+                ctx.partitions != null ? ((List<PartitionDefinition>) visit(ctx.partitions)) : null,
+                desc,
+                ImmutableList.of(),
+                properties));
     }
 
     @Override
@@ -1851,7 +1865,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public List<PartitionDefinition> visitStep(StepContext ctx) {
-        return null;
+        List<PartitionDefinition> partitions = Lists.newArrayList();
+        for (StepPartitionDefContext stepCtx : ctx.partitions) {
+            List<Expression> fromExpression = visitConstantSeq(stepCtx.from);
+            List<Expression> toExpression = visitConstantSeq(stepCtx.to);
+            partitions.add(new StepPartition(fromExpression, toExpression, ((Expression) visit(stepCtx.unitsAmount)),
+                    stepCtx.unit != null ? stepCtx.unit.getText() : null));
+        }
+        return partitions;
     }
 
     @Override

@@ -34,7 +34,7 @@ public class FixedRangePartition extends PartitionDefinition {
     private final String partitionName;
     private final List<Expression> lowerBounds;
     private final List<Expression> upperBounds;
-    
+
     public FixedRangePartition(String partitionName, List<Expression> lowerBounds, List<Expression> upperBounds) {
         this.partitionName = partitionName;
         this.lowerBounds = lowerBounds;

@@ -75,8 +75,8 @@ public class CreateTableInfo {
         this.keysType = keysType;
         this.keys = Utils.copyRequiredList(keys);
         this.comment = comment;
-        this.partitionColumns = Utils.copyRequiredList(partitionColumns);
-        this.partitions = Utils.copyRequiredList(partitions);
+        this.partitionColumns = partitionColumns;
+        this.partitions = partitions;
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
@@ -103,25 +103,28 @@ public class CreateTableInfo {
 
         List<Index> catalogIndexes = indexes.stream().map(IndexDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
-        try {
-            PartitionDesc partitionDesc = new RangePartitionDesc(partitionColumns, partitions.stream()
-                    .map(PartitionDefinition::translateToCatalogStyle).collect(Collectors.toList()));
-            return new CreateTableStmt(ifNotExists, false,
-                    new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
-                    catalogColumns,
-                    catalogIndexes,
-                    engineName,
-                    new KeysDesc(keysType, keys),
-                    partitionDesc,
-                    distribution.translateToCatalogStyle(),
-                    Maps.newHashMap(properties),
-                    null,
-                    comment,
-                    ImmutableList.of(),
-                    false,
-                    null);
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
+        PartitionDesc partitionDesc = null;
+        if (partitions != null) {
+            try {
+                partitionDesc = new RangePartitionDesc(partitionColumns, partitions.stream()
+                        .map(PartitionDefinition::translateToCatalogStyle).collect(Collectors.toList()));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
         }
+        return new CreateTableStmt(ifNotExists, false,
+                new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(), dbName, tableName),
+                catalogColumns,
+                catalogIndexes,
+                engineName,
+                new KeysDesc(keysType, keys),
+                partitionDesc,
+                distribution.translateToCatalogStyle(),
+                Maps.newHashMap(properties),
+                null,
+                comment,
+                ImmutableList.of(),
+                false,
+                null);
     }
 }
