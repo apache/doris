@@ -2792,11 +2792,11 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
             if (s.is<NOT_FOUND>()) {
                 continue;
             }
-            if (!s.ok()) {
+            if (!s.ok() && !s.is<ALREADY_EXIST>()) {
                 return s;
             }
-            if (_tablet_meta->delete_bitmap().contains_agg_without_cache(
-                        {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+            if (s.ok() && _tablet_meta->delete_bitmap().contains_agg_without_cache(
+                                  {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
                 if (_schema->has_sequence_col()) {
@@ -2805,6 +2805,9 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
                 // The key is deleted, we don't need to search for it any more.
                 break;
             }
+            // `st` is either OK or ALREADY_EXIST now.
+            // for partial update, even if the key is already exists, we still need to
+            // read it's original values to keep all columns align.
             *row_location = loc;
             if (rowset) {
                 // return it's rowset
