@@ -185,7 +185,7 @@ public class SingleNodePlanner {
         }
         long sqlSelectLimit = -1;
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
-            sqlSelectLimit = ConnectContext.get().getSessionVariable().sqlSelectLimit;
+            sqlSelectLimit = ConnectContext.get().getSessionVariable().getSqlSelectLimit();
         }
         PlanNode singleNodePlan = createQueryPlan(queryStmt, analyzer,
                 ctx.getQueryOptions().getDefaultOrderByLimit(), sqlSelectLimit);
@@ -251,7 +251,7 @@ public class SingleNodePlanner {
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit, long sqlSelectLimit)
             throws UserException {
         long newDefaultOrderByLimit = defaultOrderByLimit;
-        long defaultLimit = analyzer.getContext().getSessionVariable().defaultOrderByLimit;
+        long defaultLimit = analyzer.getContext().getSessionVariable().getDefaultOrderByLimit();
         if (newDefaultOrderByLimit == -1) {
             if (defaultLimit <= -1) {
                 newDefaultOrderByLimit = Long.MAX_VALUE;
@@ -320,7 +320,7 @@ public class SingleNodePlanner {
             ((SortNode) root).setDefaultLimit(limit == -1);
             root.setOffset(stmt.getOffset());
             if (useTopN) {
-                if (sqlSelectLimit >= 0 && sqlSelectLimit < Long.MAX_VALUE) {
+                if (sqlSelectLimit >= 0) {
                     newDefaultOrderByLimit = Math.min(newDefaultOrderByLimit, sqlSelectLimit);
                 }
                 if (newDefaultOrderByLimit == Long.MAX_VALUE) {
@@ -337,7 +337,7 @@ public class SingleNodePlanner {
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
-            if (!stmt.hasLimit() && sqlSelectLimit >= 0 && sqlSelectLimit < Long.MAX_VALUE) {
+            if (!stmt.hasLimit() && sqlSelectLimit >= 0) {
                 root.setLimitAndOffset(sqlSelectLimit, stmt.getOffset());
             } else {
                 root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
@@ -2102,7 +2102,7 @@ public class SingleNodePlanner {
 
         for (Expr e : candidates) {
             // Ignore predicate if one of its children is a constant.
-            if (e.getChild(0).isConstant() || e.getChild(1).isConstant()) {
+            if (e.getChild(0).isLiteral() || e.getChild(1).isLiteral()) {
                 LOG.debug("double is constant.");
                 continue;
             }
@@ -2794,7 +2794,7 @@ public class SingleNodePlanner {
                 GroupByClause groupByClause = stmt.getGroupByClause();
                 List<Expr> exprs = groupByClause.getGroupingExprs();
                 final Expr srcExpr = sourceExpr;
-                if (!exprs.stream().anyMatch(expr -> expr.comeFrom(srcExpr))) {
+                if (!exprs.contains(srcExpr) && !exprs.stream().anyMatch(expr -> expr.comeFrom(srcExpr))) {
                     // the sourceExpr doesn't come from any of the group by exprs
                     isAllSlotReferToGroupBys = false;
                     break;
