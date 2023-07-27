@@ -378,7 +378,8 @@ public class Group {
     public boolean isValidJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
         if (plan instanceof LogicalJoin
-                && ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN) {
+                && ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN
+                && !((LogicalJoin) plan).isMarkJoin()) {
             Preconditions.checkArgument(!((LogicalJoin) plan).getExpressions().isEmpty(),
                     "inner join must have join conjuncts");
             if (((LogicalJoin) plan).getHashJoinConjuncts().isEmpty()
