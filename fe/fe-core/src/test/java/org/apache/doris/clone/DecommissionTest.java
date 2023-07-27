@@ -71,6 +71,7 @@ public class DecommissionTest {
         Config.enable_round_robin_create_tablet = true;
         Config.schedule_slot_num_per_path = 10000;
         Config.schedule_decommission_slot_num_per_path = 10000;
+        Config.max_scheduling_tablets = 10000;
         Config.disable_balance = true;
         // 4 backends:
         // 127.0.0.1
