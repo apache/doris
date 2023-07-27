@@ -21,6 +21,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -375,9 +377,20 @@ public class Group {
      */
     public boolean isValidJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
-        return plan instanceof LogicalJoin
-                && !((LogicalJoin) plan).isMarkJoin()
-                && ((LogicalJoin) plan).getExpressions().size() > 0;
+        if (plan instanceof LogicalJoin
+                && ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN
+                && !((LogicalJoin) plan).isMarkJoin()) {
+            Preconditions.checkArgument(!((LogicalJoin) plan).getExpressions().isEmpty(),
+                    "inner join must have join conjuncts");
+            if (((LogicalJoin) plan).getHashJoinConjuncts().isEmpty()
+                    && ((LogicalJoin) plan).getOtherJoinConjuncts().get(0) instanceof Literal) {
+                return false;
+            } else {
+                // Right now, we only support inner join with some conjuncts referencing any side of the child's output
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean isProjectGroup() {
