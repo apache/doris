@@ -1065,7 +1065,7 @@ public class TabletScheduler extends MasterDaemon {
         if (matchupReplicaCount <= 1) {
             LOG.info("can not delete only one replica, tabletId = {} replicaId = {}", tabletCtx.getTabletId(),
                      replica.getId());
-            throw new SchedException(Status.FINISHED, "the only one latest replia can not be dropped, tabletId = "
+            throw new SchedException(Status.UNRECOVERABLE, "the only one latest replia can not be dropped, tabletId = "
                                         + tabletCtx.getTabletId() + ", replicaId = " + replica.getId());
         }
 
@@ -1080,25 +1080,46 @@ public class TabletScheduler extends MasterDaemon {
          *      If all are finished, which means this replica is
          *      safe to be deleted.
          */
-        if (!force && !Config.enable_force_drop_redundant_replica && replica.getState().canLoad()
-                && replica.getWatermarkTxnId() == -1 && !FeConstants.runningUnitTest) {
-            long nextTxnId = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionIDGenerator().getNextTransactionId();
-            replica.setWatermarkTxnId(nextTxnId);
-            replica.setState(ReplicaState.DECOMMISSION);
-            // set priority to normal because it may wait for a long time. Remain it as VERY_HIGH may block other task.
-            tabletCtx.setPriority(Priority.NORMAL);
-            LOG.info("set replica {} on backend {} of tablet {} state to DECOMMISSION due to reason {}",
-                    replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), reason);
-            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
-                    "set watermark txn " + nextTxnId);
-        } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
-            long watermarkTxnId = replica.getWatermarkTxnId();
+        if (!force && !Config.enable_force_drop_redundant_replica
+                && !FeConstants.runningUnitTest
+                && (replica.getState().canLoad() || replica.getState() == ReplicaState.DECOMMISSION)) {
+            if (replica.getState() != ReplicaState.DECOMMISSION) {
+                replica.setState(ReplicaState.DECOMMISSION);
+                // set priority to normal because it may wait for a long time.
+                // Remain it as VERY_HIGH may block other task.
+                tabletCtx.setPriority(Priority.NORMAL);
+                LOG.info("set replica {} on backend {} of tablet {} state to DECOMMISSION due to reason {}",
+                        replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), reason);
+            }
+
+            long preWatermarkTxnId = replica.getPreWatermarkTxnId();
+            if (preWatermarkTxnId == -1) {
+                preWatermarkTxnId = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionIDGenerator().getNextTransactionId();
+                replica.setPreWatermarkTxnId(preWatermarkTxnId);
+            }
+
+            long postWatermarkTxnId = replica.getPostWatermarkTxnId();
+            if (postWatermarkTxnId == -1) {
+                try {
+                    if (!Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(preWatermarkTxnId,
+                            tabletCtx.getDbId(), tabletCtx.getTblId(), tabletCtx.getPartitionId())) {
+                        throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
+                                "wait txn before pre watermark txn " + preWatermarkTxnId + " to be finished");
+                    }
+                } catch (AnalysisException e) {
+                    throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
+                }
+                postWatermarkTxnId = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionIDGenerator().getNextTransactionId();
+                replica.setPostWatermarkTxnId(postWatermarkTxnId);
+            }
+
             try {
-                if (!Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId,
-                        tabletCtx.getDbId(), Lists.newArrayList(tabletCtx.getTblId()))) {
+                if (!Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(postWatermarkTxnId,
+                        tabletCtx.getDbId(), tabletCtx.getTblId(), tabletCtx.getPartitionId())) {
                     throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
-                            "wait txn before " + watermarkTxnId + " to be finished");
+                            "wait txn before post watermark txn  " + postWatermarkTxnId + " to be finished");
                 }
             } catch (AnalysisException e) {
                 throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
