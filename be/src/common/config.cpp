@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <cctype>
 // IWYU pragma: no_include <bthread/errno.h>
+#include <lz4/lz4hc.h>
+
 #include <cerrno> // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
@@ -127,6 +129,8 @@ DEFINE_mString(process_full_gc_size, "20%");
 DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
+
+DEFINE_mInt64(large_memory_check_bytes, "1073741824");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -1041,6 +1045,9 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 #ifdef BE_TEST
 // test s3

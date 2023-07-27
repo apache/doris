@@ -62,4 +62,8 @@ public class AlterDatabasePropertyInfo implements Writable {
     public static AlterDatabasePropertyInfo read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), AlterDatabasePropertyInfo.class);
     }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
 }

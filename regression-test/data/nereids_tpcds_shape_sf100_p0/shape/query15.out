@@ -19,9 +19,10 @@ PhysicalTopN
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = customer_address.ca_address_sk)
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer_address]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[customer_address]
 

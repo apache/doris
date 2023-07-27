@@ -399,6 +399,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"MySQL 服务的最大任务线程数", "The max number of task threads in MySQL service"})
     public static int max_mysql_service_task_threads_num = 4096;
 
+    @ConfField(description = {"BackendServiceProxy数量, 用于池化GRPC channel",
+            "BackendServiceProxy pool size for pooling GRPC channels."})
+    public static int backend_proxy_num = 48;
+
     @ConfField(description = {
             "集群 ID，用于内部认证。通常在集群第一次启动时，会随机生成一个 cluster id. 用户也可以手动指定。",
             "Cluster id used for internal authentication. Usually a random integer generated when master FE "
@@ -458,6 +462,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"和 Broker 进程交互的 RPC 的超时时间，单位是毫秒。",
             "The timeout of RPC between FE and Broker, in milliseconds"})
     public static int broker_timeout_ms = 10000; // 10s
+
+    @ConfField(description = {"主键高并发点查短路径超时时间。",
+            "The timeout of RPC for high concurrenty short circuit query"})
+    public static int point_query_timeout_ms = 10000; // 10s
 
     @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
             "Default timeout for insert load job, in seconds."})
@@ -1462,7 +1470,7 @@ public class Config extends ConfigBase {
      * the system automatically checks the time interval for statistics
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_minutes = 5;
+    public static int auto_check_statistics_in_minutes = 1;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -2010,7 +2018,7 @@ public class Config extends ConfigBase {
     public static boolean enable_feature_binlog = false;
 
     @ConfField
-    public static int analyze_task_timeout_in_minutes = 120;
+    public static int analyze_task_timeout_in_hours = 12;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",

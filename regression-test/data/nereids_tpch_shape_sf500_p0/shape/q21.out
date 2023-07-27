@@ -7,13 +7,13 @@ PhysicalTopN
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[RIGHT_SEMI_JOIN](l2.l_orderkey = l1.l_orderkey)( not (l_suppkey = l_suppkey))
+--------------hashJoin[INNER_JOIN](orders.o_orderkey = l1.l_orderkey)
 ----------------PhysicalProject
-------------------PhysicalOlapScan[lineitem]
-----------------hashJoin[INNER_JOIN](orders.o_orderkey = l1.l_orderkey)
+------------------filter((orders.o_orderstatus = 'F'))
+--------------------PhysicalOlapScan[orders]
+----------------hashJoin[RIGHT_SEMI_JOIN](l2.l_orderkey = l1.l_orderkey)( not (l_suppkey = l_suppkey))
 ------------------PhysicalProject
---------------------filter((orders.o_orderstatus = 'F'))
-----------------------PhysicalOlapScan[orders]
+--------------------PhysicalOlapScan[lineitem]
 ------------------hashJoin[RIGHT_ANTI_JOIN](l3.l_orderkey = l1.l_orderkey)( not (l_suppkey = l_suppkey))
 --------------------PhysicalProject
 ----------------------filter((l3.l_receiptdate > l3.l_commitdate))

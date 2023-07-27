@@ -21,6 +21,7 @@ suite("test_infer_predicate") {
 
     sql 'drop table if exists infer_tb1;'
     sql 'drop table if exists infer_tb2;'
+    sql 'drop table if exists infer_tb3;'
 
     sql '''create table infer_tb1 (k1 int, k2 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');'''
 
@@ -46,5 +47,11 @@ suite("test_infer_predicate") {
     explain {
         sql "select * from infer_tb1 inner join infer_tb3 where infer_tb3.k1 = infer_tb1.k2  and infer_tb3.k1 = '123';"
         notContains "PREDICATES: k2[#6] = '123'"
+    }
+
+    explain {
+        sql "select * from infer_tb1 left join infer_tb2 on infer_tb1.k1 = infer_tb2.k3 left join infer_tb3 on " +
+                "infer_tb2.k3 = infer_tb3.k2 where infer_tb1.k1 = 1;"
+        contains "PREDICATES: k3[#4] = 1"
     }
 }

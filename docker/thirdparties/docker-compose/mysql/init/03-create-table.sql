@@ -266,7 +266,7 @@ create table doris_test.all_types (
   `int` int,
   `bigint` bigint,
   `date` date,
-  `timestamp` timestamp(4),
+  `timestamp` timestamp(4) null,
   `datetime` datetime,
   `float` float,
   `double` double,

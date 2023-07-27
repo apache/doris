@@ -34,6 +34,25 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
+void DataTypeStringSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+                                                     BufferWritable& bw,
+                                                     const FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& value = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
+    bw.write(value.data, value.size);
+    bw.commit();
+}
+
+Status DataTypeStringSerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                                           const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnString&>(column);
+    column_data.insert_data(rb.position(), rb.count());
+    return Status::OK();
+}
+
 Status DataTypeStringSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                int end) const {
     result.mutable_bytes_value()->Reserve(end - start);

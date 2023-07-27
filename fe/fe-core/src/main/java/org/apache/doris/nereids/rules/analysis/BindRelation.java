@@ -131,7 +131,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 unboundRelation.getNameParts());
         TableIf table = null;
         if (cascadesContext.getTables() != null) {
-            table = cascadesContext.getTableByName(tableName);
+            table = cascadesContext.getTableInMinidumpCache(tableName);
         }
         if (table == null) {
             if (customTableResolver.isPresent()) {
