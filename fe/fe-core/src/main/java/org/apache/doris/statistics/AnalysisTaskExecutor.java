@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
@@ -101,9 +100,6 @@ public class AnalysisTaskExecutor extends Thread {
         BaseAnalysisTask task = taskScheduler.getPendingTasks();
         AnalysisTaskWrapper taskWrapper = new AnalysisTaskWrapper(this, task);
         executors.submit(taskWrapper);
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTaskStatus(task.info,
-                        AnalysisState.RUNNING, "", System.currentTimeMillis());
     }
 
     public void putJob(AnalysisTaskWrapper wrapper) throws Exception {

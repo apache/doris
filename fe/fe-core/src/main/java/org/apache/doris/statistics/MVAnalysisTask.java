@@ -87,6 +87,7 @@ public class MVAnalysisTask extends BaseAnalysisTask {
 
     @Override
     public void doExecute() throws Exception {
+        setTaskStateToRunning();
         for (Column column : meta.getSchema()) {
             SelectStmt selectOne = (SelectStmt) selectStmt.clone();
             TableRef tableRef = selectOne.getTableRefs().get(0);
