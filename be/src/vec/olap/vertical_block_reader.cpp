@@ -432,7 +432,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             }
         }
 
-        size_t rows_should_be_deleted = 0;
         uint64_t row_buffer_size_cur_batch =
                 _row_sources_buffer->buffered_size() - row_buffer_size_start;
 
@@ -475,7 +474,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 bool sign = (delete_data[cur_row] == 0);
                 filter_data[cur_row] = sign;
                 if (UNLIKELY(!sign)) {
-                    rows_should_be_deleted++;
                     _row_sources_buffer->set_agg_flag(row_source_idx, true);
                 }
                 cur_row++;
