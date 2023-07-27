@@ -75,6 +75,20 @@ explain {
         contains "= '123'"
     }
 
+explain {
+        sql("""SELECT *
+                FROM 
+                    (SELECT `a`.`a_key` AS `a_key`,
+                    now() as d
+                    FROM `push_conjunct_table` a) t1
+                    join 
+                    (SELECT `a`.`a_key` AS `a_key`,
+                    b_key
+                    FROM `push_conjunct_table` a) t2
+                    on t1. d = t2.b_key;""")
+        notContains "VNESTED LOOP JOIN"
+    }
+
 sql """
     WITH ttt AS
     (SELECT c1,
