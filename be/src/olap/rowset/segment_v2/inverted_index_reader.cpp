@@ -37,6 +37,7 @@
 #include <CLucene/util/CLStreams.h>
 #include <CLucene/util/FutureArrays.h>
 #include <CLucene/util/bkd/bkd_docid_iterator.h>
+#include <CLucene/util/stringUtil.h>
 #include <math.h>
 #include <string.h>
 
@@ -141,7 +142,7 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
             if (token.termLength<char>() != 0) {
                 std::string_view term(token.termBuffer<char>(), token.termLength<char>());
-                std::wstring ws_term = lucene_utf8stows(term);
+                std::wstring ws_term = StringUtil::string_to_wstring(term);
                 analyse_result.emplace_back(ws_term);
             }
         } else {
@@ -435,7 +436,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
-    std::wstring search_str_ws = lucene_utf8stows(search_str);
+    std::wstring search_str_ws = StringUtil::string_to_wstring(search_str);
     // unique_ptr with custom deleter
     std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
             _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
