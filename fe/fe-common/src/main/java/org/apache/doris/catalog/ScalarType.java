@@ -684,13 +684,15 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DATETIMEV2: {
-                Preconditions.checkArgument(precision >= scale);
+                Preconditions.checkArgument(precision >= scale,
+                        String.format("given precision %d is out of scale bound %d", precision, scale));
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
             }
             case TIMEV2: {
-                Preconditions.checkArgument(precision >= scale);
+                Preconditions.checkArgument(precision >= scale,
+                        String.format("given precision %d is out of scale bound %d", precision, scale));
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
