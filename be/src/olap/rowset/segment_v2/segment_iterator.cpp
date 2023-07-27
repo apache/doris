@@ -713,7 +713,7 @@ Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
 
 Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
-    if (!_opts.runtime_state->query_options().enable_inverted_index_query) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return Status::OK();
     }
     int32_t unique_id = _schema->unique_id(pred->column_id());
@@ -966,7 +966,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
 
 Status SegmentIterator::_apply_inverted_index() {
     SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
-    if (!_opts.runtime_state->query_options().enable_inverted_index_query) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return Status::OK();
     }
     size_t input_rows = _row_bitmap.cardinality();
