@@ -22,12 +22,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.util.Objects;
 
@@ -54,7 +49,6 @@ public class Optimizer {
         cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
                 cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        serializeStatUsed(cascadesContext.getConnectContext());
         // DPHyp optimize
         int maxJoinCount = cascadesContext.getMemo().countMaxContinuousJoin();
         cascadesContext.getStatementContext().setMaxContinuousJoin(maxJoinCount);
@@ -81,21 +75,6 @@ public class Optimizer {
         // after DPHyp just keep logical expression
         cascadesContext.getMemo().removePhysicalExpression();
         cascadesContext.getStatementContext().setOtherJoinReorder(true);
-    }
-
-    private void serializeStatUsed(ConnectContext connectContext) {
-        if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !connectContext.getSessionVariable().isEnableMinidump()) {
-            return;
-        }
-        JSONObject jsonObj = connectContext.getMinidump();
-        // add column statistics
-        JSONArray columnStatistics = MinidumpUtils.serializeColumnStatistic(
-                cascadesContext.getConnectContext().getTotalColumnStatisticMap());
-        jsonObj.put("ColumnStatistics", columnStatistics);
-        JSONArray histogramArray = MinidumpUtils.serializeHistogram(
-                cascadesContext.getConnectContext().getTotalHistogramMap());
-        jsonObj.put("Histogram", histogramArray);
     }
 
     private SessionVariable getSessionVariable() {

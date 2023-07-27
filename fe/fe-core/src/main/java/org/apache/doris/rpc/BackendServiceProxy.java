@@ -61,7 +61,7 @@ public class BackendServiceProxy {
     }
 
     private static class Holder {
-        private static final int PROXY_NUM = 20;
+        private static final int PROXY_NUM = Config.backend_proxy_num;
         private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
         private static AtomicInteger count = new AtomicInteger();
 

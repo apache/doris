@@ -40,6 +40,16 @@ namespace vectorized {
 template <typename T>
 class DataTypeQuantileStateSerDe : public DataTypeSerDe {
 public:
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support write QuantileState column to buffer";
+    }
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support read QuantileState column from buffer";
+        return Status::NotSupported("Not support read QuantileState column from buffer");
+    }
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;

@@ -119,6 +119,10 @@ public class BinlogUtils {
 
     public static long getExpiredMs(long ttlSeconds) {
         long currentSeconds = System.currentTimeMillis() / 1000;
+        if (currentSeconds < ttlSeconds) {
+            return Long.MIN_VALUE;
+        }
+
         long expireSeconds = currentSeconds - ttlSeconds;
         return expireSeconds * 1000;
     }

@@ -28,12 +28,7 @@ under the License.
 
 
 
-
-The Flink Doris Connector can support operations (read, insert, modify, delete) data stored in Doris through Flink.
-
-Github: https://github.com/apache/doris-flink-connector
-
-* `Doris` table can be mapped to `DataStream` or `Table`.
+* [Flink Doris Connector](https://github.com/apache/doris-flink-connector) can support data stored in Doris through Flink operations (read, insert, modify, delete). This document introduces how to operate Doris through Datastream and SQL through Flink.
 
 >**Note:**
 >
@@ -50,124 +45,108 @@ Github: https://github.com/apache/doris-flink-connector
 | 1.3.0     | 1.16  | 1.0+   | 8    | -         |
 | 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
 
-## Build and Install
+## USE
 
-Ready to work
+### Maven
 
-1. Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
-
-2. Execute following command in source dir:
-`sh build.sh`
-Enter the flink version you need to compile according to the prompt.
-
-After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `flink-doris-connector-1.3.0-SNAPSHOT.jar`.
-Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
-
-
-## Using Maven
-
-Add flink-doris-connector Maven dependencies
+Add flink-doris-connector
 
 ```
 <!-- flink-doris-connector -->
 <dependency>
-  <groupId>org.apache.doris</groupId>
-  <artifactId>flink-doris-connector-1.16</artifactId>
-  <version>1.3.0</version>
-</dependency>  
+   <groupId>org.apache.doris</groupId>
+   <artifactId>flink-doris-connector-1.16</artifactId>
+   <version>1.4.0</version>
+</dependency>
 ```
 
-**Notes**
+**Remark**
 
-1. Please replace the corresponding Connector and Flink dependency versions according to different Flink versions. Version 1.3.0 only supports Flink1.16
+1. Please replace the corresponding Connector and Flink dependent versions according to different Flink versions.
 
 2. You can also download the relevant version jar package from [here](https://repo.maven.apache.org/maven2/org/apache/doris/).
 
-## How to use
+### compile
 
-There are three ways to use Flink Doris Connector. 
+When compiling, you can run `sh build.sh` directly. For details, please refer to [here](https://github.com/apache/doris-flink-connector/blob/master/README.md).
 
-* SQL
-* DataStream
+After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `flink-doris-connector-1.5.0-SNAPSHOT.jar`.
+Copy this file to `classpath` of `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file into the pre-deployment package.
 
-### Parameters Configuration
+## Instructions
 
-Flink Doris Connector Sink writes data to Doris by the `Stream load`, and also supports the configurations of `Stream load`, For specific parameters, please refer to [here](../data-operate/import/import-way/stream-load-manual.md).
+### read
 
-* SQL  configured by `sink.properties.` in the `WITH`
-* DataStream configured by `DorisExecutionOptions.builder().setStreamLoadProp(Properties)`
-
-
-### SQL
-
-* Source
+####SQL
 
 ```sql
+-- doris source
 CREATE TABLE flink_doris_source (
-    name STRING,
-    age INT,
-    price DECIMAL(5,2),
-    sale DOUBLE
-    ) 
-    WITH (
-      'connector' = 'doris',
-      'fenodes' = 'FE_IP:8030',
-      'table.identifier' = 'database.table',
-      'username' = 'root',
-      'password' = 'password'
+     name STRING,
+     age INT,
+     price DECIMAL(5,2),
+     sale DOUBLE
+     )
+     WITH (
+       'connector' = 'doris',
+       'fenodes' = 'FE_IP:8030',
+       'table.identifier' = 'database.table',
+       'username' = 'root',
+       'password' = 'password'
 );
 ```
 
-* Sink
-
-```sql
--- enable checkpoint
-SET 'execution.checkpointing.interval' = '10s';
-CREATE TABLE flink_doris_sink (
-    name STRING,
-    age INT,
-    price DECIMAL(5,2),
-    sale DOUBLE
-    ) 
-    WITH (
-      'connector' = 'doris',
-      'fenodes' = 'FE_IP:8030',
-      'table.identifier' = 'db.table',
-      'username' = 'root',
-      'password' = 'password',
-      'sink.label-prefix' = 'doris_label'
-);
-```
-
-* Insert
-
-```sql
-INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
-```
-
-### DataStream
-
-* Source
+####DataStream
 
 ```java
 DorisOptions.Builder builder = DorisOptions.builder()
-        .setFenodes("FE_IP:8030")
-        .setTableIdentifier("db.table")
-        .setUsername("root")
-        .setPassword("password");
+         .setFenodes("FE_IP:8030")
+         .setTableIdentifier("db.table")
+         .setUsername("root")
+         .setPassword("password");
 
 DorisSource<List<?>> dorisSource = DorisSourceBuilder.<List<?>>builder()
-        .setDorisOptions(builder.build())
-        .setDorisReadOptions(DorisReadOptions.builder().build())
-        .setDeserializer(new SimpleListDeserializationSchema())
-        .build();
+         .setDorisOptions(builder.build())
+         .setDorisReadOptions(DorisReadOptions.builder().build())
+         .setDeserializer(new SimpleListDeserializationSchema())
+         .build();
 
 env.fromSource(dorisSource, WatermarkStrategy.noWatermarks(), "doris source").print();
 ```
 
-* Sink
+### write
 
-**String Stream**
+####SQL
+
+```sql
+--enable checkpoint
+SET 'execution.checkpointing.interval' = '10s';
+
+-- doris sink
+CREATE TABLE flink_doris_sink (
+     name STRING,
+     age INT,
+     price DECIMAL(5,2),
+     sale DOUBLE
+     )
+     WITH (
+       'connector' = 'doris',
+       'fenodes' = 'FE_IP:8030',
+       'table.identifier' = 'db.table',
+       'username' = 'root',
+       'password' = 'password',
+       'sink.label-prefix' = 'doris_label'
+);
+
+-- submit insert job
+INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
+```
+
+####DataStream
+
+DorisSink writes data to Doris through StreamLoad, and DataStream supports different serialization methods when writing
+
+**String data stream (SimpleStringSerializer)**
 
 ```java
 // enable checkpoint
@@ -178,37 +157,29 @@ env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 DorisSink.Builder<String> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
 dorisBuilder.setFenodes("FE_IP:8030")
-        .setTableIdentifier("db.table")
-        .setUsername("root")
-        .setPassword("password");
+         .setTableIdentifier("db.table")
+         .setUsername("root")
+         .setPassword("password");
 
-Properties properties = new Properties();
-/**
-json format to streamload
-properties.setProperty("format", "json");
-properties.setProperty("read_json_by_line", "true");
-**/
-
-DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
+DorisExecutionOptions.Builder executionBuilder = DorisExecutionOptions.builder();
 executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
-                .setStreamLoadProp(properties); 
+                 .setDeletable(false);
 
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
-        .setDorisExecutionOptions(executionBuilder.build())
-        .setSerializer(new SimpleStringSerializer()) //serialize according to string 
-        .setDorisOptions(dorisBuilder.build());
-
+         .setDorisExecutionOptions(executionBuilder.build())
+         .setSerializer(new SimpleStringSerializer()) //serialize according to string
+         .setDorisOptions(dorisBuilder.build());
 
 //mock string source
 List<Tuple2<String, Integer>> data = new ArrayList<>();
 data.add(new Tuple2<>("doris",1));
-DataStreamSource<Tuple2<String, Integer>> source = env.fromCollection(data);
+DataStreamSource<Tuple2<String, Integer>> source = env. fromCollection(data);
 
 source.map((MapFunction<Tuple2<String, Integer>, String>) t -> t.f0 + "\t" + t.f1)
-      .sinkTo(builder.build());
+       .sinkTo(builder.build());
 ```
 
-**RowData Stream**
+**RowData data stream (RowDataSerializer)**
 
 ```java
 // enable checkpoint
@@ -220,105 +191,163 @@ env.setRuntimeMode(RuntimeExecutionMode.BATCH);
 DorisSink.Builder<RowData> builder = DorisSink.builder();
 DorisOptions.Builder dorisBuilder = DorisOptions.builder();
 dorisBuilder.setFenodes("FE_IP:8030")
-        .setTableIdentifier("db.table")
-        .setUsername("root")
-        .setPassword("password");
+         .setTableIdentifier("db.table")
+         .setUsername("root")
+         .setPassword("password");
 
 // json format to streamload
 Properties properties = new Properties();
 properties.setProperty("format", "json");
 properties.setProperty("read_json_by_line", "true");
-DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
+DorisExecutionOptions.Builder executionBuilder = DorisExecutionOptions.builder();
 executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
-                .setStreamLoadProp(properties); //streamload params
+                 .setDeletable(false)
+                 .setStreamLoadProp(properties); //streamload params
 
-//flink rowdata‘s schema
+//flink rowdata's schema
 String[] fields = {"city", "longitude", "latitude", "destroy_date"};
 DataType[] types = {DataTypes.VARCHAR(256), DataTypes.DOUBLE(), DataTypes.DOUBLE(), DataTypes.DATE()};
 
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
-        .setDorisExecutionOptions(executionBuilder.build())
-        .setSerializer(RowDataSerializer.builder()    //serialize according to rowdata 
-                           .setFieldNames(fields)
-                           .setType("json")           //json format
-                           .setFieldType(types).build())
-        .setDorisOptions(dorisBuilder.build());
+         .setDorisExecutionOptions(executionBuilder.build())
+         .setSerializer(RowDataSerializer.builder() //serialize according to rowdata
+                            .setFieldNames(fields)
+                            .setType("json") //json format
+                            .setFieldType(types).build())
+         .setDorisOptions(dorisBuilder.build());
 
 //mock rowdata source
-DataStream<RowData> source = env.fromElements("")
-    .map(new MapFunction<String, RowData>() {
-        @Override
-        public RowData map(String value) throws Exception {
-            GenericRowData genericRowData = new GenericRowData(4);
-            genericRowData.setField(0, StringData.fromString("beijing"));
-            genericRowData.setField(1, 116.405419);
-            genericRowData.setField(2, 39.916927);
-            genericRowData.setField(3, LocalDate.now().toEpochDay());
-            return genericRowData;
-        }
-    });
+DataStream<RowData> source = env. fromElements("")
+     .map(new MapFunction<String, RowData>() {
+         @Override
+         public RowData map(String value) throws Exception {
+             GenericRowData genericRowData = new GenericRowData(4);
+             genericRowData.setField(0, StringData.fromString("beijing"));
+             genericRowData.setField(1, 116.405419);
+             genericRowData.setField(2, 39.916927);
+             genericRowData.setField(3, LocalDate.now().toEpochDay());
+             return genericRowData;
+         }
+     });
 
-source.sinkTo(builder.build());
+source. sinkTo(builder. build());
 ```
 
-**SchemaChange Stream**
+**SchemaChange data stream (JsonDebeziumSchemaSerializer)**
+
 ```java
 // enable checkpoint
 env.enableCheckpointing(10000);
 
 Properties props = new Properties();
-props.setProperty("format", "json");
+props. setProperty("format", "json");
 props.setProperty("read_json_by_line", "true");
-DorisOptions dorisOptions = DorisOptions.builder()
-        .setFenodes("127.0.0.1:8030")
-        .setTableIdentifier("test.t1")
-        .setUsername("root")
-        .setPassword("").build();
+DorisOptions dorisOptions = DorisOptions. builder()
+         .setFenodes("127.0.0.1:8030")
+         .setTableIdentifier("test.t1")
+         .setUsername("root")
+         .setPassword("").build();
 
-DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
-executionBuilder.setLabelPrefix("label-doris" + UUID.randomUUID())
-        .setStreamLoadProp(props).setDeletable(true);
+DorisExecutionOptions.Builder executionBuilder = DorisExecutionOptions.builder();
+executionBuilder.setLabelPrefix("label-prefix")
+         .setStreamLoadProp(props).setDeletable(true);
 
 DorisSink.Builder<String> builder = DorisSink.builder();
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
-        .setDorisExecutionOptions(executionBuilder.build())
-        .setDorisOptions(dorisOptions)
-        .setSerializer(JsonDebeziumSchemaSerializer.builder().setDorisOptions(dorisOptions).build());
+         .setDorisExecutionOptions(executionBuilder.build())
+         .setDorisOptions(dorisOptions)
+         .setSerializer(JsonDebeziumSchemaSerializer.builder().setDorisOptions(dorisOptions).build());
 
-env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.print();
-        .sinkTo(builder.build());
+env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")
+         .sinkTo(builder.build());
 ```
-refer: [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/blob/master/flink-doris-connector/src/test/java/org/apache/doris/flink/CDCSchemaChangeExample.java)
 
+Reference: [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/blob/master/flink-doris-connector/src/test/java/org/apache/doris/flink/CDCSchemaChangeExample.java)
 
-### General
+### Lookup Join
 
-| Key                              | Default Value     | Required | Comment                                                      |
-| -------------------------------- | ----------------- | ------------------------------------------------------------ | -------------------------------- |
-| fenodes                    | --                | Y               | Doris FE http address, support multiple addresses, separated by commas            |
-| table.identifier           | --                | Y               | Doris table identifier, eg, db1.tbl1                                 |
-| username                            | --            | Y           | Doris username                                            |
-| password                        | --            | Y           | Doris password                                              |
-| doris.request.retries            | 3                 | N                | Number of retries to send requests to Doris                                    |
-| doris.request.connect.timeout.ms | 30000             | N            | Connection timeout for sending requests to Doris                                |
-| doris.request.read.timeout.ms    | 30000             | N            | Read timeout for sending request to Doris                                |
-| doris.request.query.timeout.s    | 3600              | N             | Query the timeout time of doris, the default is 1 hour, -1 means no timeout limit             |
-| doris.request.tablet.size        | Integer.MAX_VALUE | N | The number of Doris Tablets corresponding to an Partition. The smaller this value is set, the more partitions will be generated. This will increase the parallelism on the flink side, but at the same time will cause greater pressure on Doris. |
-| doris.batch.size                 | 1024              | N             | The maximum number of rows to read data from BE at one time. Increasing this value can reduce the number of connections between Flink and Doris. Thereby reducing the extra time overhead caused by network delay. |
-| doris.exec.mem.limit             | 2147483648        | N       | Memory limit for a single query. The default is 2GB, in bytes.                     |
-| doris.deserialize.arrow.async    | false             | N            | Whether to support asynchronous conversion of Arrow format to RowBatch required for flink-doris-connector iteration           |
-| doris.deserialize.queue.size     | 64                | N               | Asynchronous conversion of the internal processing queue in Arrow format takes effect when doris.deserialize.arrow.async is true        |
-| doris.read.field            | --            | N           | List of column names in the Doris table, separated by commas                  |
-| doris.filter.query          | --            | N           | Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering. |
-| sink.label-prefix | -- | Y | The label prefix used by stream load imports. In the 2pc scenario, global uniqueness is required to ensure the EOS semantics of Flink. |
-| sink.properties.*     | --               | N              | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.read_json_by_line' ='true' |
-| sink.enable-delete     | true               | N              | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
-| sink.enable-2pc                  | true              | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
-| sink.max-retries                 | 3                 | N        | In the 2pc scenario, the number of retries after the commit phase fails.                                                                                                                                                                                                                                         |
-| sink.buffer-size                 | 1048576(1MB)       | N        | Write data cache buffer size, in bytes. It is not recommended to modify, the default configuration is sufficient.                                                                                                                                                                                                                                 |
-| sink.buffer-count                | 3                  | N        | The number of write data cache buffers, it is not recommended to modify, the default configuration is sufficient.                                                                                                                               
+```sql
+CREATE TABLE fact_table (
+  `id` BIGINT,
+  `name` STRING,
+  `city` STRING,
+  `process_time` as proctime()
+) WITH (
+  'connector' = 'kafka',
+  ...
+);
 
+create table dim_city(
+  `city` STRING,
+  `level` INT ,
+  `province` STRING,
+  `country` STRING
+) WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'jdbc-url' = 'jdbc:mysql://127.0.0.1:9030',
+  'table.identifier' = 'dim.dim_city',
+  'username' = 'root',
+  'password' = ''
+);
 
+SELECT a.id, a.name, a.city, c.province, c.country,c.level 
+FROM fact_table a
+LEFT JOIN dim_city FOR SYSTEM_TIME AS OF a.process_time AS c
+ON a.city = c.city
+```
+
+## configuration
+
+### General configuration items
+
+| Key                              | Default Value | Required | Comment                                                      |
+| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas |
+| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                            |
+| username                         | --            | Y        | username to access Doris                                     |
+| password                         | --            | Y        | Password to access Doris                                     |
+| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                  |
+| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris             |
+| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                   |
+
+### Source configuration item
+
+| Key                           | Default Value      | Required | Comment                                                      |
+| ----------------------------- | ------------------ | -------- | ------------------------------------------------------------ |
+| doris.request.query.timeout.s | 3600               | N        | The timeout time for querying Doris, the default value is 1 hour, -1 means no timeout limit |
+| doris.request.tablet.size     | Integer. MAX_VALUE | N        | The number of Doris Tablets corresponding to a Partition. The smaller this value is set, the more Partitions will be generated. This improves the parallelism on the Flink side, but at the same time puts more pressure on Doris. |
+| doris.batch.size              | 1024               | N        | The maximum number of rows to read data from BE at a time. Increasing this value reduces the number of connections established between Flink and Doris. Thereby reducing the additional time overhead caused by network delay. |
+| doris.exec.mem.limit          | 2147483648         | N        | Memory limit for a single query. The default is 2GB, in bytes |
+| doris.deserialize.arrow.async | FALSE              | N        | Whether to support asynchronous conversion of Arrow format to RowBatch needed for flink-doris-connector iterations |
+| doris.deserialize.queue.size  | 64                 | N        | Asynchronous conversion of internal processing queue in Arrow format, effective when doris.deserialize.arrow.async is true |
+| doris.read.field              | --                 | N        | Read the list of column names of the Doris table, separated by commas |
+| doris.filter.query            | --                 | N        | The expression to filter the read data, this expression is transparently passed to Doris. Doris uses this expression to complete source-side data filtering. For example age=18. |
+
+### Sink configuration items
+
+| Key                | Default Value | Required | Comment                                                      |
+| ------------------ | ------------- | -------- | ------------------------------------------------------------ |
+| sink.label-prefix  | --            | Y        | The label prefix used by Stream load import. In the 2pc scenario, global uniqueness is required to ensure Flink's EOS semantics. |
+| sink.properties.*  | --            | N        | Import parameters for Stream Load. <br/>For example: 'sink.properties.column_separator' = ', ' defines column delimiters, 'sink.properties.escape_delimiters' = 'true' special characters as delimiters, '\x01' will be converted to binary 0x01 <br/><br/>JSON format import<br/>'sink.properties.format' = 'json' 'sink.properties. read_json_by_line' = 'true'<br/>Detailed parameters refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
+| sink.enable-delete | TRUE          | N        | Whether to enable delete. This option requires the Doris table to enable the batch delete function (Doris 0.15+ version is enabled by default), and only supports the Unique model. |
+| sink.enable-2pc    | TRUE          | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
+| sink.buffer-size   | 1MB           | N        | The size of the write data cache buffer, in bytes. It is not recommended to modify, the default configuration is enough |
+| sink.buffer-count  | 3             | N        | The number of write data buffers. It is not recommended to modify, the default configuration is enough |
+| sink.max-retries   | 3             | N        | Maximum number of retries after Commit failure, default 3    |
+
+### Lookup Join configuration item
+
+| Key                               | Default Value | Required | Comment                                                      |
+| --------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| jdbc-url                          | --            | Y        | jdbc connection information                                  |
+| lookup.cache.max-rows             | -1            | N        | The maximum number of rows in the lookup cache, the default value is -1, and the cache is not enabled |
+| lookup.cache.ttl                  | 10s           | N        | The maximum time of lookup cache, the default is 10s         |
+| lookup.max-retries                | 1             | N        | The number of retries after a lookup query fails             |
+| lookup.jdbc.async                 | false         | N        | Whether to enable asynchronous lookup, the default is false  |
+| lookup.jdbc.read.batch.size       | 128           | N        | Under asynchronous lookup, the maximum batch size for each query |
+| lookup.jdbc.read.batch.queue-size | 256           | N        | The size of the intermediate buffer queue during asynchronous lookup |
+| lookup.jdbc.read.thread-size      | 3             | N        | The number of jdbc threads for lookup in each task           |
 
 ## Doris & Flink Column Type Mapping
 
@@ -342,7 +371,7 @@ refer: [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
 
-## An example of using Flink CDC to access Doris (supports insert/update/delete events)
+## An example of using Flink CDC to access Doris 
 ```sql
 SET 'execution.checkpointing.interval' = '10s';
 CREATE TABLE cdc_mysql_source (
@@ -359,7 +388,7 @@ CREATE TABLE cdc_mysql_source (
  'table-name' = 'table'
 );
 
--- Support delete event synchronization (sink.enable-delete='true'), requires Doris table to enable batch delete function
+-- Support synchronous insert/update/delete events
 CREATE TABLE doris_sink (
 id INT,
 name STRING
@@ -372,20 +401,22 @@ WITH (
   'password' = '',
   'sink.properties.format' = 'json',
   'sink.properties.read_json_by_line' = 'true',
-  'sink.enable-delete' = 'true',
+  'sink.enable-delete' = 'true', -- Synchronize delete events
   'sink.label-prefix' = 'doris_label'
 );
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
-## Use Flink CDC to access multi-table or database
+## Use FlinkCDC to access multi-table or whole database example
+
 ### grammar
-```
+
+```shell
 <FLINK_HOME>/bin/flink run \
-     -c org.apache.doris.flink.tools.cdc.CdcTools\
-     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
-     mysql-sync-database \
+     -c org.apache.doris.flink.tools.cdc.CdcTools \
+     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar\
+     <mysql-sync-database|oracle-sync-database> \
      --database <doris-database-name> \
      [--job-name <flink-job-name>] \
      [--table-prefix <doris-table-prefix>] \
@@ -393,6 +424,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
      [--including-tables <mysql-table-name|name-regular-expr>] \
      [--excluding-tables <mysql-table-name|name-regular-expr>] \
      --mysql-conf <mysql-cdc-source-conf> [--mysql-conf <mysql-cdc-source-conf> ...] \
+     --oracle-conf <oracle-cdc-source-conf> [--oracle-conf <oracle-cdc-source-conf> ...] \
      --sink-conf <doris-sink-conf> [--table-conf <doris-sink-conf> ...] \
      [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
 ```
@@ -403,19 +435,21 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--table-suffix** Same as above, the suffix name of the Doris table.
 - **--including-tables** MySQL tables that need to be synchronized, you can use "|" to separate multiple tables, and support regular expressions. For example --including-tables table1|tbl.* is to synchronize table1 and all tables beginning with tbl.
 - **--excluding-tables** Tables that do not need to be synchronized, the usage is the same as above.
-- **--mysql-conf** MySQL CDCSource configuration, for example --mysql-conf hostname=127.0.0.1 , you can find it in [here](https://ververica.github.io/flink-cdc-connectors/master /content/connectors/mysql-cdc.html) to view all configurations of MySQL-CDC, where hostname/username/password/database-name are required.
-- **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
+- **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.
+- **--oracle-conf** Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can view all configurations of Oracle-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html), where hostname/username/password/database-name/schema-name is required.
+- **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items in [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
 
->Note: flink-sql-connector-mysql-cdc-2.3.0.jar needs to be added in the $FLINK_HOME/lib directory
+>Note: When synchronizing, you need to add the corresponding Flink CDC dependencies in the $FLINK_HOME/lib directory, such as flink-sql-connector-mysql-cdc-${version}.jar, flink-sql-connector-oracle-cdc-${version}.jar
 
-### Example
-```
+### MySQL synchronization example
+
+```shell
 <FLINK_HOME>/bin/flink run \
      -Dexecution.checkpointing.interval=10s\
      -Dparallelism.default=1\
      -c org.apache.doris.flink.tools.cdc.CdcTools\
-     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+     lib/flink-doris-connector-1.16-1.5.0-SNAPSHOT.jar \
      mysql-sync-database\
      --database test_db \
      --mysql-conf hostname=127.0.0.1 \
@@ -431,7 +465,33 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --table-conf replication_num=1
 ```
 
+### Oracle synchronization example
+
+```shell
+<FLINK_HOME>/bin/flink run \
+      -Dexecution.checkpointing.interval=10s \
+      -Dparallelism.default=1 \
+      -c org.apache.doris.flink.tools.cdc.CdcTools \
+      ./lib/flink-doris-connector-1.16-1.5.0-SNAPSHOT.jar\
+      oracle-sync-database \
+      --database test_db \
+      --oracle-conf hostname=127.0.0.1 \
+      --oracle-conf port=1521 \
+      --oracle-conf username=admin \
+      --oracle-conf password="password" \
+      --oracle-conf database-name=XE \
+      --oracle-conf schema-name=ADMIN \
+      --including-tables "tbl1|tbl2" \
+      --sink-conf fenodes=127.0.0.1:8030 \
+      --sink-conf username=root \
+      --sink-conf password=\
+      --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+      --sink-conf sink.label-prefix=label \
+      --table-conf replication_num=1
+```
+
 ## Use FlinkCDC to update Key column
+
 Generally, in a business database, the number is used as the primary key of the table, such as the Student table, the number (id) is used as the primary key, but with the development of the business, the number corresponding to the data may change.
 In this scenario, using FlinkCDC + Doris Connector to synchronize data can automatically update the data in the Doris primary key column.
 ### Principle
@@ -536,6 +596,8 @@ At this time, it cannot be started from the checkpoint, and the expiration time 
 6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
 
 This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `max_running_txn_num_per_db` of fe.conf. For details, please refer to [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+
+At the same time, if a task frequently modifies the label and restarts, it may also cause this error. In the 2pc scenario (Duplicate/Aggregate model), the label of each task needs to be unique, and when restarting from the checkpoint, the Flink task will actively abort the txn that has been successfully precommitted before and has not been committed. Frequently modifying the label and restarting will cause a large number of txn that have successfully precommitted to fail to be aborted, occupying the transaction. Under the Unique model, 2pc can also be turned off, which can realize idempotent writing.
 
 7. **How to ensure the order of a batch of data when Flink writes to the Uniq model?**
 

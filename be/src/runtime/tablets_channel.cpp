@@ -196,7 +196,7 @@ Status TabletsChannel::close(
         }
 
         // 3. build rowset
-        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end(); it++) {
+        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
             Status st = (*it)->build_rowset();
             if (!st.ok()) {
                 _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -210,16 +210,18 @@ Status TabletsChannel::close(
                 it = need_wait_writers.erase(it);
                 continue;
             }
+            it++;
         }
 
         // 4. wait for delete bitmap calculation complete if necessary
-        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end(); it++) {
+        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
             Status st = (*it)->wait_calc_delete_bitmap();
             if (!st.ok()) {
                 _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
                 it = need_wait_writers.erase(it);
                 continue;
             }
+            it++;
         }
 
         // 5. commit all writers

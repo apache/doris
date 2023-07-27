@@ -80,6 +80,10 @@ public class CheckCast extends AbstractExpressionRewriteRule {
         if (targetType.isNullType()) {
             return false;
         }
+        if (targetType.isTimeLikeType() && !(originalType.isIntegralType()
+                || originalType.isStringLikeType() || originalType.isFloatLikeType())) {
+            return false;
+        }
         return true;
     }
 }

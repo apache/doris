@@ -340,6 +340,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.isSingleReplicaLoad()
         );
 
+        if (olapTableSink.isPartialUpdate()) {
+            HashSet<String> partialUpdateCols = new HashSet<String>();
+            for (Column col : olapTableSink.getCols()) {
+                partialUpdateCols.add(col.getName());
+            }
+            sink.setPartialUpdateInputColumns(true, partialUpdateCols);
+        }
+
         rootFragment.setSink(sink);
 
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
@@ -586,7 +594,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
             Expr expr = legacyExprs.get(i);
             slotDescriptor.setSourceExpr(expr);
-            slotDescriptor.setIsNullable(expr.isNullable());
+            slotDescriptor.setIsNullable(slots.get(i).nullable());
         }
 
         UnionNode unionNode = new UnionNode(context.nextPlanNodeId(), oneRowTuple.getId());
@@ -1014,11 +1022,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             hashJoinNode.setColocate(true, "");
             leftFragment.setHasColocatePlanNode(true);
         } else if (JoinUtils.shouldBroadcastJoin(physicalHashJoin)) {
-            Preconditions.checkState(rightFragment.getPlanRoot() instanceof ExchangeNode,
+            Preconditions.checkState(rightPlanRoot instanceof ExchangeNode,
                     "right child of broadcast join must be ExchangeNode but it is " + rightFragment.getPlanRoot());
             Preconditions.checkState(rightFragment.getChildren().size() == 1,
                     "right child of broadcast join must have 1 child, but meet " + rightFragment.getChildren().size());
-            rightFragment.getChild(0).setRightChildOfBroadcastHashJoin(true);
+            ((ExchangeNode) rightPlanRoot).setRightChildOfBroadcastHashJoin(true);
             hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
         } else if (JoinUtils.shouldBucketShuffleJoin(physicalHashJoin)) {
             hashJoinNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
@@ -1888,7 +1896,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private SortNode translateSortNode(AbstractPhysicalSort<? extends Plan> sort, PlanNode childNode,
             PlanTranslatorContext context) {
-        TupleDescriptor sortTuple = generateTupleDesc(sort.child().getOutput(), null, context);
+        Set<ExprId> deferredMaterializedExprIds = sort
+                .getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS)
+                .map(s -> (Set<ExprId>) s)
+                .orElse(Collections.emptySet());
+        TupleDescriptor sortTuple = generateTupleDesc(sort.child().getOutput(),
+                null, deferredMaterializedExprIds, context);
         List<Expr> orderingExprs = Lists.newArrayList();
         List<Boolean> ascOrders = Lists.newArrayList();
         List<Boolean> nullsFirstParams = Lists.newArrayList();
@@ -1900,12 +1913,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         });
         SortInfo sortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, sortTuple);
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, sort instanceof PhysicalTopN);
-        if (sort.getMutableState(PhysicalTopN.TWO_PHASE_READ_OPT).isPresent()) {
+        if (sort.getMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS).isPresent()) {
             sortNode.setUseTwoPhaseReadOpt(true);
             sortNode.getSortInfo().setUseTwoPhaseRead();
             injectRowIdColumnSlot(sortNode.getSortInfo().getSortTupleDescriptor());
-            SlotDescriptor childRowIdDesc = sortTuple.getSlots().get(sortTuple.getSlots().size() - 1);
-            sortNode.getResolvedTupleExprs().add(new SlotRef(childRowIdDesc));
         }
         if (sort.getStats() != null) {
             sortNode.setCardinality((long) sort.getStats().getRowCount());
