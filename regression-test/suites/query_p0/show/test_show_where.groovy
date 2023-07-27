@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_show_where", "query") {
+suite("test_show_where", "query,external,mysql") {
     String ex_db_name = "doris_test";
     String ex_tb0 = "ex_tb0";
     String ex_tb1 = "ex_tb1";

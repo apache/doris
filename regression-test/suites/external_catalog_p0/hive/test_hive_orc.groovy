@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_orc", "all_types") {
+suite("test_hive_orc", "all_types,external,hive") {
     // Ensure that all types are parsed correctly
     def select_top50 = {
         qt_select_top50 """select * from orc_all_types order by int_col desc limit 50;"""
