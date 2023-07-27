@@ -65,6 +65,7 @@ We have graduated from Apache incubator succesffully and become an Top-Level Pro
 
 
 ## 🌟 More Stars on Github
+
 [![Star History Chart](https://api.star-history.com/svg?repos=apache/doris&type=Date)](https://star-history.com/#apache/doris&Date)
 
 
