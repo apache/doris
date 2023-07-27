@@ -79,6 +79,7 @@ public class DiskRebalanceTest {
     private final SystemInfoService systemInfoService = new SystemInfoService();
     private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
     private Map<Tag, LoadStatisticForTag> statisticMap;
+    private Map<Long, PathSlot> backendsWorkingSlots;
 
     @Before
     public void setUp() throws Exception {
@@ -137,12 +138,17 @@ public class DiskRebalanceTest {
                 Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
     }
 
-    private void generateStatisticMap() {
+    private void generateStatisticsAndPathSlots() {
         LoadStatisticForTag loadStatistic = new LoadStatisticForTag(Tag.DEFAULT_BACKEND_TAG, systemInfoService,
                 invertedIndex);
         loadStatistic.init();
         statisticMap = Maps.newHashMap();
         statisticMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
+        backendsWorkingSlots.clear();
+        for (BackendLoadStatistic beStat : loadStatistic.getSortedBeLoadStats(null)) {
+            List<Long> pathHashes = Lists.newArrayList();
+            backendsWorkingSlots.put(beStat.getBeId(), new PathSlot(pathHashes, beStat.getBeId()));
+        }
     }
 
     private void createPartitionsForTable(OlapTable olapTable, MaterializedIndex index, Long partitionCount) {
@@ -187,8 +193,9 @@ public class DiskRebalanceTest {
         // case start
         Configurator.setLevel("org.apache.doris.clone.DiskRebalancer", Level.DEBUG);
 
-        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
-        generateStatisticMap();
+        generateStatisticsAndPathSlots();
+        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(),
+                backendsWorkingSlots);
         rebalancer.updateLoadStatistic(statisticMap);
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
@@ -229,10 +236,9 @@ public class DiskRebalanceTest {
         // case start
         Configurator.setLevel("org.apache.doris.clone.DiskRebalancer", Level.DEBUG);
 
-        Map<Long, PathSlot> backendsWorkingSlots = Maps.newConcurrentMap();
+        generateStatisticsAndPathSlots();
         Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(),
                 backendsWorkingSlots);
-        generateStatisticMap();
         rebalancer.updateLoadStatistic(statisticMap);
         for (Map.Entry<Tag, LoadStatisticForTag> s : statisticMap.entrySet()) {
             if (s.getValue() != null) {

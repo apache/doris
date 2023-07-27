@@ -196,7 +196,7 @@ public class RebalanceTest {
 
     @Test
     public void testPrioBackends() {
-        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex());
+        Rebalancer rebalancer = new DiskRebalancer(Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(), null);
         // add
         { // CHECKSTYLE IGNORE THIS LINE
             List<Backend> backends = Lists.newArrayList();
@@ -232,7 +232,7 @@ public class RebalanceTest {
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
         PartitionRebalancer rebalancer = new PartitionRebalancer(Env.getCurrentSystemInfo(),
-                Env.getCurrentInvertedIndex(), tabletScheduler.getBackendsWorkingSlots());
+                Env.getCurrentInvertedIndex(), null);
         TabletScheduler tabletScheduler = new TabletScheduler(env, systemInfoService, invertedIndex, stat, "");
         // The rebalancer inside the scheduler will use this rebalancer, for getToDeleteReplicaId
         Deencapsulation.setField(tabletScheduler, "rebalancer", rebalancer);
