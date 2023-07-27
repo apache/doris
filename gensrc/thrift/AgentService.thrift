@@ -103,7 +103,8 @@ enum TCompressionType {
     LZ4 = 4,
     LZ4F = 5,
     ZLIB = 6,
-    ZSTD = 7
+    ZSTD = 7,
+    LZ4HC = 8
 }
 
 
