@@ -182,8 +182,6 @@ public:
 
     void add_cur_batch() { _cur_batch_num++; }
 
-    size_t cur_batch_num() { return _cur_batch_num; }
-
     bool is_cur_block_finished() { return _index_in_block == _block->rows() - 1; }
 
     size_t remain_rows() { return _block->rows() - _index_in_block; }

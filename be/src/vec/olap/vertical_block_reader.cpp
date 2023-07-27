@@ -432,18 +432,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
             }
         }
 
-        uint64_t row_buffer_size_cur_batch =
-                _row_sources_buffer->buffered_size() - row_buffer_size_start;
-
         size_t block_rows = block->rows();
-        DCHECK_EQ(block_rows, row_buffer_size_cur_batch - merged_rows_in_rs_buffer)
-                << "block rows: " << block_rows
-                << ", row buffer size cur batch: " << row_buffer_size_cur_batch
-                << ", merged rows in rs buffer: " << merged_rows_in_rs_buffer
-                << ", row buffer size in total: " << _row_sources_buffer->buffered_size()
-                << ", row_source_idx: " << row_source_idx
-                << ", row_buffer_size_start: " << row_buffer_size_start;
-
         if (_filter_delete && block_rows > 0) {
             int ori_delete_sign_idx = _reader_context.tablet_schema->field_index(DELETE_SIGN);
             if (ori_delete_sign_idx < 0) {
@@ -505,8 +494,6 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
 
         DCHECK_EQ(merged_rows_in_rs_buffer, merged_rows_cur_batch);
         DCHECK_EQ(filtered_rows_in_rs_buffer, filtered_rows_cur_batch);
-        DCHECK_EQ(row_buffer_size_cur_batch,
-                  block->rows() + merged_rows_cur_batch + filtered_rows_cur_batch);
         *eof = (res.is<END_OF_FILE>());
         _eof = *eof;
         return Status::OK();

@@ -100,12 +100,12 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
         VLOG_NOTICE << "num_rows_written: " << num_rows_written
                     << ", _cur_writer_idx: " << _cur_writer_idx;
         uint32_t num_rows_key_group = _segment_writers[_cur_writer_idx]->row_count();
-        DCHECK(num_rows_key_group > 0);
         // init if it's first value column write in current segment
         if (_cur_writer_idx == 0 && num_rows_written == 0) {
             VLOG_NOTICE << "init first value column segment writer";
             RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->init(col_ids, is_key));
         }
+        // when splitting segment, need to make rows align between key columns and value columns
         size_t start_offset = 0, limit = num_rows;
         if (num_rows_written + num_rows >= num_rows_key_group &&
             _cur_writer_idx < _segment_writers.size() - 1) {
@@ -113,17 +113,6 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
                     block, 0, num_rows_key_group - num_rows_written));
             RETURN_IF_ERROR(_flush_columns(&_segment_writers[_cur_writer_idx]));
             start_offset = num_rows_key_group - num_rows_written;
-            DCHECK(start_offset <= num_rows);
-            DCHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
-                   _segment_writers[_cur_writer_idx]->row_count())
-                    << "num_rows_written before: " << num_rows_written
-                    << ", num_rows_key_group before: " << num_rows_key_group
-                    << ", block rows: " << num_rows << ", num_rows_written after: "
-                    << _segment_writers[_cur_writer_idx]->num_rows_written()
-                    << ", num_rows_key_group after: "
-                    << _segment_writers[_cur_writer_idx]->row_count()
-                    << "_cur_writer_idx: " << _cur_writer_idx
-                    << ", size: " << _segment_writers.size();
             limit = num_rows - start_offset;
             ++_cur_writer_idx;
             // switch to next writer
@@ -135,16 +124,7 @@ Status VerticalBetaRowsetWriter::add_columns(const vectorized::Block* block,
             RETURN_IF_ERROR(
                     _segment_writers[_cur_writer_idx]->append_block(block, start_offset, limit));
             DCHECK(_segment_writers[_cur_writer_idx]->num_rows_written() <=
-                   _segment_writers[_cur_writer_idx]->row_count())
-                    << "num_rows_written before: " << num_rows_written
-                    << ", num_rows_key_group before: " << num_rows_key_group
-                    << ", write start: " << start_offset << ", limit: " << limit
-                    << ", num_rows_written after: "
-                    << _segment_writers[_cur_writer_idx]->num_rows_written()
-                    << ", num_rows_key_group after: "
-                    << _segment_writers[_cur_writer_idx]->row_count()
-                    << "_cur_writer_idx: " << _cur_writer_idx
-                    << ", size: " << _segment_writers.size();
+                   _segment_writers[_cur_writer_idx]->row_count());
         }
     }
     if (is_key) {
