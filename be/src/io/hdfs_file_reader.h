@@ -53,8 +53,8 @@ public:
     ~HdfsFsHandle() {
         DCHECK(_ref_cnt == 0);
         if (hdfs_fs != nullptr) {
-            // Even if there is an error, the resources associated with the hdfsFS will be freed.
-            hdfsDisconnect(hdfs_fs);
+            // DO NOT call hdfsDisconnect(), or we will meet "Filesystem closed"
+            // hdfsDisconnect(hdfs_fs);
         }
         hdfs_fs = nullptr;
     }
