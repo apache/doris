@@ -1000,7 +1000,7 @@ public class Config extends ConfigBase {
 
     // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
     @ConfField(masterOnly = true, mutable = true)
-    public static int balance_slot_num_per_path = 1;
+    public static int balance_slot_num_per_path = 2;
 
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
