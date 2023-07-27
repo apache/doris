@@ -16,8 +16,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_primary_key_partial_update_seq_col", "p0") {
-    def tableName = "test_primary_key_partial_update_seq_col"
+suite("test_primary_key_partial_update_seq_type", "p0") {
+    def tableName = "test_primary_key_partial_update_seq_type"
 
     // create table
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -33,7 +33,7 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
             PROPERTIES(
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "function_column.sequence_col" = "update_time"
+                "function_column.sequence_type" = "int"
             )
     """
     // insert 2 lines
@@ -49,16 +49,16 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
         select * from ${tableName} order by id;
     """
 
-    // don't set partial update header, it's a row update streamload
-    // the input data don't contains sequence mapping column, will load fail
+    // no sequence column header, stream load should fail
     streamLoad {
         table "${tableName}"
 
         set 'column_separator', ','
         set 'format', 'csv'
-        set 'columns', 'id,score'
+        set 'partial_columns', 'true'
+        set 'columns', 'id,score,test,update_time'
 
-        file 'basic.csv'
+        file 'basic_with_test.csv'
         time 10000 // limit inflight 10s
 
         check { result, exception, startTime, endTime ->
@@ -72,45 +72,25 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
         }
     }
 
+    sql "sync"
 
-    // set partial update header, should success
-    // we don't provide the sequence column in input data, so the updated rows
-    // should use there original sequence column values.
+    // both partial_columns and sequence column header, stream load should success
     streamLoad {
         table "${tableName}"
 
         set 'column_separator', ','
         set 'format', 'csv'
         set 'partial_columns', 'true'
-        set 'columns', 'id,score'
+        set 'columns', 'id,score,test,update_time'
+        set 'function_column.sequence_col', 'score'
 
-        file 'basic.csv'
+        file 'basic_with_test.csv'
         time 10000 // limit inflight 10s
     }
 
     sql "sync"
 
-    qt_partial_update_without_seq """
-        select * from ${tableName} order by id;
-    """
-
-    // provide the sequence column this time, should update according to the
-    // given sequence values
-    streamLoad {
-        table "${tableName}"
-
-        set 'column_separator', ','
-        set 'format', 'csv'
-        set 'partial_columns', 'true'
-        set 'columns', 'id,score,update_time'
-
-        file 'basic_with_seq.csv'
-        time 10000 // limit inflight 10s
-    }
-
-    sql "sync"
-
-    qt_partial_update_with_seq """
+    qt_partial_update_with_seq_score """
         select * from ${tableName} order by id;
     """
 
@@ -118,10 +98,80 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
 
     sql "sync"
 
-    qt_partial_update_with_seq_hidden_columns """
+    qt_partial_update_with_seq_score_hidden """
         select * from ${tableName} order by id;
     """
 
-    // drop drop
+    // use test as sequence column
+    streamLoad {
+        table "${tableName}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'id,score,test,update_time'
+        set 'function_column.sequence_col', 'test'
+
+        file 'basic_with_test.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "SET show_hidden_columns=false"
+
+    sql "sync"
+
+    qt_partial_update_with_seq_test """
+        select * from ${tableName} order by id;
+    """
+
+    sql "SET show_hidden_columns=true"
+
+    sql "sync"
+
+    qt_partial_update_with_seq_test_hidden """
+        select * from ${tableName} order by id;
+    """
+
+    // no partial update header, stream load should success,
+    // but the missing columns will be filled with default values
+    streamLoad {
+        table "${tableName}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'id,score,test,update_time'
+        set 'function_column.sequence_col', 'score'
+
+        file 'basic_with_test2.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+
+    qt_select_no_partial_update_score """
+        select * from ${tableName} order by id;
+    """
+
+    // no partial update header, stream load should success,
+    // but the missing columns will be filled with default values
+    streamLoad {
+        table "${tableName}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'columns', 'id,score,test,update_time'
+        set 'function_column.sequence_col', 'test'
+
+        file 'basic_with_test2.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+
+    qt_select_no_partial_update_test """
+        select * from ${tableName} order by id;
+    """
+
+    // drop table
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }
