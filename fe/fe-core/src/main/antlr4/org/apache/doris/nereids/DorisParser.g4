@@ -362,11 +362,11 @@ lessThanPartitionDef
     ;
     
 fixedPartitionDef
-    : PARTITION partitionName=identifier VALUES LEFT_BRACKET constantSeq RIGHT_PAREN
+    : PARTITION partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
     ;
 
 stepPartitionDef
-    : FROM constantSeq TO constantSeq
+    : FROM from=constantSeq TO to=constantSeq
         ((INTERVAL unitsAmount=valueExpression unit=datetimeUnit) | unitsAmount=valueExpression)
     ;
     
