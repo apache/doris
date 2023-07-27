@@ -66,6 +66,7 @@ WITH BROKER broker_name
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
   [FORMAT AS "file_type"]
+  [LINES TERMINATED BY "line_delimiter"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
   [SET (column_mapping)]
@@ -95,6 +96,10 @@ WITH BROKER broker_name
   - `COLUMNS TERMINATED BY`
 
     指定列分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
+
+   - `LINES TERMINATED BY`
+
+    指定行分隔符。仅在 CSV 格式下有效。仅能指定单字节分隔符。
 
   - `FORMAT AS`
 
