@@ -79,7 +79,7 @@ public class DiskRebalanceTest {
     private final SystemInfoService systemInfoService = new SystemInfoService();
     private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
     private Map<Tag, LoadStatisticForTag> statisticMap;
-    private Map<Long, PathSlot> backendsWorkingSlots;
+    private Map<Long, PathSlot> backendsWorkingSlots = Maps.newHashMap();
 
     @Before
     public void setUp() throws Exception {
