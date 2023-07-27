@@ -216,6 +216,8 @@ public:
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
     bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
+
+    bool has_predicate() const { return !_conjuncts.empty(); }
     /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
     // and add block rows for profile
     void reached_limit(vectorized::Block* block, bool* eos);
