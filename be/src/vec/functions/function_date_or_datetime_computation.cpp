@@ -89,7 +89,7 @@ using FunctionLocalTimestamp =
         FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<LocalTimestampFunctionName, false>>;
 
 using FunctionNowWithPrecision =
-        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, true>, false>;
+        FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, true>>;
 using FunctionCurrentTimestampWithPrecision =
         FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<CurrentTimestampFunctionName, true>>;
 using FunctionLocalTimeWithPrecision =
