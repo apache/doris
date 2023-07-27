@@ -654,6 +654,14 @@ public class Analyzer {
         }
     }
 
+    public void registerTupleDescriptor(TupleDescriptor desc) {
+        tupleByAlias.put(desc.getAlias(), desc);
+        for (SlotDescriptor slot : desc.getSlots()) {
+            String key = desc.getAlias() + "." + slot.getColumn().getName();
+            slotRefMap.put(key, slot);
+        }
+    }
+
     /**
      * Creates an returns an empty TupleDescriptor for the given table ref and registers
      * it against all its legal aliases. For tables refs with an explicit alias, only the

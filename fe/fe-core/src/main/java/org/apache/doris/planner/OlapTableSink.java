@@ -255,7 +255,8 @@ public class OlapTableSink extends DataSink {
                 Expr expr = indexMeta.getWhereClause().clone();
                 expr.replaceSlot(tupleDescriptor);
                 if (analyzer != null) {
-                    analyzer.addSlotDescriptor(tupleDescriptor);
+                    tupleDescriptor.setTable(table);
+                    analyzer.registerTupleDescriptor(tupleDescriptor);
                     expr.analyze(analyzer);
                 }
                 indexSchema.setWhereClause(expr.treeToThrift());

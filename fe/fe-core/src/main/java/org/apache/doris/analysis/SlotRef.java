@@ -201,9 +201,7 @@ public class SlotRef extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (desc == null) {
-            desc = analyzer.registerColumnRef(tblName, col);
-        }
+        desc = analyzer.registerColumnRef(tblName, col);
         type = desc.getType();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
