@@ -84,7 +84,7 @@ Apache Doris 聚集了世界全国各地的用户与开发人员，致力于打�
 我们非常感谢 🔗[社区贡献者](https://github.com/apache/doris/graphs/contributors) 对 Apache Doris 的大力支持！
 
 
-<hr>
+
 
 
 ## 👋 想要了解更多？别错过最新动态！
