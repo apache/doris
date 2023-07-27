@@ -20,7 +20,7 @@ suite("test_jdbc_query_mysql", "p0") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_57_port = context.config.otherConfigs.get("mysql_57_port")
-        String jdbcResourceMysql57 = "jdbc_resource_mysql_57"
+        String jdbcResourceMysql57 = "jdbc_resource_mysql_57_x"
         String jdbcMysql57Table1 = "jdbc_mysql_57_table1"
         String exMysqlTable = "doris_ex_tb";
         String exMysqlTable1 = "doris_ex_tb1";
