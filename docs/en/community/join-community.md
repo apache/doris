@@ -83,7 +83,7 @@ We deeply appreciate 🔗[community contributors](https://github.com/apache/dori
 
 
 
-<hr>
+
 
 
 # Don't Miss Out the Latest News and Events
