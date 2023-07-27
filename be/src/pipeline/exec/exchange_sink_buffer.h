@@ -19,6 +19,7 @@
 
 #include <brpc/controller.h>
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
@@ -153,6 +154,11 @@ private:
     vectorized::BroadcastPBlockHolder* _data;
 };
 
+struct ExchangeRpcContext {
+    SelfDeleteClosure<PTransmitDataResult>* _closure = nullptr;
+    bool is_cancelled = false;
+};
+
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer {
 public:
@@ -162,7 +168,7 @@ public:
     Status add_block(TransmitInfo&& request);
     Status add_block(BroadcastTransmitInfo&& request);
     bool can_write() const;
-    bool is_pending_finish() const;
+    bool is_pending_finish();
     void close();
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
@@ -185,6 +191,7 @@ private:
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
+    phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
 
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;

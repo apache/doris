@@ -24,7 +24,7 @@ suite("test_primary_key_partial_update_seq_col", "p0") {
     sql """
             CREATE TABLE ${tableName} (
                 `id` int(11) NOT NULL COMMENT "用户 ID",
-                `name` varchar(65533) NOT NULL COMMENT "用户姓名",
+                `name` varchar(65533) DEFAULT "unknown" COMMENT "用户姓名",
                 `score` int(11) NOT NULL COMMENT "用户得分",
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321",

@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <cctype>
 // IWYU pragma: no_include <bthread/errno.h>
+#include <lz4/lz4hc.h>
+
 #include <cerrno> // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
@@ -127,6 +129,8 @@ DEFINE_mString(process_full_gc_size, "20%");
 DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
+
+DEFINE_mInt64(large_memory_check_bytes, "1073741824");
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
@@ -453,9 +457,9 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
-DEFINE_Int32(brpc_heavy_work_pool_threads, "192");
+DEFINE_Int32(brpc_heavy_work_pool_threads, "128");
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
-DEFINE_Int32(brpc_light_work_pool_threads, "32");
+DEFINE_Int32(brpc_light_work_pool_threads, "128");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "10240");
 
@@ -577,10 +581,10 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-DEFINE_mInt32(thrift_rpc_timeout_ms, "20000");
+DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
 // txn commit rpc timeout
-DEFINE_mInt32(txn_commit_rpc_timeout_ms, "10000");
+DEFINE_mInt32(txn_commit_rpc_timeout_ms, "60000");
 
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");
@@ -1041,6 +1045,9 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 #ifdef BE_TEST
 // test s3

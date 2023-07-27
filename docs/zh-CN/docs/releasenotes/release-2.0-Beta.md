@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Release 2.0-beta",
+    "title": "Release 2.0-Beta",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-亲爱的社区小伙伴们，我们很高兴地向大家宣布，Apache Doris 2.0-beta 版本已于 2023 年 7 月 3 日正式发布！**在 2.0-beta 版本中有超过 255 位贡献者为 Apache Doris 提交了超过 3500 个优化与修复**，欢迎大家下载使用！
+亲爱的社区小伙伴们，我们很高兴地向大家宣布，Apache Doris 2.0-Beta 版本已于 2023 年 7 月 3 日正式发布！**在 2.0-Beta 版本中有超过 255 位贡献者为 Apache Doris 提交了超过 3500 个优化与修复**，欢迎大家下载使用！
 
 > 下载链接：[https://doris.apache.org/download](https://doris.apache.org/download)
 > 
@@ -48,7 +48,7 @@ under the License.
 -   如何在大幅降低数据存储和计算资源成本的同时兼顾高性能查询？
 -   ……
 
-秉持着“**将易用性留给用户、将复杂性留给自己**”的原则，为了克服以上一系列挑战，从理论基础到工程实现、从理想业务场景到极端异常 Case、从内部测试通过到大规模生产可用，我们耗费了更多的时间与精力在功能的开发、验证、持续迭代与精益求精上。值得庆祝的是，在经过近半年的开发、测试与稳定性调优后，Apache Doris 终于迎来了 2.0-beta 版本的正式发布！而这一版本的成功发布也使得我们的愿景离现实更进一步！
+秉持着“**将易用性留给用户、将复杂性留给自己**”的原则，为了克服以上一系列挑战，从理论基础到工程实现、从理想业务场景到极端异常 Case、从内部测试通过到大规模生产可用，我们耗费了更多的时间与精力在功能的开发、验证、持续迭代与精益求精上。值得庆祝的是，在经过近半年的开发、测试与稳定性调优后，Apache Doris 终于迎来了 2.0-Beta 版本的正式发布！而这一版本的成功发布也使得我们的愿景离现实更进一步！
 
   
 
@@ -62,7 +62,7 @@ under the License.
 -   Benchmark 更多是真实业务场景的抽象、提炼与简化，而现实场景往往可能面临更复杂的查询语句，这是测试所无法覆盖的；
 -   Benchmark 查询语句可枚举、可针对性进行调优，而真实业务场景的调优极度依赖工程师的心智成本、调优效率往往较为低下且过于消耗工程师人力；
 
-基于此，我们着手研发了现代架构的全新查询优化器，并在 Apache Doris 2.0-beta 版本全面启用。全新查询优化器采取了更先进的 Cascades 框架、使用了更丰富的统计信息、实现了更智能化的自适应调优，在绝大多数场景无需任何调优和 SQL 改写即可实现极致的查询性能，同时对复杂 SQL 支持得更加完备、可完整支持 TPC-DS 全部 99 个 SQL。
+基于此，我们着手研发了现代架构的全新查询优化器，并在 Apache Doris 2.0-Beta 版本全面启用。全新查询优化器采取了更先进的 Cascades 框架、使用了更丰富的统计信息、实现了更智能化的自适应调优，在绝大多数场景无需任何调优和 SQL 改写即可实现极致的查询性能，同时对复杂 SQL 支持得更加完备、可完整支持 TPC-DS 全部 99 个 SQL。
 
 我们对全新查询优化器的执行性能进行了盲测，仅以 TPC-H 22 个 SQL 为例 ，**全新优化器在未进行任何手工调优和 SQL 改写的情况下** **查询耗时**，盲测性能提升了超过 10 倍！而在数十个 2.0 版本用户的真实业务场景中，绝大多数原始 SQL 执行效率得以极大提升，真正解决了人工调优的痛点！
 
@@ -278,25 +278,25 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 
 # 其他升级注意事项
 
-- 1.2-lts 可以滚动升级到 2.0-beta，2.0-alpha 可以停机升级到 2.0-beta
+- 1.2-lts 可以滚动升级到 2.0-Beta，2.0-Alpha 可以停机升级到 2.0-Beta
 - 查询优化器开关默认开启 `enable_nereids_planner=true`；
 - 系统中移除了非向量化代码，所以 `enable_vectorized_engine` 参数将不再生效；
 - 新增参数 `enable_single_replica_compaction`；
 - 默认使用 datev2, datetimev2, decimalv3 来创建表，不支持 datev1，datetimev1， decimalv2 创建表；
 - 在 JDBC 和 Iceberg Catalog 中默认使用decimalv3；
-- date type 新增 AGG_STATE；
-- backend 表去掉 cluster 列；
+- Date type 新增 AGG_STATE；
+- Backend 表去掉 cluster 列；
 - 为了与 BI 工具更好兼容，在 show create table 时，将 datev2 和 datetimev2 显示为 date 和 datetime。
 - 在 BE 启动脚本中增加了 max_openfiles 和 swap 的检查，所以如果系统配置不合理，be 有可能会启动失败；
 - 禁止在 localhost 访问 FE 时无密码登录；
 - 当系统中存在 Multi-Catalog 时，查询 information schema 的数据默认只显示 internal catalog 的数据；
 - 限制了表达式树的深度，默认为 200；
-- array string 返回值 单引号变双引号；
-- 对 Doris的进程名重命名为 DorisFE 和 DorisBE；
+- Array string 返回值 单引号变双引号；
+- 对 Doris 的进程名重命名为 DorisFE 和 DorisBE；
 
 # 踏上 2.0 之旅
 
-距离 Apache Doris 2.0 Alpha 版本发布已经有一个半月之久，这一段时间内我们在加速核心功能特性开发的同时、还收获到了数百家企业对于新版本的切身体验与真实反馈，这些来自真实业务场景的反馈对于功能的打磨与进一步完善有着极大的帮助。因此 2.0-beta 版本无论在功能的完整度还是系统稳定性上，都已经具备了更佳的使用体验，欢迎所有对于 2.0 版本新特性有需求的用户部署升级。
+距离 Apache Doris 2.0-Alpha 版本发布已经有一个半月之久，这一段时间内我们在加速核心功能特性开发的同时、还收获到了数百家企业对于新版本的切身体验与真实反馈，这些来自真实业务场景的反馈对于功能的打磨与进一步完善有着极大的帮助。因此 2.0-Beta 版本无论在功能的完整度还是系统稳定性上，都已经具备了更佳的使用体验，欢迎所有对于 2.0 版本新特性有需求的用户部署升级。
 
 如果您在调研、测试以及部署升级 2.0 版本的过程中有任何问题，欢迎提交问卷信息，届时将由社区核心贡献者提供 1-1 专项支持。我们也期待 2.0 版本为更多社区用户提供实时统一的分析体验，相信 Apache Doris 2.0 版本会成为您在实时分析场景中的最理想选择。
 

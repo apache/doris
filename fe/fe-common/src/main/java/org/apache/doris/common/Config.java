@@ -223,7 +223,7 @@ public class Config extends ConfigBase {
             + "可以适当增大这个值",
             "The lock timeout of bdbje operation, in seconds. "
                     + "If there are many LockTimeoutException in FE WARN log, you can try to increase this value"})
-    public static int bdbje_lock_timeout_second = 1;
+    public static int bdbje_lock_timeout_second = 5;
 
     @ConfField(description = {"BDBJE 主从节点间同步的超时时间，单位为秒。如果出现大量的 ReplicaWriteException，"
             + "可以适当增大这个值",
@@ -1470,7 +1470,7 @@ public class Config extends ConfigBase {
      * the system automatically checks the time interval for statistics
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_minutes = 5;
+    public static int auto_check_statistics_in_minutes = 1;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -2018,7 +2018,7 @@ public class Config extends ConfigBase {
     public static boolean enable_feature_binlog = false;
 
     @ConfField
-    public static int analyze_task_timeout_in_minutes = 120;
+    public static int analyze_task_timeout_in_hours = 12;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",

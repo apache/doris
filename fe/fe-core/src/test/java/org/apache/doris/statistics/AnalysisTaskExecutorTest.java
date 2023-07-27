@@ -127,7 +127,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         };
         new Expectations() {
             {
-                task.execute();
+                task.doExecute();
                 times = 1;
             }
         };

@@ -363,6 +363,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String CBO_NET_WEIGHT = "cbo_net_weight";
 
+    public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -376,6 +378,9 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
+    public boolean roundPreciseDecimalV2Value = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
@@ -396,7 +401,7 @@ public class SessionVariable implements Serializable, Writable {
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
     @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
-    public long defaultOrderByLimit = -1;
+    private long defaultOrderByLimit = -1;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
@@ -475,7 +480,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean sqlAutoIsNull = false;
 
     @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
-    public long sqlSelectLimit = 9223372036854775807L;
+    private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
@@ -1309,7 +1314,14 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public long getSqlSelectLimit() {
+        if (sqlSelectLimit < 0 || sqlSelectLimit >= Long.MAX_VALUE) {
+            return -1;
+        }
         return sqlSelectLimit;
+    }
+
+    public long getDefaultOrderByLimit() {
+        return defaultOrderByLimit;
     }
 
     public int getMaxAllowedPacket() {
