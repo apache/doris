@@ -27,7 +27,7 @@ namespace doris {
 class LoadUtilTest : public testing::Test {
 public:
     LoadUtilTest() {}
-    ~LoadUtilTest() override {}
+    ~LoadUtilTest() override = default;
 };
 
 TEST_F(LoadUtilTest, StreamingTest) {
