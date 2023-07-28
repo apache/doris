@@ -63,6 +63,7 @@ static const std::string HTTP_PARTIAL_COLUMNS = "partial_columns";
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";
 static const std::string HTTP_TXN_OPERATION_KEY = "txn_operation";
+static const std::string HTTP_TOKEN = "token";
 
 static const std::unordered_set<std::string> kAvailableStreamLoadRequestFields {
         // below are avaiable request fields defined in stream load
@@ -101,6 +102,7 @@ static const std::unordered_set<std::string> kAvailableStreamLoadRequestFields {
         HTTP_SKIP_LINES,
         HTTP_ENABLE_PROFILE,
         HTTP_PARTIAL_COLUMNS,
+        HTTP_TOKEN,
 
         // below are http standard request fields
         HttpHeaders::ACCEPT,
