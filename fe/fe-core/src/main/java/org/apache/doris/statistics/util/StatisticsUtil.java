@@ -29,18 +29,22 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -644,4 +648,15 @@ public class StatisticsUtil {
         columnStatisticBuilder.setNumNulls(columnStatisticBuilder.getNumNulls()
                 + dataFile.nullValueCounts().get(colId));
     }
+
+    public static boolean isUnsupportedType(Type type) {
+        if (ColumnStatistic.UNSUPPORTED_TYPE.contains(type)) {
+            return true;
+        }
+        return type instanceof ArrayType
+                || type instanceof StructType
+                || type instanceof MapType
+                || type instanceof VariantType;
+    }
+
 }
