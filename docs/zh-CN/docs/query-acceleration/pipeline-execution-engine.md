@@ -72,6 +72,7 @@ set enable_pipeline_engine = true;
 #### parallel_pipeline_task_num
 
 `parallel_pipeline_task_num`代表了 SQL 查询进行查询并发的 Pipeline Task 数目。Doris默认的配置为`0`,即CPU核数的一半。用户也可以实际根据自己的实际情况进行调整。
+如果用户从较低的版本升级过来，则默认值为升级前的`parallel_fragment_exec_instance_num`。
 
 ```
 set parallel_pipeline_task_num = 0;
