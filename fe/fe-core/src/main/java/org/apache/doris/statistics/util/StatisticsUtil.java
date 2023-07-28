@@ -125,7 +125,7 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
-        if (FeConstants.disableInternalSchemaDb) {
+        if (!FeConstants.enableInternalSchemaDb) {
             return Collections.emptyList();
         }
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
