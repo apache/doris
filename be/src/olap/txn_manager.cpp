@@ -152,11 +152,10 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
 
 Status TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                               TTransactionId transaction_id, const PUniqueId& load_id,
-                              const RowsetSharedPtr& rowset_ptr, bool is_recovery,
-                              bool do_correctness_check) {
+                              const RowsetSharedPtr& rowset_ptr, bool is_recovery) {
     return commit_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
                       tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), load_id,
-                      rowset_ptr, is_recovery, do_correctness_check);
+                      rowset_ptr, is_recovery);
 }
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -218,7 +217,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                               TTransactionId transaction_id, TTabletId tablet_id,
                               SchemaHash schema_hash, TabletUid tablet_uid,
                               const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
-                              bool is_recovery, bool do_correctness_check) {
+                              bool is_recovery) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
         LOG(FATAL) << "invalid commit req "
                    << " partition_id=" << partition_id << " transaction_id=" << transaction_id
@@ -367,9 +366,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         tablet->create_transient_rowset_writer(rowset, &rowset_writer);
 
         int64_t t2 = MonotonicMicros();
-        RETURN_IF_ERROR(tablet->update_delete_bitmap(
-                rowset, tablet_txn_info.rowset_ids, tablet_txn_info.delete_bitmap, transaction_id,
-                rowset_writer.get(), tablet_txn_info.do_correctness_check));
+        RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
+                                                     tablet_txn_info.delete_bitmap, transaction_id,
+                                                     rowset_writer.get()));
         int64_t t3 = MonotonicMicros();
         stats->calc_delete_bitmap_time_us = t3 - t2;
         if (rowset->tablet_schema()->is_partial_update()) {

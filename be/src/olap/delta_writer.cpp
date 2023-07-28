@@ -321,11 +321,8 @@ Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes,
                                const bool write_single_replica) {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_close_wait_timer);
-    // only do correctness check if the rowset has at least one row written
-    bool do_correctness_check = (_rowset_writer->num_rows() != 0);
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
-                                                            _req.load_id, _cur_rowset, false,
-                                                            do_correctness_check);
+                                                            _req.load_id, _cur_rowset, false);
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id

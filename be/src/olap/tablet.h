@@ -486,8 +486,7 @@ public:
     Status update_delete_bitmap(const RowsetSharedPtr& rowset,
                                 const RowsetIdUnorderedSet& pre_rowset_ids,
                                 DeleteBitmapPtr delete_bitmap, int64_t txn_id,
-                                RowsetWriter* rowset_writer = nullptr,
-                                bool do_correctness_check = false);
+                                RowsetWriter* rowset_writer = nullptr);
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
@@ -551,11 +550,6 @@ public:
 
     void set_binlog_config(BinlogConfig binlog_config);
 
-    void add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
-                                            const RowsetIdUnorderedSet& rowsetids);
-    void remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
-    Status check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version);
-
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -602,6 +596,12 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
+
+    void _add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
+                                             const RowsetIdUnorderedSet& rowsetids);
+    void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
+    Status _check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
+                                            const RowsetIdUnorderedSet& rowset_ids) const;
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

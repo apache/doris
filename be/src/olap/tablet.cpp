@@ -2981,10 +2981,12 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     for (const auto& rowset : specified_rowsets) {
         rowsetids.emplace(rowset->rowset_id());
         LOG(INFO) << "[tabletID:" << tablet_id() << "]"
-                  << "[add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
+                  << "[_add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
                   << "add:" << rowset->rowset_id();
     }
-    add_sentinel_mark_to_delete_bitmap(delete_bitmap, rowsetids);
+    if (config::enable_merge_on_write_correctness_check) {
+        _add_sentinel_mark_to_delete_bitmap(delete_bitmap, rowsetids);
+    }
 
     if (pos > 0) {
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
@@ -3230,6 +3232,12 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
               << ", rowset_ids: " << cur_rowset_ids.size() << ", cur max_version: " << cur_version
               << ", transaction_id: " << -1 << ", cost: " << watch.get_elapse_time_us()
               << "(us), total rows: " << total_rows;
+    if (config::enable_merge_on_write_correctness_check) {
+        // check if all the rowset has ROWSET_SENTINEL_MARK
+        RETURN_IF_ERROR(
+                _check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, cur_rowset_ids));
+        _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
+    }
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
         _tablet_meta->delete_bitmap().merge(
@@ -3279,7 +3287,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
 Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
                                     const RowsetIdUnorderedSet& pre_rowset_ids,
                                     DeleteBitmapPtr delete_bitmap, int64_t txn_id,
-                                    RowsetWriter* rowset_writer, bool do_correctness_check) {
+                                    RowsetWriter* rowset_writer) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
@@ -3327,10 +3335,12 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
               << ", cur max_version: " << cur_version << ", transaction_id: " << txn_id
               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
 
-    if (do_correctness_check) {
+    if (config::enable_merge_on_write_correctness_check && rowset->num_rows() != 0) {
+        // only do correctness check if the rowset has at least one row written
         // check if all the rowset has ROWSET_SENTINEL_MARK
-        RETURN_IF_ERROR(check_delete_bitmap_correctness(delete_bitmap, cur_version - 1));
-        remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
+        RETURN_IF_ERROR(
+                _check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, cur_rowset_ids));
+        _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
 
     // update version without write lock, compaction and publish_txn
@@ -3666,45 +3676,34 @@ Status Tablet::calc_delete_bitmap_between_segments(
     return Status::OK();
 }
 
-void Tablet::add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
-                                                const RowsetIdUnorderedSet& rowsetids) {
+void Tablet::_add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
+                                                 const RowsetIdUnorderedSet& rowsetids) {
     for (const auto& rowsetid : rowsetids) {
-        delete_bitmap->add(
-                {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::INVALID_VERSION},
-                DeleteBitmap::ROWSET_SENTINEL_MARK);
+        delete_bitmap->add({rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0},
+                           DeleteBitmap::ROWSET_SENTINEL_MARK);
     }
 }
 
-void Tablet::remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap) {
-    for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
-        bitmap.remove(DeleteBitmap::ROWSET_SENTINEL_MARK);
+void Tablet::_remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap) {
+    for (auto it = delete_bitmap->delete_bitmap.begin(), end = delete_bitmap->delete_bitmap.end();
+         it != end;) {
+        if (std::get<1>(it->first) == DeleteBitmap::INVALID_SEGMENT_ID) {
+            it = delete_bitmap->delete_bitmap.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
-Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version) {
-    std::map<RowsetId, bool> result;
-    RowsetIdUnorderedSet rowsets = all_rs_id(max_version);
-    for (const auto& rowsetid : rowsets) {
-        result.emplace(rowsetid, false);
-    }
-    for (const auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
-        auto it = result.find(std::get<0>(key));
-        if (it == result.end()) {
-            LOG(WARNING) << "can't find rowsetid when checking delete bitmap correctness";
-            DCHECK(false);
-            return Status::OK();
-        }
-        if (bitmap.contains(DeleteBitmap::ROWSET_SENTINEL_MARK)) {
-            it->second = true;
-        }
-    }
-    for (const auto& [rowsetid, value] : result) {
-        if (!value) {
+Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
+                                                const RowsetIdUnorderedSet& rowset_ids) const {
+    for (const auto& rowsetid : rowset_ids) {
+        if (!delete_bitmap->delete_bitmap.contains(
+                    {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0})) {
             LOG(WARNING) << "check delete bitmap correctness failed, can't find sentinel mark in "
                             "rowset with RowsetId:"
-                         << rowsetid << "version:" << get_rowset(rowsetid)->version().to_string()
-                         << "max_version:" << max_version;
-            DCHECK(false);
+                         << rowsetid << "max_version:" << max_version;
+            DCHECK(false) << "check delete bitmap correctness failed!";
             return Status::OK();
         }
     }
