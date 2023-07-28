@@ -82,7 +82,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         if (cumu_interval > (config::time_series_compaction_time_threshold_seconds * 1000)) {
             return score;
         }
-    } else {
+    } else if (score > 0) {
         // If the compaction process has not been successfully executed,
         // the condition for triggering compaction based on the last successful compaction time (condition 3) will never be met
         tablet->set_last_cumu_compaction_success_time(now);
