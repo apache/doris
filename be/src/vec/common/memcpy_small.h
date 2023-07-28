@@ -87,17 +87,17 @@ inline void memcpy_fixed_1(char* lhs, const char* rhs) {
 }
 
 inline void memcpy_fixed_2(char* lhs, const char* rhs) {
-    *(int16*)lhs = *(int16*)rhs;
+    *(int16_t*)lhs = *(int16_t*)rhs;
 }
 
 inline void memcpy_fixed_4(char* lhs, const char* rhs) {
-    *(int32*)lhs = *(int32*)rhs;
+    *(int32_t*)lhs = *(int32_t*)rhs;
 }
 
 inline void memcpy_fixed_8(char* lhs, const char* rhs) {
-    *(int64*)lhs = *(int64*)rhs;
+    *(int64_t*)lhs = *(int64_t*)rhs;
 }
 
 inline void memcpy_fixed_16(char* lhs, const char* rhs) {
-    *(__int128*)lhs = *(__int128*)rhs;
+    *(__int128_t*)lhs = *(__int128_t*)rhs;
 }
