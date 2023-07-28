@@ -212,11 +212,11 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 }
 
 void MemTableMemoryLimiter::_refresh_mem_tracker_without_lock() {
-    int64_t mem_usage = 0;
+    _mem_usage = 0;
     for (auto& writer : _writers) {
-        mem_usage += writer->mem_consumption(MemType::ALL);
+        _mem_usage += writer->mem_consumption(MemType::ALL);
     }
-    THREAD_MEM_TRACKER_TRANSFER_TO(mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
+    THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
 }
 
 } // namespace doris

@@ -59,6 +59,7 @@ private:
     // other threads should wait on the condition variable.
     bool _should_wait_flush = false;
     std::condition_variable _wait_flush_cond;
+    int64_t _mem_usage;
 
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     int64_t _load_hard_mem_limit = -1;
