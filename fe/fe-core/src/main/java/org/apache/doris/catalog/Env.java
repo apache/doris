@@ -210,9 +210,9 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.scheduler.AsyncJobRegister;
-import org.apache.doris.scheduler.job.AsyncJobManager;
-import org.apache.doris.scheduler.job.JobTaskManager;
-import org.apache.doris.scheduler.registry.JobRegister;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.JobTaskManager;
+import org.apache.doris.scheduler.registry.PersistentJobRegister;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.StatisticsAutoAnalyzer;
@@ -329,7 +329,7 @@ public class Env {
     private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
-    private JobRegister jobRegister;
+    private PersistentJobRegister persistentJobRegister;
     private AsyncJobManager asyncJobManager;
     private JobTaskManager jobTaskManager;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -589,7 +589,7 @@ public class Env {
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobTaskManager = new JobTaskManager();
         this.asyncJobManager = new AsyncJobManager();
-        this.jobRegister = new AsyncJobRegister(asyncJobManager);
+        this.persistentJobRegister = new AsyncJobRegister(asyncJobManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -3697,8 +3697,8 @@ public class Env {
         return this.syncJobManager;
     }
 
-    public JobRegister getJobRegister() {
-        return jobRegister;
+    public PersistentJobRegister getJobRegister() {
+        return persistentJobRegister;
     }
 
     public AsyncJobManager getAsyncJobManager() {

@@ -521,19 +521,15 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_UPDATE_SCHEDULER_JOB:
+            case OperationType.OP_DELETE_SCHEDULER_JOB:
             case OperationType.OP_CREATE_SCHEDULER_JOB: {
                 Job job = Job.readFields(in);
                 data = job;
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_SCHEDULER_TASK: {
-                JobTask task = JobTask.readFields(in);
-                data = task;
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_DROP_SCHEDULER_TASK: {
+            case OperationType.OP_CREATE_SCHEDULER_TASK:
+            case OperationType.OP_DELETE_SCHEDULER_TASK: {
                 JobTask task = JobTask.readFields(in);
                 data = task;
                 isRead = true;

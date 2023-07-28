@@ -18,8 +18,8 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.scheduler.executor.JobExecutor;
-import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
 
 import mockit.Expectations;
 import mockit.Injectable;

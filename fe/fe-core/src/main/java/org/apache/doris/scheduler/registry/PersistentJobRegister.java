@@ -31,7 +31,7 @@ import java.util.List;
  * The implementation should trigger events in a timely manner using a specific algorithm.
  * The execution of the events may be asynchronous and not guarantee strict timing accuracy.
  */
-public interface JobRegister {
+public interface PersistentJobRegister {
 
     /**
      * Register a job

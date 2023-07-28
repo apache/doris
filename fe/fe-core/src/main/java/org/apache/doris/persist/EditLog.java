@@ -656,9 +656,19 @@ public class EditLog {
                     Env.getCurrentEnv().getAsyncJobManager().replayUpdateJob(job);
                     break;
                 }
+                case OperationType.OP_DELETE_SCHEDULER_JOB: {
+                    Job job = (Job) journal.getData();
+                    Env.getCurrentEnv().getAsyncJobManager().replayDeleteJob(job);
+                    break;
+                }
                 case OperationType.OP_CREATE_SCHEDULER_TASK: {
                     JobTask task = (JobTask) journal.getData();
                     Env.getCurrentEnv().getJobTaskManager().replayCreateTask(task);
+                    break;
+                }
+                case OperationType.OP_DELETE_SCHEDULER_TASK: {
+                    JobTask task = (JobTask) journal.getData();
+                    Env.getCurrentEnv().getJobTaskManager().replayDeleteTask(task);
                     break;
                 }
                 case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
@@ -1563,8 +1573,12 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_SCHEDULER_TASK, jobTask);
     }
 
-    public void logDropJobTask(JobTask jobTask) {
-        logEdit(OperationType.OP_DROP_SCHEDULER_TASK, jobTask);
+    public void logDeleteJobTask(JobTask jobTask) {
+        logEdit(OperationType.OP_DELETE_SCHEDULER_TASK, jobTask);
+    }
+
+    public void logDeleteJob(Job job) {
+        logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
 
     public void logOpRoutineLoadJob(RoutineLoadOperation routineLoadOperation) {

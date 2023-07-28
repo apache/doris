@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.job;
+package org.apache.doris.scheduler.manager;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
@@ -26,6 +26,8 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
+import org.apache.doris.scheduler.job.DorisTimerTask;
+import org.apache.doris.scheduler.job.Job;
 
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.Timeout;
@@ -114,6 +116,15 @@ public class AsyncJobManager implements Closeable, Writable {
                 .add("msg", "replay update scheduler job").build());
     }
 
+    public void replayDeleteJob(Job job) {
+        if (null == jobMap.get(job.getJobId())) {
+            return;
+        }
+        jobMap.remove(job.getJobId());
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
+                .add("msg", "replay delete scheduler job").build());
+    }
+
     private void checkIsJobNameUsed(String dbName, String jobName, JobCategory jobCategory) throws DdlException {
         Optional<Job> optionalJob = jobMap.values().stream().filter(job -> job.getJobCategory().equals(jobCategory))
                 .filter(job -> job.getDbName().equals(dbName))
@@ -186,6 +197,7 @@ public class AsyncJobManager implements Closeable, Writable {
             throw new DdlException("Job " + jobName + " is already stopped");
         }
         stopJob(optionalJob.get());
+        Env.getCurrentEnv().getEditLog().logDeleteJob(optionalJob.get());
     }
 
     private void stopJob(Job job) {
@@ -194,7 +206,8 @@ public class AsyncJobManager implements Closeable, Writable {
         }
         job.setJobStatus(JobStatus.STOPPED);
         jobMap.get(job.getJobId()).stop();
-        Env.getCurrentEnv().getEditLog().logUpdateJob(job);
+        Env.getCurrentEnv().getEditLog().logDeleteJob(job);
+        Env.getCurrentEnv().getJobTaskManager().deleteJobTasks(job.getJobId());
     }
 
 

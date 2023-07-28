@@ -21,9 +21,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
-import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.registry.JobRegister;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.registry.PersistentJobRegister;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -38,7 +38,7 @@ import java.util.List;
  * consumption model that does not guarantee strict timing accuracy.
  */
 @Slf4j
-public class AsyncJobRegister implements JobRegister {
+public class AsyncJobRegister implements PersistentJobRegister {
 
     private final AsyncJobManager asyncJobManager;
 

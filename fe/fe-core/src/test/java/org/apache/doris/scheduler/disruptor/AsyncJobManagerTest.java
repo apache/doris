@@ -22,8 +22,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
-import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
 
 import lombok.extern.slf4j.Slf4j;
 import mockit.Expectations;

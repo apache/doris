@@ -321,7 +321,7 @@ public class OperationType {
     public static final short OP_DELETE_SCHEDULER_JOB = 452;
 
     public static final short OP_CREATE_SCHEDULER_TASK = 453;
-    public static final short OP_DROP_SCHEDULER_TASK = 454;
+    public static final short OP_DELETE_SCHEDULER_TASK = 454;
 
 
     /**

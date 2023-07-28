@@ -20,10 +20,10 @@ package org.apache.doris.scheduler.disruptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.constants.SystemJob;
-import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
-import org.apache.doris.scheduler.job.JobTaskManager;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.JobTaskManager;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;

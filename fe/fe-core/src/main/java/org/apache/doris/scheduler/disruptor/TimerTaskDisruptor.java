@@ -17,7 +17,7 @@
 
 package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.scheduler.job.AsyncJobManager;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorOneArg;
