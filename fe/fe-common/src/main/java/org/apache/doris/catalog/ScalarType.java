@@ -352,9 +352,26 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createDecimalV3Type(int precision, int scale) {
-        ScalarType type = new ScalarType(getSuitableDecimalType(precision, false));
-        type.precision = precision;
-        type.scale = scale;
+        PrimitiveType pType = getSuitableDecimalType(precision, false);
+        int scaleLimit = 0;
+        switch (pType) {
+            case DECIMAL32:
+                scaleLimit = MAX_DECIMAL32_PRECISION;
+                break;
+            case DECIMAL64:
+                scaleLimit = MAX_DECIMAL64_PRECISION;
+                break;
+            case DECIMAL128:
+                scaleLimit = MAX_DECIMAL128_PRECISION;
+                break;
+            default:
+                return INVALID;
+        }
+        Preconditions.checkArgument(scale <= scaleLimit,
+                String.format("given scale %d is out of bound %d for DecimalLiteral or Slot", scale, scaleLimit));
+        ScalarType type = new ScalarType(pType);
+        type.precision = Math.min(precision, scaleLimit);
+        type.scale = Math.min(type.precision, scale);
         return type;
     }
 
@@ -387,7 +404,27 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createDecimalTypeInternal(int precision, int scale, boolean decimalV2) {
-        ScalarType type = new ScalarType(getSuitableDecimalType(precision, decimalV2));
+        PrimitiveType pType = getSuitableDecimalType(precision, decimalV2);
+        int scaleLimit = 0;
+        switch (pType) {
+            case DECIMALV2:
+                scaleLimit = MAX_DECIMALV2_SCALE;
+                break;
+            case DECIMAL32:
+                scaleLimit = MAX_DECIMAL32_PRECISION;
+                break;
+            case DECIMAL64:
+                scaleLimit = MAX_DECIMAL64_PRECISION;
+                break;
+            case DECIMAL128:
+                scaleLimit = MAX_DECIMAL128_PRECISION;
+                break;
+            default:
+                return INVALID;
+        }
+        Preconditions.checkArgument(scale <= scaleLimit,
+                String.format("given scale %d is out of bound %d for DecimalLiteral or Slot", scale, scaleLimit));
+        ScalarType type = new ScalarType(pType);
         type.precision = Math.min(precision, MAX_PRECISION);
         type.scale = Math.min(type.precision, scale);
         return type;
@@ -395,6 +432,9 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDatetimeV2Type(int scale) {
+        Preconditions.checkArgument(scale <= MAX_DATETIMEV2_SCALE,
+                String.format("given scale %d is out of bound %d for DatetimeV2Literal or Slot", scale,
+                        MAX_DATETIMEV2_SCALE));
         ScalarType type = new ScalarType(PrimitiveType.DATETIMEV2);
         type.precision = DATETIME_PRECISION;
         type.scale = scale;
@@ -403,6 +443,9 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeV2Type(int scale) {
+        Preconditions.checkArgument(scale <= MAX_DATETIMEV2_SCALE,
+                String.format("given scale %d is out of bound %d for TimeV2Literal or Slot", scale,
+                        MAX_DATETIMEV2_SCALE));
         ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
         type.precision = DATETIME_PRECISION;
         type.scale = scale;
