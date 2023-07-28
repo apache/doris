@@ -437,7 +437,7 @@ public:
     void change_to_bloom_filter() {
         CHECK(_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER)
                 << "Can not change to bloom filter because of runtime filter type is "
-                << to_string(_filter_type);
+                << IRuntimeFilter::to_string(_filter_type);
         _is_bloomfilter = true;
         BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
         // BloomFilter may be not init
@@ -621,8 +621,8 @@ public:
 
         CHECK(!can_not_merge_in_or_bloom && !can_not_merge_other)
                 << " can not merge runtime filter(id=" << _filter_id
-                << "), current is filter type is " << to_string(_filter_type)
-                << ", other filter type is " << to_string(wrapper->_filter_type);
+                << "), current is filter type is " << IRuntimeFilter::to_string(_filter_type)
+                << ", other filter type is " << IRuntimeFilter::to_string(wrapper->_filter_type);
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
@@ -1850,7 +1850,7 @@ Status RuntimePredicateWrapper::get_push_exprs(std::list<vectorized::VExprContex
            _filter_type == RuntimeFilterType::BITMAP_FILTER)
             << " prob_expr->root()->type().type: " << probe_ctx->root()->type().type
             << " _column_return_type: " << _column_return_type
-            << " _filter_type: " << to_string(_filter_type);
+            << " _filter_type: " << IRuntimeFilter::to_string(_filter_type);
 
     auto real_filter_type = get_real_type();
     switch (real_filter_type) {

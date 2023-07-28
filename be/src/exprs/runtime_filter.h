@@ -78,28 +78,6 @@ enum class RuntimeFilterType {
     BITMAP_FILTER = 4
 };
 
-inline std::string to_string(RuntimeFilterType type) {
-    switch (type) {
-    case RuntimeFilterType::IN_FILTER: {
-        return std::string("in");
-    }
-    case RuntimeFilterType::BLOOM_FILTER: {
-        return std::string("bloomfilter");
-    }
-    case RuntimeFilterType::MINMAX_FILTER: {
-        return std::string("minmax");
-    }
-    case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-        return std::string("in_or_bloomfilter");
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        return std::string("bitmapfilter");
-    }
-    default:
-        return std::string("UNKNOWN");
-    }
-}
-
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
@@ -306,6 +284,28 @@ public:
     }
 
     int filter_id() const { return _filter_id; }
+
+    static std::string to_string(RuntimeFilterType type) {
+        switch (type) {
+        case RuntimeFilterType::IN_FILTER: {
+            return std::string("in");
+        }
+        case RuntimeFilterType::BLOOM_FILTER: {
+            return std::string("bloomfilter");
+        }
+        case RuntimeFilterType::MINMAX_FILTER: {
+            return std::string("minmax");
+        }
+        case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
+            return std::string("in_or_bloomfilter");
+        }
+        case RuntimeFilterType::BITMAP_FILTER: {
+            return std::string("bitmapfilter");
+        }
+        default:
+            return std::string("UNKNOWN");
+        }
+    }
 
 protected:
     // serialize _wrapper to protobuf
