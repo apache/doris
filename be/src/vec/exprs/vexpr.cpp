@@ -217,7 +217,9 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             return Status::InternalError("Create Expr failed because {}\nTExprNode={}", e.what(),
                                          apache::thrift::ThriftDebugString(expr_node));
         }
-        return Status::Error(e.code(), "Create Expr failed because {}", e.what());
+        return Status::Error<false>(e.code(), "Create Expr failed because {}", e.what());
+        LOG(WARNING) << "create expr failed, TExprNode={}, reason={}"
+                     << apache::thrift::ThriftDebugString(expr_node) << e.what();
     }
     if (!expr->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", expr_node.node_type);

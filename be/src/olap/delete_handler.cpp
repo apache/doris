@@ -62,8 +62,8 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     for (const TCondition& condition : conditions) {
         if (check_condition_valid(schema, condition) != Status::OK()) {
             // Error will print log, no need to do it manually.
-            return Status::Error<DELETE_INVALID_CONDITION>("invalid condition on Column {}.",
-                                                           condition.column_name);
+            return Status::Error<DELETE_INVALID_CONDITION>("invalid condition. condition={}",
+                                                           ThriftDebugString(condition));
         }
     }
 
