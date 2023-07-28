@@ -65,7 +65,8 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
             List<Column> cols, boolean singleReplicaLoad, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        this(database, targetTable, partitionIds, cols, singleReplicaLoad, Optional.empty(), logicalProperties, child);
+        this(database, targetTable, partitionIds, cols, singleReplicaLoad, false,
+                Optional.empty(), logicalProperties, child);
     }
 
     /**
