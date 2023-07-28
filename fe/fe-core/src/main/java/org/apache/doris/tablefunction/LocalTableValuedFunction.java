@@ -81,8 +81,10 @@ public class LocalTableValuedFunction extends ExternalFileTableValuedFunction {
 
         parseProperties(fileFormatParams);
 
-        // create a fileStatus with infinite size for local file instead of call parseFile.
-        fileStatuses.add(new TBrokerFileStatus(filePath, false, Long.MAX_VALUE, false));
+        String[] files = filePath.split(",");
+        for (String file : files) {
+            fileStatuses.add(new TBrokerFileStatus(file.trim(), false, Long.MAX_VALUE, false));
+        }
     }
 
     @Override
