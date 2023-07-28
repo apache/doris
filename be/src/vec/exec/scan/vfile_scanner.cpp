@@ -160,6 +160,17 @@ Status VFileScanner::prepare(
                                                   std::vector<TupleId>({_real_tuple_desc->id()}),
                                                   std::vector<bool>({false})));
 
+    if (!_is_load && _params->file_type == TFileType::FILE_LOCAL) {
+        // For local table valued function, should canonicalize the file path
+        // for (auto& range : _ranges) {
+        //     TFileRangeDesc& mut_range = const_cast<TFileRangeDesc&>(range);
+        //     std::string full_path;
+        //     RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize_local_file(config::user_files_secure_path,
+        //                                                 mut_range.path, &full_path));
+        //     mut_range.path = full_path;
+        // }
+    }
+
     return Status::OK();
 }
 

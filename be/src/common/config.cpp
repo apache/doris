@@ -1033,6 +1033,9 @@ DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 
+// The secure path with user files, used in the `local` table function.
+DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");

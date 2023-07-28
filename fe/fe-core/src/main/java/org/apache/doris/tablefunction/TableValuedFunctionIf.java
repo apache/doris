@@ -49,6 +49,8 @@ public abstract class TableValuedFunctionIf {
                 return new S3TableValuedFunction(params);
             case HdfsTableValuedFunction.NAME:
                 return new HdfsTableValuedFunction(params);
+            case LocalTableValuedFunction.NAME:
+                return new LocalTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:
                 return new IcebergTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:

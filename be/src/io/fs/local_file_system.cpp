@@ -68,7 +68,7 @@ Status LocalFileSystem::open_file_impl(const FileDescription& file_desc, const P
                                        const FileReaderOptions& /*reader_options*/,
                                        FileReaderSPtr* reader) {
     int64_t fsize = file_desc.file_size;
-    if (fsize <= 0) {
+    if (fsize <= 0 || fsize == 9223372036854775807L) {
         RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
     }
     int fd = -1;
@@ -426,6 +426,19 @@ static std::shared_ptr<LocalFileSystem> local_fs = io::LocalFileSystem::create("
 
 const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {
     return local_fs;
+}
+
+Status LocalFileSystem::canonicalize_local_file(const std::string& dir, const std::string& file_path,
+                               std::string* full_path) {
+    const std::string absolute_path = dir + "/" + file_path;
+    std::string canonical_path;
+    RETURN_IF_ERROR(canonicalize(absolute_path, &canonical_path));
+    if (!contain_path(dir, canonical_path)) {
+        return Status::InvalidArgument("file path is not allowed: {}", canonical_path);
+    }
+
+    *full_path = canonical_path;
+    return Status::OK();
 }
 
 } // namespace io

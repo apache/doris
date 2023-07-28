@@ -54,6 +54,7 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
 #include "olap/data_dir.h"
@@ -541,6 +542,17 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         }
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
+
+        if (params.file_type == TFileType::FILE_LOCAL) {
+            // std::string full_path;
+            // st = io::global_local_filesystem()->canonicalize_local_file(config::user_files_secure_path, range.path,
+            //                                  &full_path);
+            // if (!st.ok()) {
+            //     st.to_protobuf(result->mutable_status());
+            //     return;
+            // }
+            // file_scan_range.ranges.at(0).path = full_path;
+        }
 
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile

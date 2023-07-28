@@ -72,6 +72,9 @@ public:
     // read local file and save content to "content"
     Status read_file_to_string(const Path& file, std::string* content);
 
+    Status canonicalize_local_file(const std::string& dir, const std::string& file_path,
+                               std::string* full_path);
+
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
     Status open_file_impl(const FileDescription& file_desc, const Path& abs_path,
