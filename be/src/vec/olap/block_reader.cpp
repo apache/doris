@@ -60,28 +60,51 @@ BlockReader::~BlockReader() {
     }
 }
 
-bool BlockReader::_rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
+bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
     std::string cur_max_key;
-    for (const auto& rs_reader : rs_readers) {
+    const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
+    for (const auto& rs_split : rs_splits) {
         // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_reader->rowset()->version().second == 1) {
+        if (rs_split.rs_reader->rowset()->version().second == 1) {
             continue;
         }
-        if (rs_reader->rowset()->num_rows() == 0) {
+        if (rs_split.rs_reader->rowset()->num_rows() == 0) {
             continue;
         }
-        if (rs_reader->rowset()->is_segments_overlapping()) {
+        if (rs_split.rs_reader->rowset()->is_segments_overlapping()) {
             return true;
         }
         std::string min_key;
-        bool has_min_key = rs_reader->rowset()->min_key(&min_key);
+        bool has_min_key = rs_split.rs_reader->rowset()->min_key(&min_key);
         if (!has_min_key) {
             return true;
         }
         if (min_key <= cur_max_key) {
             return true;
         }
-        CHECK(rs_reader->rowset()->max_key(&cur_max_key));
+        CHECK(rs_split.rs_reader->rowset()->max_key(&cur_max_key));
+    }
+
+    for (const auto& rs_reader : rs_splits) {
+        // version 0-1 of every tablet is empty, just skip this rowset
+        if (rs_reader.rs_reader->rowset()->version().second == 1) {
+            continue;
+        }
+        if (rs_reader.rs_reader->rowset()->num_rows() == 0) {
+            continue;
+        }
+        if (rs_reader.rs_reader->rowset()->is_segments_overlapping()) {
+            return true;
+        }
+        std::string min_key;
+        bool has_min_key = rs_reader.rs_reader->rowset()->min_key(&min_key);
+        if (!has_min_key) {
+            return true;
+        }
+        if (min_key <= cur_max_key) {
+            return true;
+        }
+        CHECK(rs_reader.rs_reader->rowset()->max_key(&cur_max_key));
     }
     return false;
 }
@@ -96,34 +119,28 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         return res;
     }
     // check if rowsets are noneoverlapping
-    _is_rowsets_overlapping = _rowsets_overlapping(read_params.rs_readers);
+    _is_rowsets_overlapping = _rowsets_overlapping(read_params);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
-                        read_params.read_orderby_key_reverse,
-                        read_params.rs_readers_segment_offsets);
+                        read_params.read_orderby_key_reverse);
 
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
-    DCHECK(read_params.rs_readers_segment_offsets.empty() ||
-           read_params.rs_readers_segment_offsets.size() == read_params.rs_readers.size());
 
-    bool is_empty = read_params.rs_readers_segment_offsets.empty();
-    for (int i = 0; i < read_params.rs_readers.size(); ++i) {
-        auto& rs_reader = read_params.rs_readers[i];
+    for (int i = 0; i < read_params.rs_splits.size(); ++i) {
+        auto& rs_split = read_params.rs_splits[i];
 
         // _vcollect_iter.topn_next() will init rs_reader by itself
         if (!_vcollect_iter.use_topn_next()) {
-            RETURN_IF_ERROR(rs_reader->init(
-                    &_reader_context,
-                    is_empty ? std::pair {0, 0} : read_params.rs_readers_segment_offsets[i]));
+            RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
         }
 
-        Status res = _vcollect_iter.add_child(rs_reader);
+        Status res = _vcollect_iter.add_child(rs_split);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
         if (res.ok()) {
-            valid_rs_readers.push_back(rs_reader);
+            valid_rs_readers.push_back(rs_split.rs_reader);
         }
     }
 

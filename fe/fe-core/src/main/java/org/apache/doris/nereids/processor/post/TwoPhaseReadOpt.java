@@ -144,9 +144,9 @@ public class TwoPhaseReadOpt extends PlanPostProcessor {
                 .map(Slot.class::cast)
                 .map(NamedExpression::getExprId)
                 .forEach(deferredMaterializedExprIds::remove);
-        localTopN.setMutableState(PhysicalTopN.TWO_PHASE_READ_OPT, true);
-        mergeTopN.setMutableState(PhysicalTopN.TWO_PHASE_READ_OPT, true);
         olapScan.setMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS, deferredMaterializedExprIds);
+        localTopN.setMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS, deferredMaterializedExprIds);
+        mergeTopN.setMutableState(PhysicalOlapScan.DEFERRED_MATERIALIZED_SLOTS, deferredMaterializedExprIds);
 
         return mergeTopN;
     }

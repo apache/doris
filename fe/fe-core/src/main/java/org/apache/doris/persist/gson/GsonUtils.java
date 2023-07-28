@@ -29,13 +29,18 @@ import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OdbcCatalogResource;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
@@ -220,11 +225,19 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
             .registerSubtype(EsExternalTable.class, EsExternalTable.class.getSimpleName())
+            .registerSubtype(OlapTable.class, OlapTable.class.getSimpleName())
             .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
             .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
             .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
             .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName());
+
+    // runtime adapter for class "PartitionInfo"
+    private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(PartitionInfo.class, "clazz")
+            .registerSubtype(ListPartitionInfo.class, ListPartitionInfo.class.getSimpleName())
+            .registerSubtype(RangePartitionInfo.class, RangePartitionInfo.class.getSimpleName())
+            .registerSubtype(SinglePartitionInfo.class, SinglePartitionInfo.class.getSimpleName());
 
     // runtime adapter for class "HeartbeatResponse"
     private static RuntimeTypeAdapterFactory<HeartbeatResponse> hbResponseTypeAdapterFactory
@@ -248,6 +261,7 @@ public class GsonUtils {
             .registerTypeAdapterFactory(loadJobStateUpdateInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(policyTypeAdapterFactory).registerTypeAdapterFactory(dsTypeAdapterFactory)
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
+            .registerTypeAdapterFactory(partitionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())

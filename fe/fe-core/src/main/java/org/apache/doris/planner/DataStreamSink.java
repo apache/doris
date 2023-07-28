@@ -28,9 +28,11 @@ import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDataStreamSink;
 import org.apache.doris.thrift.TExplainLevel;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.springframework.util.CollectionUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -47,6 +49,8 @@ public class DataStreamSink extends DataSink {
     protected List<Expr> projections;
 
     protected List<Expr> conjuncts = Lists.newArrayList();
+
+    protected List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
 
     public DataStreamSink() {
 
@@ -102,6 +106,18 @@ public class DataStreamSink extends DataSink {
         this.conjuncts.add(conjunct);
     }
 
+    public List<RuntimeFilter> getRuntimeFilters() {
+        return runtimeFilters;
+    }
+
+    public void setRuntimeFilters(List<RuntimeFilter> runtimeFilters) {
+        this.runtimeFilters = runtimeFilters;
+    }
+
+    public void addRuntimeFilter(RuntimeFilter runtimeFilter) {
+        this.runtimeFilters.add(runtimeFilter);
+    }
+
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
@@ -114,6 +130,10 @@ public class DataStreamSink extends DataSink {
             Expr expr = PlanNode.convertConjunctsToAndCompoundPredicate(conjuncts);
             strBuilder.append(prefix).append("  CONJUNCTS: ").append(expr.toSql()).append("\n");
         }
+        if (!runtimeFilters.isEmpty()) {
+            strBuilder.append(prefix).append("  runtime filters: ");
+            strBuilder.append(getRuntimeFilterExplainString(false, false));
+        }
         if (!CollectionUtils.isEmpty(projections)) {
             strBuilder.append(prefix).append("  PROJECTIONS: ")
                     .append(PlanNode.getExplainString(projections)).append("\n");
@@ -122,6 +142,34 @@ public class DataStreamSink extends DataSink {
         }
 
         return strBuilder.toString();
+    }
+
+    protected String getRuntimeFilterExplainString(boolean isBuildNode, boolean isBrief) {
+        if (runtimeFilters.isEmpty()) {
+            return "";
+        }
+        List<String> filtersStr = new ArrayList<>();
+        for (RuntimeFilter filter : runtimeFilters) {
+            StringBuilder filterStr = new StringBuilder();
+            filterStr.append(filter.getFilterId());
+            if (!isBrief) {
+                filterStr.append("[");
+                filterStr.append(filter.getType().toString().toLowerCase());
+                filterStr.append("]");
+                if (isBuildNode) {
+                    filterStr.append(" <- ");
+                    filterStr.append(filter.getSrcExpr().toSql());
+                    filterStr.append("(").append(filter.getEstimateNdv()).append("/")
+                            .append(filter.getExpectFilterSizeBytes()).append("/")
+                            .append(filter.getFilterSizeBytes()).append(")");
+                } else {
+                    filterStr.append(" -> ");
+                    filterStr.append(filter.getTargetExpr(getExchNodeId()).toSql());
+                }
+            }
+            filtersStr.add(filterStr.toString());
+        }
+        return Joiner.on(", ").join(filtersStr) + "\n";
     }
 
     @Override
@@ -141,6 +189,12 @@ public class DataStreamSink extends DataSink {
         }
         if (outputTupleDesc != null) {
             tStreamSink.setOutputTupleId(outputTupleDesc.getId().asInt());
+        }
+
+        if (runtimeFilters != null) {
+            for (RuntimeFilter rf : runtimeFilters) {
+                tStreamSink.addToRuntimeFilters(rf.toThrift());
+            }
         }
         result.setStreamSink(tStreamSink);
         return result;

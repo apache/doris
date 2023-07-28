@@ -35,6 +35,8 @@ class Block;
 
 namespace doris::vectorized {
 
+const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
+
 PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                                  RuntimeState* state, RuntimeProfile* profile,
                                  const TFileRangeDesc& range)
@@ -45,16 +47,16 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
         column_names.emplace_back(field);
     }
     std::map<String, String> params;
-    params["required_fields"] = range.table_format_params.paimon_params.paimon_column_names;
-    params["columns_types"] = range.table_format_params.paimon_params.paimon_column_types;
-    params["columns_id"] = range.table_format_params.paimon_params.paimon_column_ids;
-    params["hive.metastore.uris"] = range.table_format_params.paimon_params.hive_metastore_uris;
-    params["warehouse"] = range.table_format_params.paimon_params.warehouse;
     params["db_name"] = range.table_format_params.paimon_params.db_name;
     params["table_name"] = range.table_format_params.paimon_params.table_name;
-    params["length_byte"] = range.table_format_params.paimon_params.length_byte;
-    params["split_byte"] =
-            std::to_string((int64_t)range.table_format_params.paimon_params.paimon_split.data());
+    params["paimon_split"] = range.table_format_params.paimon_params.paimon_split;
+    params["paimon_column_names"] = range.table_format_params.paimon_params.paimon_column_names;
+    params["paimon_predicate"] = range.table_format_params.paimon_params.paimon_predicate;
+
+    // Used to create paimon option
+    for (auto& kv : range.table_format_params.paimon_params.paimon_options) {
+        params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+    }
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/paimon/PaimonJniScanner",
                                                     params, column_names);
 }

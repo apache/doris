@@ -129,9 +129,16 @@ public class Replica implements Writable {
     private long furtherRepairSetTime = -1;
     private static final long FURTHER_REPAIR_TIMEOUT_MS = 20 * 60 * 1000L; // 20min
 
-    // if this watermarkTxnId is set, which means before deleting a replica,
-    // we should ensure that all txns on this replicas are finished.
-    private long watermarkTxnId = -1;
+
+    /* Decommission a backend B, steps are as follow:
+     * 1. wait peer backends catchup with B;
+     * 2. B change state to DECOMMISSION, set preWatermarkTxnId. B can load data now.
+     * 3. wait txn before preWatermarkTxnId finished, set postWatermarkTxnId. B can't load data now.
+     * 4. wait txn before postWatermarkTxnId finished, delete B.
+     *
+     */
+    private long preWatermarkTxnId = -1;
+    private long postWatermarkTxnId = -1;
 
     public Replica() {
     }
@@ -568,12 +575,20 @@ public class Replica implements Writable {
         }
     }
 
-    public void setWatermarkTxnId(long watermarkTxnId) {
-        this.watermarkTxnId = watermarkTxnId;
+    public void setPreWatermarkTxnId(long preWatermarkTxnId) {
+        this.preWatermarkTxnId = preWatermarkTxnId;
     }
 
-    public long getWatermarkTxnId() {
-        return watermarkTxnId;
+    public long getPreWatermarkTxnId() {
+        return preWatermarkTxnId;
+    }
+
+    public void setPostWatermarkTxnId(long postWatermarkTxnId) {
+        this.postWatermarkTxnId = postWatermarkTxnId;
+    }
+
+    public long getPostWatermarkTxnId() {
+        return postWatermarkTxnId;
     }
 
     public boolean isAlive() {

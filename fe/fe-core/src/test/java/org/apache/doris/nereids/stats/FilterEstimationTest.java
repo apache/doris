@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -418,7 +419,9 @@ class FilterEstimationTest {
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(1)
-                .setMaxValue(10);
+                .setMinExpr(new IntLiteral(1))
+                .setMaxValue(10)
+                .setMaxExpr(new IntLiteral(10));
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();

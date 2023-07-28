@@ -69,7 +69,7 @@ Doris的 Master FE 节点会主动发送心跳给各个FE或BE节点，并且在
 
 ### Q5. 查询 bitmap/hll 类型的数据返回 NULL 的问题
 
-在 1.1.x 版本中，在开启向量化的情况下，执行查询数据表中 bitmp 类型字段返回结果为 NULL 的情况下，
+在 1.1.x 版本中，在开启向量化的情况下，执行查询数据表中 bitmap 类型字段返回结果为 NULL 的情况下，
 
 1. 首先你要 `set return_object_data_as_binary=true;`
 2. 关闭向量化 `set enable_vectorized_engine=false;`

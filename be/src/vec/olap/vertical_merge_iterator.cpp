@@ -356,6 +356,13 @@ Status VerticalMergeIteratorContext::_load_next_block() {
         if (!st.ok()) {
             _valid = false;
             if (st.is<END_OF_FILE>()) {
+                // When reading to the end of the segment file, clearing the block did not release the memory.
+                // Directly releasing the block to free up memory.
+                _block.reset();
+                // When reading through segment file for columns that are dictionary encoded,
+                // the column iterator in the segment iterator will hold the dictionary.
+                // Release the segment iterator to free up the dictionary.
+                _iter.reset();
                 return Status::OK();
             } else {
                 return st;
@@ -601,7 +608,9 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {
 Status VerticalMaskMergeIterator::check_all_iter_finished() {
     for (auto iter : _origin_iter_ctx) {
         if (iter->inited()) {
-            RETURN_IF_ERROR(iter->advance());
+            if (iter->valid()) {
+                RETURN_IF_ERROR(iter->advance());
+            }
             DCHECK(!iter->valid());
         }
     }

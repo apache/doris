@@ -41,7 +41,6 @@ suite("test_struct_insert") {
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
     }
 
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
     create_test_table.call(testTable)

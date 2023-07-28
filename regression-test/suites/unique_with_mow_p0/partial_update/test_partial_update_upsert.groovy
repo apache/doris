@@ -99,5 +99,5 @@ suite("test_partial_update_upsert", "p0") {
             assertEquals("fail", json.Status.toLowerCase())
         }
     }
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
 }

@@ -53,6 +53,12 @@ public abstract class Cache {
         hitRange = HitRange.None;
     }
 
+    protected Cache(TUniqueId queryId) {
+        this.queryId = queryId;
+        proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
+        hitRange = HitRange.None;
+    }
+
     public abstract InternalService.PFetchCacheResult getCacheData(Status status);
 
     public HitRange getHitRange() {

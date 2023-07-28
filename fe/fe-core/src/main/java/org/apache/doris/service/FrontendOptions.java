@@ -27,7 +27,6 @@ import com.google.common.net.InetAddresses;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -67,19 +66,17 @@ public class FrontendOptions {
         boolean hasMatchedIp = false;
         for (InetAddress addr : hosts) {
             LOG.debug("check ip address: {}", addr);
-            if (addr instanceof Inet4Address) {
-                if (addr.isLoopbackAddress()) {
-                    loopBack = addr;
-                } else if (!priorityCidrs.isEmpty()) {
-                    if (isInPriorNetwork(addr.getHostAddress())) {
-                        localAddr = addr;
-                        hasMatchedIp = true;
-                        break;
-                    }
-                } else {
+            if (addr.isLoopbackAddress()) {
+                loopBack = addr;
+            } else if (!priorityCidrs.isEmpty()) {
+                if (isInPriorNetwork(addr.getHostAddress())) {
                     localAddr = addr;
+                    hasMatchedIp = true;
                     break;
                 }
+            } else {
+                localAddr = addr;
+                break;
             }
         }
         //if all ips not match the priority_networks then print the warning log

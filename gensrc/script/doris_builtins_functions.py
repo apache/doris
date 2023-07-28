@@ -1242,6 +1242,11 @@ visible_functions = {
         [['floor', 'dfloor'], 'DOUBLE', ['DOUBLE'], ''],
         [['round', 'dround'], 'DOUBLE', ['DOUBLE'], ''],
         [['round_bankers'], 'DOUBLE', ['DOUBLE'], ''],
+        [['ceil', 'ceiling', 'dceil'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
+        [['floor', 'dfloor'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
+        [['round', 'dround'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
+        [['round_bankers'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
+        [['truncate'], 'DOUBLE', ['DOUBLE'], ''],
         [['ceil', 'ceiling', 'dceil'], 'DECIMAL32', ['DECIMAL32'], ''],
         [['floor', 'dfloor'], 'DECIMAL32', ['DECIMAL32'], ''],
         [['round', 'dround'], 'DECIMAL32', ['DECIMAL32'], ''],
@@ -1934,6 +1939,10 @@ visible_functions = {
         [['like'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
         [['rlike'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
         [['regexp'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], '']
+    ],
+    # tokenizer functions
+    "Tokenize": [
+        [['tokenize'],'ARRAY_VARCHAR',['STRING','STRING'], ''],
     ],
 
     "UUID": [

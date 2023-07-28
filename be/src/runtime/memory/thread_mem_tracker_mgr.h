@@ -76,7 +76,7 @@ public:
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     // Returns whether the memory exceeds limit, and will consume mem trcker no matter whether the limit is exceeded.
-    void consume(int64_t size);
+    void consume(int64_t size, bool large_memory_check = false);
     void flush_untracked_mem();
 
     bool is_attach_query() { return _fragment_instance_id != TUniqueId(); }
@@ -160,23 +160,28 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     _consumer_tracker_stack.pop_back();
 }
 
-inline void ThreadMemTrackerMgr::consume(int64_t size) {
+inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) {
     _untracked_mem += size;
+    if (!ExecEnv::GetInstance()->initialized()) {
+        return;
+    }
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
     // After the jemalloc hook is loaded, before ExecEnv init, _limiter_tracker=nullptr.
     if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
          _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
-        !_stop_consume && ExecEnv::GetInstance()->initialized()) {
+        !_stop_consume) {
         flush_untracked_mem();
     }
     // Large memory alloc should use allocator.h
     // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
-    if (size > 1024l * 1024 * 1024 && !doris::config::disable_memory_gc) { // 1G
+    if (large_memory_check && size > doris::config::large_memory_check_bytes) {
         _stop_consume = true;
-        LOG(WARNING) << fmt::format("MemHook alloc large memory: {}, stacktrace:\n{}", size,
-                                    get_stack_trace());
+        LOG(WARNING) << fmt::format(
+                "malloc or new large memory: {}, looking forward to using Allocator, this is just "
+                "a warning, not prevent memory alloc, stacktrace:\n{}",
+                size, get_stack_trace());
         _stop_consume = false;
     }
 }

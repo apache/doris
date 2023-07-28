@@ -29,6 +29,7 @@ import java.util.List;
  */
 public class Node {
     private final int index;
+    // TODO
     private final Group group;
     private final List<Edge> edges = new ArrayList<>();
 

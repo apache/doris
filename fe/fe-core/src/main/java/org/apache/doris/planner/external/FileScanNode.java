@@ -79,6 +79,9 @@ public abstract class FileScanNode extends ExternalScanNode {
         planNode.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
         TFileScanNode fileScanNode = new TFileScanNode();
         fileScanNode.setTupleId(desc.getId().asInt());
+        if (desc.getTable() != null) {
+            fileScanNode.setTableName(desc.getTable().getName());
+        }
         planNode.setFileScanNode(fileScanNode);
     }
 

@@ -64,6 +64,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
             .add("message")
             .add("last_exec_time_in_ms")
             .add("state")
+            .add("progress")
             .add("schedule_type")
             .build();
 

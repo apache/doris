@@ -21,5 +21,6 @@ public enum FileSystemType {
     S3,
     DFS,
     OFS,
-    JFS
+    JFS,
+    FILE
 }

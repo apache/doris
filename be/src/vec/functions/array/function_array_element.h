@@ -58,6 +58,9 @@ namespace doris::vectorized {
 
 class FunctionArrayElement : public IFunction {
 public:
+    /// The count of items in the map may exceed 128(Int8).
+    using MapIndiceDataType = DataTypeInt16;
+
     static constexpr auto name = "element_at";
     static FunctionPtr create() { return std::make_shared<FunctionArrayElement>(); }
 
@@ -131,7 +134,7 @@ private:
         ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());
         size_t rows = offsets.size();
         // prepare return data
-        auto matched_indices = ColumnVector<Int8>::create();
+        auto matched_indices = ColumnVector<MapIndiceDataType::FieldType>::create();
         matched_indices->reserve(rows);
 
         for (size_t i = 0; i < rows; i++) {
@@ -273,7 +276,7 @@ private:
         if (!matched_indices) {
             return nullptr;
         }
-        DataTypePtr indices_type(std::make_shared<vectorized::DataTypeInt8>());
+        DataTypePtr indices_type(std::make_shared<MapIndiceDataType>());
         ColumnWithTypeAndName indices(matched_indices, indices_type, "indices");
         ColumnWithTypeAndName data(val_arr, val_type, "value");
         ColumnsWithTypeAndName args = {data, indices};

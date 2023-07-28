@@ -69,7 +69,7 @@ To ensure that the data sequence between different replicas is unique, you can r
 
 ### Q5. The problem of querying bitmap/hll type data returns NULL
 
-In version 1.1.x, when vectorization is enabled, and the bitmp type field in the query data table returns a NULL result,
+In version 1.1.x, when vectorization is enabled, and the bitmap type field in the query data table returns a NULL result,
 
 1. First you have to `set return_object_data_as_binary=true;`
 2. Turn off vectorization `set enable_vectorized_engine=false;`

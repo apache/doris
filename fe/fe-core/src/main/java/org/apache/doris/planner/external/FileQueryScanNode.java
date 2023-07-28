@@ -363,6 +363,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         } else if (locationType == TFileType.FILE_S3 && !params.isSetProperties()) {
             params.setProperties(locationProperties);
         }
+
+        if (!params.isSetFileType()) {
+            params.setFileType(locationType);
+        }
     }
 
     private TScanRangeLocations newLocations() {

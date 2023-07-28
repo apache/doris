@@ -44,6 +44,7 @@
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
+#include "olap/utils.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
@@ -338,8 +339,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     _olap_data_convertor->set_source_content_with_specifid_columns(&full_block, row_pos, num_rows,
                                                                    including_cids);
 
+    bool have_input_seq_column = false;
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
+    vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (auto cid : including_cids) {
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
@@ -348,6 +351,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         }
         if (cid < _num_key_columns) {
             key_columns.push_back(converted_result.second);
+        } else if (_tablet_schema->has_sequence_col() &&
+                   cid == _tablet_schema->sequence_col_idx()) {
+            seq_column = converted_result.second;
+            have_input_seq_column = true;
         }
         RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
                                                      converted_result.second->get_data(),
@@ -364,41 +371,57 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
-    {
-        for (size_t pos = row_pos; pos < num_rows; pos++) {
-            std::string key = _full_encode_keys(key_columns, pos);
+
+    int64_t num_rows_filtered = 0;
+    for (size_t pos = row_pos; pos < row_pos + num_rows; pos++) {
+        std::string key = _full_encode_keys(key_columns, pos);
+        if (have_input_seq_column) {
+            _encode_seq_column(seq_column, pos, &key);
+        }
+        // If the table have sequence column, and the include-cids don't contain the sequence
+        // column, we need to update the primary key index builder at the end of this method.
+        // At that time, we have a valid sequence column to encode the key with seq col.
+        if (!_tablet_schema->has_sequence_col() || have_input_seq_column) {
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-            _maybe_invalid_row_cache(key);
+        }
+        _maybe_invalid_row_cache(key);
 
-            RowLocation loc;
-            // save rowset shared ptr so this rowset wouldn't delete
-            RowsetSharedPtr rowset;
-            auto st = _tablet->lookup_row_key(key, false, specified_rowsets, &loc,
-                                              _mow_context->max_version, segment_caches, &rowset);
-            if (st.is<NOT_FOUND>()) {
-                if (_tablet_schema->is_strict_mode()) {
-                    return Status::InternalError(
-                            "partial update in strict mode only support updating rows with an "
-                            "existing key!");
-                }
+        RowLocation loc;
+        // save rowset shared ptr so this rowset wouldn't delete
+        RowsetSharedPtr rowset;
+        auto st = _tablet->lookup_row_key(key, have_input_seq_column, specified_rowsets, &loc,
+                                          _mow_context->max_version, segment_caches, &rowset);
+        if (st.is<NOT_FOUND>()) {
+            if (_tablet_schema->is_strict_mode()) {
+                ++num_rows_filtered;
+                // delete the invalid newly inserted row
+                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
+                                                 pos);
+            }
 
-                if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
-                    return Status::InternalError(
-                            "the unmentioned columns should have default value or be nullable for "
-                            "newly inserted rows in non-strict mode partial update");
-                }
-                has_default_or_nullable = true;
-                use_default_or_null_flag.emplace_back(true);
-                continue;
+            if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
+                return Status::InternalError(
+                        "the unmentioned columns should have default value or be nullable for "
+                        "newly inserted rows in non-strict mode partial update");
             }
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to lookup row key, error: " << st;
-                return st;
-            }
-            // partial update should not contain invisible columns
-            use_default_or_null_flag.emplace_back(false);
-            _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
+            has_default_or_nullable = true;
+            use_default_or_null_flag.emplace_back(true);
+            continue;
+        }
+        if (!st.ok() && !st.is<ALREADY_EXIST>()) {
+            LOG(WARNING) << "failed to lookup row key, error: " << st;
+            return st;
+        }
+        // partial update should not contain invisible columns
+        use_default_or_null_flag.emplace_back(false);
+        _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+        _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
+
+        if (st.is<ALREADY_EXIST>()) {
+            // although we need to mark delete current row, we still need to read missing columns
+            // for this row, we need to ensure that each column is aligned
+            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0}, pos);
+        } else {
             _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
     }
@@ -423,12 +446,42 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         if (converted_result.first != Status::OK()) {
             return converted_result.first;
         }
+        if (_tablet_schema->has_sequence_col() && !have_input_seq_column &&
+            cid == _tablet_schema->sequence_col_idx()) {
+            DCHECK_EQ(seq_column, nullptr);
+            seq_column = converted_result.second;
+        }
         RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
                                                      converted_result.second->get_data(),
                                                      num_rows));
     }
 
+    _num_rows_filtered += num_rows_filtered;
+    if (_tablet_schema->has_sequence_col() && !have_input_seq_column) {
+        DCHECK_NE(seq_column, nullptr);
+        DCHECK_EQ(_num_rows_written, row_pos)
+                << "_num_rows_written: " << _num_rows_written << ", row_pos" << row_pos;
+        DCHECK_EQ(_primary_key_index_builder->num_rows(), _num_rows_written)
+                << "primary key index builder num rows(" << _primary_key_index_builder->num_rows()
+                << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
+        if (_num_rows_written != row_pos ||
+            _primary_key_index_builder->num_rows() != _num_rows_written) {
+            return Status::InternalError(
+                    "Correctness check failed, _num_rows_written: {}, row_pos: {}, primary key "
+                    "index builder num rows: {}",
+                    _num_rows_written, row_pos, _primary_key_index_builder->num_rows());
+        }
+        for (size_t pos = row_pos; pos < row_pos + num_rows; pos++) {
+            std::string key = _full_encode_keys(key_columns, pos);
+            _encode_seq_column(seq_column, pos, &key);
+            RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+        }
+    }
+
     _num_rows_written += num_rows;
+    DCHECK_EQ(_primary_key_index_builder->num_rows(), _num_rows_written)
+            << "primary key index builder num rows(" << _primary_key_index_builder->num_rows()
+            << ") not equal to segment writer's num rows written(" << _num_rows_written << ")";
     _olap_data_convertor->clear_source_content();
     return Status::OK();
 }
@@ -464,8 +517,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 continue;
             }
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
-                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids,
-                                                         old_value_block.get_names()[cid],
+                TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
+                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
                                                          mutable_old_columns[cid]);
                 // set read value to output block
                 if (!st.ok()) {
@@ -752,7 +805,14 @@ Status SegmentWriter::finalize_columns_data() {
     if (_has_key) {
         _row_count = _num_rows_written;
     } else {
-        CHECK_EQ(_row_count, _num_rows_written);
+        DCHECK(_row_count == _num_rows_written)
+                << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
+        if (_row_count != _num_rows_written) {
+            std::stringstream ss;
+            ss << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
     }
     _num_rows_written = 0;
 

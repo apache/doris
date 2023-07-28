@@ -35,6 +35,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -112,7 +113,7 @@ public class HyperGraph {
      * @param group The group that is the end node in graph
      */
     public void addNode(Group group) {
-        Preconditions.checkArgument(!group.isInnerJoinGroup());
+        Preconditions.checkArgument(!group.isValidJoinGroup());
         for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
             Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
             slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
@@ -134,10 +135,11 @@ public class HyperGraph {
      *
      * @param group The join group
      */
-    public void addEdge(Group group) {
-        Preconditions.checkArgument(group.isInnerJoinGroup());
+    public BitSet addEdge(Group group, BitSet leftEdgeMap, BitSet rightEdgeMap) {
+        Preconditions.checkArgument(group.isValidJoinGroup());
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
         HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
+
         for (Expression expression : join.getHashJoinConjuncts()) {
             Pair<Long, Long> ends = findEnds(expression);
             if (!conjuncts.containsKey(ends)) {
@@ -152,23 +154,59 @@ public class HyperGraph {
             }
             conjuncts.get(ends).second.add(expression);
         }
+
+        BitSet edgeMap = new BitSet();
+        edgeMap.or(leftEdgeMap);
+        edgeMap.or(rightEdgeMap);
+
         for (Map.Entry<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> entry : conjuncts
                 .entrySet()) {
             LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
-                    entry.getValue().second, JoinHint.NONE, join.left(), join.right());
+                    entry.getValue().second, JoinHint.NONE, join.getMarkJoinSlotReference(),
+                    Lists.newArrayList(join.left(), join.right()));
             Edge edge = new Edge(singleJoin, edges.size());
             Pair<Long, Long> ends = entry.getKey();
-            edge.setLeft(ends.first);
-            edge.setOriginalLeft(ends.first);
-            edge.setRight(ends.second);
-            edge.setOriginalRight(ends.second);
+            initEdgeEnds(ends, edge, leftEdgeMap, rightEdgeMap);
             for (int nodeIndex : LongBitmap.getIterator(edge.getReferenceNodes())) {
                 nodes.get(nodeIndex).attachEdge(edge);
             }
+            edgeMap.set(edge.getIndex());
             edges.add(edge);
         }
+
+        return edgeMap;
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
         // We don't implement this trick now.
+    }
+
+    // Make edge with CD-A algorithm in
+    // On the correct and complete enumeration of the core search
+    private void initEdgeEnds(Pair<Long, Long> ends, Edge edge, BitSet leftEdges, BitSet rightEdges) {
+        long left = ends.first;
+        long right = ends.second;
+        for (int i = leftEdges.nextSetBit(0); i >= 0; i = leftEdges.nextSetBit(i + 1)) {
+            Edge lEdge = edges.get(i);
+            if (!JoinType.isAssoc(lEdge.getJoinType(), edge.getJoinType())) {
+                left = LongBitmap.or(left, lEdge.getLeft());
+            }
+            if (!JoinType.isLAssoc(lEdge.getJoinType(), edge.getJoinType())) {
+                left = LongBitmap.or(left, lEdge.getRight());
+            }
+        }
+        for (int i = rightEdges.nextSetBit(0); i >= 0; i = rightEdges.nextSetBit(i + 1)) {
+            Edge rEdge = edges.get(i);
+            if (!JoinType.isAssoc(rEdge.getJoinType(), edge.getJoinType())) {
+                right = LongBitmap.or(right, rEdge.getRight());
+            }
+            if (!JoinType.isRAssoc(rEdge.getJoinType(), edge.getJoinType())) {
+                right = LongBitmap.or(right, rEdge.getLeft());
+            }
+        }
+
+        edge.setOriginalLeft(left);
+        edge.setOriginalRight(right);
+        edge.setLeft(left);
+        edge.setRight(right);
     }
 
     private int findRoot(List<Integer> parent, int idx) {

@@ -17,9 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -81,10 +82,19 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     }
 
     @Override
-    public Database getDatabase() throws AnalysisException {
-        Preconditions.checkArgument(!qualifier.isEmpty());
-        return Env.getCurrentInternalCatalog().getDbOrException(qualifier.get(0),
-                s -> new AnalysisException("Database [" + qualifier.get(0) + "] does not exist."));
+    public DatabaseIf getDatabase() throws AnalysisException {
+        Preconditions.checkArgument(!qualifier.isEmpty(), "qualifier can not be empty");
+        try {
+            CatalogIf catalog = qualifier.size() == 3
+                    ? Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(qualifier.get(0),
+                        s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."))
+                    : Env.getCurrentEnv().getCurrentCatalog();
+            return catalog.getDbOrException(qualifier.size() == 3 ? qualifier.get(1) : qualifier.get(0),
+                    s -> new Exception("Database [" + qualifier.get(1) + "] does not exist in catalog ["
+                        + qualifier.get(0) + "]."));
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
     }
 
     @Override

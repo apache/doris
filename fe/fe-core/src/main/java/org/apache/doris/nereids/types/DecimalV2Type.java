@@ -68,10 +68,16 @@ public class DecimalV2Type extends FractionalType {
     private final int precision;
     private final int scale;
 
+    /**
+     * constructors.
+     */
     public DecimalV2Type(int precision, int scale) {
-        Preconditions.checkArgument(precision >= scale);
-        Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION);
-        Preconditions.checkArgument(scale >= 0 && scale <= MAX_SCALE);
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION,
+                "precision should in (0, " + MAX_PRECISION + "], but real precision is " + precision);
+        Preconditions.checkArgument(scale >= 0 && scale <= MAX_SCALE,
+                "scale should in [0, " + MAX_SCALE + "], but real scale is " + scale);
+        Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
+                + " but precision is " + precision, ", scale is " + scale);
         this.precision = precision;
         this.scale = scale;
     }

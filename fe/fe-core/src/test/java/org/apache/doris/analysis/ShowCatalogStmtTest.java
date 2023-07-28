@@ -26,18 +26,18 @@ import org.junit.Test;
 public class ShowCatalogStmtTest {
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
+        final Analyzer analyzer = AccessTestUtil.fetchBlockAnalyzer();
         ShowCatalogStmt stmt = new ShowCatalogStmt();
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getCatalogName());
-        Assert.assertEquals(6, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(7, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("SHOW CATALOGS", stmt.toSql());
 
         stmt = new ShowCatalogStmt(null, "%hive%");
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getCatalogName());
         Assert.assertNotNull(stmt.getPattern());
-        Assert.assertEquals(6, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(7, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("SHOW CATALOGS LIKE '%hive%'", stmt.toSql());
 
         stmt = new ShowCatalogStmt("testCatalog", null);

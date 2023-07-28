@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS csv_s3_case_line_delimiter

@@ -52,7 +52,7 @@ class FileBlock {
 public:
     using Key = IFileCache::Key;
     using LocalWriterPtr = std::unique_ptr<FileWriter>;
-    using LocalReaderPtr = std::shared_ptr<FileReader>;
+    using LocalReaderPtr = std::weak_ptr<FileReader>;
 
     enum class State {
         DOWNLOADED,
@@ -74,7 +74,7 @@ public:
     FileBlock(size_t offset, size_t size, const Key& key, IFileCache* cache, State download_state,
               CacheType cache_type);
 
-    ~FileBlock() = default;
+    ~FileBlock();
 
     State state() const;
 
@@ -110,7 +110,7 @@ public:
     Status append(Slice data);
 
     // read data from cache file
-    Status read_at(Slice buffer, size_t offset_);
+    Status read_at(Slice buffer, size_t read_offset);
 
     // finish write, release the file writer
     Status finalize_write();

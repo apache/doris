@@ -173,4 +173,59 @@ suite("test_dup_table_auto_inc_basic_with_null") {
     (null, "Doris", 800),
     (null, "Nereids", 900);"""
     qt_sql "select * from ${table5} order by id;"
+
+    def table6 = "test_dup_table_auto_inc_basic_insert_stmt2"
+    def table7 = "test_dup_table_auto_inc_basic_insert_stmt3"
+    sql "drop table if exists ${table6}"
+    sql """
+          CREATE TABLE IF NOT EXISTS `${table6}` (  
+            `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "",
+            `value` int(11) NOT NULL COMMENT ""
+          ) ENGINE=OLAP
+          DUPLICATE KEY(`id`)
+          COMMENT "OLAP"
+          DISTRIBUTED BY HASH(`id`) BUCKETS 1
+          PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "in_memory" = "false",
+          "storage_format" = "V2"
+          )
+      """
+    sql "drop table if exists ${table7}"
+    sql """
+          CREATE TABLE IF NOT EXISTS `${table7}` (  
+            `x` BIGINT NOT NULL,
+            `y` BIGINT NOT NULL
+          ) ENGINE=OLAP
+          DUPLICATE KEY(`x`)
+          COMMENT "OLAP"
+          DISTRIBUTED BY HASH(`x`) BUCKETS 1
+          PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "in_memory" = "false",
+          "storage_format" = "V2"
+          )
+      """
+    sql "insert into ${table7} values(0,0),(1,1),(2,2),(3,3),(4,4),(5,5);"
+    sql "insert into ${table6} select null, y from ${table7};"
+    qt_sql "select * from ${table6} order by id"
+
+    def table8 = "test_dup_table_auto_inc_basic_insert_stmt4"
+    sql "drop table if exists ${table8}"
+    sql """
+          CREATE TABLE IF NOT EXISTS `${table8}` (  
+            `id` BIGINT NOT NULL COMMENT "",
+            `value` BIGINT NOT NULL AUTO_INCREMENT COMMENT ""
+          ) ENGINE=OLAP
+          DUPLICATE KEY(`id`)
+          COMMENT "OLAP"
+          DISTRIBUTED BY HASH(`id`) BUCKETS 1
+          PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "in_memory" = "false",
+          "storage_format" = "V2"
+          )
+      """
+    sql "insert into ${table8} select x, null from ${table7};"
+    qt_sql "select * from ${table8} order by id"
 }

@@ -64,7 +64,7 @@ public class LdapManagerTest {
         mockClient(true, true);
         LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(USER1);
         Assert.assertNotNull(ldapUserInfo);
-        String paloRoleString = ldapUserInfo.getPaloRole().toString();
+        String paloRoleString = ldapUserInfo.getPaloRoles().toString();
         Assert.assertTrue(paloRoleString.contains("information_schema"));
         Assert.assertTrue(paloRoleString.contains("Select_priv"));
 

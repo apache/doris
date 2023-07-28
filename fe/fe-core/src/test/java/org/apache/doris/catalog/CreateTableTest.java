@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.AnalysisException;
@@ -25,6 +26,7 @@ import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -65,6 +67,11 @@ public class CreateTableTest {
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
+    }
+
+    private static void alterTable(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Env.getCurrentEnv().alterTable(alterTableStmt);
     }
 
     @Test
@@ -701,20 +708,20 @@ public class CreateTableTest {
 
     @Test
     public void testCreateTableWithMapType() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Please open enable_map_type config before use Map.",
-                () -> {
-                    createTable("create table test.test_map(k1 INT, k2 Map<int, VARCHAR(20)>) duplicate key (k1) "
-                            + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
-                });
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.test_map(k1 INT, k2 Map<int, VARCHAR(20)>) "
+                    + "duplicate key (k1) "
+                    + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+        });
     }
 
     @Test
     public void testCreateTableWithStructType() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Please open enable_struct_type config before use Struct.",
-                () -> {
-                    createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "
-                            + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
-                });
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) "
+                    + "duplicate key (k1) "
+                    + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+        });
     }
 
     @Test
@@ -738,5 +745,28 @@ public class CreateTableTest {
         Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
         Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, tb.getColumn("k3").getStrLen());
         Assert.assertEquals(10, tb.getColumn("k4").getStrLen());
+    }
+
+    @Test
+    public void testCreateTableWithForceReplica() throws DdlException  {
+        Config.force_olap_table_replication_num = 1;
+        // no need to specify replication_num, the table can still be created.
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.test_replica\n" + "(k1 int, k2 int) partition by range(k1)\n" + "(\n"
+                    + "partition p1 values less than(\"10\"),\n" + "partition p2 values less than(\"20\")\n" + ")\n"
+                    + "distributed by hash(k2) buckets 1;");
+        });
+
+        // can still set replication_num manually.
+        ExceptionChecker.expectThrowsWithMsg(UserException.class, "Failed to find enough host with tag",
+                () -> {
+                    alterTable("alter table test.test_replica modify partition p1 set ('replication_num' = '3')");
+                });
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        OlapTable tb = (OlapTable) db.getTableOrDdlException("test_replica");
+        Partition p1 = tb.getPartition("p1");
+        Assert.assertEquals(1, tb.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum());
+        Assert.assertEquals(1, tb.getTableProperty().getReplicaAllocation().getTotalReplicaNum());
     }
 }

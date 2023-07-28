@@ -20,10 +20,8 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -41,7 +39,6 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -50,7 +47,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -59,10 +55,7 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -193,15 +186,10 @@ public class NereidsPlanner extends Planner {
             }
 
             // minidump of input must be serialized first, this process ensure minidump string not null
-            if (!statementContext.getConnectContext().getSessionVariable().isPlayNereidsDump()
-                    && statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
-                MinidumpUtils.init();
-                String queryId = DebugUtil.printId(statementContext.getConnectContext().queryId());
-                try {
-                    statementContext.getConnectContext().setMinidump(serializeInputsToDumpFile(plan, queryId));
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
+            try {
+                MinidumpUtils.serializeInputsToDumpFile(plan, cascadesContext.getTables());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
             }
 
             if (statementContext.getConnectContext().getExecutor() != null) {
@@ -251,11 +239,7 @@ public class NereidsPlanner extends Planner {
                 optimizedPlan = physicalPlan;
             }
             // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
-            serializeOutputToDumpFile(physicalPlan, statementContext.getConnectContext());
-            if (statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
-                MinidumpUtils.saveMinidumpString(statementContext.getConnectContext().getMinidump(),
-                        DebugUtil.printId(statementContext.getConnectContext().queryId()));
-            }
+            MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
             NereidsTracer.output(statementContext.getConnectContext());
             timeoutExecutor.ifPresent(ExecutorService::shutdown);
 
@@ -295,42 +279,6 @@ public class NereidsPlanner extends Planner {
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
         return new PlanPostProcessors(cascadesContext).process(physicalPlan);
-    }
-
-    private JSONObject serializeInputsToDumpFile(Plan parsedPlan, String dumpName) throws IOException {
-        String dumpPath = MinidumpUtils.DUMP_PATH + "/" + dumpName;
-        File minidumpFileDir = new File(dumpPath);
-        if (!minidumpFileDir.exists()) {
-            minidumpFileDir.mkdirs();
-        }
-        // Create a JSON object
-        JSONObject jsonObj = new JSONObject();
-        jsonObj.put("Sql", statementContext.getOriginStatement().originStmt);
-        // add session variable
-        jsonObj.put("SessionVariable", cascadesContext.getConnectContext().getSessionVariable().toJson());
-        // add tables
-        String dbAndCatalogName = "/" + cascadesContext.getConnectContext().getDatabase() + "-"
-                + cascadesContext.getConnectContext().getCurrentCatalog().getName() + "-";
-        jsonObj.put("CatalogName", cascadesContext.getConnectContext().getCurrentCatalog().getName());
-        jsonObj.put("DbName", cascadesContext.getConnectContext().getDatabase());
-        JSONArray tablesJson = MinidumpUtils.serializeTables(dumpPath, dbAndCatalogName, cascadesContext.getTables());
-        jsonObj.put("Tables", tablesJson);
-        // add colocate table index, used to indicate grouping of table distribution
-        String colocateTableIndexPath = dumpPath + "/ColocateTableIndex";
-        MinidumpUtils.serializeColocateTableIndex(colocateTableIndexPath, Env.getCurrentColocateIndex());
-        jsonObj.put("ColocateTableIndex", "/ColocateTableIndex");
-        // add original sql, parsed plan and optimized plan
-        jsonObj.put("ParsedPlan", ((AbstractPlan) parsedPlan).toJson());
-        // Write the JSON object to a string and put it into file
-        return jsonObj;
-    }
-
-    private void serializeOutputToDumpFile(Plan resultPlan, ConnectContext connectContext) {
-        if (connectContext.getSessionVariable().isPlayNereidsDump()
-                || !statementContext.getConnectContext().getSessionVariable().isEnableMinidump()) {
-            return;
-        }
-        connectContext.getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
     }
 
     @Override

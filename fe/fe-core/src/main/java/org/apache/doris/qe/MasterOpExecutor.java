@@ -117,9 +117,9 @@ public class MasterOpExecutor {
             // may throw NullPointerException. add err msg
             throw new Exception("Failed to get master client.", e);
         }
-        final StringBuilder forwardMsg = new StringBuilder(String.format("forward to Master %s", thriftAddress));
+        final StringBuilder forwardMsg = new StringBuilder("forward to master FE %s" + thriftAddress.toString());
         if (!params.isSyncJournalOnly()) {
-            forwardMsg.append(", statement: %s").append(ctx.getStmtId());
+            forwardMsg.append(", statement id: ").append(ctx.getStmtId());
         }
         LOG.info(forwardMsg.toString());
 
@@ -131,7 +131,7 @@ public class MasterOpExecutor {
         } catch (TTransportException e) {
             // wrap the raw exception.
             forwardMsg.append(" : failed");
-            Exception exception = new ForwardToMasterException(String.format(forwardMsg.toString()), e);
+            Exception exception = new ForwardToMasterException(forwardMsg.toString(), e);
 
             boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
             if (!ok) {

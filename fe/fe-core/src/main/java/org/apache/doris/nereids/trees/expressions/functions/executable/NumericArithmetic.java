@@ -584,7 +584,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "divide", argTypes = {"DECIMALV3", "DECIMALV3"}, returnType = "DECIMALV3")
     public static Expression divideDecimalV3(DecimalV3Literal first, DecimalV3Literal second) {
-        if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
+        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
             return new NullLiteral(first.getDataType());
         }
         DecimalV3Type t1 = (DecimalV3Type) first.getDataType();

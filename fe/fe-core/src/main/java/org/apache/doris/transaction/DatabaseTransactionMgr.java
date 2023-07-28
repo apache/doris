@@ -1709,6 +1709,35 @@ public class DatabaseTransactionMgr {
         return true;
     }
 
+    public boolean isPreviousTransactionsFinished(long endTransactionId, long tableId, long partitionId) {
+        readLock();
+        try {
+            for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
+                TransactionState transactionState = entry.getValue();
+                if (entry.getKey() > endTransactionId
+                        || transactionState.getTransactionStatus().isFinalStatus()
+                        || transactionState.getDbId() != dbId
+                        || !transactionState.getTableIdList().contains(tableId)) {
+                    continue;
+                }
+
+                if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                    TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tableId);
+                    // txn not contains this partition
+                    if (tableCommitInfo != null
+                            && tableCommitInfo.getIdToPartitionCommitInfo().get(partitionId) == null) {
+                        continue;
+                    }
+                }
+
+                return false;
+            }
+        } finally {
+            readUnlock();
+        }
+        return true;
+    }
+
     /**
      * check if there exists a intersection between the source tableId list and target tableId list
      * if one of them is null or empty, that means that we don't know related tables in tableList,

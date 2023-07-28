@@ -17,17 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -133,5 +138,16 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
     public String shapeInfo() {
         return Utils.toSqlString("PhysicalCteConsumer",
                 "cteId", cteId);
+    }
+
+    @Override
+    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
+                                         AbstractPhysicalJoin builderNode,
+                                         Expression src, Expression probeExpr,
+                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+        // push down rf on cte sender
+        // TODO: refactor pushing down into cte internal here
+        return super.pushDownRuntimeFilter(context, generator, builderNode,
+                src, probeExpr, type, buildSideNdv, exprOrder);
     }
 }

@@ -114,9 +114,9 @@ public class JdbcOracleClient extends JdbcClient {
             case "RAW":
             case "LONG RAW":
             case "INTERVAL":
+            case "CLOB":
                 return ScalarType.createStringType();
             case "BLOB":
-            case "CLOB":
             case "NCLOB":
             case "BFILE":
             case "BINARY_FLOAT":

@@ -166,17 +166,18 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
     }
 
     for (size_t j = 0; j < keys_size; ++j) {
-        bool is_null;
+        bool is_null = false;
 
-        if (!has_bitmap)
-            is_null = false;
-        else {
+        if (has_bitmap) {
             size_t bucket = j / 8;
             size_t off = j % 8;
             is_null = ((bitmap[bucket] >> off) & 1) == 1;
         }
 
-        if (is_null) continue;
+        if (is_null) {
+            offset += key_sizes[j];
+            continue;
+        }
 
         switch (key_sizes[j]) {
         case 1:
@@ -184,28 +185,24 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<1>() +
                            i,
                    1);
-            offset += 1;
             break;
         case 2:
             memcpy(bytes + offset,
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<2>() +
                            i * 2,
                    2);
-            offset += 2;
             break;
         case 4:
             memcpy(bytes + offset,
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<4>() +
                            i * 4,
                    4);
-            offset += 4;
             break;
         case 8:
             memcpy(bytes + offset,
                    static_cast<const ColumnVectorHelper*>(key_columns[j])->get_raw_data_begin<8>() +
                            i * 8,
                    8);
-            offset += 8;
             break;
         default:
             memcpy(bytes + offset,
@@ -214,6 +211,8 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
                    key_sizes[j]);
             offset += key_sizes[j];
         }
+
+        offset += key_sizes[j];
     }
 
     return key;
@@ -224,7 +223,9 @@ inline UInt128 hash128(size_t i, size_t keys_size, const ColumnRawPtrs& key_colu
     UInt128 key;
     SipHash hash;
 
-    for (size_t j = 0; j < keys_size; ++j) key_columns[j]->update_hash_with_value(i, hash);
+    for (size_t j = 0; j < keys_size; ++j) {
+        key_columns[j]->update_hash_with_value(i, hash);
+    }
 
     hash.get128(key.low, key.high);
 
@@ -253,8 +254,9 @@ inline StringRef serialize_keys_to_pool_contiguous(size_t i, size_t keys_size,
     const char* begin = nullptr;
 
     size_t sum_size = 0;
-    for (size_t j = 0; j < keys_size; ++j)
+    for (size_t j = 0; j < keys_size; ++j) {
         sum_size += key_columns[j]->serialize_value_into_arena(i, pool, begin).size;
+    }
 
     return {begin, sum_size};
 }

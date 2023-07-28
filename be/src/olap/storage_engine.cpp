@@ -126,6 +126,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
+          _calc_delete_bitmap_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
@@ -154,9 +155,6 @@ StorageEngine::~StorageEngine() {
     }
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
-    }
-    if (_calc_delete_bitmap_thread_pool) {
-        _calc_delete_bitmap_thread_pool->shutdown();
     }
     if (_cold_data_compaction_thread_pool) {
         _cold_data_compaction_thread_pool->shutdown();
@@ -198,6 +196,9 @@ Status StorageEngine::_open() {
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
     _memtable_flush_executor->init(dirs);
+
+    _calc_delete_bitmap_executor.reset(new CalcDeleteBitmapExecutor());
+    _calc_delete_bitmap_executor->init();
 
     _parse_default_rowset_type();
 

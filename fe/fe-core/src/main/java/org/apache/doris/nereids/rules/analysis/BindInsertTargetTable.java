@@ -75,6 +75,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                             table,
                             bindTargetColumns(table, sink.getColNames()),
                             bindPartitionIds(table, sink.getPartitions()),
+                            sink.isPartialUpdate(),
                             sink.child());
 
                     // we need to insert all the columns of the target table although some columns are not mentions.

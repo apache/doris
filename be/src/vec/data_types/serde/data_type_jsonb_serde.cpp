@@ -17,7 +17,8 @@
 
 #include "data_type_jsonb_serde.h"
 
-#include <arrow/array/builder_binary.h>
+#include "arrow/array/builder_binary.h"
+#include "runtime/jsonb_value.h"
 namespace doris {
 namespace vectorized {
 
@@ -52,6 +53,30 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                  bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+void DataTypeJsonbSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+                                                    BufferWritable& bw,
+                                                    const FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
+    if (s.size > 0) {
+        bw.write(s.data, s.size);
+        bw.commit();
+    }
+}
+
+Status DataTypeJsonbSerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                                          const FormatOptions& options) const {
+    JsonBinaryValue value;
+    RETURN_IF_ERROR(value.from_json_string(rb.position(), rb.count()));
+
+    auto& column_string = assert_cast<ColumnString&>(column);
+    column_string.insert_data(value.value(), value.size());
+    return Status::OK();
 }
 
 void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,

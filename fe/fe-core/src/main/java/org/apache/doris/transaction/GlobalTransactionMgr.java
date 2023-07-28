@@ -426,6 +426,19 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     /**
+     * Check whether a load job for a partition already exists before
+     * checking all `TransactionId` related with this load job have finished.
+     * finished
+     *
+     * @throws AnalysisException is database does not exist anymore
+     */
+    public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, long tableId,
+            long partitionId) throws AnalysisException {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        return dbTransactionMgr.isPreviousTransactionsFinished(endTransactionId, tableId, partitionId);
+    }
+
+    /**
      * The txn cleaner will run at a fixed interval and try to delete expired and timeout txns:
      * expired: txn is in VISIBLE or ABORTED, and is expired.
      * timeout: txn is in PREPARE, but timeout

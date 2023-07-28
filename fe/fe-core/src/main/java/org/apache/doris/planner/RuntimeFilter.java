@@ -123,7 +123,8 @@ public final class RuntimeFilter {
 
         public RuntimeFilterTarget(ScanNode targetNode, Expr targetExpr,
                                    boolean isBoundByKeyColumns, boolean isLocalTarget) {
-            Preconditions.checkState(targetExpr.isBoundByTupleIds(targetNode.getTupleIds()));
+            Preconditions.checkState(targetExpr.isBoundByTupleIds(targetNode.getTupleIds())
+                    || targetNode instanceof CTEScanNode);
             this.node = targetNode;
             this.expr = targetExpr;
             this.isBoundByKeyColumns = isBoundByKeyColumns;

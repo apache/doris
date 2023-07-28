@@ -2060,6 +2060,10 @@ suite("nereids_agg_fn") {
 	qt_sql_stddev_samp_DecimalV2_agg_phase_4_notnull '''
 		select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT, TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/ count(distinct id), stddev_samp(kdcmls1) from fn_test'''
 
+	qt_sql_sum_Boolean '''
+		select sum(kbool) from fn_test'''
+	qt_sql_sum_Boolean_gb '''
+		select sum(kbool) from fn_test group by id order by id'''
 	qt_sql_sum_TinyInt_gb '''
 		select sum(ktint) from fn_test group by kbool order by kbool'''
 	qt_sql_sum_TinyInt '''

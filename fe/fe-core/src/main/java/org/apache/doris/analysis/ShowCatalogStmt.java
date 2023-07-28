@@ -32,6 +32,7 @@ public class ShowCatalogStmt extends ShowStmt {
                     .addColumn(new Column("Type", ScalarType.createStringType()))
                     .addColumn(new Column("IsCurrent", ScalarType.createStringType()))
                     .addColumn(new Column("CreateTime", ScalarType.createStringType()))
+                    .addColumn(new Column("LastUpdateTime", ScalarType.createStringType()))
                     .addColumn(new Column("Comment", ScalarType.createStringType()))
                     .build();
 

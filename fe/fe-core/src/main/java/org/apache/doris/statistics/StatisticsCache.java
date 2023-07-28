@@ -169,7 +169,11 @@ public class StatisticsCache {
     }
 
     public void refreshColStatsSync(long tblId, long idxId, String colName) {
-        columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
+        columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(-1, -1, tblId, idxId, colName));
+    }
+
+    public void refreshColStatsSync(long catalogId, long dbId, long tblId, long idxId, String colName) {
+        columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName));
     }
 
     public void refreshHistogramSync(long tblId, long idxId, String colName) {

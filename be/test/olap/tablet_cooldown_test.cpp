@@ -401,7 +401,9 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
 
     st = delta_writer->close();
     ASSERT_EQ(Status::OK(), st);
-    st = delta_writer->close_wait(PSlaveTabletNodes(), false);
+    st = delta_writer->build_rowset();
+    ASSERT_EQ(Status::OK(), st);
+    st = delta_writer->commit_txn(PSlaveTabletNodes(), false);
     ASSERT_EQ(Status::OK(), st);
     delete delta_writer;
 

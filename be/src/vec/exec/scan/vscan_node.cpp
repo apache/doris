@@ -323,10 +323,12 @@ Status VScanNode::close(RuntimeState* state) {
 
 void VScanNode::release_resource(RuntimeState* state) {
     if (_scanner_ctx.get()) {
-        if (!state->enable_pipeline_exec() || _should_create_scanner) {
+        if (!state->enable_pipeline_exec()) {
             // stop and wait the scanner scheduler to be done
             // _scanner_ctx may not be created for some short circuit case.
             _scanner_ctx->set_should_stop();
+            _scanner_ctx->clear_and_join(this, state);
+        } else if (_should_create_scanner) {
             _scanner_ctx->clear_and_join(this, state);
         }
     }

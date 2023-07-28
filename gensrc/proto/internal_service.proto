@@ -69,6 +69,7 @@ message PTabletInfo {
     repeated string invalid_dict_cols = 3; 
     // total rows num received by DeltaWriter
     optional int64 received_rows = 4;
+    optional int64 num_rows_filtered = 5 [default = 0];
 }
 
 // open a tablet writer

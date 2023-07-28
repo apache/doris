@@ -29,6 +29,8 @@ class SlotDescriptor;
 // numeric types, etc.
 class TextConverter {
 public:
+    static constexpr char NULL_STR[3] = {'\\', 'N', '\0'};
+
     TextConverter(char escape_char, char array_delimiter = '\2');
 
     void write_string_column(const SlotDescriptor* slot_desc,

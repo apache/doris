@@ -259,6 +259,7 @@ private:
     size_t _mem_usage;
 
     size_t _num_columns;
+    int32_t _seq_col_idx_in_block = -1;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {

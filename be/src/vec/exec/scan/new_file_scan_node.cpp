@@ -40,6 +40,7 @@ NewFileScanNode::NewFileScanNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : VScanNode(pool, tnode, descs) {
     _output_tuple_id = tnode.file_scan_node.tuple_id;
+    _table_name = tnode.file_scan_node.__isset.table_name ? tnode.file_scan_node.table_name : "";
 }
 
 Status NewFileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -126,6 +127,10 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     }
 
     return Status::OK();
+}
+
+std::string NewFileScanNode::get_name() {
+    return fmt::format("VFILE_SCAN_NODE({0})", _table_name);
 }
 
 }; // namespace doris::vectorized

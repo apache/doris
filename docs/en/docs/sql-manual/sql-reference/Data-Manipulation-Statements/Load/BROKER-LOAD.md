@@ -65,6 +65,7 @@ WITH BROKER broker_name
   INTO TABLE `table_name`
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
+  [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
@@ -95,6 +96,10 @@ WITH BROKER broker_name
   - `COLUMNS TERMINATED BY`
 
     Specifies the column separator. Only valid in CSV format. Only single-byte delimiters can be specified.
+
+  - `LINES TERMINATED BY`
+
+    Specifies the line delimiter. Only valid in CSV format. Only single-byte delimiters can be specified.
 
   - `FORMAT AS`
 

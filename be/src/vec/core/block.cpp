@@ -171,6 +171,10 @@ void Block::insert(size_t position, ColumnWithTypeAndName&& elem) {
     data.emplace(data.begin() + position, std::move(elem));
 }
 
+void Block::clear_names() {
+    index_by_name.clear();
+}
+
 void Block::insert(const ColumnWithTypeAndName& elem) {
     index_by_name.emplace(elem.name, data.size());
     data.emplace_back(elem);

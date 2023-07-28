@@ -309,14 +309,13 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | DOUBLE     | DataTypes.DoubleType             |
 | DATE       | DataTypes.StringType<sup>1</sup> |
 | DATETIME   | DataTypes.StringType<sup>1</sup> |
-| BINARY     | DataTypes.BinaryType             |
 | DECIMAL    | DecimalType                      |
 | CHAR       | DataTypes.StringType             |
 | LARGEINT   | DataTypes.StringType             |
 | VARCHAR    | DataTypes.StringType             |
-| DECIMALV2  | DecimalType                      |
+| DECIMAL    | DecimalType                      |
 | TIME       | DataTypes.DoubleType             |
 | HLL        | Unsupported datatype             |
+| Bitmap     | Unsupported datatype             |
 
-* 注：Connector中，将`DATE`和`DATETIME`映射为`String`。由于`Doris`底层存储引擎处理逻辑，直接使用时间类型时，覆盖的时间范围无法满足需求。所以使用 `String` 类型直接返回对应的时间可读文本。
-
+* 注：Connector 中，将`DATE`和`DATETIME`映射为`String`。由于`Doris`底层存储引擎处理逻辑，直接使用时间类型时，覆盖的时间范围无法满足需求。所以使用 `String` 类型直接返回对应的时间可读文本。

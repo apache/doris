@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
@@ -71,7 +70,7 @@ public class AnalysisTaskExecutor extends Thread {
             try {
                 AnalysisTaskWrapper taskWrapper = taskQueue.take();
                 try {
-                    long timeout = TimeUnit.MINUTES.toMillis(Config.analyze_task_timeout_in_minutes)
+                    long timeout = TimeUnit.HOURS.toMillis(Config.analyze_task_timeout_in_hours)
                             - (System.currentTimeMillis() - taskWrapper.getStartTime());
                     taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
                 } catch (Exception e) {
@@ -101,9 +100,6 @@ public class AnalysisTaskExecutor extends Thread {
         BaseAnalysisTask task = taskScheduler.getPendingTasks();
         AnalysisTaskWrapper taskWrapper = new AnalysisTaskWrapper(this, task);
         executors.submit(taskWrapper);
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTaskStatus(task.info,
-                        AnalysisState.RUNNING, "", System.currentTimeMillis());
     }
 
     public void putJob(AnalysisTaskWrapper wrapper) throws Exception {

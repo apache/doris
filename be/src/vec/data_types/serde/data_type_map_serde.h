@@ -39,6 +39,17 @@ public:
     DataTypeMapSerDe(const DataTypeSerDeSPtr& _key_serde, const DataTypeSerDeSPtr& _value_serde)
             : key_serde(_key_serde), value_serde(_value_serde) {}
 
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support serialize map column to buffer";
+    }
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support deserialize from buffer to map";
+        return Status::NotSupported("Not support deserialize from buffer to map");
+    }
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
         LOG(FATAL) << "Not support write map column to pb";

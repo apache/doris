@@ -27,7 +27,6 @@ suite("test_map_load_and_function", "p0") {
     def dataFile = "test_map.csv"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
     sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (

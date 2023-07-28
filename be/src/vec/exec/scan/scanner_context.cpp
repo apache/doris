@@ -299,6 +299,7 @@ void ScannerContext::clear_and_join(VScanNode* node, RuntimeState* state) {
         if (_num_running_scanners == 0 && _num_scheduling_ctx == 0) {
             break;
         } else {
+            DCHECK(!state->enable_pipeline_exec());
             while (!(_num_running_scanners == 0 && _num_scheduling_ctx == 0)) {
                 _ctx_finish_cv.wait(l);
             }

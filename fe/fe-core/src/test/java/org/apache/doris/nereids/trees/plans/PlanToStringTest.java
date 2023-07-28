@@ -48,7 +48,7 @@ public class PlanToStringTest {
     public void testLogicalLimit(@Mocked Plan child) {
         LogicalLimit<Plan> plan = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, child);
 
-        Assertions.assertEquals("LogicalLimit ( limit=0, offset=0 )", plan.toString());
+        Assertions.assertEquals("LogicalLimit ( limit=0, offset=0, phase=ORIGIN )", plan.toString());
     }
 
     @Test

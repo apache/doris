@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_list_partition") {
-    // todo: test list partitions, such as: create, alter table partition ...
+suite("test_list_partition", "p0") {
+    // test query list partition table
     sql "drop table if exists list_par"
     sql """
         CREATE TABLE IF NOT EXISTS list_par ( 
@@ -77,5 +77,10 @@ suite("test_list_partition") {
 
     sql "insert into test_list_partition_select_tb select k1, k2, k3, k4, k5, k6, k10, k11, k7, k8, k9 from test_query_db.baseall where k1 is not null;"
 
-    qt_sql1 "select k1, k2, k3 from test_list_partition_select_tb where k1 between 3 and 13 order by 1, 2, 3;"
+    qt_sql1 "select k1, k2, k3 from test_list_partition_select_tb where k1 between 3 and 13 order by 1, 2, 3"
+    qt_sql2 "select * from test_list_partition_select_tb where k1 > 5 order by k1"
+    qt_sql3 "select k1, k2, k3 from test_list_partition_select_tb where k1 in (5, 6, 1) order by k1"
+    qt_sql4 "select * from test_list_partition_select_tb where k1 != 10 order by k1"
+    qt_sql5 "select k1, k2, k3 from test_list_partition_select_tb where k1 not in (1, 2, 3, 100) order by k1"
+    qt_sql6 "select * from test_list_partition_select_tb where k1 is null order by k1;"
 }

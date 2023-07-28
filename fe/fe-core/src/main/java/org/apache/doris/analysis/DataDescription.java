@@ -169,10 +169,31 @@ public class DataDescription implements InsertStmt.DataDesc {
     }
 
     public DataDescription(String tableName,
+            PartitionNames partitionNames,
+            List<String> filePaths,
+            List<String> columns,
+            Separator columnSeparator,
+            String fileFormat,
+            List<String> columnsFromPath,
+            boolean isNegative,
+            List<Expr> columnMappingList,
+            Expr fileFilterExpr,
+            Expr whereExpr,
+            LoadTask.MergeType mergeType,
+            Expr deleteCondition,
+            String sequenceColName,
+            Map<String, String> properties) {
+        this(tableName, partitionNames, filePaths, columns, columnSeparator, null,
+                fileFormat, columnsFromPath, isNegative, columnMappingList, fileFilterExpr, whereExpr,
+                mergeType, deleteCondition, sequenceColName, properties);
+    }
+
+    public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
                            Separator columnSeparator,
+                           Separator lineDelimiter,
                            String fileFormat,
                            List<String> columnsFromPath,
                            boolean isNegative,
@@ -188,6 +209,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
         this.columnSeparator = columnSeparator;
+        this.lineDelimiter = lineDelimiter;
         this.fileFormat = fileFormat;
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
@@ -595,6 +617,10 @@ public class DataDescription implements InsertStmt.DataDesc {
             return null;
         }
         return lineDelimiter.getSeparator();
+    }
+
+    public Separator getLineDelimiterObj() {
+        return lineDelimiter;
     }
 
     public void setLineDelimiter(Separator lineDelimiter) {

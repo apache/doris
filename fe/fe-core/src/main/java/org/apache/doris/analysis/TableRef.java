@@ -534,32 +534,41 @@ public class TableRef implements ParseNode, Writable {
             return;
         }
         TableIf.TableType tableType = this.getTable().getType();
-        if (tableType != TableIf.TableType.HMS_EXTERNAL_TABLE) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
-        }
-        HMSExternalTable extTable = (HMSExternalTable) this.getTable();
-        switch (extTable.getDlaType()) {
-            case ICEBERG:
-                if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
-                    String asOfTime = tableSnapshot.getTime();
-                    Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
-                    if (!matcher.matches()) {
-                        throw new AnalysisException("Invalid datetime string: " + asOfTime);
+        if (tableType == TableIf.TableType.HMS_EXTERNAL_TABLE) {
+            HMSExternalTable extTable = (HMSExternalTable) this.getTable();
+            switch (extTable.getDlaType()) {
+                case ICEBERG:
+                    if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+                        String asOfTime = tableSnapshot.getTime();
+                        Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
+                        if (!matcher.matches()) {
+                            throw new AnalysisException("Invalid datetime string: " + asOfTime);
+                        }
                     }
+                    break;
+                case HUDI:
+                    if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
+                        throw new AnalysisException("Hudi table only supports timestamp as snapshot ID");
+                    }
+                    try {
+                        tableSnapshot.setTime(HudiUtils.formatQueryInstant(tableSnapshot.getTime()));
+                    } catch (Exception e) {
+                        throw new AnalysisException("Failed to parse hudi timestamp: " + e.getMessage(), e);
+                    }
+                    break;
+                default:
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
+            }
+        } else if (tableType == TableIf.TableType.ICEBERG_EXTERNAL_TABLE) {
+            if (tableSnapshot.getType() == TableSnapshot.VersionType.TIME) {
+                String asOfTime = tableSnapshot.getTime();
+                Matcher matcher = TimeUtils.DATETIME_FORMAT_REG.matcher(asOfTime);
+                if (!matcher.matches()) {
+                    throw new AnalysisException("Invalid datetime string: " + asOfTime);
                 }
-                break;
-            case HUDI:
-                if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
-                    throw new AnalysisException("Hudi table only supports timestamp as snapshot ID");
-                }
-                try {
-                    tableSnapshot.setTime(HudiUtils.formatQueryInstant(tableSnapshot.getTime()));
-                } catch (Exception e) {
-                    throw new AnalysisException("Failed to parse hudi timestamp: " + e.getMessage(), e);
-                }
-                break;
-            default:
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
+            }
+        } else {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_TIME_TRAVEL_TABLE);
         }
     }
 

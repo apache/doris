@@ -36,6 +36,16 @@ class Arena;
 
 class DataTypeFixedLengthObjectSerDe : public DataTypeSerDe {
 public:
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support serialize FixedLengthObject column to buffer";
+    }
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support deserialize FixedLengthObject column from buffer";
+        return Status::NotSupported("Not support deserialize FixedLengthObject column from buffer");
+    }
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
         return Status::NotSupported("Not support write FixedLengthObject column to pb");

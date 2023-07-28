@@ -27,8 +27,7 @@ suite("nereids_test_javaudf_array") {
 
     // nereids doesn't support array now, we will enable the suite after supporting.
     // def tableName = "test_javaudf_array"
-    // File path = new File("${context.file.parent}")
-    // def jarPath = "${path.getParent()}/../../java-udf-src/target/java-udf-case-jar-with-dependencies.jar"
+    // def jarPath = """${context.file.parent}/../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
 
     // log.info("Jar path: ${jarPath}".toString())
     // try {

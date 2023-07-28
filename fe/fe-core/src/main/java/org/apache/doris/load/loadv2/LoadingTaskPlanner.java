@@ -171,7 +171,7 @@ public class LoadingTaskPlanner {
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds,
                 Config.enable_single_replica_load);
         olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, false, strictMode);
-        olapTableSink.complete();
+        olapTableSink.complete(analyzer);
 
         // 3. Plan fragment
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.RANDOM);

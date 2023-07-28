@@ -17,6 +17,7 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.UdfRuntimeException;
@@ -36,14 +37,20 @@ import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.MalformedURLException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 public class UdfExecutor extends BaseExecutor {
-    private static final Logger LOG = Logger.getLogger(UdfExecutor.class);
+    // private static final java.util.logging.Logger LOG =
+    // Logger.getLogger(UdfExecutor.class);
+    public static final Logger LOG = Logger.getLogger(UdfExecutor.class);
     // setup by init() and cleared by close()
     private Method method;
 
-    // Pre-constructed input objects for the UDF. This minimizes object creation overhead
+    // Pre-constructed input objects for the UDF. This minimizes object creation
+    // overhead
     // as these objects are reused across calls to evaluate().
     private Object[] inputObjects;
 
@@ -119,11 +126,74 @@ public class UdfExecutor extends BaseExecutor {
         return convertBasicArg(true, argIdx, isNullable, 0, numRows, nullMapAddr, columnAddr, strOffsetAddr);
     }
 
-
     public Object[] convertArrayArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
         return convertArrayArg(argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr,
                 strOffsetAddr);
+    }
+
+    public Object[] convertMapArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long keyNestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
+            long valueNestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) {
+        PrimitiveType keyType = argTypes[argIdx].getKeyType().getPrimitiveType();
+        PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
+        Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
+                keyNestedNullMapAddr, keyDataAddr,
+                keyStrOffsetAddr);
+        Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
+                valueNestedNullMapAddr, valueDataAddr,
+                valueStrOffsetAddr);
+        switch (keyType) {
+            case BOOLEAN: {
+                return new HashMapBuilder<Boolean>().get(keyCol, valueCol, valueType);
+            }
+            case TINYINT: {
+                return new HashMapBuilder<Byte>().get(keyCol, valueCol, valueType);
+            }
+            case SMALLINT: {
+                return new HashMapBuilder<Short>().get(keyCol, valueCol, valueType);
+            }
+            case INT: {
+                return new HashMapBuilder<Integer>().get(keyCol, valueCol, valueType);
+            }
+            case BIGINT: {
+                return new HashMapBuilder<Long>().get(keyCol, valueCol, valueType);
+            }
+            case LARGEINT: {
+                return new HashMapBuilder<BigInteger>().get(keyCol, valueCol, valueType);
+            }
+            case FLOAT: {
+                return new HashMapBuilder<Float>().get(keyCol, valueCol, valueType);
+            }
+            case DOUBLE: {
+                return new HashMapBuilder<Double>().get(keyCol, valueCol, valueType);
+            }
+            case CHAR:
+            case VARCHAR:
+            case STRING: {
+                return new HashMapBuilder<String>().get(keyCol, valueCol, valueType);
+            }
+            case DATEV2:
+            case DATE: {
+                return new HashMapBuilder<LocalDate>().get(keyCol, valueCol, valueType);
+            }
+            case DATETIMEV2:
+            case DATETIME: {
+                return new HashMapBuilder<LocalDateTime>().get(keyCol, valueCol, valueType);
+            }
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMALV2:
+            case DECIMAL128: {
+                return new HashMapBuilder<BigDecimal>().get(keyCol, valueCol, valueType);
+            }
+            default: {
+                LOG.info("Not support: " + keyType);
+                Preconditions.checkState(false, "Not support type " + keyType.toString());
+                break;
+            }
+        }
+        return null;
     }
 
     /**
@@ -501,6 +571,82 @@ public class UdfExecutor extends BaseExecutor {
                     "Unable to call UDF constructor with no arguments.", e);
         } catch (Exception e) {
             throw new UdfRuntimeException("Unable to call create UDF instance.", e);
+        }
+    }
+
+    public static class HashMapBuilder<keyType> {
+        public Object[] get(Object[] keyCol, Object[] valueCol, PrimitiveType valueType) {
+            switch (valueType) {
+                case BOOLEAN: {
+                    return new BuildMapFromType<keyType, Boolean>().get(keyCol, valueCol);
+                }
+                case TINYINT: {
+                    return new BuildMapFromType<keyType, Byte>().get(keyCol, valueCol);
+                }
+                case SMALLINT: {
+                    return new BuildMapFromType<keyType, Short>().get(keyCol, valueCol);
+                }
+                case INT: {
+                    return new BuildMapFromType<keyType, Integer>().get(keyCol, valueCol);
+                }
+                case BIGINT: {
+                    return new BuildMapFromType<keyType, Long>().get(keyCol, valueCol);
+                }
+                case LARGEINT: {
+                    return new BuildMapFromType<keyType, BigInteger>().get(keyCol, valueCol);
+                }
+                case FLOAT: {
+                    return new BuildMapFromType<keyType, Float>().get(keyCol, valueCol);
+                }
+                case DOUBLE: {
+                    return new BuildMapFromType<keyType, Double>().get(keyCol, valueCol);
+                }
+                case CHAR:
+                case VARCHAR:
+                case STRING: {
+                    return new BuildMapFromType<keyType, String>().get(keyCol, valueCol);
+                }
+                case DATEV2:
+                case DATE: {
+                    return new BuildMapFromType<keyType, LocalDate>().get(keyCol, valueCol);
+                }
+                case DATETIMEV2:
+                case DATETIME: {
+                    return new BuildMapFromType<keyType, LocalDateTime>().get(keyCol, valueCol);
+                }
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMALV2:
+                case DECIMAL128: {
+                    return new BuildMapFromType<keyType, BigDecimal>().get(keyCol, valueCol);
+                }
+                default: {
+                    LOG.info("Not support: " + valueType);
+                    Preconditions.checkState(false, "Not support type " + valueType.toString());
+                    break;
+                }
+            }
+            return null;
+        }
+    }
+
+    public static class BuildMapFromType<T1, T2> {
+        public Object[] get(Object[] keyCol, Object[] valueCol) {
+            Object[] retHashMap = new HashMap[keyCol.length];
+            for (int colIdx = 0; colIdx < keyCol.length; colIdx++) {
+                HashMap<T1, T2> hashMap = new HashMap<>();
+                ArrayList<T1> keys = (ArrayList<T1>) (keyCol[colIdx]);
+                ArrayList<T2> values = (ArrayList<T2>) (valueCol[colIdx]);
+                for (int i = 0; i < keys.size(); i++) {
+                    T1 key = keys.get(i);
+                    T2 value = values.get(i);
+                    if (!hashMap.containsKey(key)) {
+                        hashMap.put(key, value);
+                    }
+                }
+                retHashMap[colIdx] = hashMap;
+            }
+            return retHashMap;
         }
     }
 }

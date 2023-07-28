@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
@@ -123,7 +124,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 ctx.getExecTimeout(),
                 ctx.getSessionVariable().getSendBatchParallelism(), false, false);
 
-        sink.complete();
+        sink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
         TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
                 physicalOlapTableSink.getDatabase().getId(),
                 txn.getTxnId());

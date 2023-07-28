@@ -523,10 +523,6 @@ public class TransactionState implements Writable {
         return this.idToTableCommitInfos.get(tableId);
     }
 
-    public void removeTable(long tableId) {
-        this.idToTableCommitInfos.remove(tableId);
-    }
-
     public void setTxnCommitAttachment(TxnCommitAttachment txnCommitAttachment) {
         this.txnCommitAttachment = txnCommitAttachment;
     }

@@ -74,8 +74,6 @@ public:
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done) {
         // stream_mgr->transmit_block(request, &done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
         // The response is accessed when done->Run is called in transmit_block(),
         // give response a default value to avoid null pointers in high concurrency.
         Status st;

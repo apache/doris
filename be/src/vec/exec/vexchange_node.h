@@ -58,7 +58,6 @@ public:
     Status collect_query_statistics(QueryStatistics* statistics) override;
     Status close(RuntimeState* state) override;
 
-    // Status collect_query_statistics(QueryStatistics* statistics) override;
     void set_num_senders(int num_senders) { _num_senders = num_senders; }
 
 private:

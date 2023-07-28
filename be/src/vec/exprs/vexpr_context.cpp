@@ -67,7 +67,9 @@ doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result
 doris::Status VExprContext::prepare(doris::RuntimeState* state,
                                     const doris::RowDescriptor& row_desc) {
     _prepared = true;
-    return _root->prepare(state, row_desc, this);
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->prepare(state, row_desc, this); });
+    return st;
 }
 
 doris::Status VExprContext::open(doris::RuntimeState* state) {
@@ -80,7 +82,9 @@ doris::Status VExprContext::open(doris::RuntimeState* state) {
     // original's fragment state and only need to have thread-local state initialized.
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    return _root->open(state, this, scope);
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->open(state, this, scope); });
+    return st;
 }
 
 void VExprContext::close() {

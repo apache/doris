@@ -179,4 +179,10 @@ public class BinlogConfig implements Writable {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS).append("\" = \"")
                 .append(maxHistoryNums).append("\"");
     }
+
+    public static BinlogConfig fromProperties(Map<String, String> properties) {
+        BinlogConfig binlogConfig = new BinlogConfig();
+        binlogConfig.mergeFromProperties(properties);
+        return binlogConfig;
+    }
 }

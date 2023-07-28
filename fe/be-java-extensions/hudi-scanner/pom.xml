@@ -34,7 +34,6 @@ under the License.
         <scala.binary.version>2.12</scala.binary.version>
         <spark.version>3.2.0</spark.version>
         <sparkbundle.version>3.2</sparkbundle.version>
-        <hudi.version>0.13.0</hudi.version>
         <janino.version>3.0.16</janino.version>
     </properties>
 

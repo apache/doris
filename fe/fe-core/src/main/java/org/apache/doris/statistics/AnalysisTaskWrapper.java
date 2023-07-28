@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.Util;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -62,16 +63,17 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         } finally {
             if (!task.killed) {
                 if (except != null) {
-                    LOG.warn("Failed to execute task", except);
+                    LOG.warn("Analyze {} failed.", task.toString(), except);
                     Env.getCurrentEnv().getAnalysisManager()
                             .updateTaskStatus(task.info,
-                                    AnalysisState.FAILED, except.getMessage(), System.currentTimeMillis());
+                                    AnalysisState.FAILED, Util.getRootCauseMessage(except), System.currentTimeMillis());
                 } else {
+                    LOG.debug("Analyze {} finished, cost time:{}", task.toString(),
+                            System.currentTimeMillis() - startTime);
                     Env.getCurrentEnv().getAnalysisManager()
                             .updateTaskStatus(task.info,
                                     AnalysisState.FINISHED, "", System.currentTimeMillis());
                 }
-                LOG.warn("{} finished, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
             }
         }
     }

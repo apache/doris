@@ -290,6 +290,8 @@ Status ExecEnv::_init_mem_env() {
 
     SchemaCache::create_global_instance(config::schema_cache_capacity);
 
+    LookupConnectionCache::create_global_instance(config::lookup_connection_cache_bytes_limit);
+
     // use memory limit
     int64_t inverted_index_cache_limit =
             ParseUtil::parse_mem_spec(config::inverted_index_searcher_cache_limit,

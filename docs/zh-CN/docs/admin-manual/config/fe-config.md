@@ -181,7 +181,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 #### `bdbje_lock_timeout_second`
 
-默认值：1
+默认值：5
 
 bdbje 操作的 lock timeout  如果 FE WARN 日志中有很多 LockTimeoutException，可以尝试增加这个值
 
@@ -765,6 +765,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 </version>
 
+#### `multi_partition_name_prefix`
+
+默认值：p_
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+使用此参数设置 multi partition 的分区名前缀，仅仅multi partition 生效，不作用于动态分区，默认前缀是“p_”。
+
 #### `partition_in_memory_update_interval_secs`
 
 默认值：300 (s)
@@ -1141,7 +1151,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 #### `max_bytes_per_broker_scanner`
 
-默认值：3 * 1024 * 1024 * 1024L  （3G）
+默认值：500 * 1024 * 1024 * 1024L  （500G）
 
 是否可以动态配置：true
 

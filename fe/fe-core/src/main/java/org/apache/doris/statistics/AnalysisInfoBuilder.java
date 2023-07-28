@@ -23,6 +23,8 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
+import org.quartz.CronExpression;
+
 import java.util.Map;
 import java.util.Set;
 
@@ -45,12 +47,15 @@ public class AnalysisInfoBuilder {
     private int sampleRows;
     private long periodTimeInMs;
     private long lastExecTimeInMs;
+    private long timeCostInMs;
     private AnalysisState state;
     private ScheduleType scheduleType;
     private String message = "";
     private boolean externalTableLevelTask;
     private boolean partitionOnly;
     private boolean samplingPartition;
+
+    private CronExpression cronExpression;
 
     public AnalysisInfoBuilder() {
     }
@@ -75,6 +80,7 @@ public class AnalysisInfoBuilder {
         maxBucketNum = info.maxBucketNum;
         message = info.message;
         lastExecTimeInMs = info.lastExecTimeInMs;
+        timeCostInMs = info.timeCostInMs;
         state = info.state;
         scheduleType = info.scheduleType;
         externalTableLevelTask = info.externalTableLevelTask;
@@ -177,6 +183,11 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setTimeCostInMs(long timeCostInMs) {
+        this.timeCostInMs = timeCostInMs;
+        return this;
+    }
+
     public AnalysisInfoBuilder setState(AnalysisState state) {
         this.state = state;
         return this;
@@ -202,11 +213,15 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public void setCronExpression(CronExpression cronExpression) {
+        this.cronExpression = cronExpression;
+    }
+
     public AnalysisInfo build() {
         return new AnalysisInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
-                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, state, scheduleType,
-                externalTableLevelTask, partitionOnly, samplingPartition);
+                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
+                externalTableLevelTask, partitionOnly, samplingPartition, cronExpression);
     }
 
     public AnalysisInfoBuilder copy() {
@@ -229,6 +244,7 @@ public class AnalysisInfoBuilder {
                 .setMaxBucketNum(maxBucketNum)
                 .setMessage(message)
                 .setLastExecTimeInMs(lastExecTimeInMs)
+                .setTimeCostInMs(timeCostInMs)
                 .setState(state)
                 .setScheduleType(scheduleType)
                 .setExternalTableLevelTask(externalTableLevelTask);

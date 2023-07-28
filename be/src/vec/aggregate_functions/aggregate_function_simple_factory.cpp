@@ -59,6 +59,7 @@ void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_count_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_sum_old(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -93,6 +94,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
+        register_aggregate_function_map_agg(instance);
 
         register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_replace_reader_load(instance);

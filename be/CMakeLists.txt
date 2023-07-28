@@ -1067,6 +1067,10 @@ if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
+if (BUILD_INDEX_TOOL AND BUILD_INDEX_TOOL STREQUAL "ON")
+    add_subdirectory(${SRC_DIR}/index-tools)
+endif()
+
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
 add_subdirectory(${SRC_DIR}/pipeline)

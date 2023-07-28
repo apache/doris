@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -146,8 +145,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
-    private boolean isRightChildOfBroadcastHashJoin = false;
-
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -171,8 +168,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition,
             Set<RuntimeFilterId> builderRuntimeFilterIds, Set<RuntimeFilterId> targetRuntimeFilterIds) {
         this(id, root, partition);
-        this.builderRuntimeFilterIds = ImmutableSet.copyOf(builderRuntimeFilterIds);
-        this.targetRuntimeFilterIds = ImmutableSet.copyOf(targetRuntimeFilterIds);
+        this.builderRuntimeFilterIds = new HashSet<>(builderRuntimeFilterIds);
+        this.targetRuntimeFilterIds = new HashSet<>(targetRuntimeFilterIds);
     }
 
     /**
@@ -433,14 +430,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public boolean isTransferQueryStatisticsWithEveryBatch() {
         return transferQueryStatisticsWithEveryBatch;
-    }
-
-    public boolean isRightChildOfBroadcastHashJoin() {
-        return isRightChildOfBroadcastHashJoin;
-    }
-
-    public void setRightChildOfBroadcastHashJoin(boolean value) {
-        isRightChildOfBroadcastHashJoin = value;
     }
 
     public int getFragmentSequenceNum() {

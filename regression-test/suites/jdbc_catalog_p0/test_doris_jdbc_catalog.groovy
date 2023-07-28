@@ -21,7 +21,9 @@ suite("test_doris_jdbc_catalog", "p0") {
     String jdbcUrl = context.config.jdbcUrl + "&sessionVariables=return_object_data_as_binary=true"
     String jdbcUser = context.config.jdbcUser
     String jdbcPassword = context.config.jdbcPassword
-    String driver_url = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
 
     String resource_name = "jdbc_resource_catalog_doris"
     String catalog_name = "doris_jdbc_catalog";

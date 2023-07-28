@@ -285,8 +285,7 @@ public:
     }
 
     Status try_close(RuntimeState* state) override {
-        _sink->try_close(state, state->query_status());
-        return Status::OK();
+        return _sink->try_close(state, state->query_status());
     }
 
     [[nodiscard]] bool is_pending_finish() const override { return !_sink->is_close_done(); }

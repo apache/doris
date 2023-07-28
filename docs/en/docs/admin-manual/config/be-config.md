@@ -250,7 +250,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_rpc_timeout_ms`
 
 * Description: thrift default timeout time
-* Default value: 10000
+* Default value: 60000
 
 #### `thrift_client_retry_interval_ms`
 
@@ -275,7 +275,7 @@ There are two ways to configure BE configuration items:
 #### `txn_commit_rpc_timeout_ms`
 
 * Description:txn submit rpc timeout
-* Default value: 10,000 (ms)
+* Default value: 60,000 (ms)
 
 #### `txn_map_shard_size`
 

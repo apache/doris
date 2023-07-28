@@ -355,7 +355,7 @@ public class SystemInfoService {
     }
 
     public int getBackendsNumber(boolean needAlive) {
-        int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+        int beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
         if (beNumber < 0) {
             beNumber = getAllBackendIds(needAlive).size();
         }
@@ -983,5 +983,9 @@ public class SystemInfoService {
             }
         }
         return minPipelineExecutorSize;
+    }
+
+    public long aliveBECount() {
+        return idToBackendRef.values().stream().filter(Backend::isAlive).count();
     }
 }

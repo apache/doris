@@ -60,7 +60,9 @@ public class StatementContext {
     private StatementBase parsedStatement;
     private ColumnAliasGenerator columnAliasGenerator;
 
+    private int joinCount = 0;
     private int maxNAryInnerJoin = 0;
+
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
@@ -110,6 +112,16 @@ public class StatementContext {
 
     public int getMaxNAryInnerJoin() {
         return maxNAryInnerJoin;
+    }
+
+    public void setMaxContinuousJoin(int joinCount) {
+        if (joinCount > this.joinCount) {
+            this.joinCount = joinCount;
+        }
+    }
+
+    public int getMaxContinuousJoin() {
+        return joinCount;
     }
 
     public boolean isDpHyp() {

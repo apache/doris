@@ -235,4 +235,8 @@ public interface DatabaseIf<T extends TableIf> {
     void dropTable(String tableName);
 
     CatalogIf getCatalog();
+
+    default long getLastUpdateTime() {
+        return -1L;
+    }
 }

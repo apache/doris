@@ -34,7 +34,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
@@ -144,9 +143,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String authentication = catalogProperty.getOrDefault(
                 HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            Configuration conf = new Configuration();
-            conf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
-            UserGroupInformation.setConfiguration(conf);
+            hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
+            UserGroupInformation.setConfiguration(hiveConf);
             try {
                 /**
                  * Because metastore client is created by using
@@ -260,9 +258,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void dropDatabase(String dbName) {
+    public void dropDatabaseForReplay(String dbName) {
         LOG.debug("drop database [{}]", dbName);
-        makeSureInitialized();
         Long dbId = dbNameToId.remove(dbName);
         if (dbId == null) {
             LOG.warn("drop database [{}] failed", dbName);
@@ -271,8 +268,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void createDatabase(long dbId, String dbName) {
-        makeSureInitialized();
+    public void createDatabaseForReplay(long dbId, String dbName) {
         LOG.debug("create database [{}]", dbName);
         dbNameToId.put(dbName, dbId);
         ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);

@@ -324,10 +324,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "BLOB":
             case "MEDIUMBLOB":
             case "LONGBLOB":
-            case "TINYSTRING":
             case "STRING":
-            case "MEDIUMSTRING":
-            case "LONGSTRING":
             case "SET":
             case "BINARY":
             case "VARBINARY":

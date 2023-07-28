@@ -316,6 +316,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
@@ -1543,6 +1544,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToMonday(ToMonday toMonday, C context) {
         return visitScalarFunction(toMonday, context);
+    }
+
+    default R visitTokenize(Tokenize tokenize, C context) {
+        return visitScalarFunction(tokenize, context);
     }
 
     default R visitToQuantileState(ToQuantileState toQuantileState, C context) {

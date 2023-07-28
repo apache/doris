@@ -539,6 +539,7 @@ private:
 
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
+    VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;

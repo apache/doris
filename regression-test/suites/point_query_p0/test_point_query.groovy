@@ -142,6 +142,7 @@ suite("test_point_query") {
       stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
       stmt.setString(3, generateString(298))
       qe_point_select stmt
+      stmt.close()
 
       stmt = prepareStatement "select * from ${tableName} where k1 = 1235 and k2 = ? and k3 = ?"
       assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);

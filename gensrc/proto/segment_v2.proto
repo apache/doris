@@ -51,6 +51,7 @@ enum CompressionTypePB {
     LZ4F = 5;
     ZLIB = 6;
     ZSTD = 7;
+    LZ4HC = 8;
 }
 
 enum PageTypePB {

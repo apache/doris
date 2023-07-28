@@ -34,7 +34,7 @@ Doris 提供了一个图形化的命令以帮助用户更方便的分析一个�
 
 如果你对 Doris 的查询计划树还不太了解，请先阅读之前的文章 [DORIS/最佳实践/查询分析](./query-analysis.md)。
 
-一个 [Broker Load](../../data-operate/import/import-way/broker-load-manual.md) 请求的执行过程，也是基于 Doris 的查询框架的。一个Broker Load 作业会根据导入请求中 DATA INFILE 子句的个数讲作业拆分成多个子任务。每个子任务可以视为是一个独立的导入执行计划。一个导入计划的组成只会有一个 Fragment，其组成如下：
+一个 [Broker Load](../../data-operate/import/import-way/broker-load-manual) 请求的执行过程，也是基于 Doris 的查询框架的。一个Broker Load 作业会根据导入请求中 DATA INFILE 子句的个数将作业拆分成多个子任务。每个子任务可以视为是一个独立的导入执行计划。一个导入计划的组成只会有一个 Fragment，其组成如下：
 
 ```sql
 ┌─────────────┐

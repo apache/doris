@@ -18,8 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("create_mv_complex_type") {
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
     sql """ DROP TABLE IF EXISTS base_table; """
     sql """

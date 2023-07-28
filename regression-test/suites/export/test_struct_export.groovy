@@ -54,7 +54,7 @@ suite("test_struct_export", "export") {
     def testTable = "tbl_test_struct_export"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
+
 
     sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (

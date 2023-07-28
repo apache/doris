@@ -261,7 +261,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `thrift_rpc_timeout_ms`
 
 * 描述：thrift默认超时时间
-* 默认值：10000
+* 默认值：60000
 
 #### `thrift_client_retry_interval_ms`
 
@@ -286,7 +286,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `txn_commit_rpc_timeout_ms`
 
 * 描述：txn 提交 rpc 超时
-* 默认值：10000 (ms)
+* 默认值：60000 (ms)
 
 #### `txn_map_shard_size`
 

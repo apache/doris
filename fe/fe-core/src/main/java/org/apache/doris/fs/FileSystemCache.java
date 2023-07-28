@@ -18,6 +18,7 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -65,10 +66,13 @@ public class FileSystemCache {
 
     public static class FileSystemCacheKey {
         private final FileSystemType type;
+        // eg: hdfs://nameservices1
+        private final String fsIdent;
         private final JobConf conf;
 
-        public FileSystemCacheKey(FileSystemType type, JobConf conf) {
-            this.type = type;
+        public FileSystemCacheKey(Pair<FileSystemType, String> fs, JobConf conf) {
+            this.type = fs.first;
+            this.fsIdent = fs.second;
             this.conf = conf;
         }
 
@@ -80,12 +84,14 @@ public class FileSystemCache {
             if (!(obj instanceof FileSystemCacheKey)) {
                 return false;
             }
-            return type.equals(((FileSystemCacheKey) obj).type) && conf == ((FileSystemCacheKey) obj).conf;
+            return type.equals(((FileSystemCacheKey) obj).type)
+                    && fsIdent.equals(((FileSystemCacheKey) obj).fsIdent)
+                    && conf == ((FileSystemCacheKey) obj).conf;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(conf, type);
+            return Objects.hash(conf, fsIdent, type);
         }
     }
 }

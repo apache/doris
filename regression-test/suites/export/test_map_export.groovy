@@ -54,7 +54,7 @@ suite("test_map_export", "export") {
     def testTable = "tbl_test_map_export"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
+
 
     sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (

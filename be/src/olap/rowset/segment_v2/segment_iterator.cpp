@@ -794,6 +794,7 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    such as: where A = '' and B = ','
         //    the predicate of A and B need downgrade without index query.
         // above case can downgrade without index query
+        LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
         return true;
     }
     return false;

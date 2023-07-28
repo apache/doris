@@ -17,11 +17,19 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
+
+import com.google.common.base.Preconditions;
 
 /**
  * table: T(A, B)
@@ -54,10 +62,35 @@ public class ColumnStatsAdjustVisitor extends ExpressionVisitor<ColumnStatistic,
         return null;
     }
 
+    @Override
     public ColumnStatistic visitCast(Cast cast, Statistics context) {
         ColumnStatistic colStats = context.findColumnStatistics(cast);
+
         if (colStats != null) {
-            context.addColumnStats(cast.child(), colStats);
+            try {
+                DataType childNereidsType = cast.child().getDataType();
+                if (childNereidsType instanceof CharacterType) {
+                    Type childCatalogType = childNereidsType.toCatalogDataType();
+                    LiteralExpr childMinExpr = LiteralExpr.create(colStats.minExpr.getStringValue(),
+                            childCatalogType);
+                    double childMinValue = Literal.of(childMinExpr.getStringValue()).getDouble();
+                    LiteralExpr childMaxExpr = LiteralExpr.create(colStats.maxExpr.getStringValue(),
+                            childCatalogType);
+                    double childMaxValue = Literal.of(childMaxExpr.getStringValue()).getDouble();
+                    ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
+                    builder.setMaxExpr(childMaxExpr);
+                    builder.setMaxValue(childMaxValue);
+                    builder.setMinExpr(childMinExpr);
+                    builder.setMinValue(childMinValue);
+                    context.addColumnStats(cast.child(), builder.build());
+                } else {
+                    // TODO: handle other data types
+                    context.addColumnStats(cast.child(), colStats);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                Preconditions.checkArgument(false, "type conversion failed");
+            }
         }
         return null;
     }

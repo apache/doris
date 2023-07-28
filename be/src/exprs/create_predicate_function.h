@@ -125,7 +125,8 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         APPLY_FOR_PRIMTYPE(M)
 #undef M
     default:
-        DCHECK(false) << "Invalid type: " << type_to_string(type);
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "predicate with type " + type_to_string(type));
     }
 
     return nullptr;

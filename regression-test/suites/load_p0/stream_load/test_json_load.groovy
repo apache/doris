@@ -588,6 +588,33 @@ suite("test_json_load", "p0") {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     } 
 
+    // case22: nested and it's member with jsonpath
+    try {
+        testTable = "test_json_load"
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        sql """CREATE TABLE IF NOT EXISTS ${testTable}
+        (
+         `productid` bigint NOT NULL COMMENT "productid",
+         `deviceid` bigint NOT NULL COMMENT "deviceid",
+         `datatimestamp` string  NULL COMMENT "datatimestamp",
+         `dt` int   NULL COMMENT "dt",
+         `data` string 
+        )
+        DUPLICATE KEY(`productid`, `deviceid`)
+        DISTRIBUTED BY RANDOM BUCKETS auto
+        properties(
+            "replication_num" = "1"
+        );
+        """
+1
+        load_json_data.call("${testTable}", 'with_jsonpath', '', 'true', 'json', """productid, deviceid, data, datatimestamp, dt=from_unixtime(substr(datatimestamp,1,10),'%Y%m%d')""",
+                '["$.productid","$.deviceid","$.data","$.data.datatimestamp"]', '', '', '', 'with_jsonpath.json')
+        qt_select22 "select * from ${testTable}"
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {

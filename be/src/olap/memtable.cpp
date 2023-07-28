@@ -32,6 +32,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_channel_mgr.h"
+#include "tablet_meta.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -174,6 +175,20 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
         if (_keys_type != KeysType::DUP_KEYS) {
             _init_agg_functions(&target_block);
         }
+        if (_tablet_schema->has_sequence_col()) {
+            if (_tablet_schema->is_partial_update()) {
+                // for unique key partial update, sequence column index in block
+                // may be different with the index in `_tablet_schema`
+                for (size_t i = 0; i < cloneBlock.columns(); i++) {
+                    if (cloneBlock.get_by_position(i).name == SEQUENCE_COL) {
+                        _seq_col_idx_in_block = i;
+                        break;
+                    }
+                }
+            } else {
+                _seq_col_idx_in_block = _tablet_schema->sequence_col_idx();
+            }
+        }
     }
 
     auto num_rows = row_idxs.size();
@@ -197,10 +212,9 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
 
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
                                            RowInBlock* src_row, RowInBlock* dst_row) {
-    if (_tablet_schema->has_sequence_col()) {
-        auto sequence_idx = _tablet_schema->sequence_col_idx();
-        DCHECK_LT(sequence_idx, mutable_block.columns());
-        auto col_ptr = mutable_block.mutable_columns()[sequence_idx].get();
+    if (_tablet_schema->has_sequence_col() && _seq_col_idx_in_block >= 0) {
+        DCHECK_LT(_seq_col_idx_in_block, mutable_block.columns());
+        auto col_ptr = mutable_block.mutable_columns()[_seq_col_idx_in_block].get();
         auto res = col_ptr->compare_at(dst_row->_row_pos, src_row->_row_pos, *col_ptr, -1);
         // dst sequence column larger than src, don't need to update
         if (res > 0) {

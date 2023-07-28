@@ -120,7 +120,7 @@ public class HistogramTaskTest extends TestWithFeService {
         };
         new Expectations() {
             {
-                task.execute();
+                task.doExecute();
                 times = 1;
             }
         };

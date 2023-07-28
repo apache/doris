@@ -328,12 +328,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
     bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        // TODO(zxy) delete in 1.2 version
-        google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTabletWriterAddBlockRequest>(request, cntl);
-
-        _tablet_writer_add_block(controller, request, response, new_done);
+        _tablet_writer_add_block(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -1024,13 +1019,9 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        // TODO(zxy) delete in 1.2 version
-        google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        attachment_transfer_request_block<PTransmitDataParams>(request, cntl);
-
-        _transmit_block(controller, request, response, new_done, Status::OK());
+    PriorityThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
+    bool ret = pool.try_offer([this, controller, request, response, done]() {
+        _transmit_block(controller, request, response, done, Status::OK());
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
