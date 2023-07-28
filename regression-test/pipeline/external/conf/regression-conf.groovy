@@ -1,3 +1,4 @@
+package pipeline.external.conf
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -73,17 +74,20 @@ enableBrokerLoad=true
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableJdbcTest=false
-mysql_57_port=7111
+enableJdbcTest=true
+mysql_57_port=3316
 pg_14_port=7121
+oracle_11_port=1521
+sqlserver_2022_port=1433
+clickhouse_22_port=8123
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.
 // See `docker/thirdparties/start-thirdparties-docker.sh`
-enableHiveTest=false
+enableHiveTest=true
 hms_port=7141
 
-enableEsTest=false
+enableEsTest=true
 es_6_port=19200
 es_7_port=29200
 es_8_port=39200
