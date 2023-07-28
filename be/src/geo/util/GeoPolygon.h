@@ -46,7 +46,7 @@ namespace doris {
 
         GeoParseStatus from_s2loop(std::vector<std::unique_ptr<S2Loop>>& loops);
 
-        GeoParseStatus from_s2polygon(S2Polygon* s2polygon);
+        GeoParseStatus from_s2polygon(std::unique_ptr<S2Polygon> s2polygon);
 
         GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
 
