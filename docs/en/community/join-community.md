@@ -29,7 +29,7 @@ under the License.
 **Thrive together in [Apache Doris](https://github.com/apache/doris) community with users and developers from all around the world.** 
 We have graduated from Apache incubator succesffully and become an Top-Level Project in June 2022.
 
-<hr>
+<hr />
 
 ## 🙌 More Developers Join Us
 [![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/doris)
@@ -92,7 +92,7 @@ We have graduated from Apache incubator succesffully and become an Top-Level Pro
 
 
 
-<hr>
+<hr />
 
 # Don't Miss Out the Latest News and Events
 
