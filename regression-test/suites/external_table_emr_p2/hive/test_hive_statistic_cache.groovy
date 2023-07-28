@@ -33,26 +33,179 @@ suite("test_hive_statistic_cache", "p2") {
         sql """switch ${catalog_name};"""
         logger.info("switched to catalog " + catalog_name)
         sql """use statistics;"""
-        qt_1 "select count(*) from stats"
+        sql """set query_timeout=300;"""
+        sql """analyze table `stats` with sync;"""
+        sql """select count(*) from stats"""
         Thread.sleep(5000);
-        qt_2 "show column cached stats `stats` (lo_orderkey)"
-        qt_3 "show column cached stats `stats` (lo_linenumber)"
-        qt_4 "show column cached stats `stats` (lo_custkey)"
-        qt_5 "show column cached stats `stats` (lo_partkey)"
-        qt_6 "show column cached stats `stats` (lo_suppkey)"
-        qt_7 "show column cached stats `stats` (lo_orderdate)"
-        qt_8 "show column cached stats `stats` (lo_orderpriority)"
-        qt_9 "show column cached stats `stats` (lo_shippriority)"
-        qt_10 "show column cached stats `stats` (lo_extendedprice)"
-        qt_11 "show column cached stats `stats` (lo_ordtotalprice)"
-        qt_12 "show column cached stats `stats` (lo_discount)"
-        qt_13 "show column cached stats `stats` (lo_revenue)"
-        qt_14 "show column cached stats `stats` (lo_supplycost)"
-        qt_15 "show column cached stats `stats` (lo_tax)"
-        qt_16 "show column cached stats `stats` (lo_commitdate)"
-        qt_17 "show column cached stats `stats` (lo_shipmode)"
-        qt_18 "show column cached stats `stats` (lo_orderkey)"
-        qt_19 "show column cached stats `stats` (lo_quantity)"
+        def result = sql """show column cached stats `stats` (lo_orderkey)"""
+        assertTrue(result[0][0] == "lo_orderkey")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "26.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "1")
+        assertTrue(result[0][7] == "98")
+
+        result = sql """show column cached stats `stats` (lo_linenumber)"""
+        assertTrue(result[0][0] == "lo_linenumber")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "7.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "1")
+        assertTrue(result[0][7] == "7")
+
+        result = sql """show column cached stats `stats` (lo_custkey)"""
+        assertTrue(result[0][0] == "lo_custkey")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "26.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "67423")
+        assertTrue(result[0][7] == "2735521")
+
+        result = sql """show column cached stats `stats` (lo_partkey)"""
+        assertTrue(result[0][0] == "lo_partkey")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "100.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "2250")
+        assertTrue(result[0][7] == "989601")
+
+        result = sql """show column cached stats `stats` (lo_suppkey)"""
+        assertTrue(result[0][0] == "lo_suppkey")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "100.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "4167")
+        assertTrue(result[0][7] == "195845")
+
+        result = sql """show column cached stats `stats` (lo_orderdate)"""
+        assertTrue(result[0][0] == "lo_orderdate")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "26.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "19920221")
+        assertTrue(result[0][7] == "19980721")
+
+        result = sql """show column cached stats `stats` (lo_orderpriority)"""
+        assertTrue(result[0][0] == "lo_orderpriority")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "5.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "888.8000000000001")
+        assertTrue(result[0][5] == "8.8")
+        assertTrue(result[0][6] == "'1-URGENT'")
+        assertTrue(result[0][7] == "'5-LOW'")
+
+        result = sql """show column cached stats `stats` (lo_shippriority)"""
+        assertTrue(result[0][0] == "lo_shippriority")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "1.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "0")
+        assertTrue(result[0][7] == "0")
+
+        result = sql """show column cached stats `stats` (lo_extendedprice)"""
+        assertTrue(result[0][0] == "lo_extendedprice")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "100.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "104300")
+        assertTrue(result[0][7] == "9066094")
+
+        result = sql """show column cached stats `stats` (lo_ordtotalprice)"""
+        assertTrue(result[0][0] == "lo_ordtotalprice")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "26.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "3428256")
+        assertTrue(result[0][7] == "36771805")
+
+        result = sql """show column cached stats `stats` (lo_discount)"""
+        assertTrue(result[0][0] == "lo_discount")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "11.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "0")
+        assertTrue(result[0][7] == "10")
+
+        result = sql """show column cached stats `stats` (lo_revenue)"""
+        assertTrue(result[0][0] == "lo_revenue")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "100.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "101171")
+        assertTrue(result[0][7] == "8703450")
+
+        result = sql """show column cached stats `stats` (lo_supplycost)"""
+        assertTrue(result[0][0] == "lo_supplycost")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "100.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "58023")
+        assertTrue(result[0][7] == "121374")
+
+        result = sql """show column cached stats `stats` (lo_tax)"""
+        assertTrue(result[0][0] == "lo_tax")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "9.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "0")
+        assertTrue(result[0][7] == "8")
+
+        result = sql """show column cached stats `stats` (lo_commitdate)"""
+        assertTrue(result[0][0] == "lo_commitdate")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "95.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "19920515")
+        assertTrue(result[0][7] == "19981016")
+
+        result = sql """show column cached stats `stats` (lo_shipmode)"""
+        assertTrue(result[0][0] == "lo_shipmode")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "7.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "425.21")
+        assertTrue(result[0][5] == "4.21")
+        assertTrue(result[0][6] == "'AIR'")
+        assertTrue(result[0][7] == "'TRUCK'")
+
+        result = sql """show column cached stats `stats` (lo_quantity)"""
+        assertTrue(result[0][0] == "lo_quantity")
+        assertTrue(result[0][1] == "100.0")
+        assertTrue(result[0][2] == "46.0")
+        assertTrue(result[0][3] == "0.0")
+        assertTrue(result[0][4] == "404.0")
+        assertTrue(result[0][5] == "4.0")
+        assertTrue(result[0][6] == "1")
+        assertTrue(result[0][7] == "50")
     }
 }
 
