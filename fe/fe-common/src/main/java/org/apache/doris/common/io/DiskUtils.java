@@ -100,23 +100,4 @@ public class DiskUtils {
         }
         return size + units[unitPos];
     }
-
-    public static void main(String[] args) {
-        long [] values = new long[]{
-                1L,
-                1L * 1024,
-                1L * 1024 * 1024,
-                1L * 1024 * 1024 * 1024,
-                1L * 1024 * 1024 * 1024 * 1024,
-                1L * 1024 * 1024 * 1024 * 1024 * 1024,
-                1L * 1024 * 1024 * 1024 * 1024 * 1024 * 1024,
-        };
-
-        for (long v : values) {
-            System.out.println(sizeFormat(v));
-        }
-
-        System.out.println("Max Long:" + sizeFormat(Long.MAX_VALUE));
-    }
-
 }
