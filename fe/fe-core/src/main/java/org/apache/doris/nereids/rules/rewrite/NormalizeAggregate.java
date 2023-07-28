@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -189,6 +190,13 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             //   group by keys and agg expressions
             List<NamedExpression> upperProjects = groupByToSlotContext
                     .normalizeToUseSlotRefWithoutWindowFunction(aggregateOutput);
+
+            for (NamedExpression expr : upperProjects) {
+                Preconditions.checkArgument(isAggregationOrGroupBy(expr, normalizedGroupExprs),
+                        "expression not produced by aggregation or group by expr, invalid expression is "
+                                + expr.toSql());
+            }
+
             upperProjects = normalizedAggFuncsToSlotContext.normalizeToUseSlotRefWithoutWindowFunction(upperProjects);
             // process Expression like Alias(SlotReference#0)#0
             upperProjects = upperProjects.stream().map(e -> {
@@ -233,5 +241,43 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             context.add(aggregateFunction);
             return null;
         }
+    }
+
+    private static boolean containIgnoreAlias(Expression expr, List<Expression> groupExprs) {
+        for (Expression groupExpr : groupExprs) {
+            if (equalIgnoreAlias(expr, groupExpr)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean equalIgnoreAlias(Expression lhs, Expression rhs) {
+        if (lhs == rhs) {
+            return true;
+        }
+        if (lhs instanceof Alias) {
+            return equalIgnoreAlias(lhs.child(0), rhs);
+        }
+        if (rhs instanceof Alias) {
+            return equalIgnoreAlias(lhs, rhs.child(0));
+        }
+        return false;
+    }
+
+    private static boolean isAggregationOrGroupBy(Expression expr, List<Expression> groupExprs) {
+        if (expr.isConstant() || expr instanceof AggregateFunction || containIgnoreAlias(expr, groupExprs)) {
+            return true;
+        }
+        if (expr.children().isEmpty()) {
+            return false;
+        }
+        boolean allChildValid = true;
+        for (Expression child : expr.children()) {
+            if (!isAggregationOrGroupBy(child, groupExprs)) {
+                allChildValid = false;
+            }
+        }
+        return allChildValid;
     }
 }

@@ -314,4 +314,37 @@ suite("aggregate") {
     qt_aggregate """ select avg(distinct c_bigint), avg(distinct c_double) from regression_test_nereids_p0_aggregate.${tableName} """
     qt_aggregate """ select count(distinct c_bigint),count(distinct c_double),count(distinct c_string),count(distinct c_date_1),count(distinct c_timestamp_1),count(distinct c_timestamp_2),count(distinct c_timestamp_3),count(distinct c_boolean) from regression_test_nereids_p0_aggregate.${tableName} """
     qt_select_quantile_percent """ select QUANTILE_PERCENT(QUANTILE_UNION(TO_QUANTILE_STATE(c_bigint,2048)),0.5) from regression_test_nereids_p0_aggregate.${tableName};  """
+
+    sql """ DROP TABLE IF EXISTS t; """
+    sql """
+    CREATE TABLE `t` (
+        `k1` int(11) NULL,
+        `k2` int(11) NULL,
+        `k3` int(11) NULL,
+        `v1` int(11) SUM NULL
+    ) ENGINE=OLAP
+    AGGREGATE KEY(`k1`, `k2`, `k3`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+    );
+    """
+
+    test {
+        sql """select k3,max(k3) from t;"""
+        exception """expression not produced by aggregation or group by expr"""
+    }
+
+    test {
+        sql """select k2,max(k3) from t;"""
+        exception """expression not produced by aggregation or group by expr"""
+    }
+
+    qt_sql """select k3,max(k3) from t group by k3;"""
+    qt_sql """select k2,max(k3) from t group by k2;"""
+    qt_sql """select k2,max(k3)+min(k2) from t group by k2;"""
 }
