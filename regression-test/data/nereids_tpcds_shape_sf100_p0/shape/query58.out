@@ -15,8 +15,9 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
 ----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[catalog_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[item]
@@ -72,8 +73,9 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
 ------------------------------hashJoin[INNER_JOIN](web_sales.ws_item_sk = item.i_item_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_sales]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[web_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item]

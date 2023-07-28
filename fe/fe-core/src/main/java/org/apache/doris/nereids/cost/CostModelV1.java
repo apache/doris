@@ -68,7 +68,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     private int beNumber = 1;
 
     public CostModelV1() {
-        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+        if (ConnectContext.get().getSessionVariable().getBeNumber() != -1) {
             beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
         } else {
             beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));

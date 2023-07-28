@@ -30,8 +30,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------PhysicalDistribute
 ------------------hashJoin[INNER_JOIN](customer_address.ca_address_sk = customer.c_current_addr_sk)
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[customer]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------filter((cast(ca_state as VARCHAR(*)) = 'CA'))

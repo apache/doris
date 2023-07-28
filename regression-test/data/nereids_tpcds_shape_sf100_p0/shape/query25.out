@@ -11,8 +11,9 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = d3.d_date_sk)
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](store_returns.sr_item_sk = catalog_sales.cs_item_sk)(store_returns.sr_customer_sk = catalog_sales.cs_bill_customer_sk)
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[catalog_sales]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[catalog_sales]
 ----------------------PhysicalDistribute
 ------------------------hashJoin[INNER_JOIN](store.s_store_sk = store_sales.ss_store_sk)
 --------------------------PhysicalProject
