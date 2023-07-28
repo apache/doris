@@ -146,7 +146,8 @@ public class DiskRebalanceTest {
         statisticMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
         backendsWorkingSlots.clear();
         for (BackendLoadStatistic beStat : loadStatistic.getSortedBeLoadStats(null)) {
-            List<Long> pathHashes = Lists.newArrayList();
+            List<Long> pathHashes = beStat.getPathStatistics().stream().map(RootPathLoadStatistic::getPathHash)
+                    .collect(Collectors.toList());
             backendsWorkingSlots.put(beStat.getBeId(), new PathSlot(pathHashes, beStat.getBeId()));
         }
     }
@@ -248,15 +249,6 @@ public class DiskRebalanceTest {
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
         // check alternativeTablets;
         Assert.assertEquals(2, alternativeTablets.size());
-        for (Backend be : Env.getCurrentSystemInfo().getAllBackends()) {
-            if (!backendsWorkingSlots.containsKey(be.getId())) {
-                List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash)
-                        .collect(Collectors.toList());
-                PathSlot slot = new PathSlot(pathHashes, Config.schedule_slot_num_per_path);
-                backendsWorkingSlots.put(be.getId(), slot);
-            }
-        }
-
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
             LOG.info("try to schedule tablet {}", tabletCtx.getTabletId());
             try {
