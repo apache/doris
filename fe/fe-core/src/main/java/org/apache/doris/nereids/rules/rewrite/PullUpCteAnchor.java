@@ -21,7 +21,6 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
@@ -71,12 +70,5 @@ public class PullUpCteAnchor extends DefaultPlanRewriter<List<LogicalCTEProducer
         producers.add(newProducer);
         producers.addAll(childProducers);
         return newProducer;
-    }
-
-    // we should keep that sink node is the top node of the plan tree.
-    // currently, it's one of the olap table sink and file sink.
-    @Override
-    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, List<LogicalCTEProducer<Plan>> producers) {
-        return logicalSink.withChildren(rewriteRoot(logicalSink.child(), producers));
     }
 }
