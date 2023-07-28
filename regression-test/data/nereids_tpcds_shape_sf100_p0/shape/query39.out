@@ -4,23 +4,24 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
 ------filter((CASE WHEN (mean = 0.0) THEN 0.0 ELSE (stdev / mean) END > 1.0))
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN](inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)
---------------hashJoin[INNER_JOIN](inventory.inv_item_sk = item.i_item_sk)
-----------------PhysicalDistribute
-------------------hashJoin[INNER_JOIN](inventory.inv_date_sk = date_dim.d_date_sk)
---------------------PhysicalOlapScan[inventory]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN](inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)
+------------------hashJoin[INNER_JOIN](inventory.inv_item_sk = item.i_item_sk)
+--------------------hashJoin[INNER_JOIN](inventory.inv_date_sk = date_dim.d_date_sk)
+----------------------PhysicalOlapScan[inventory]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter(d_moy IN (1, 2)(date_dim.d_year = 1998))
+----------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter(d_moy IN (1, 2)(date_dim.d_year = 1998))
---------------------------PhysicalOlapScan[date_dim]
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------PhysicalOlapScan[item]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[warehouse]
+------------------------PhysicalOlapScan[item]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[warehouse]
 --PhysicalResultSink
 ----PhysicalQuickSort
 ------PhysicalDistribute
