@@ -360,7 +360,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 }
                 params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
-        } else if (locationType == TFileType.FILE_S3 && !params.isSetProperties()) {
+        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
+                && !params.isSetProperties()) {
             params.setProperties(locationProperties);
         }
 
@@ -401,6 +402,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
         } else if (locationType == TFileType.FILE_S3
                 || locationType == TFileType.FILE_BROKER
+                || locationType == TFileType.FILE_LOCAL
                 || locationType == TFileType.FILE_NET) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
