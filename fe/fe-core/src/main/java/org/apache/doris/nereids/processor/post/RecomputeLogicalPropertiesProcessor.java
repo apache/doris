@@ -15,24 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.nereids.processor.post;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 
 /**
- * Implementation rule that convert logical Union to Physical Union.
+ * merge consecutive projects
  */
-public class LogicalUnionToPhysicalUnion extends OneImplementationRuleFactory {
+public class RecomputeLogicalPropertiesProcessor extends PlanPostProcessor {
     @Override
-    public Rule build() {
-        return logicalUnion().then(union ->
-            new PhysicalUnion(union.getQualifier(),
-                    union.getOutputs(),
-                    union.getConstantExprsList(),
-                    union.getLogicalProperties(),
-                    union.children())
-        ).toRule(RuleType.LOGICAL_UNION_TO_PHYSICAL_UNION);
+    public Plan visit(Plan plan, CascadesContext ctx) {
+        PhysicalPlan physicalPlan = (PhysicalPlan) super.visit(plan, ctx);
+        return physicalPlan.resetLogicalProperties();
     }
 }

@@ -161,6 +161,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
                 RequireProperties.followParent(),
+                tempLogicalWindow.getWindowExpressions(),
                 tempLogicalWindow.getLogicalProperties(),
                 root);
 
@@ -440,7 +441,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
     /**
      * Window Functions that have common PartitionKeys and OrderKeys.
      */
-    private static class OrderKeyGroup extends WindowFunctionRelatedGroup<WindowFrameGroup> {
+    public static class OrderKeyGroup extends WindowFunctionRelatedGroup<WindowFrameGroup> {
 
         private final Set<Expression> partitionKeys;
         private final List<OrderExpression> orderKeys;
