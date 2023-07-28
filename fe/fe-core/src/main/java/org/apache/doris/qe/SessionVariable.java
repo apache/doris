@@ -311,6 +311,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
+    public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
+
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
@@ -915,6 +917,11 @@ public class SessionVariable implements Serializable, Writable {
             "Specify the storage path of the block file cache on BE, default 'random', "
                     + "and randomly select the storage path configured by BE."})
     public String fileCacheBasePath = "random";
+
+    // Whether enable query with inverted index.
+    @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY, needForward = true, description = {
+            "是否启用inverted index query。", "Set wether to use inverted index query."})
+    public boolean enableInvertedIndexQuery = true;
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -1951,6 +1958,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fileCacheBasePath = basePath;
     }
 
+    public boolean isEnableInvertedIndexQuery() {
+        return enableInvertedIndexQuery;
+    }
+
+    public void setEnableInvertedIndexQuery(boolean enableInvertedIndexQuery) {
+        this.enableInvertedIndexQuery = enableInvertedIndexQuery;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -2044,6 +2059,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFileCache(enableFileCache);
 
         tResult.setFileCacheBasePath(fileCacheBasePath);
+
+        tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
