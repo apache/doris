@@ -14,12 +14,15 @@ PhysicalResultSink
 ----------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_date = date_dim.d_date)
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)
-----------------------------hashJoin[INNER_JOIN](catalog_returns.cr_item_sk = item.i_item_sk)
+----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_returns]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[item]
+--------------------------------hashJoin[INNER_JOIN](catalog_returns.cr_item_sk = item.i_item_sk)
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_returns]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[item]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[date_dim]
@@ -42,8 +45,9 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
 ------------------------------hashJoin[INNER_JOIN](store_returns.sr_item_sk = item.i_item_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_returns]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[store_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item]
@@ -67,12 +71,15 @@ PhysicalResultSink
 ------------------------hashJoin[LEFT_SEMI_JOIN](date_dim.d_date = date_dim.d_date)
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](web_returns.wr_returned_date_sk = date_dim.d_date_sk)
-------------------------------hashJoin[INNER_JOIN](web_returns.wr_item_sk = item.i_item_sk)
+------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[web_returns]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[item]
+----------------------------------hashJoin[INNER_JOIN](web_returns.wr_item_sk = item.i_item_sk)
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[web_returns]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[item]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[date_dim]

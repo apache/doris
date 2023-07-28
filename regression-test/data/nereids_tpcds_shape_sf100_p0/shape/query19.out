@@ -17,8 +17,9 @@ PhysicalResultSink
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN](store_sales.ss_customer_sk = customer.c_customer_sk)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[customer]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN](date_dim.d_date_sk = store_sales.ss_sold_date_sk)
