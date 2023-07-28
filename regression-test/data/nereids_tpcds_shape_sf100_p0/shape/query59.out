@@ -22,28 +22,31 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN](wss.ss_store_sk = store.s_store_sk)
---------------------hashJoin[INNER_JOIN](d.d_week_seq = d_week_seq2)
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((d.d_month_seq <= 1219)(d.d_month_seq >= 1208))
-----------------------------PhysicalOlapScan[date_dim]
+--------------------PhysicalDistribute
+----------------------hashJoin[INNER_JOIN](d.d_week_seq = d_week_seq1)
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((d.d_month_seq <= 1207)(d.d_month_seq >= 1196))
+------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store]
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN](wss.ss_store_sk = store.s_store_sk)
---------------------hashJoin[INNER_JOIN](d.d_week_seq = d_week_seq1)
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((d.d_month_seq <= 1207)(d.d_month_seq >= 1196))
-----------------------------PhysicalOlapScan[date_dim]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN](d.d_week_seq = d_week_seq2)
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((d.d_month_seq <= 1219)(d.d_month_seq >= 1208))
+--------------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[store]

@@ -27,23 +27,25 @@ PhysicalResultSink
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_ship_date_sk = d3.d_date_sk)(d3.d_date > cast((cast(d_date as BIGINT) + 5) as DATEV2))
-----------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = d1.d_date_sk)
+----------------------------------------------PhysicalDistribute
 ------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
---------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_hdemo_sk = household_demographics.hd_demo_sk)
-----------------------------------------------------PhysicalProject
-------------------------------------------------------PhysicalOlapScan[catalog_sales]
-----------------------------------------------------PhysicalDistribute
-------------------------------------------------------PhysicalProject
---------------------------------------------------------filter((cast(hd_buy_potential as VARCHAR(*)) = '501-1000'))
-----------------------------------------------------------PhysicalOlapScan[household_demographics]
+--------------------------------------------------PhysicalDistribute
+----------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = d1.d_date_sk)
+------------------------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_hdemo_sk = household_demographics.hd_demo_sk)
+--------------------------------------------------------PhysicalProject
+----------------------------------------------------------PhysicalOlapScan[catalog_sales]
+--------------------------------------------------------PhysicalDistribute
+----------------------------------------------------------PhysicalProject
+------------------------------------------------------------filter((cast(hd_buy_potential as VARCHAR(*)) = '501-1000'))
+--------------------------------------------------------------PhysicalOlapScan[household_demographics]
+------------------------------------------------------PhysicalDistribute
+--------------------------------------------------------PhysicalProject
+----------------------------------------------------------filter((d1.d_year = 2002))
+------------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------------PhysicalDistribute
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------filter((cast(cd_marital_status as VARCHAR(*)) = 'W'))
 --------------------------------------------------------PhysicalOlapScan[customer_demographics]
-------------------------------------------------PhysicalDistribute
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((d1.d_year = 2002))
-------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalProject
 --------------------------------------------------PhysicalOlapScan[date_dim]
