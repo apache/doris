@@ -610,4 +610,34 @@ TEST_F(LocalFileSystemTest, TestRandomWrite) {
         EXPECT_TRUE(file_reader->close().ok());
     }
 }
+
+TEST_F(LocalFileSystemTest, TestGlob) {
+    std::string path = "./be/ut_build_ASAN/test/file_path/";
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->create_directory("./be/ut_build_ASAN/test/file_path/1")
+                        .ok());
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->create_directory("./be/ut_build_ASAN/test/file_path/2")
+                        .ok());
+    EXPECT_TRUE(io::global_local_filesystem()
+                        ->create_directory("./be/ut_build_ASAN/test/file_path/3")
+                        .ok());
+
+    save_string_file("./be/ut_build_ASAN/test/file_path/1/f1.txt", "just test");
+    save_string_file("./be/ut_build_ASAN/test/file_path/1/f2.txt", "just test");
+    save_string_file("./be/ut_build_ASAN/test/file_path/f3.txt", "just test");
+
+    std::vector<io::FileInfo> files;
+    EXPECT_FALSE(io::global_local_filesystem()->safe_glob("./../*.txt", &files).ok());
+    EXPECT_FALSE(io::global_local_filesystem()->safe_glob("/*.txt", &files).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->safe_glob("./file_path/1/*.txt", &files).ok());
+    EXPECT_EQ(2, files.size());
+    files.clear();
+    EXPECT_TRUE(io::global_local_filesystem()->safe_glob("./file_path/*/*.txt", &files).ok());
+    EXPECT_EQ(2, files.size());
+
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(path).ok());
+}
+
 } // namespace doris

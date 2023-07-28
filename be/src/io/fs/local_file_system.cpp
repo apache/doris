@@ -19,6 +19,7 @@
 
 #include <fcntl.h>
 #include <fmt/format.h>
+#include <glob.h>
 #include <glog/logging.h>
 #include <openssl/md5.h>
 #include <sys/mman.h>
@@ -426,6 +427,55 @@ static std::shared_ptr<LocalFileSystem> local_fs = io::LocalFileSystem::create("
 
 const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {
     return local_fs;
+}
+
+Status LocalFileSystem::canonicalize_local_file(const std::string& dir,
+                                                const std::string& file_path,
+                                                std::string* full_path) {
+    const std::string absolute_path = dir + "/" + file_path;
+    std::string canonical_path;
+    RETURN_IF_ERROR(canonicalize(absolute_path, &canonical_path));
+    if (!contain_path(dir, canonical_path)) {
+        return Status::InvalidArgument("file path is not allowed: {}", canonical_path);
+    }
+
+    *full_path = canonical_path;
+    return Status::OK();
+}
+
+Status LocalFileSystem::safe_glob(const std::string& path, std::vector<FileInfo>* res) {
+    if (path.find("..") != std::string::npos) {
+        return Status::InvalidArgument("can not contain '..' in path");
+    }
+    std::string full_path = config::user_files_secure_path + "/" + path;
+    std::vector<std::string> files;
+    RETURN_IF_ERROR(_glob(full_path, &files));
+    for (auto& file : files) {
+        FileInfo fi;
+        fi.is_file = true;
+        RETURN_IF_ERROR(canonicalize_local_file("", file, &(fi.file_name)));
+        RETURN_IF_ERROR(file_size_impl(fi.file_name, &(fi.file_size)));
+        res->push_back(std::move(fi));
+    }
+    return Status::OK();
+}
+
+Status LocalFileSystem::_glob(const std::string& pattern, std::vector<std::string>* res) {
+    glob_t glob_result;
+    memset(&glob_result, 0, sizeof(glob_result));
+
+    int rc = glob(pattern.c_str(), GLOB_TILDE, NULL, &glob_result);
+    if (rc != 0) {
+        globfree(&glob_result);
+        return Status::IOError("failed to glob {}: {}", pattern, glob_err_to_str(rc));
+    }
+
+    for (size_t i = 0; i < glob_result.gl_pathc; ++i) {
+        res->push_back(std::string(glob_result.gl_pathv[i]));
+    }
+
+    globfree(&glob_result);
+    return Status::OK();
 }
 
 } // namespace io

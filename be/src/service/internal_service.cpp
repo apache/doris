@@ -55,6 +55,7 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
+#include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
 #include "olap/data_dir.h"
@@ -1606,6 +1607,27 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
     brpc::ClosureGuard closure_guard(done);
     VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
     ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
+}
+
+void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
+                                const PGlobRequest* request, PGlobResponse* response,
+                                google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        std::vector<io::FileInfo> files;
+        Status st = io::global_local_filesystem()->safe_glob(request->pattern(), &files);
+        if (st.ok()) {
+            for (auto& file : files) {
+                PGlobResponse_PFileInfo* pfile = response->add_files();
+                pfile->set_file(file.file_name);
+                pfile->set_size(file.file_size);
+            }
+        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _heavy_work_pool);
+    }
 }
 
 } // namespace doris

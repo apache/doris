@@ -53,5 +53,25 @@ std::string hdfs_error() {
     return ss.str();
 }
 
+std::string glob_err_to_str(int code) {
+    std::string msg;
+    // https://sites.uclouvain.be/SystInfo/usr/include/glob.h.html
+    switch (code) {
+    case 1:
+        msg = "Ran out of memory";
+        break;
+    case 2:
+        msg = "read error";
+        break;
+    case 3:
+        msg = "No matches found";
+        break;
+    default:
+        msg = "unknown";
+        break;
+    }
+    return fmt::format("({}), {}", code, msg);
+}
+
 } // namespace io
 } // namespace doris

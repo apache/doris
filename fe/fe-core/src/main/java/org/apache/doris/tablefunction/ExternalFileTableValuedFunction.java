@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -364,18 +365,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return columns;
         }
         // get one BE address
-        TNetworkAddress address = null;
         columns = Lists.newArrayList();
-        for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
-                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-                break;
-            }
-        }
-        if (address == null) {
+        Backend be = getBackend();
+        if (be == null) {
             throw new AnalysisException("No Alive backends");
         }
 
+        TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             PFetchTableSchemaRequest request = getFetchTableStructureRequest();
             Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
@@ -405,6 +401,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("getFetchTableStructureRequest exception", e);
         }
         return columns;
+    }
+
+    protected Backend getBackend() {
+        for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
+            if (be.isAlive()) {
+                return be;
+            }
+        }
+        return null;
     }
 
     /**
