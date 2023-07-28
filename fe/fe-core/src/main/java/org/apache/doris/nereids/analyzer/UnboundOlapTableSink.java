@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -143,6 +144,6 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     @Override
     public List<Slot> computeOutput() {
-        return child().getOutput();
+        throw new UnboundException("output");
     }
 }

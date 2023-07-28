@@ -49,14 +49,14 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, child);
         this.distributionSpec = spec;
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, physicalProperties, statistics,
+        super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.distributionSpec = spec;
     }

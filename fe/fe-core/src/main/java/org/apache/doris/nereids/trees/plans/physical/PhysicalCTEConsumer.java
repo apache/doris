@@ -71,7 +71,7 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
     public PhysicalCTEConsumer(RelationId relationId, CTEId cteId, Map<Slot, Slot> consumerToProducerSlotMap,
             Map<Slot, Slot> producerToConsumerSlotMap, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
-        super(relationId, PlanType.PHYSICAL_CTE_CONSUME, groupExpression,
+        super(relationId, PlanType.PHYSICAL_CTE_CONSUMER, groupExpression,
                 logicalProperties, physicalProperties, statistics);
         this.cteId = cteId;
         this.consumerToProducerSlotMap = ImmutableMap.copyOf(Objects.requireNonNull(
