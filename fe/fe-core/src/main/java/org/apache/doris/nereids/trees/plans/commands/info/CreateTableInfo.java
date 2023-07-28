@@ -92,6 +92,17 @@ public class CreateTableInfo {
      * analyze create table info
      */
     public void validate(ConnectContext ctx) {
+        // pre-block in some cases.
+        if (columns.isEmpty()) {
+            throw new AnalysisException("table should contain at least one column");
+        }
+        if (distribution == null) {
+            throw new AnalysisException("Create olap table should contain distribution desc");
+        }
+        if (!engineName.equals("olap")) {
+            throw new AnalysisException("currently Nereids support olap engine only");
+        }
+
         // analyze table name
         if (dbName == null) {
             dbName = ClusterNamespace.getFullName(ctx.getClusterName(), ctx.getDatabase());
@@ -100,9 +111,28 @@ public class CreateTableInfo {
         }
 
         // analyze partitions
+        Map<String, ColumnDefinition> columnMap = columns.stream()
+                .collect(Collectors.toMap(ColumnDefinition::getName, c -> c));
+
         if (partitions != null) {
+            Set<String> partitionColumnSets = Sets.newHashSet(partitionColumns);
+            if (partitionColumnSets.size() != partitionColumns.size()) {
+                throw new AnalysisException("Duplicate partition keys is not allowed");
+            }
+            partitionColumns.forEach(c -> {
+                if (!columnMap.containsKey(c)) {
+                    throw new AnalysisException(String.format("partition key %s is not found", c));
+                }
+                ColumnDefinition column = columnMap.get(c);
+                if (column.getType().isFloatLikeType()) {
+                    throw new AnalysisException("Floating point type column can not be partition column");
+                }
+            });
             partitions.forEach(p -> p.validate(Maps.newHashMap(properties)));
         }
+
+        // analyze distribution descriptor
+        distribution.validate(columnMap);
 
         // analyze key set.
         boolean enableDuplicateWithoutKeysByDefault = false;

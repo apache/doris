@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -34,7 +35,7 @@ public class ColumnDefinition {
     private final String name;
     private DataType type;
     private boolean isKey;
-    private final String aggType;
+    private final AggregateType aggType;
     private final boolean isNull;
     private final Optional<Expression> defaultValue;
     private final String comment;
@@ -42,7 +43,7 @@ public class ColumnDefinition {
     /**
      * constructor
      */
-    public ColumnDefinition(String name, DataType type, boolean isKey, String aggType, boolean isNull,
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNull,
             Optional<Expression> defaultValue, String comment) {
         this.name = name;
         this.type = type;
@@ -82,7 +83,7 @@ public class ColumnDefinition {
     }
 
     public Column translateToCatalogStyle() {
-        return new Column(name, type.toCatalogDataType(), isKey, null, isNull,
+        return new Column(name, type.toCatalogDataType(), isKey, aggType, isNull,
                 false, "", comment, true,
                 null, 0, "");
     }

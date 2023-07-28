@@ -219,18 +219,18 @@ public class CreateTableCommandTest extends TestWithFeService {
         OlapTable tbl7 = (OlapTable) db.getTableOrDdlException("tbl7");
         Assertions.assertTrue(tbl7.getColumn("k1").isKey());
         Assertions.assertFalse(tbl7.getColumn("k2").isKey());
-        // Assertions.assertSame(tbl7.getColumn("k2").getAggregationType(), AggregateType.NONE);
+        Assertions.assertSame(tbl7.getColumn("k2").getAggregationType(), AggregateType.NONE);
 
         OlapTable tbl8 = (OlapTable) db.getTableOrDdlException("tbl8");
         Assertions.assertTrue(tbl8.getColumn("k1").isKey());
         Assertions.assertTrue(tbl8.getColumn("k2").isKey());
         Assertions.assertFalse(tbl8.getColumn("v1").isKey());
-        // Assertions.assertSame(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.REPLACE);
+        Assertions.assertSame(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.REPLACE);
 
         OlapTable tbl13 = (OlapTable) db.getTableOrDdlException("tbl13");
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType(), AggregateType.REPLACE);
         Assertions.assertSame(tbl13.getColumn(Column.SEQUENCE_COL).getType(), Type.INT);
-        // Assertions.assertEquals(tbl13.getSequenceMapCol(), "v1");
+        Assertions.assertEquals(tbl13.getSequenceMapCol(), "v1");
     }
 
     @Test

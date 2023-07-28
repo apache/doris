@@ -22,6 +22,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -1802,7 +1803,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         DataType colType = visitColType(ctx.colType());
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
-        String aggType = ctx.aggType != null ? ctx.aggType.getText() : null;
+        String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : "NONE";
         Optional<Expression> defaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
             if (ctx.defaultValue != null) {
@@ -1810,6 +1811,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else if (ctx.CURRENT_TIMESTAMP() != null) {
                 defaultValue = Optional.of(new Now());
             }
+        }
+        AggregateType aggType;
+        try {
+            aggType = AggregateType.valueOf(aggTypeString.toUpperCase());
+        } catch (Exception e) {
+            throw new AnalysisException(String.format("aggregate type %s is unsupported", aggTypeString));
         }
         String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : null;
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);

@@ -20,9 +20,14 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.Sets;
+
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * table distribution description
@@ -40,14 +45,27 @@ public class DistributionDescriptor {
         this.cols = Utils.copyRequiredList(cols);
     }
 
+    /**
+     * analyze distribution descriptor
+     */
+    public void validate(Map<String, ColumnDefinition> columnMap) {
+        if (isHash) {
+            Set<String> colSet = Sets.newHashSet(cols);
+            if (colSet.size() != cols.size()) {
+                throw new AnalysisException("Duplicate key in distribution desc is not allowed");
+            }
+            cols.forEach(c -> {
+                if (!columnMap.containsKey(c)) {
+                    throw new AnalysisException(String.format("column %s is not found is distribution desc", c));
+                }
+            });
+        }
+    }
+
     public DistributionDesc translateToCatalogStyle() {
         if (isHash) {
             return new HashDistributionDesc(bucketNum, isAutoBucket, cols);
         }
         return new RandomDistributionDesc(bucketNum, isAutoBucket);
-    }
-
-    public List<String> getCols() {
-        return cols;
     }
 }
