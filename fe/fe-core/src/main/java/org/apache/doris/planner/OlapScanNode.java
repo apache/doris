@@ -25,6 +25,7 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
@@ -77,7 +78,6 @@ import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPrimitiveType;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -170,7 +170,6 @@ public class OlapScanNode extends ScanNode {
 
     private boolean useTopnOpt = false;
 
-    private TPushAggOp pushDownAggNoGroupingOp = null;
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
@@ -223,9 +222,6 @@ public class OlapScanNode extends ScanNode {
                                       this.reasonOfPreAggregation + " " + reason;
     }
 
-    public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
-        this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
-    }
 
     public boolean isPreAggregation() {
         return isPreAggregation;
@@ -1363,9 +1359,10 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setTableName(olapTable.getName());
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
-        if (pushDownAggNoGroupingOp != null) {
-            msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
-        }
+        msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+
+        msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        // In TOlapScanNode , pushDownAggNoGroupingOp field is deprecated.
 
         if (outputColumnUniqueIds != null) {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
@@ -1580,4 +1577,32 @@ public class OlapScanNode extends ScanNode {
                 olapTable.getId(), selectedIndexId == -1 ? olapTable.getBaseIndexId() : selectedIndexId,
                 scanReplicaIds);
     }
+
+    @Override
+    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
+        KeysType type = getOlapTable().getKeysType();
+        if (type == KeysType.UNIQUE_KEYS || type == KeysType.PRIMARY_KEYS) {
+            return false;
+        }
+
+        String aggFunctionName = aggExpr.getFnName().getFunction();
+        if (aggFunctionName.equalsIgnoreCase("COUNT") && type != KeysType.DUP_KEYS) {
+            return false;
+        }
+
+        return true;
+    }
+
+    @Override
+    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
+        KeysType type = getOlapTable().getKeysType();
+
+        // The value column of the agg does not support zone_map index.
+        if (type == KeysType.AGG_KEYS && !col.isKey()) {
+            return false;
+        }
+
+        return true;
+    }
 }
+

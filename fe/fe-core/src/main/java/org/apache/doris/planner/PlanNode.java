@@ -27,11 +27,13 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
@@ -46,6 +48,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -1174,5 +1177,19 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void setCardinalityAfterFilter(long cardinalityAfterFilter) {
         this.cardinalityAfterFilter = cardinalityAfterFilter;
+    }
+
+    protected TPushAggOp pushDownAggNoGroupingOp = TPushAggOp.NONE;
+
+    public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
+        this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
+    }
+
+    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
+        return false;
+    }
+
+    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
+        return false;
     }
 }

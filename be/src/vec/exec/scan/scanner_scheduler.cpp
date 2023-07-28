@@ -47,6 +47,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_olap_scanner.h" // IWYU pragma: keep
 #include "vec/exec/scan/scanner_context.h"
+#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vfile_scanner.h"
 
