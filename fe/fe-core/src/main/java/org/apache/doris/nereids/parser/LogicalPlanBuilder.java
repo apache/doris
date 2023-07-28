@@ -30,6 +30,7 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
+import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
@@ -750,19 +751,58 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitLogicalBinary(LogicalBinaryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            Expression left = getExpression(ctx.left);
-            Expression right = getExpression(ctx.right);
+            // Code block copy from Spark
+            // sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/parser/AstBuilder.scala
 
-            switch (ctx.operator.getType()) {
-                case DorisParser.LOGICALAND:
-                case DorisParser.AND:
-                    return new And(left, right);
-                case DorisParser.OR:
-                    return new Or(left, right);
-                default:
-                    throw new ParseException("Unsupported logical binary type: " + ctx.operator.getText(), ctx);
+            // Collect all similar left hand contexts.
+            List<BooleanExpressionContext> contexts = Lists.newArrayList(ctx.right);
+            BooleanExpressionContext current = ctx.left;
+            while (true) {
+                if (current instanceof LogicalBinaryContext
+                        && ((LogicalBinaryContext) current).operator.getType() == ctx.operator.getType()) {
+                    contexts.add(((LogicalBinaryContext) current).right);
+                    current = ((LogicalBinaryContext) current).left;
+                } else {
+                    contexts.add(current);
+                    break;
+                }
             }
+            // Reverse the contexts to have them in the same sequence as in the SQL statement & turn them
+            // into expressions.
+            Collections.reverse(contexts);
+            List<Expression> expressions = contexts.stream().map(this::getExpression).collect(Collectors.toList());
+            // Create a balanced tree.
+            return reduceToExpressionTree(0, expressions.size() - 1, expressions, ctx);
         });
+    }
+
+    private Expression expressionCombiner(Expression left, Expression right, LogicalBinaryContext ctx) {
+        switch (ctx.operator.getType()) {
+            case DorisParser.LOGICALAND:
+            case DorisParser.AND:
+                return new And(left, right);
+            case DorisParser.OR:
+                return new Or(left, right);
+            default:
+                throw new ParseException("Unsupported logical binary type: " + ctx.operator.getText(), ctx);
+        }
+    }
+
+    private Expression reduceToExpressionTree(int low, int high,
+            List<Expression> expressions, LogicalBinaryContext ctx) {
+        switch (high - low) {
+            case 0:
+                return expressions.get(low);
+            case 1:
+                return expressionCombiner(expressions.get(low), expressions.get(high), ctx);
+            default:
+                int mid = low + (high - low) / 2;
+                return expressionCombiner(
+                        reduceToExpressionTree(low, mid, expressions, ctx),
+                        reduceToExpressionTree(mid + 1, high, expressions, ctx),
+                        ctx
+                );
+        }
     }
 
     /**
