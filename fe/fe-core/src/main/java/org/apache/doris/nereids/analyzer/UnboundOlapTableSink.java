@@ -42,20 +42,30 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final List<String> colNames;
     private final List<String> hints;
     private final List<String> partitions;
+    private final boolean isPartialUpdate;
 
     public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, partitions, Optional.empty(), Optional.empty(), child);
+        this(nameParts, colNames, hints, partitions, false, Optional.empty(), Optional.empty(), child);
     }
 
     public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, Optional<GroupExpression> groupExpression,
+            List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, isPartialUpdate, Optional.empty(), Optional.empty(), child);
+    }
+
+    /**
+     * constructor
+     */
+    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+            List<String> partitions, boolean isPartialUpdate, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.colNames = Utils.copyRequiredList(colNames);
         this.hints = Utils.copyRequiredList(hints);
         this.partitions = Utils.copyRequiredList(partitions);
+        this.isPartialUpdate = isPartialUpdate;
     }
 
     public List<String> getColNames() {
@@ -70,11 +80,15 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         return partitions;
     }
 
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundOlapTableSink only accepts one child");
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, groupExpression,
-                Optional.of(getLogicalProperties()), children.get(0));
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, isPartialUpdate,
+                groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
     @Override
@@ -109,15 +123,15 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, groupExpression,
-                Optional.of(getLogicalProperties()), child());
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions,
+                isPartialUpdate, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, groupExpression,
-                logicalProperties, children.get(0));
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions,
+                isPartialUpdate, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override
