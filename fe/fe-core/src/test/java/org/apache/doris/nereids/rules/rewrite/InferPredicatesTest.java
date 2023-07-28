@@ -81,7 +81,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -102,7 +102,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan(),
@@ -119,7 +119,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -138,7 +138,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -157,7 +157,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalJoin(
@@ -183,7 +183,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalJoin(
@@ -209,7 +209,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -230,7 +230,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan(),
@@ -250,7 +250,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -271,7 +271,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalProject(
@@ -294,7 +294,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalProject(
@@ -315,7 +315,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -339,7 +339,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalProject(
@@ -362,7 +362,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -385,7 +385,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -408,7 +408,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan(),
@@ -429,7 +429,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan(),
@@ -450,7 +450,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -495,7 +495,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
@@ -534,7 +534,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         innerLogicalJoin(
                             innerLogicalJoin(
@@ -560,7 +560,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalJoin(
@@ -589,7 +589,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalFilter(
