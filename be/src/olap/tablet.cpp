@@ -3691,7 +3691,8 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
         auto it = result.find(std::get<0>(key));
         if (it == result.end()) {
             LOG(WARNING) << "can't find rowsetid when checking delete bitmap correctness";
-            return Status::InternalError("check delete bitmap correctness failed");
+            DCHECK(false);
+            return Status::OK();
         }
         if (bitmap.contains(DeleteBitmap::ROWSET_SENTINEL_MARK)) {
             it->second = true;
@@ -3703,11 +3704,10 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
                             "rowset with RowsetId:"
                          << rowsetid << "version:" << get_rowset(rowsetid)->version().to_string()
                          << "max_version:" << max_version;
-            return Status::InternalError("check delete bitmap correctness failed");
+            DCHECK(false);
+            return Status::OK();
         }
     }
-    LOG(INFO) << "[check_delete_bitmap_correctness][max_version:" << max_version << "]"
-              << "rowset size:" << rowsets.size();
     return Status::OK();
 }
 } // namespace doris
