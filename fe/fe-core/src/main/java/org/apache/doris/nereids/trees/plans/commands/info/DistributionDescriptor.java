@@ -46,4 +46,8 @@ public class DistributionDescriptor {
         }
         return new RandomDistributionDesc(bucketNum, isAutoBucket);
     }
+
+    public List<String> getCols() {
+        return cols;
+    }
 }

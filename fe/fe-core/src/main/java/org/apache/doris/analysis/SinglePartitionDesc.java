@@ -64,6 +64,24 @@ public class SinglePartitionDesc implements AllPartitionDesc {
         this.storagePolicy = "";
     }
 
+    /**
+     * for Nereids
+     */
+    public SinglePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
+            ReplicaAllocation replicaAlloc, Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
+
+        this.isAnalyzed = false;
+
+        this.partName = partName;
+        this.partitionKeyDesc = partitionKeyDesc;
+        this.properties = properties;
+
+        this.partitionDataProperty = new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM);
+        this.replicaAlloc = replicaAlloc;
+        this.storagePolicy = "";
+    }
+
     public boolean isSetIfNotExists() {
         return ifNotExists;
     }

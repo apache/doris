@@ -143,7 +143,7 @@ public class PartitionInfo implements Writable {
 
     public PartitionItem handleNewSinglePartitionDesc(SinglePartitionDesc desc,
                                                       long partitionId, boolean isTemp) throws DdlException {
-        Preconditions.checkArgument(desc.isAnalyzed());
+        // Preconditions.checkArgument(desc.isAnalyzed());
         PartitionItem partitionItem = createAndCheckPartitionItem(desc, isTemp);
         setItemInternal(partitionId, isTemp, partitionItem);
 

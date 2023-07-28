@@ -20,11 +20,16 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -34,11 +39,21 @@ public class LessThanPartition extends PartitionDefinition {
     private final String partitionName;
     private final List<Expression> values;
     private final boolean isMaxValue;
+    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public LessThanPartition(String partitionName, List<Expression> values, boolean isMaxValue) {
         this.partitionName = partitionName;
         this.values = values;
         this.isMaxValue = isMaxValue;
+    }
+
+    @Override
+    public void validate(Map<String, String> properties) {
+        try {
+            replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 
     /**
@@ -47,11 +62,12 @@ public class LessThanPartition extends PartitionDefinition {
     public SinglePartitionDesc translateToCatalogStyle() {
         if (isMaxValue) {
             return new SinglePartitionDesc(false, partitionName, PartitionKeyDesc.createMaxKeyDesc(),
-                    Maps.newHashMap());
+                    replicaAllocation, Maps.newHashMap());
         }
-        List<PartitionValue> partitionValues = values.stream().map(e -> new PartitionValue(e.toSql()))
+        List<PartitionValue> partitionValues = values.stream()
+                .map(e -> new PartitionValue(((Literal) e).getStringValue()))
                 .collect(Collectors.toList());
         return new SinglePartitionDesc(false, partitionName,
-                PartitionKeyDesc.createLessThan(partitionValues), Maps.newHashMap());
+                PartitionKeyDesc.createLessThan(partitionValues), replicaAllocation, Maps.newHashMap());
     }
 }

@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * column definition
@@ -31,7 +33,7 @@ import java.util.Optional;
 public class ColumnDefinition {
     private final String name;
     private DataType type;
-    private final boolean isKey;
+    private boolean isKey;
     private final String aggType;
     private final boolean isNull;
     private final Optional<Expression> defaultValue;
@@ -55,20 +57,27 @@ public class ColumnDefinition {
         return name;
     }
 
-    public ColumnDefinition withIsKey(boolean isKey) {
-        return new ColumnDefinition(name, type, isKey, aggType, isNull, defaultValue, comment);
+    public DataType getType() {
+        return type;
     }
 
     /**
      * validate column definition and analyze
      */
-    public void validate() {
+    public void validate(Set<String> keysSet) {
+        if (type.isJsonType() || type.isStructType() || type.isArrayType() || type.isMapType()) {
+            throw new AnalysisException(String.format("currently type %s is not supported for Nereids",
+                    type.toString()));
+        }
         if (type.isStringLikeType()) {
             if (type instanceof CharType && ((CharType) type).getLen() == -1) {
                 type = new CharType(1);
             } else if (type instanceof VarcharType && ((VarcharType) type).getLen() == -1) {
                 type = new VarcharType(VarcharType.MAX_VARCHAR_LENGTH);
             }
+        }
+        if (keysSet.contains(name)) {
+            isKey = true;
         }
     }
 

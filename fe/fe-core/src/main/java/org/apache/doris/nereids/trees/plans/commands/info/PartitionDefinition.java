@@ -19,9 +19,14 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.AllPartitionDesc;
 
+import java.util.Map;
+
 /**
  * abstract class for partition definition
  */
 public abstract class PartitionDefinition {
     public abstract AllPartitionDesc translateToCatalogStyle();
+
+    public void validate(Map<String, String> properties) {
+    }
 }

@@ -46,7 +46,7 @@ statement
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
         (COMMENT constant)?
-        (PARTITION BY RANGE partitionKeys=identifierList partitions=partitionsDef)?
+        (PARTITION BY RANGE partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
         DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (number | AUTO)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         PROPERTIES LEFT_PAREN propertySeq RIGHT_PAREN                   #createTable

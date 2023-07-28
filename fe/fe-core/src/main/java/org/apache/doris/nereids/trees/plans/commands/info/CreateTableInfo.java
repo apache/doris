@@ -26,14 +26,20 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -51,7 +57,7 @@ public class CreateTableInfo {
     private final List<IndexDefinition> indexes;
     private final String engineName;
     private final KeysType keysType;
-    private final List<String> keys;
+    private List<String> keys;
     private final String comment;
     private final List<String> partitionColumns;
     private final List<PartitionDefinition> partitions;
@@ -82,22 +88,74 @@ public class CreateTableInfo {
         this.properties = properties;
     }
 
+    /**
+     * analyze create table info
+     */
     public void validate(ConnectContext ctx) {
+        // analyze table name
         if (dbName == null) {
             dbName = ClusterNamespace.getFullName(ctx.getClusterName(), ctx.getDatabase());
         } else {
             dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         }
+
+        // analyze partitions
+        if (partitions != null) {
+            partitions.forEach(p -> p.validate(Maps.newHashMap(properties)));
+        }
+
+        // analyze key set.
+        boolean enableDuplicateWithoutKeysByDefault = false;
+        if (properties != null) {
+            try {
+                enableDuplicateWithoutKeysByDefault =
+                        PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+        }
+        if (keys.isEmpty()) {
+            keys = Lists.newArrayList();
+            int keyLength = 0;
+            for (ColumnDefinition column : columns) {
+                DataType type = column.getType();
+                Type catalogType = column.getType().toCatalogDataType();
+                keyLength += catalogType.getIndexSize();
+                if (keys.size() >= FeConstants.shortkey_max_column_count
+                        || keyLength > FeConstants.shortkey_maxsize_bytes) {
+                    if (keys.size() == 0 && type.isStringLikeType()) {
+                        keys.add(column.getName());
+                    }
+                    break;
+                }
+                if (type.isFloatLikeType() || type.isStringType() || type.isJsonType() || catalogType.isComplexType()) {
+                    break;
+                }
+                keys.add(column.getName());
+                if (catalogType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+                    break;
+                }
+            }
+            // The OLAP table must have at least one short key,
+            // and the float and double should not be short key,
+            // so the float and double could not be the first column in OLAP table.
+            if (keys.isEmpty()) {
+                throw new AnalysisException("The olap table first column could not be float, double, string"
+                        + " or array, struct, map, please use decimal or varchar instead.");
+            }
+        } else if (enableDuplicateWithoutKeysByDefault) {
+            throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can"
+                    + " set 'true' when create olap table by default.");
+        }
+        Set<String> keysSet = Sets.newHashSet(keys);
+        columns.forEach(c -> c.validate(keysSet));
     }
 
     /**
      * translate to catalog create table stmt
      */
     public CreateTableStmt translateToCatalogStyle() {
-        Set<String> keysSet = ImmutableSet.copyOf(keys);
         List<Column> catalogColumns = columns.stream()
-                .peek(ColumnDefinition::validate)
-                .map(column -> keysSet.contains(column.getName()) ? column.withIsKey(true) : column)
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
 
