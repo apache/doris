@@ -22,20 +22,24 @@ import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -98,14 +102,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      * ******************************************************************************************** */
 
     @Override
-    public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
-        addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
+    public Void visitPhysicalSink(PhysicalSink<? extends Plan> sink, PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 
     @Override
-    public Void visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+    public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
+        addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
         return null;
     }
 
@@ -123,6 +127,18 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public Void visitPhysicalCTEAnchor(PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             PlanContext context) {
         addRequestPropertyToChildren(PhysicalProperties.ANY, requestPropertyFromParent);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        if (!(requestPropertyFromParent.getDistributionSpec() instanceof DistributionSpecAny)) {
+            // TODO: current we only process distribute, since
+            //  1. we have no node could output partitioned ordered data
+            //  2. if derive order, we maybe choose bad plan: order before filter
+            addRequestPropertyToChildren(new PhysicalProperties(requestPropertyFromParent.getDistributionSpec()));
+        }
         return null;
     }
 
@@ -149,6 +165,19 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
+    public Void visitPhysicalNestedLoopJoin(
+            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, PlanContext context) {
+        // see canParallelize() in NestedLoopJoinNode
+        if (nestedLoopJoin.getJoinType().isCrossJoin() || nestedLoopJoin.getJoinType().isInnerJoin()
+                || nestedLoopJoin.getJoinType().isLeftJoin()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+        } else {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER, PhysicalProperties.GATHER);
+        }
+        return null;
+    }
+
+    @Override
     public Void visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, PlanContext context) {
         if (limit.isGlobal()) {
             addRequestPropertyToChildren(PhysicalProperties.GATHER);
@@ -159,14 +188,25 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
-    public Void visitPhysicalNestedLoopJoin(
-            PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, PlanContext context) {
-        // see canParallelize() in NestedLoopJoinNode
-        if (nestedLoopJoin.getJoinType().isCrossJoin() || nestedLoopJoin.getJoinType().isInnerJoin()
-                || nestedLoopJoin.getJoinType().isLeftJoin()) {
-            addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
-        } else {
-            addRequestPropertyToChildren(PhysicalProperties.GATHER, PhysicalProperties.GATHER);
+    public Void visitPhysicalProject(PhysicalProject<? extends Plan> project, PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        if (!(requestPropertyFromParent.getDistributionSpec() instanceof DistributionSpecAny)) {
+            DistributionSpec candidateSpec = requestPropertyFromParent.getDistributionSpec();
+            if (candidateSpec instanceof DistributionSpecHash) {
+                DistributionSpecHash candidateHashSpec = (DistributionSpecHash) candidateSpec;
+                for (NamedExpression projection : project.getProjects()) {
+                    ExprId projectionId = projection.getExprId();
+                    if (candidateHashSpec.getExprIdToEquivalenceSet().containsKey(projectionId)) {
+                        if (projection instanceof Alias && !(((Alias) projection).child() instanceof SlotReference)) {
+                            candidateSpec = DistributionSpecAny.INSTANCE;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!(candidateSpec instanceof DistributionSpecAny)) {
+                addRequestPropertyToChildren(new PhysicalProperties(candidateSpec));
+            }
         }
         return null;
     }
@@ -227,18 +267,16 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
-    @Override
-    public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
-        return null;
-    }
+    /* ********************************************************************************************
+     * private helper functions
+     * ******************************************************************************************** */
 
-    private List<PhysicalProperties> createHashRequestAccordingToParent(
-            Plan plan, DistributionSpecHash distributionRequestFromParent, PlanContext context) {
+    private List<PhysicalProperties> createHashRequestAccordingToParent(PhysicalSetOperation setOperation,
+            DistributionSpecHash distributionRequestFromParent, PlanContext context) {
         List<PhysicalProperties> requiredPropertyList =
                 Lists.newArrayListWithCapacity(context.arity());
         int[] outputOffsets = new int[distributionRequestFromParent.getOrderedShuffledColumns().size()];
-        List<Slot> setOperationOutputs = plan.getOutput();
+        List<Slot> setOperationOutputs = setOperation.getOutput();
         // get the offset of bucketed columns of set operation
         for (int i = 0; i < setOperationOutputs.size(); i++) {
             int offset = distributionRequestFromParent.getExprIdToEquivalenceSet()
@@ -249,7 +287,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
         // use the offset to generate children's request
         for (int i = 0; i < context.arity(); i++) {
-            List<Slot> childOutput = plan.child(i).getOutput();
+            List<Slot> childOutput = setOperation.child(i).getOutput();
             List<ExprId> childRequest = Lists.newArrayList();
             for (int offset : outputOffsets) {
                 childRequest.add(childOutput.get(offset).getExprId());

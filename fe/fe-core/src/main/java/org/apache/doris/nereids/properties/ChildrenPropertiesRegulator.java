@@ -87,7 +87,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     @Override
     public Boolean visit(Plan plan, Void context) {
         // process must shuffle
-        for (int i = 0; i < children.size(); i++) {
+        for (int i = 0; i < childrenProperties.size(); i++) {
             DistributionSpec distributionSpec = childrenProperties.get(i).getDistributionSpec();
             if (distributionSpec instanceof DistributionSpecMustShuffle) {
                 updateChildEnforceAndCost(i, PhysicalProperties.EXECUTION_ANY);
@@ -155,6 +155,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
     @Override
     public Boolean visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Void context) {
+        if (children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return false;
+        }
         // do not process must shuffle
         return true;
     }
@@ -316,6 +319,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
     @Override
     public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
+        if (children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return false;
+        }
         // do not process must shuffle
         return true;
     }

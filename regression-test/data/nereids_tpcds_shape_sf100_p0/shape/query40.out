@@ -8,11 +8,11 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)
+----------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
 ------------------PhysicalProject
---------------------hashJoin[RIGHT_OUTER_JOIN](catalog_sales.cs_item_sk = catalog_returns.cr_item_sk)(catalog_sales.cs_order_number = catalog_returns.cr_order_number)
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[catalog_returns]
+--------------------PhysicalOlapScan[catalog_returns]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN](catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)
 ----------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
 ------------------------hashJoin[INNER_JOIN](item.i_item_sk = catalog_sales.cs_item_sk)
 --------------------------PhysicalProject
@@ -25,7 +25,7 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_date >= 2001-03-03)(date_dim.d_date <= 2001-05-02))
 ------------------------------PhysicalOlapScan[date_dim]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[warehouse]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[warehouse]
 
