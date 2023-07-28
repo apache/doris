@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "runtime/types.h"
