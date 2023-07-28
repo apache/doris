@@ -263,7 +263,7 @@ public class ConnectContext {
             mysqlChannel = new DummyMysqlChannel();
         }
         sessionVariable = VariableMgr.newSessionVariable();
-        if (isMajorVersionUpgrade) {
+        if (connection != null && isMajorVersionUpgrade) {
             VariableMgr.setGlobalPipelineTask(sessionVariable.parallelExecInstanceNum);
             sessionVariable = VariableMgr.newSessionVariable();
         }
