@@ -15,52 +15,48 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('nereids_delete_mow_partial_update') {
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql "set experimental_enable_nereids_planner=true;"
-    sql 'set enable_nereids_dml=true'
+suite('test_partial_update_delete') {
+    sql 'set enable_nereids_planner=false'
+    sql "set experimental_enable_nereids_planner=false;"
+    sql 'set enable_nereids_dml=false'
 
-    def tableName1 = "nereids_delete_mow_partial_update1"
+    def tableName1 = "test_partial_update_delete1"
     sql "DROP TABLE IF EXISTS ${tableName1};"
-
     sql """ CREATE TABLE IF NOT EXISTS ${tableName1} (
-                `uid` BIGINT NULL,
-                `v1` BIGINT NULL 
-            )UNIQUE KEY(uid)
-        DISTRIBUTED BY HASH(uid) BUCKETS 3
+            `k1` int NOT NULL,
+            `c1` int,
+            `c2` int,
+            `c3` int,
+            `c4` int
+            )UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             "enable_unique_key_merge_on_write" = "true",
             "disable_auto_compaction" = "true",
             "replication_num" = "1"
         );"""
-    def tableName2 = "nereids_delete_mow_partial_update2"
+
+    def tableName2 = "test_partial_update_delete2"
     sql "DROP TABLE IF EXISTS ${tableName2};"
-
     sql """ CREATE TABLE IF NOT EXISTS ${tableName2} (
-                `uid` BIGINT NULL
-            ) UNIQUE KEY(uid)
-        DISTRIBUTED BY HASH(uid) BUCKETS 3
+                `k` BIGINT NULL
+            ) UNIQUE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES (
             "enable_unique_key_merge_on_write" = "true",
             "disable_auto_compaction" = "true",
             "replication_num" = "1"
         );"""
-    
-    sql "insert into ${tableName1} values(1,1),(2,2),(3,3),(4,4),(5,5);"
-    qt_sql "select * from ${tableName1} order by uid;"
-    sql "insert into ${tableName2} values(1),(2),(3);"
-    sql "delete from ${tableName1} A using ${tableName2} B where A.uid=B.uid;"
-    qt_sql "select * from ${tableName1} order by uid;"
-    // when using parital update insert stmt for delete stmt, it will use delete bitmap or delete sign rather than 
-    // delete predicate to "delete" the rows
-    sql "set skip_delete_predicate=true;"
-    qt_sql_skip_delete_predicate "select * from ${tableName1} order by uid;"
 
+    sql "insert into ${tableName1} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
+    qt_sql "select * from ${tableName1} order by k1;"
+    sql "insert into ${tableName2} values(1),(2),(3);"
+    sql "delete from ${tableName1} A using ${tableName2} B where A.k1=B.k;"
+    qt_sql "select * from ${tableName1} order by k1;"
     sql "set skip_delete_sign=true;"
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
-    qt_sql "select uid,v1,__DORIS_DELETE_SIGN__ from ${tableName1} order by uid,v1,__DORIS_DELETE_SIGN__;"
+    qt_with_delete_sign "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName1} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
 
     sql "set skip_delete_sign=false;"
     sql "set skip_storage_engine_merge=false;"
@@ -99,4 +95,5 @@ suite('nereids_delete_mow_partial_update') {
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     qt_sql "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName3} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
+
 }

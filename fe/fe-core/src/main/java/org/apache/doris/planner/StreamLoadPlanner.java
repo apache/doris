@@ -171,6 +171,9 @@ public class StreamLoadPlanner {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
             }
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+                partialUpdateInputColumns.add(Column.DELETE_SIGN);
+            }
         }
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -365,6 +368,11 @@ public class StreamLoadPlanner {
                                     + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
+                        if (destTable.hasSequenceCol() && (taskInfo.hasSequenceCol() || (
+                                destTable.getSequenceMapCol() != null
+                                        && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())))) {
+                            partialUpdateInputColumns.add(Column.SEQUENCE_COL);
+                        }
                         existInExpr = true;
                         break;
                     }
@@ -372,6 +380,9 @@ public class StreamLoadPlanner {
                 if (col.isKey() && !existInExpr) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
                 }
+            }
+            if (taskInfo.getMergeType() == LoadTask.MergeType.DELETE) {
+                partialUpdateInputColumns.add(Column.DELETE_SIGN);
             }
         }
         // here we should be full schema to fill the descriptor table
