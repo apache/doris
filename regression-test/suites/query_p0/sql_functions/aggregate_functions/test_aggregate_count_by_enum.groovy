@@ -40,9 +40,35 @@ suite("test_aggregate_count_by_enum") {
 
     sql "INSERT INTO ${tableName} values(1, \"F\", \"10\", \"China\"),(2, \"F\", \"20\", \"China\"),(3, \"M\", NULL, \"United States\"),(4, \"M\", NULL, \"United States\"),(5, \"M\", NULL, \"England\");"
 
-    qt_select "select count_by_enum(f1) from ${tableName}"
-    qt_select "select count_by_enum(f2) from ${tableName}"
-    qt_select "select count_by_enum(f1,f2,f3) from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1), '\$.[0].cbe.F') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1), '\$.[0].cbe.M') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1), '\$.[0].notnull') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1), '\$.[0].null') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1), '\$.[0].all') from ${tableName}"
+
+    qt_select "select get_json_string(count_by_enum(f2), '\$.[0].cbe.F') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f2), '\$.[0].cbe.M') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f2), '\$.[0].notnull') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f2), '\$.[0].null') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f2), '\$.[0].all') from ${tableName}"
+
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[0].cbe.F') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[0].cbe.M') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[0].notnull') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[0].null') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[0].all') from ${tableName}"
+
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[1].cbe.F') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[1].cbe.M') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[1].notnull') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[1].null') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[1].all') from ${tableName}"
+
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[2].cbe.F') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[2].cbe.M') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[2].notnull') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[2].null') from ${tableName}"
+    qt_select "select get_json_string(count_by_enum(f1,f2,f3), '\$.[2].all') from ${tableName}"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 }
