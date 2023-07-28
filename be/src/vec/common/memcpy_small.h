@@ -81,3 +81,23 @@ inline void memcpy_small_allow_read_write_overflow15(void* __restrict dst,
 }
 
 #endif
+
+inline void memcpy_fixed_1(char* lhs, const char* rhs) {
+    *lhs = *rhs;
+}
+
+inline void memcpy_fixed_2(char* lhs, const char* rhs) {
+    *(int16*)lhs = *(int16*)rhs;
+}
+
+inline void memcpy_fixed_4(char* lhs, const char* rhs) {
+    *(int32*)lhs = *(int32*)rhs;
+}
+
+inline void memcpy_fixed_8(char* lhs, const char* rhs) {
+    *(int64*)lhs = *(int64*)rhs;
+}
+
+inline void memcpy_fixed_16(char* lhs, const char* rhs) {
+    *(__int128*)lhs = *(__int128*)rhs;
+}

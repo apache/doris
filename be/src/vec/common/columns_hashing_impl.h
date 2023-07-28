@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/aggregation_common.h"
@@ -154,6 +155,13 @@ public:
             Data& data, size_t hash_value, size_t row, Arena& pool, Func&& f) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return lazy_emplace_impl(key_holder, hash_value, data, std::forward<Func>(f));
+    }
+
+    template <typename Data, typename Func>
+    void lazy_emplace_keys(Data& data, const std::vector<size_t>& hash_values, size_t num_rows,
+                           Arena& pool, Func&& f, AggregateDataPtr* places) {
+        auto keys = static_cast<Derived&>(*this).get_keys(num_rows);
+        data.lazy_emplace_keys(keys, hash_values, places, std::forward<Func>(f));
     }
 
     template <typename Data>
@@ -421,6 +429,8 @@ protected:
     /// column. Otherwise we return the key column itself.
     const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
 
+    const ColumnRawPtrs& get_nullmap_columns() const { return null_maps; }
+
     /// Create a bitmap that indicates whether, for a particular row,
     /// a key column bears a null value or not.
     KeysNullMap<Key> create_bitmap(size_t row) const {
@@ -449,9 +459,12 @@ private:
 template <typename Key>
 class BaseStateKeysFixed<Key, false> {
 protected:
-    BaseStateKeysFixed(const ColumnRawPtrs& columns) : actual_columns(columns) {}
+    BaseStateKeysFixed(const ColumnRawPtrs& columns)
+            : actual_columns(columns), null_maps(columns.size()) {}
 
     const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
+
+    const ColumnRawPtrs& get_nullmap_columns() const { return null_maps; }
 
     KeysNullMap<Key> create_bitmap(size_t) const {
         LOG(FATAL) << "Internal error: calling create_bitmap() for non-nullable keys is forbidden";
@@ -459,6 +472,7 @@ protected:
 
 private:
     ColumnRawPtrs actual_columns;
+    ColumnRawPtrs null_maps;
 };
 
 } // namespace columns_hashing_impl

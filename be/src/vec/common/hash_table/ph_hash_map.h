@@ -21,6 +21,8 @@
 
 #include <boost/noncopyable.hpp>
 
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/arena.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_utils.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
@@ -153,6 +155,27 @@ public:
         }
     }
 
+    template <typename KeyHolder, typename Func>
+    void lazy_emplace_keys(std::vector<KeyHolder>& keys, const std::vector<size_t>& hash_values,
+                           doris::vectorized::AggregateDataPtr* places, Func&& f) {
+        for (size_t i = 0; i < keys.size(); i++) {
+            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < keys.size())) {
+                prefetch_by_hash(hash_values[i + HASH_MAP_PREFETCH_DIST]);
+            }
+            places[i] = _hash_map
+                                .lazy_emplace_with_hash(keys[i], hash_values[i],
+                                                        [&](const auto& ctor) {
+                                                            key_holder_persist_key_with_arena(
+                                                                    keys[i], _arena);
+                                                            f(ctor, keys[i]);
+                                                        })
+                                ->second;
+            if constexpr (PartitionedHashTable) {
+                _check_if_need_partition();
+            }
+        }
+    }
+
     template <typename KeyHolder>
     void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
                                bool& inserted) {
@@ -272,6 +295,7 @@ private:
     // this flag is set to true, and resize does not actually happen,
     // PartitionedHashTable will convert this hash table to partitioned hash table
     bool _need_partition;
+    doris::vectorized::Arena _arena;
 };
 
 template <typename Key, typename Mapped, typename Hash, bool PartitionedHashTable>

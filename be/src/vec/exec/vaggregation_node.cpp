@@ -36,6 +36,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/telemetry/telemetry.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/hash_table/hash_table_utils.h"
 #include "vec/common/hash_table/string_hash_table.h"
@@ -54,10 +55,6 @@ class ObjectPool;
 } // namespace doris
 
 namespace doris::vectorized {
-
-// Here is an empirical value.
-static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
-
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given
 /// size or above. The sizes roughly correspond to hash table sizes where the bucket
@@ -343,6 +340,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _serialize_result_timer = ADD_TIMER(runtime_profile(), "SerializeResultTime");
     _deserialize_data_timer = ADD_TIMER(runtime_profile(), "DeserializeDataTime");
     _hash_table_compute_timer = ADD_TIMER(runtime_profile(), "HashTableComputeTime");
+    _hash_table_lazy_emplace_timer = ADD_TIMER(runtime_profile(), "HashTableLazyEmplaceTime");
     _hash_table_iterate_timer = ADD_TIMER(runtime_profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(runtime_profile(), "InsertKeysToColumnTime");
     _streaming_agg_timer = ADD_TIMER(runtime_profile(), "StreamingAggTime");
@@ -968,24 +966,26 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
 
                 /// For all rows.
                 COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-                for (size_t i = 0; i < num_rows; ++i) {
-                    AggregateDataPtr mapped = nullptr;
-                    if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                        if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                            agg_method.data.prefetch_by_hash(
-                                    _hash_values[i + HASH_MAP_PREFETCH_DIST]);
-                        }
+                SCOPED_TIMER(_hash_table_lazy_emplace_timer);
+                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
+                    if constexpr (ColumnsHashing::IsSingleNullableColumnMethod<AggState>::value) {
+                        for (size_t i = 0; i < num_rows; ++i) {
+                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
+                                agg_method.data.prefetch_by_hash(
+                                        _hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            }
 
-                        if constexpr (ColumnsHashing::IsSingleNullableColumnMethod<
-                                              AggState>::value) {
-                            mapped = state.lazy_emplace_key(agg_method.data, i, *_agg_arena_pool,
-                                                            _hash_values[i], creator,
-                                                            creator_for_null_key);
-                        } else {
-                            mapped = state.lazy_emplace_key(agg_method.data, _hash_values[i], i,
-                                                            *_agg_arena_pool, creator);
+                            places[i] = state.lazy_emplace_key(agg_method.data, i, *_agg_arena_pool,
+                                                               _hash_values[i], creator,
+                                                               creator_for_null_key);
                         }
                     } else {
+                        state.lazy_emplace_keys(agg_method.data, _hash_values, num_rows,
+                                                *_agg_arena_pool, creator, places);
+                    }
+                } else {
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        AggregateDataPtr mapped = nullptr;
                         if constexpr (ColumnsHashing::IsSingleNullableColumnMethod<
                                               AggState>::value) {
                             mapped = state.lazy_emplace_key(agg_method.data, i, *_agg_arena_pool,
@@ -994,10 +994,8 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                             mapped = state.lazy_emplace_key(agg_method.data, i, *_agg_arena_pool,
                                                             creator);
                         }
+                        places[i] = mapped;
                     }
-
-                    places[i] = mapped;
-                    assert(places[i] != nullptr);
                 }
             },
             _agg_data->_aggregated_method_variant);

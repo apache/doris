@@ -22,6 +22,7 @@
 
 #include <memory>
 
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -29,6 +30,7 @@
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
 #include "vec/common/hash_table/ph_hash_map.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
 
 namespace doris::vectorized {
@@ -72,6 +74,14 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     /// Is used for default implementation in HashMethodBase.
     FieldType get_key_holder(size_t row, Arena&) const {
         return unaligned_load<FieldType>(vec + row * sizeof(FieldType));
+    }
+
+    std::vector<FieldType> get_keys(size_t rows_number) const {
+        std::vector<FieldType> keys;
+        for (size_t row = 0; row < rows_number; row++) {
+            keys.push_back(unaligned_load<FieldType>(vec + row * sizeof(FieldType)));
+        }
+        return keys;
     }
 };
 
@@ -141,6 +151,14 @@ struct HashMethodSerialized
         }
     }
 
+    std::vector<StringRef> get_keys(size_t rows_number) const {
+        std::vector<StringRef> keys;
+        for (size_t row = 0; row < rows_number; row++) {
+            keys.push_back(this->keys[row]);
+        }
+        return keys;
+    }
+
 protected:
     friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 };
@@ -200,6 +218,11 @@ struct HashMethodKeysFixed
         } else {
             return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes);
         }
+    }
+
+    std::vector<Key> get_keys(size_t rows_number) const {
+        return pack_fixeds<Key>(rows_number, Base::get_actual_columns(), key_sizes,
+                                Base::get_nullmap_columns());
     }
 };
 

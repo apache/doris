@@ -139,3 +139,13 @@ inline void ALWAYS_INLINE key_holder_discard_key(doris::vectorized::SerializedKe
     holder.key.data = nullptr;
     holder.key.size = 0;
 }
+
+template <typename Key>
+void key_holder_persist_key_with_arena(Key&, doris::vectorized::Arena&) {}
+
+inline void key_holder_persist_key_with_arena(doris::StringRef& key,
+                                              doris::vectorized::Arena& arena) {
+    // Hash table shouldn't ask us to persist a zero key
+    assert(holder.key.size > 0);
+    key.data = arena.insert(key.data, key.size);
+}

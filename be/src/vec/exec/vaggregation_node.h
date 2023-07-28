@@ -50,7 +50,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
-#include "vec/common/hash_table/fixed_hash_table.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/ph_hash_map.h"
@@ -314,13 +313,13 @@ struct AggregationMethodKeysFixed {
 
         for (size_t i = 0; i < key_columns.size(); ++i) {
             size_t size = key_sizes[i];
+            char* data = nullptr;
             key_columns[i]->resize(num_rows);
             // If we have a nullable column, get its nested column and its null map.
             if (is_column_nullable(*key_columns[i])) {
                 ColumnNullable& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
 
-                char* data =
-                        const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
+                data = const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
                 UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
                                          ->get_data()
                                          .data();
@@ -330,20 +329,37 @@ struct AggregationMethodKeysFixed {
                 size_t bucket = i / 8;
                 size_t offset = i % 8;
                 for (size_t j = 0; j < num_rows; j++) {
-                    const Key& key = keys[j];
-                    UInt8 val = (reinterpret_cast<const UInt8*>(&key)[bucket] >> offset) & 1;
-                    nullmap[j] = val;
-                    if (!val) {
-                        memcpy(data + j * size, reinterpret_cast<const char*>(&key) + pos, size);
-                    }
+                    nullmap[j] = (reinterpret_cast<const UInt8*>(&keys[j])[bucket] >> offset) & 1;
                 }
             } else {
-                char* data = const_cast<char*>(key_columns[i]->get_raw_data().data);
-                for (size_t j = 0; j < num_rows; j++) {
-                    const Key& key = keys[j];
-                    memcpy(data + j * size, reinterpret_cast<const char*>(&key) + pos, size);
-                }
+                data = const_cast<char*>(key_columns[i]->get_raw_data().data);
             }
+
+            if (size == 1) {
+                for (size_t j = 0; j < num_rows; j++) {
+                    memcpy_fixed_1(data + j * size, (char*)(&keys[j]) + pos);
+                }
+            } else if (size == 2) {
+                for (size_t j = 0; j < num_rows; j++) {
+                    memcpy_fixed_2(data + j * size, (char*)(&keys[j]) + pos);
+                }
+            } else if (size == 4) {
+                for (size_t j = 0; j < num_rows; j++) {
+                    memcpy_fixed_4(data + j * size, (char*)(&keys[j]) + pos);
+                }
+            } else if (size == 8) {
+                for (size_t j = 0; j < num_rows; j++) {
+                    memcpy_fixed_8(data + j * size, (char*)(&keys[j]) + pos);
+                }
+            } else if (size == 16) {
+                for (size_t j = 0; j < num_rows; j++) {
+                    memcpy_fixed_16(data + j * size, (char*)(&keys[j]) + pos);
+                }
+            } else {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "pack_fixeds input invalid key size, key_size={}", size);
+            }
+
             pos += size;
         }
     }
@@ -899,6 +915,7 @@ private:
     RuntimeProfile::Counter* _serialize_data_timer;
     RuntimeProfile::Counter* _serialize_result_timer;
     RuntimeProfile::Counter* _deserialize_data_timer;
+    RuntimeProfile::Counter* _hash_table_lazy_emplace_timer;
     RuntimeProfile::Counter* _hash_table_iterate_timer;
     RuntimeProfile::Counter* _insert_keys_to_column_timer;
     RuntimeProfile::Counter* _streaming_agg_timer;

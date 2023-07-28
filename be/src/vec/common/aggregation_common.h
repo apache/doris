@@ -218,6 +218,61 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
     return key;
 }
 
+template <typename T>
+std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
+                           const Sizes& key_sizes, const ColumnRawPtrs& nullmap_columns) {
+    static constexpr auto bitmap_size = std::tuple_size<KeysNullMap<T>>::value;
+    std::vector<T> result(row_numbers);
+    size_t offset = 0;
+
+    if (bitmap_size > 0) {
+        for (size_t j = 0; j < nullmap_columns.size(); j++) {
+            if (nullmap_columns[j] == nullptr) {
+                continue;
+            }
+            size_t bucket = j / 8;
+            size_t offset = j % 8;
+            const auto& data =
+                    assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+            for (size_t i = 0; i < row_numbers; ++i) {
+                *((char*)(&result[i]) + bucket) |= data[i] << offset;
+            }
+        }
+        offset += bitmap_size;
+    }
+
+    for (size_t j = 0; j < key_columns.size(); ++j) {
+        const char* data = key_columns[j]->get_raw_data().data;
+
+        if (key_sizes[j] == 1) {
+            for (size_t i = 0; i < row_numbers; ++i) {
+                memcpy_fixed_1((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            }
+        } else if (key_sizes[j] == 2) {
+            for (size_t i = 0; i < row_numbers; ++i) {
+                memcpy_fixed_2((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            }
+        } else if (key_sizes[j] == 4) {
+            for (size_t i = 0; i < row_numbers; ++i) {
+                memcpy_fixed_4((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            }
+        } else if (key_sizes[j] == 8) {
+            for (size_t i = 0; i < row_numbers; ++i) {
+                memcpy_fixed_8((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            }
+        } else if (key_sizes[j] == 16) {
+            for (size_t i = 0; i < row_numbers; ++i) {
+                memcpy_fixed_16((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            }
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "pack_fixeds input invalid key size, key_size={}", key_sizes[j]);
+        }
+        offset += key_sizes[j];
+    }
+    return result;
+}
+
 /// Hash a set of keys into a UInt128 value.
 inline UInt128 hash128(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns) {
     UInt128 key;
