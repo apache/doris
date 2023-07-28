@@ -100,7 +100,7 @@ public class RestoreStmt extends AbstractBackupStmt {
         return jobInfo;
     }
 
-    public void markIsBeingSynced() {
+    public void setIsBeingSynced() {
         setProperty(PROP_IS_BEING_SYNCED, "true");
     }
 

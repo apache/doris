@@ -229,7 +229,7 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public void markIsBeingSynced() {
+    public void setIsBeingSynced() {
         properties.put(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "true");
         isBeingSynced = true;
     }

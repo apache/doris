@@ -519,7 +519,7 @@ public class OlapTable extends Table {
         }
         if (isBeingSynced) {
             TableProperty tableProperty = getOrCreatTableProperty();
-            tableProperty.markIsBeingSynced();
+            tableProperty.setIsBeingSynced();
             tableProperty.removeInvalidProperties();
             if (isAutoBucket()) {
                 markAutoBucket();
