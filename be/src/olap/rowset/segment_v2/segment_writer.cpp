@@ -319,13 +319,13 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    bool is_partial_columns = block->columns() > _tablet_schema->num_key_columns() &&
-            block->columns() < _tablet_schema->num_columns();
-    auto msg = fmt::format("block columns: {}, num key columns: {}, total schema columns: {}", block->columns()
-            , _tablet_schema->num_key_columns(), _tablet_schema->num_columns());
-    DCHECK(is_partial_columns) << msg;
-    if (!is_partial_columns) {
-        return Status::InternalError(msg);
+    if (block->columns() <= _tablet_schema->num_key_columns() ||
+        block->columns() >= _tablet_schema->num_columns()) {
+        return Status::InternalError(
+                fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
+                            "schema columns: {}",
+                            block->columns(), _tablet_schema->num_key_columns(),
+                            _tablet_schema->num_columns()));
     }
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
