@@ -1641,7 +1641,10 @@ public class TabletScheduler extends MasterDaemon {
                 tabletCtx.increaseFailedRunningCounter();
                 if (!tabletCtx.isExceedFailedRunningLimit()) {
                     stat.counterCloneTaskFailed.incrementAndGet();
-                    addToRunningTablets(tabletCtx);
+                    tabletCtx.releaseResource(this);
+                    tabletCtx.resetFailedSchedCounter();
+                    tabletCtx.setState(TabletSchedCtx.State.PENDING);
+                    addBackToPendingTablets(tabletCtx);
                     return false;
                 } else {
                     // unrecoverable
