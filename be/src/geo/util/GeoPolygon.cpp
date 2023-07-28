@@ -139,8 +139,8 @@ namespace doris {
         return GEO_PARSE_OK;
     }
 
-    GeoParseStatus GeoPolygon::from_s2polygon(S2Polygon* s2polygon){
-        _polygon.reset(s2polygon);
+    GeoParseStatus GeoPolygon::from_s2polygon(std::unique_ptr<S2Polygon> s2polygon){
+        _polygon.reset(s2polygon.release());
         return GEO_PARSE_OK;
     }
 

@@ -506,7 +506,7 @@ namespace doris {
             return nullptr;
         }
         std::unique_ptr<GeoPolygon> res_polygon = GeoPolygon::create_unique();
-        res_polygon->from_s2polygon(output.release());
+        res_polygon->from_s2polygon(std::move(output));
         return res_polygon;
 
     }
