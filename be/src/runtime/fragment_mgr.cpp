@@ -215,12 +215,12 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
         : _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
+          _query_ctx(std::move(query_ctx)),
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3, std::placeholders::_4)),
           _set_rsc_info(false),
           _timeout_second(-1),
-          _query_ctx(std::move(query_ctx)),
           _report_status_cb_impl(report_status_cb_impl) {
     _start_time = vectorized::VecDateTimeValue::local_time();
     _coord_addr = _query_ctx->coord_addr;
