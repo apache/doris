@@ -624,6 +624,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     int precision = 0;
+    int max_digit = type_precision - type_scale;
     bool found_exponent = false;
     int8_t exponent = 0;
     T value = 0;
@@ -635,9 +636,14 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
             // overflowing the underlying storage while handling a string like
             // 10000000000e-10 into a DECIMAL(1, 0). Adjustments for ignored digits and
             // an exponent will be made later.
-            if (LIKELY(type_precision > precision)) {
+            if (LIKELY(type_precision >= precision)) {
+                // keep a rounding precision to round the decimal value
                 value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
-            } else {
+                DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
+                ++precision;
+                scale += found_dot;
+            } else if (found_dot && max_digit < (precision - scale)) {
+                // parse_overflow should only happen when the digit part reached the max
                 *result = StringParser::PARSE_OVERFLOW;
                 value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
                                               type_precision)
@@ -645,9 +651,6 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                                               type_precision);
                 return value;
             }
-            DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
-            ++precision;
-            scale += found_dot;
         } else if (c == '.' && LIKELY(!found_dot)) {
             found_dot = 1;
         } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
