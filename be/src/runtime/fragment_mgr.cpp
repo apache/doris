@@ -183,6 +183,11 @@ private:
     int _backend_num;
     TNetworkAddress _coord_addr;
 
+    // This context is shared by all fragments of this host in a query.
+    // _query_ctx should be the last one to be destructed, because _executor's
+    // destruct method will call close and it will depend on query context,
+    // for example runtime profile.
+    std::shared_ptr<QueryContext> _query_ctx;
     PlanFragmentExecutor _executor;
     vectorized::VecDateTimeValue _start_time;
 
@@ -195,9 +200,6 @@ private:
 
     int _timeout_second;
     std::atomic<bool> _cancelled {false};
-
-    // This context is shared by all fragments of this host in a query
-    std::shared_ptr<QueryContext> _query_ctx;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
