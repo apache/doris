@@ -2799,7 +2799,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
     public boolean updateBinlogConfig(Database db, OlapTable olapTable, List<AlterClause> alterClauses)
             throws DdlException, UserException {
-        // TODO(Drogon): check olapTable read binlog thread safety
         List<Partition> partitions = Lists.newArrayList();
         BinlogConfig oldBinlogConfig;
         BinlogConfig newBinlogConfig;
