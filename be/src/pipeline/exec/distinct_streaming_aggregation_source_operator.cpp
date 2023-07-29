@@ -46,7 +46,7 @@ Status DistinctStreamingAggSourceOperator::pull_data(RuntimeState* state, vector
     RETURN_IF_ERROR(_data_queue->get_block_from_queue(&agg_block));
     if (agg_block != nullptr) {
         block->swap(*agg_block);
-        agg_block->clear_column_data(_node->row_desc().num_materialized_slots());
+        agg_block->clear_column_data(block->columns());
         _data_queue->push_free_block(std::move(agg_block));
     }
     if (_data_queue->data_exhausted()) { //the sink is eos or reached limit
