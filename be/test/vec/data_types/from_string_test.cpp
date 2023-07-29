@@ -39,49 +39,49 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
         typedef std::tuple<FieldType, std::vector<string>, std::vector<string>, std::vector<string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
-//                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-9"},
-//                                  {"0", "1", "1"}, {"0", "1", ""}),
-//                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_TINYINT, {"127", "-128", "-190"},
-//                                  {"127", "-128", "66"}, {"127", "-128", ""}),
-//                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
-//                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_SMALLINT, {"32767", "32768", "-32769"},
-//                                  {"32767", "-32768", "32767"}, {"32767", "", ""}),
-//                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
-//                FieldType_RandStr(
-//                        FieldType::OLAP_FIELD_TYPE_INT, {"2147483647", "2147483648", "-2147483649"},
-//                        {"2147483647", "-2147483648", "2147483647"}, {"2147483647", "", ""}),
-//                // float ==> float32(32bit)
-//                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
-//                FieldType_RandStr(
-//                        FieldType::OLAP_FIELD_TYPE_FLOAT, {"1.123", "3.40282e+38", "3.40282e+38+1"},
-//                        {"1.123", "3.40282e+38", "3.40282e+38"}, {"1.123", "3.40282e+38", ""}),
-//                // double ==> float64(64bit)
-//                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
-//                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DOUBLE,
-//                                  {"2343.12345465746", "2.22507e-308", "2.22507e-308-1"},
-//                                  {"2343.12345465746", "2.22507e-308", "2.22507e-308"},
-//                                  {"2343.12345465746", "2.22507e-308", ""}),
-//                // BIGINT ==> int64_t(64bit)
-//                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
-//                FieldType_RandStr(
-//                        FieldType::OLAP_FIELD_TYPE_BIGINT,
-//                        {"9223372036854775807", "-9223372036854775808", "9223372036854775808"},
-//                        {"9223372036854775807", "-9223372036854775808", "9223372036854775807"},
-//                        {"9223372036854775807", "-9223372036854775808", ""}),
-//                // LARGEINT ==> int128_t(128bit)
-//                // here if it has overflow , wrapper field will return 0, but data type will just throw error
-//                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_LARGEINT,
-//                                  {"170141183460469231731687303715884105727",
-//                                   "−170141183460469231731687303715884105728",
-//                                   "170141183460469231731687303715884105728"},
-//                                  {"170141183460469231731687303715884105727", "0", "0"},
-//                                  {"170141183460469231731687303715884105727", "", ""}),
-//                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_CHAR, {"amory happy"}, {"amory happy"},
-//                                  {"amory happy"}),
-//                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_VARCHAR, {"doris be better"},
-//                                  {"doris be better"}, {"doris be better"}),
-//                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING, {"doris be better"},
-//                                  {"doris be better"}, {"doris be better"}),
+                //                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-9"},
+                //                                  {"0", "1", "1"}, {"0", "1", ""}),
+                //                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_TINYINT, {"127", "-128", "-190"},
+                //                                  {"127", "-128", "66"}, {"127", "-128", ""}),
+                //                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
+                //                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_SMALLINT, {"32767", "32768", "-32769"},
+                //                                  {"32767", "-32768", "32767"}, {"32767", "", ""}),
+                //                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
+                //                FieldType_RandStr(
+                //                        FieldType::OLAP_FIELD_TYPE_INT, {"2147483647", "2147483648", "-2147483649"},
+                //                        {"2147483647", "-2147483648", "2147483647"}, {"2147483647", "", ""}),
+                //                // float ==> float32(32bit)
+                //                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
+                //                FieldType_RandStr(
+                //                        FieldType::OLAP_FIELD_TYPE_FLOAT, {"1.123", "3.40282e+38", "3.40282e+38+1"},
+                //                        {"1.123", "3.40282e+38", "3.40282e+38"}, {"1.123", "3.40282e+38", ""}),
+                //                // double ==> float64(64bit)
+                //                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
+                //                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                //                                  {"2343.12345465746", "2.22507e-308", "2.22507e-308-1"},
+                //                                  {"2343.12345465746", "2.22507e-308", "2.22507e-308"},
+                //                                  {"2343.12345465746", "2.22507e-308", ""}),
+                //                // BIGINT ==> int64_t(64bit)
+                //                // here if it has overflow , wrapper field will return make max/min value, but data type will just throw error
+                //                FieldType_RandStr(
+                //                        FieldType::OLAP_FIELD_TYPE_BIGINT,
+                //                        {"9223372036854775807", "-9223372036854775808", "9223372036854775808"},
+                //                        {"9223372036854775807", "-9223372036854775808", "9223372036854775807"},
+                //                        {"9223372036854775807", "-9223372036854775808", ""}),
+                //                // LARGEINT ==> int128_t(128bit)
+                //                // here if it has overflow , wrapper field will return 0, but data type will just throw error
+                //                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_LARGEINT,
+                //                                  {"170141183460469231731687303715884105727",
+                //                                   "−170141183460469231731687303715884105728",
+                //                                   "170141183460469231731687303715884105728"},
+                //                                  {"170141183460469231731687303715884105727", "0", "0"},
+                //                                  {"170141183460469231731687303715884105727", "", ""}),
+                //                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_CHAR, {"amory happy"}, {"amory happy"},
+                //                                  {"amory happy"}),
+                //                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_VARCHAR, {"doris be better"},
+                //                                  {"doris be better"}, {"doris be better"}),
+                //                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING, {"doris be better"},
+                //                                  {"doris be better"}, {"doris be better"}),
                 // Decimal parse using StringParser which has SUCCESS|OVERFLOW|UNDERFLOW|FAILURE
                 // wrapper_field from_string(scale) and data_type from_string(scale) use rounding when meet underflow,
                 //  wrapper_field use min/max when meet overflow, but data_type just throw error
@@ -107,18 +107,20 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
                                   // (7,2)         (6,3)         (7,3)           (8,1)
                                   {"1234567.12", "123456.123", "1234567.123", "12345679.112345"},
-                //StringParser res: SUCCESS      UNDERFLOW  UNDERFLOW    OVERFLOW
+                                  //StringParser res: SUCCESS      UNDERFLOW  UNDERFLOW    OVERFLOW
                                   {"123456712", "12345612", "123456712", "999999999"},
                                   {"1234567.12", "123456.12", "1234567.12", ""}),
                 // decimal64 ==> decimal64(18,9)
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL64,
-                                  //(9, 9)                (3,2)       (9, 10)
-                                  {"123456789.123456789", "123.12", "123456789.0123456789",
-                                   //(10, 9)
-                                   "1234567890.123456789"},
-                //StringParser res: SUCCESS               SUCCESS         UNDERFLOW             OVERFLOW
-                                  {"123456789123456789", "123120000000", "123456789012345679", "1234567890123456789"},
-                                  {"123456789.123456789", "123.120000000", "123456789.012345679", ""}),
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+                        //(9, 9)                (3,2)       (9, 10)
+                        {"123456789.123456789", "123.12", "123456789.0123456789",
+                         //(10, 9)
+                         "1234567890.123456789"},
+                        //StringParser res: SUCCESS               SUCCESS         UNDERFLOW             OVERFLOW
+                        {"123456789123456789", "123120000000", "123456789012345679",
+                         "1234567890123456789"},
+                        {"123456789.123456789", "123.120000000", "123456789.012345679", ""}),
                 // decimal128I ==> decimal128I(38,18)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
                                   // (19,18) ==> StringParser::SUCCESS
@@ -147,14 +149,13 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                                    "1234567890123456789.123456789123456789",
                                    "1234567890123456789.123456789012345679",
                                    "123456789012345678.012345678901234568",
-                                   "12345678901234567890.123456789012345679",
-                                   ""}),
+                                   "12345678901234567890.123456789012345679", ""}),
 
         };
         for (auto type_pair : arithmetic_scala_field_types) {
             auto type = std::get<0>(type_pair);
             DataTypePtr data_type_ptr;
-            int  precision = 0;
+            int precision = 0;
             int scale = 0;
             if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
                 // decimal32(7, 2)
