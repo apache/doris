@@ -655,6 +655,7 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
 }
 
 void NewOlapScanNode::add_filter_info(int id, const PredicateFilterInfo& update_info) {
+    std::unique_lock lock(_profile_mtx);
     // update
     _filter_info[id].filtered_row += update_info.filtered_row;
     _filter_info[id].input_row += update_info.input_row;
