@@ -216,15 +216,16 @@ protected:
         size_t data_index = column_data.size();
         column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
         size_t dict_index = 0;
+
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {
                 for (size_t i = 0; i < run_length; ++i) {
-                    int64_t date_value = _dict_items[_indexes[dict_index++]];
+                    int64_t date_value =
+                            _dict_items[_indexes[dict_index++]] + _decode_params->offset_days;
                     auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
-                    v.from_unixtime(date_value * 24 * 60 * 60,
-                                    *_decode_params->ctz); // day to seconds
+                    v.get_date_from_daynr(date_value);
                     if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
                         // we should cast to date if using date v1.
                         v.cast_to_date();
