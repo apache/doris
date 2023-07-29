@@ -23,7 +23,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include "vec/runtime/preloaded_days.h"
 // IWYU pragma: no_include <bits/chrono.h>
+#include <algorithm>
 #include <chrono> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
@@ -59,7 +62,9 @@ bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, 
 }
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
-    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
+    if (month == 2 && day == 29 && doris::is_leap(year)) {
+        return false;
+    }
     if (year > 9999 || month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
         return true;
     }
@@ -437,32 +442,15 @@ int64_t VecDateTimeValue::to_int64() const {
 }
 
 bool VecDateTimeValue::get_date_from_daynr(uint64_t daynr) {
-    if (daynr <= 0 || daynr > DATE_MAX_DAYNR) {
-        return false;
-    }
-
-    auto [year, month, day] = std::tuple {0, 0, 0};
-    year = daynr / 365;
-    uint32_t days_befor_year = 0;
-    while (daynr < (days_befor_year = doris::calc_daynr(year, 1, 1))) {
-        year--;
-    }
-    uint32_t days_of_year = daynr - days_befor_year + 1;
-    int leap_day = 0;
-    if (doris::is_leap(year)) {
-        if (days_of_year > 31 + 28) {
-            days_of_year--;
-            if (days_of_year == 31 + 28) {
-                leap_day = 1;
-            }
-        }
-    }
-    month = 1;
-    while (days_of_year > s_days_in_month[month]) {
-        days_of_year -= s_days_in_month[month];
+    int year = 0, month = 0, day = 0;
+    year = std::lower_bound(presum_of_days_year, presum_of_days_year + 10001, daynr) -
+           presum_of_days_year - 1;
+    daynr -= presum_of_days_year[year + 1];
+    while (daynr > s_days_in_month[month + 1]) {
+        daynr -= s_days_in_month[month + 1];
         month++;
     }
-    day = days_of_year + leap_day;
+    day = daynr;
 
     if (check_range(year, month, day, 0, 0, 0, _type)) {
         return false;
@@ -2543,32 +2531,15 @@ uint32_t DateV2Value<T>::year_week(uint8_t mode) const {
 
 template <typename T>
 bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
-    if (daynr <= 0 || daynr > DATE_MAX_DAYNR) {
-        return false;
-    }
-
-    auto [year, month, day] = std::tuple {0, 0, 0};
-    year = daynr / 365;
-    uint32_t days_befor_year = 0;
-    while (daynr < (days_befor_year = doris::calc_daynr(year, 1, 1))) {
-        year--;
-    }
-    uint32_t days_of_year = daynr - days_befor_year + 1;
-    int leap_day = 0;
-    if (doris::is_leap(year)) {
-        if (days_of_year > 31 + 28) {
-            days_of_year--;
-            if (days_of_year == 31 + 28) {
-                leap_day = 1;
-            }
-        }
-    }
-    month = 1;
-    while (days_of_year > s_days_in_month[month]) {
-        days_of_year -= s_days_in_month[month];
+    int year = 0, month = 0, day = 0;
+    year = std::lower_bound(presum_of_days_year, presum_of_days_year + 10001, daynr) -
+           presum_of_days_year;
+    daynr -= presum_of_days_year[year];
+    while (daynr > s_days_in_month[month + 1]) {
+        daynr -= s_days_in_month[month + 1];
         month++;
     }
-    day = days_of_year + leap_day;
+    day = daynr;
 
     if (is_invalid(year, month, day, this->hour(), this->minute(), this->second(),
                    this->microsecond())) {
