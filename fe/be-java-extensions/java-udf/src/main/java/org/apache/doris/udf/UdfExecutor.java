@@ -41,6 +41,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 
 public class UdfExecutor extends BaseExecutor {
     // private static final java.util.logging.Logger LOG =
@@ -88,7 +89,8 @@ public class UdfExecutor extends BaseExecutor {
         int batchSize = UdfUtils.UNSAFE.getInt(null, batchSizePtr);
         try {
             if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.VARCHAR)
-                    || retType.equals(JavaUdfDataType.CHAR) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
+                    || retType.equals(JavaUdfDataType.CHAR) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
+                    || retType.equals(JavaUdfDataType.MAP_TYPE)) {
                 // If this udf return variable-size type (e.g.) String, we have to allocate output
                 // buffer multiple times until buffer size is enough to store output column. So we
                 // always begin with the last evaluated row instead of beginning of this batch.
@@ -111,12 +113,14 @@ public class UdfExecutor extends BaseExecutor {
                 }
             }
         } catch (Exception e) {
-            if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
+            if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
+                    || retType.equals(JavaUdfDataType.MAP_TYPE)) {
                 UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, batchSize);
             }
             throw new UdfRuntimeException("UDF::evaluate() ran into a problem.", e);
         }
-        if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
+        if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
+                || retType.equals(JavaUdfDataType.MAP_TYPE)) {
             UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, rowIdx);
         }
     }
@@ -311,14 +315,12 @@ public class UdfExecutor extends BaseExecutor {
         }
     }
 
-
-    public void copyBatchArrayResult(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
-            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
-        Preconditions.checkState(result.length == numRows,
-                "copyBatchArrayResult result size should equal;");
+    public void copyBatchArrayResultImpl(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr,
+            PrimitiveType type) {
         long hasPutElementNum = 0;
         for (int row = 0; row < numRows; ++row) {
-            switch (retType.getItemType().getPrimitiveType()) {
+            switch (type) {
                 case BOOLEAN: {
                     hasPutElementNum = UdfConvert
                             .copyBatchArrayBooleanResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
@@ -434,6 +436,95 @@ public class UdfExecutor extends BaseExecutor {
         }
     }
 
+    public void copyBatchArrayResult(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+        Preconditions.checkState(result.length == numRows,
+                "copyBatchArrayResult result size should equal;");
+        copyBatchArrayResultImpl(isNullable, numRows, result, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr,
+                strOffsetAddr, retType.getItemType().getPrimitiveType());
+    }
+
+    public void copyBatchMapResult(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
+            long offsetsAddr, long keyNsestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
+            long valueNsestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) {
+        Preconditions.checkState(result.length == numRows,
+                "copyBatchMapResult result size should equal;");
+        PrimitiveType keyType = retType.getKeyType().getPrimitiveType();
+        PrimitiveType valueType = retType.getValueType().getPrimitiveType();
+        Object[] keyCol = new Object[result.length];
+        Object[] valueCol = new Object[result.length];
+        switch (keyType) {
+            case BOOLEAN: {
+                new ArrayListBuilder<Boolean>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case TINYINT: {
+                new ArrayListBuilder<Byte>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case SMALLINT: {
+                new ArrayListBuilder<Short>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case INT: {
+                new ArrayListBuilder<Integer>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case BIGINT: {
+                new ArrayListBuilder<Long>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case LARGEINT: {
+                new ArrayListBuilder<BigInteger>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case FLOAT: {
+                new ArrayListBuilder<Float>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case DOUBLE: {
+                new ArrayListBuilder<Double>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case CHAR:
+            case VARCHAR:
+            case STRING: {
+                new ArrayListBuilder<String>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case DATEV2:
+            case DATE: {
+                new ArrayListBuilder<LocalDate>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case DATETIMEV2:
+            case DATETIME: {
+                new ArrayListBuilder<LocalDateTime>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMALV2:
+            case DECIMAL128: {
+                new ArrayListBuilder<BigDecimal>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            default: {
+                LOG.info("Not support: " + keyType);
+                Preconditions.checkState(false, "Not support type " + keyType.toString());
+                break;
+            }
+        }
+
+        copyBatchArrayResultImpl(isNullable, numRows, valueCol, nullMapAddr, offsetsAddr, valueNsestedNullMapAddr,
+                valueDataAddr,
+                valueStrOffsetAddr, valueType);
+        copyBatchArrayResultImpl(isNullable, numRows, keyCol, nullMapAddr, offsetsAddr, keyNsestedNullMapAddr,
+                keyDataAddr,
+                keyStrOffsetAddr, keyType);
+
+    }
+
     /**
      * Evaluates the UDF with 'args' as the input to the UDF.
      */
@@ -539,6 +630,8 @@ public class UdfExecutor extends BaseExecutor {
                 } else {
                     retType = returnType.second;
                 }
+                Type keyType = retType.getKeyType();
+                Type valueType = retType.getValueType();
                 Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, argClass, false);
                 if (!inputType.first) {
                     continue;
@@ -546,6 +639,8 @@ public class UdfExecutor extends BaseExecutor {
                     argTypes = inputType.second;
                 }
                 LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
+                retType.setKeyType(keyType);
+                retType.setValueType(valueType);
                 return;
             }
 
@@ -649,4 +744,88 @@ public class UdfExecutor extends BaseExecutor {
             return retHashMap;
         }
     }
+
+    public static class ArrayListBuilder<keyType> {
+        public void get(Object[] map, Object[] keyCol, Object[] valueCol, PrimitiveType valueType) {
+            switch (valueType) {
+                case BOOLEAN: {
+                    new BuildArrayFromType<keyType, Boolean>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case TINYINT: {
+                    new BuildArrayFromType<keyType, Byte>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case SMALLINT: {
+                    new BuildArrayFromType<keyType, Short>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case INT: {
+                    new BuildArrayFromType<keyType, Integer>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case BIGINT: {
+                    new BuildArrayFromType<keyType, Long>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case LARGEINT: {
+                    new BuildArrayFromType<keyType, BigInteger>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case FLOAT: {
+                    new BuildArrayFromType<keyType, Float>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case DOUBLE: {
+                    new BuildArrayFromType<keyType, Double>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case CHAR:
+                case VARCHAR:
+                case STRING: {
+                    new BuildArrayFromType<keyType, String>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case DATEV2:
+                case DATE: {
+                    new BuildArrayFromType<keyType, LocalDate>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case DATETIMEV2:
+                case DATETIME: {
+                    new BuildArrayFromType<keyType, LocalDateTime>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMALV2:
+                case DECIMAL128: {
+                    new BuildArrayFromType<keyType, BigDecimal>().get(map, keyCol, valueCol);
+                    break;
+                }
+                default: {
+                    LOG.info("Not support: " + valueType);
+                    Preconditions.checkState(false, "Not support type " + valueType.toString());
+                    break;
+                }
+            }
+        }
+    }
+
+    public static class BuildArrayFromType<T1, T2> {
+        public void get(Object[] map, Object[] keyCol, Object[] valueCol) {
+            for (int colIdx = 0; colIdx < map.length; colIdx++) {
+                HashMap<T1, T2> hashMap = (HashMap<T1, T2>) map[colIdx];
+                ArrayList<T1> keys = new ArrayList<>();
+                ArrayList<T2> values = new ArrayList<>();
+                for (Map.Entry<T1, T2> entry : hashMap.entrySet()) {
+                    keys.add(entry.getKey());
+                    values.add(entry.getValue());
+                }
+                keyCol[colIdx] = keys;
+                valueCol[colIdx] = values;
+            }
+        }
+    }
+
 }

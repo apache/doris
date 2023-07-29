@@ -119,8 +119,7 @@ public abstract class BaseExecutor {
             parameterTypes[i] = Type.fromThrift(request.fn.arg_types.get(i));
         }
         String jarFile = request.location;
-        Type funcRetType = UdfUtils.fromThrift(request.fn.ret_type, 0).first;
-
+        Type funcRetType = Type.fromThrift(request.fn.ret_type);
         init(request, jarFile, funcRetType, parameterTypes);
     }
 

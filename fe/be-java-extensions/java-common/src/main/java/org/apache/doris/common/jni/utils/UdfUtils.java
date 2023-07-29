@@ -253,11 +253,11 @@ public class UdfUtils {
                 break;
             }
             case MAP: {
-                Preconditions.checkState(nodeIdx + 1 < typeDesc.getTypesSize());
+                Preconditions.checkState(nodeIdx + 2 < typeDesc.getTypesSize());
                 Pair<Type, Integer> keyType = fromThrift(typeDesc, nodeIdx + 1);
-                Pair<Type, Integer> valueType = fromThrift(typeDesc, nodeIdx + 1 + keyType.value());
-                type = new MapType(keyType.key(), valueType.key());
-                nodeIdx = 1 + keyType.value() + valueType.value();
+                Pair<Type, Integer> valueType = fromThrift(typeDesc, keyType.second);
+                type = new MapType(keyType.first, valueType.first);
+                nodeIdx = valueType.second;
                 break;
             }
 

@@ -102,6 +102,7 @@ private:
         jmethodID executor_convert_map_argument_id;
         jmethodID executor_result_basic_batch_id;
         jmethodID executor_result_array_batch_id;
+        jmethodID executor_result_map_batch_id;
         jmethodID executor_close_id;
     };
 
