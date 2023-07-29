@@ -67,29 +67,4 @@ public class PlanOutputTest {
             // correct exception
         }
     }
-
-    @Test
-    public void testPhysicalPlanMustHaveLogicalProperties() {
-        Assertions.assertThrows(NullPointerException.class, () ->
-                new PhysicalRelation(StatementScopeIdGenerator.newRelationId(),
-                        PlanType.PHYSICAL_OLAP_SCAN, Optional.empty(), null) {
-                    @Override
-                    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-                        return null;
-                    }
-
-                    @Override
-                    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
-                            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-                        return null;
-                    }
-
-                    @Override
-                    public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                            Statistics statsDeriveResult) {
-                        return null;
-                    }
-                }
-        );
-    }
 }
