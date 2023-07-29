@@ -19,24 +19,13 @@ package org.apache.doris.planner.external.iceberg;
 
 public class IcebergMetadataCacheMgr {
 
-    private static volatile IcebergMetadataCacheMgr INSTANCE;
     private final IcebergMetadataCache icebergMetadataCache = new IcebergMetadataCache();
 
-    public IcebergMetadataCacheMgr() { }
+    public IcebergMetadataCacheMgr() {
+    }
 
     public IcebergMetadataCache getIcebergMetadataCache() {
         return icebergMetadataCache;
-    }
-
-    public static IcebergMetadataCacheMgr get() {
-        if (INSTANCE == null) {
-            synchronized (IcebergMetadataCacheMgr.class) {
-                if (INSTANCE == null) {
-                    INSTANCE = new IcebergMetadataCacheMgr();
-                }
-            }
-        }
-        return INSTANCE;
     }
 
     public void removeCache(long catalogId) {

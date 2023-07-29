@@ -63,7 +63,7 @@ public class ExternalMetaCacheMgr {
                 "ExternalMetaCacheMgr", 120, true);
         hudiPartitionMgr = HudiPartitionMgr.get(executor);
         fsCache = new FileSystemCache(executor);
-        icebergMetadataCacheMgr = IcebergMetadataCacheMgr.get();
+        icebergMetadataCacheMgr = new IcebergMetadataCacheMgr();
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
