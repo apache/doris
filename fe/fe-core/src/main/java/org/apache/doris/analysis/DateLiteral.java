@@ -479,13 +479,15 @@ public class DateLiteral extends LiteralExpr {
             }
             this.type = type;
 
-            DateLiteral result = this.plusSeconds(offset);
-            this.second = result.second;
-            this.minute = result.minute;
-            this.hour = result.hour;
-            this.day = result.day;
-            this.month = result.month;
-            this.year = result.year;
+            if (offset != 0) {
+                DateLiteral result = this.plusSeconds(offset);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+            }
 
             if (checkRange() || checkDate()) {
                 throw new AnalysisException("Datetime value is out of range");

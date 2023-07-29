@@ -29,6 +29,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "common/logging.h"
 
 namespace doris {
 
@@ -98,7 +99,7 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
             try {
                 offset_hours = std::stoi(offset_str);
             } catch ([[maybe_unused]] std::exception& e) {
-                LOG(INFO) << "Unable to cast " << timezone << " as timezone";
+                VLOG_DEBUG << "Unable to cast " << timezone << " as timezone";
                 return false;
             }
             offset = cctz::fixed_time_zone(cctz::seconds(offset_hours * 60 * 60));

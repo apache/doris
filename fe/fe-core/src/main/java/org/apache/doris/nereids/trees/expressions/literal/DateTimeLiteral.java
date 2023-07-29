@@ -256,13 +256,15 @@ public class DateTimeLiteral extends DateLiteral {
             second = DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE);
             microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
 
-            DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
-            this.second = result.second;
-            this.minute = result.minute;
-            this.hour = result.hour;
-            this.day = result.day;
-            this.month = result.month;
-            this.year = result.year;
+            if (offset != 0) {
+                DateTimeLiteral result = (DateTimeLiteral) this.plusSeconds(offset);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+            }
 
         } catch (Exception ex) {
             throw new AnalysisException("datetime literal [" + s + "] is invalid");
