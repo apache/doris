@@ -834,7 +834,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
-                    &disk_max_score, _all_cumulative_compaction_policy);
+                    &disk_max_score, _cumulative_compaction_policies);
             if (tablet != nullptr) {
                 if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                     if (need_pick_tablet) {
@@ -864,12 +864,13 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 }
 
 void StorageEngine::_update_cumulative_compaction_policy() {
-    if (_all_cumulative_compaction_policy.size() < 2) {
-        _all_cumulative_compaction_policy[CUMULATIVE_SIZE_BASED_POLICY] =
-                CumulativeCompactionPolicyFactory::create_size_based_cumulative_compaction_policy();
-        _all_cumulative_compaction_policy[CUMULATIVE_TIME_SERIES_POLICY] =
-                CumulativeCompactionPolicyFactory::
-                        create_time_series_cumulative_compaction_policy();
+    if (_cumulative_compaction_policies.empty()) {
+        _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                        CUMULATIVE_SIZE_BASED_POLICY);
+        _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                        CUMULATIVE_TIME_SERIES_POLICY);
     }
 }
 
@@ -979,14 +980,17 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                              bool force) {
     _update_cumulative_compaction_policy();
-    if (tablet->get_cumulative_compaction_policy() == nullptr) {
-        if (tablet->tablet_meta()->tablet_schema()->compaction_policy() ==
-            CUMULATIVE_TIME_SERIES_POLICY) {
+    // alter table tableName set ("compaction_policy"="time_series")
+    // if atler table's compaction  policy, we need to modify tablet compaction policy shared ptr
+    if (tablet->get_cumulative_compaction_policy() == nullptr ||
+        tablet->get_cumulative_compaction_policy()->name() !=
+                tablet->tablet_meta()->compaction_policy()) {
+        if (tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
             tablet->set_cumulative_compaction_policy(
-                    _all_cumulative_compaction_policy[CUMULATIVE_TIME_SERIES_POLICY]);
+                    _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY]);
         } else {
             tablet->set_cumulative_compaction_policy(
-                    _all_cumulative_compaction_policy[CUMULATIVE_SIZE_BASED_POLICY]);
+                    _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY]);
         }
     }
     tablet->set_skip_compaction(false);

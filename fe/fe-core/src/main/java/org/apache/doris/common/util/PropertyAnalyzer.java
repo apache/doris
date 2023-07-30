@@ -162,6 +162,16 @@ public class PropertyAnalyzer {
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
 
+    // compaction policy
+    public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
+    public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
+    public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 512;
+    public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
+    public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
+
+
+
+
     /**
      * check and replace members of DataProperty by properties.
      *
@@ -607,25 +617,25 @@ public class PropertyAnalyzer {
 
     public static String analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return "";
+            return SIZE_BASED_COMPACTION_POLICY;
         }
-        String compactionPolicy = "";
+        String compactionPolicy = SIZE_BASED_COMPACTION_POLICY;
         if (properties.containsKey(PROPERTIES_COMPACTION_POLICY)) {
             compactionPolicy = properties.get(PROPERTIES_COMPACTION_POLICY);
             properties.remove(PROPERTIES_COMPACTION_POLICY);
-            if (!Strings.isNullOrEmpty(compactionPolicy) && !compactionPolicy.equals("time_series")
-                                                                && !compactionPolicy.equals("size_based")) {
+            if (compactionPolicy != null && !compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)
+                                                && !compactionPolicy.equals(SIZE_BASED_COMPACTION_POLICY)) {
                 throw new AnalysisException(PROPERTIES_COMPACTION_POLICY
-                        + " must be time_series or size_based");
+                        + " must be " + TIME_SERIES_COMPACTION_POLICY + " or " + SIZE_BASED_COMPACTION_POLICY);
             }
         }
 
         return compactionPolicy;
     }
 
-    public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties,
-                                            long defaultGoalSizeMbytes) throws AnalysisException {
-        long goalSizeMbytes = defaultGoalSizeMbytes;
+    public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties)
+                                                                                    throws AnalysisException {
+        long goalSizeMbytes = TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
         if (properties == null || properties.isEmpty()) {
             return goalSizeMbytes;
         }
@@ -642,9 +652,9 @@ public class PropertyAnalyzer {
         return goalSizeMbytes;
     }
 
-    public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties,
-                                            long defaultFileCountThreshold) throws AnalysisException {
-        long fileCountThreshold = defaultFileCountThreshold;
+    public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties)
+                                                                                    throws AnalysisException {
+        long fileCountThreshold = TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
         if (properties == null || properties.isEmpty()) {
             return fileCountThreshold;
         }
@@ -662,9 +672,9 @@ public class PropertyAnalyzer {
         return fileCountThreshold;
     }
 
-    public static long analyzeTimeSeriesCompactionTimeThresholdSeconds(Map<String, String> properties,
-                                                long defaultTimeThresholdSeconds) throws AnalysisException {
-        long timeThresholdSeconds = defaultTimeThresholdSeconds;
+    public static long analyzeTimeSeriesCompactionTimeThresholdSeconds(Map<String, String> properties)
+                                                                                        throws AnalysisException {
+        long timeThresholdSeconds = TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
         if (properties == null || properties.isEmpty()) {
             return timeThresholdSeconds;
         }

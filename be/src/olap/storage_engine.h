@@ -462,7 +462,7 @@ private:
 
     // we use unordered_map to store all cumulative compaction policy sharded ptr
     std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
-            _all_cumulative_compaction_policy;
+            _cumulative_compaction_policies;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;

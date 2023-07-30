@@ -368,13 +368,14 @@ int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
 }
 
 std::shared_ptr<CumulativeCompactionPolicy>
-CumulativeCompactionPolicyFactory::create_size_based_cumulative_compaction_policy() {
+CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+        const std::string_view& compaction_policy) {
+    if (compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+        return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
+    } else if (compaction_policy == CUMULATIVE_SIZE_BASED_POLICY) {
+        return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
+    }
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
-}
-
-std::shared_ptr<CumulativeCompactionPolicy>
-CumulativeCompactionPolicyFactory::create_time_series_cumulative_compaction_policy() {
-    return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
 }
 
 } // namespace doris

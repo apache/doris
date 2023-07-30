@@ -3137,14 +3137,16 @@ public class Env {
             }
 
             // compaction policy
-            if (olapTable.getCompactionPolicy() != null && !olapTable.getCompactionPolicy().equals("")) {
+            if (olapTable.getCompactionPolicy() != null && !olapTable.getCompactionPolicy().equals("")
+                    && !olapTable.getCompactionPolicy().equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY).append("\" = \"");
                 sb.append(olapTable.getCompactionPolicy()).append("\"");
             }
 
             // time series compaction goal size
             if (olapTable.getTimeSeriesCompactionGoalSizeMbytes() != null
-                                                && olapTable.getTimeSeriesCompactionGoalSizeMbytes() != 512) {
+                                        && olapTable.getTimeSeriesCompactionGoalSizeMbytes()
+                                        != PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE) {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
@@ -3152,7 +3154,8 @@ public class Env {
 
             // time series compaction file count threshold
             if (olapTable.getTimeSeriesCompactionFileCountThreshold() != null
-                                                && olapTable.getTimeSeriesCompactionFileCountThreshold() != 2000) {
+                                        && olapTable.getTimeSeriesCompactionFileCountThreshold()
+                                        != PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE) {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
@@ -3160,7 +3163,8 @@ public class Env {
 
             // time series compaction time threshold
             if (olapTable.getTimeSeriesCompactionTimeThresholdSeconds() != null
-                                                && olapTable.getTimeSeriesCompactionTimeThresholdSeconds() != 3600) {
+                                    && olapTable.getTimeSeriesCompactionTimeThresholdSeconds()
+                                    != PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE) {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");

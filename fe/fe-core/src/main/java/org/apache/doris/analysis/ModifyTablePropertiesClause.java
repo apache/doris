@@ -188,10 +188,12 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             // do nothing, will be alter in SchemaChangeHandler.updateBinlogConfig
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
             String compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
-            if (!Strings.isNullOrEmpty(compactionPolicy)
-                    && !compactionPolicy.equals("time_series") && !compactionPolicy.equals("size_based")) {
+            if (compactionPolicy != null
+                                    && !compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                                    && !compactionPolicy.equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
                 throw new AnalysisException(
-                        "Table compaction policy only support for time_series or size_based");
+                        "Table compaction policy only support for " + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
+                        + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
             }
             this.needTableStable = false;
             setCompactionPolicy(compactionPolicy);
@@ -201,6 +203,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
             try {
                 goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+                if (goalSizeMbytes < 0) {
+                    throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                        + goalSizeMbytesStr);
+                }
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
                         + goalSizeMbytesStr);
@@ -213,6 +219,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
             try {
                 fileCountThreshold = Long.parseLong(fileCountThresholdStr);
+                if (fileCountThreshold < 0) {
+                    throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                                                                                        + fileCountThresholdStr);
+                }
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
                                                                                 + fileCountThresholdStr);
@@ -221,11 +231,17 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             setTimeSeriesCompactionFileCountThreshold(fileCountThreshold);
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
             long timeThresholdSeconds;
+            String timeThresholdSecondsStr = properties
+                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
             try {
-                timeThresholdSeconds = Long.parseLong(properties
-                                    .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
+                timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
+                if (timeThresholdSeconds < 0) {
+                    throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                                                                                        + timeThresholdSecondsStr);
+                }
             } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format");
+                throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
+                                                                                        + timeThresholdSecondsStr);
             }
             this.needTableStable = false;
             setTimeSeriesCompactionTimeThresholdSeconds(timeThresholdSeconds);

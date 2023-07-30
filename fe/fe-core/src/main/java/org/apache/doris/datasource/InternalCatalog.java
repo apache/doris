@@ -2020,7 +2020,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setDisableAutoCompaction(disableAutoCompaction);
 
         // set compaction policy
-        String compactionPolicy = "";
+        String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
         try {
             compactionPolicy = PropertyAnalyzer.analyzeCompactionPolicy(properties);
         } catch (AnalysisException e) {
@@ -2028,31 +2028,42 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setCompactionPolicy(compactionPolicy);
 
+        if (compactionPolicy != PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
+                && (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
+                || properties
+                        .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS))) {
+            throw new DdlException("only time series compaction policy support for time series config");
+        }
+
         // set time series compaction goal size
-        long timeSeriesCompactionGoalSizeMbytes = 512;
+        long timeSeriesCompactionGoalSizeMbytes
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
         try {
             timeSeriesCompactionGoalSizeMbytes = PropertyAnalyzer
-                                        .analyzeTimeSeriesCompactionGoalSizeMbytes(properties, 512);
+                                        .analyzeTimeSeriesCompactionGoalSizeMbytes(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
         olapTable.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
 
         // set time series compaction file count threshold
-        long timeSeriesCompactionFileCountThreshold = 2000;
+        long timeSeriesCompactionFileCountThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
         try {
             timeSeriesCompactionFileCountThreshold = PropertyAnalyzer
-                                    .analyzeTimeSeriesCompactionFileCountThreshold(properties, 2000);
+                                    .analyzeTimeSeriesCompactionFileCountThreshold(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
         olapTable.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);
 
         // set time series compaction time threshold
-        long timeSeriesCompactionTimeThresholdSeconds = 3600;
+        long timeSeriesCompactionTimeThresholdSeconds
+                                     = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
         try {
             timeSeriesCompactionTimeThresholdSeconds = PropertyAnalyzer
-                                    .analyzeTimeSeriesCompactionTimeThresholdSeconds(properties, 3600);
+                                    .analyzeTimeSeriesCompactionTimeThresholdSeconds(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
