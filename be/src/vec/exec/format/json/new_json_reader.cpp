@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <string_view>
 #include <utility>
@@ -404,9 +405,10 @@ Status NewJsonReader::_open_line_reader() {
     } else {
         _skip_first_line = false;
     }
-    _line_reader = NewPlainTextLineReader::create_unique(_profile, _file_reader, nullptr, size,
-                                                         _line_delimiter, _line_delimiter_length,
-                                                         _current_offset);
+    _line_reader = NewPlainTextLineReader::create_unique(
+            _profile, _file_reader, nullptr,
+            std::make_shared<PlainTexLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
+            _current_offset);
     return Status::OK();
 }
 

@@ -17,10 +17,14 @@
 
 #pragma once
 
+#include <_types/_uint8_t.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstddef>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "exec/line_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -34,36 +38,157 @@ class IOContext;
 class Decompressor;
 class Status;
 
+enum class ReaderState {
+    START,
+    NORMAL,
+    MATCH_COLUMN_SEP,
+    PRE_MATCH_ENCLOSE,
+    MATCH_ENCLOSE,
+    POST_ENCLOSE_LINE_DELIMITER,
+    POST_ENCLOSE_COLUMN_SEP,
+    MATCH_ESCAPE,
+    FOUND_LINE
+};
+struct ReaderStateWrapper {
+    inline void forward_to(ReaderState state) {
+        this->prev_state = this->curr_state;
+        this->curr_state = state;
+    }
+
+    inline void reset() {
+        this->curr_state = ReaderState::START;
+        this->prev_state = ReaderState::START;
+    }
+
+    inline bool operator==(const ReaderState& state) const { return curr_state == state; }
+
+    ReaderState curr_state = ReaderState::START;
+    ReaderState prev_state = ReaderState::START;
+};
+
+class TextLineReaderContextIf {
+public:
+    virtual ~TextLineReaderContextIf() = default;
+
+    /// @brief find line delimiter from 'start' to 'start' + len,
+    // info about the current line may be record to the ctx, like column seprator pos.
+    /// @return line delimiter pos if found, otherwise return nullptr.
+    virtual const uint8_t* read_line(const uint8_t* start, const size_t len) = 0;
+
+    /// @return length of line delimiter
+    [[nodiscard]] virtual size_t line_delimiter_length() const = 0;
+
+    /// @brief should be called when beginning to read a new line
+    virtual void refresh() = 0;
+};
+
+class PlainTexLineReaderCtx : public TextLineReaderContextIf {
+public:
+    explicit PlainTexLineReaderCtx(const string& line_delimiter_, const size_t line_delimiter_len_)
+            : line_delimiter(line_delimiter_), line_delimiter_len(line_delimiter_len_) {}
+
+    inline const uint8_t* read_line(const uint8_t* start, const size_t len) override {
+        return (uint8_t*)memmem(start, len, line_delimiter.c_str(), line_delimiter_len);
+    }
+
+    [[nodiscard]] inline size_t line_delimiter_length() const override {
+        return line_delimiter_len;
+    }
+
+    inline void refresh() override {}
+
+protected:
+    const std::string line_delimiter;
+    const size_t line_delimiter_len;
+};
+
+class CsvLineReaderContext final : public PlainTexLineReaderCtx {
+public:
+    explicit CsvLineReaderContext(const string& line_delimiter_, const size_t line_delimiter_len_,
+                                  const string& column_sep_, const size_t column_sep_len_,
+                                  const char enclose, const char escape)
+            : PlainTexLineReaderCtx(line_delimiter_, line_delimiter_len_),
+              _enclose(enclose),
+              _escape(escape),
+              _column_sep(column_sep_),
+              _column_sep_len(column_sep_len_) {}
+
+    const uint8_t* read_line(const uint8_t* start, const size_t len) override;
+
+    inline void refresh() override {
+        _idx = 0;
+        _delimiter_match_len = 0;
+        _left_enclose_pos = 0;
+        _state.reset();
+        _result = nullptr;
+        _column_sep_positions.clear();
+    }
+
+    [[nodiscard]] inline const std::vector<size_t>& column_sep_positions() const {
+        return _column_sep_positions;
+    }
+
+protected:
+    void on_start(const uint8_t* start, size_t len);
+    void on_normal(const uint8_t* start, size_t len);
+    void on_match_column_sep(const uint8_t* start, size_t len);
+    void on_pre_match_enclose(const uint8_t* start, size_t len);
+    void on_match_enclose(const uint8_t* start, size_t len);
+    void on_post_match_enclose_column_sep(const uint8_t* start, size_t len);
+    void on_post_match_enclose_line_delimiter(const uint8_t* start, size_t len);
+    void on_match_escape(const uint8_t* start, size_t len);
+    void on_found_line(const uint8_t* start, size_t len);
+
+private:
+    const char _enclose;
+    const char _escape;
+    const string _column_sep;
+    const size_t _column_sep_len;
+
+    size_t _idx = 0;
+    size_t _delimiter_match_len = 0;
+    size_t _left_enclose_pos = 0;
+    ReaderStateWrapper _state;
+    const uint8_t* _result = nullptr;
+    // record the start pos of each column sep
+    std::vector<size_t> _column_sep_positions;
+};
+
+using TextLineReaderCtxPtr = std::shared_ptr<TextLineReaderContextIf>;
+
 class NewPlainTextLineReader : public LineReader {
     ENABLE_FACTORY_CREATOR(NewPlainTextLineReader);
 
 public:
     NewPlainTextLineReader(RuntimeProfile* profile, io::FileReaderSPtr file_reader,
-                           Decompressor* decompressor, size_t length,
-                           const std::string& line_delimiter, size_t line_delimiter_length,
-                           size_t current_offset);
+                           Decompressor* decompressor, TextLineReaderCtxPtr line_reader_ctx,
+                           size_t length, size_t current_offset);
 
     ~NewPlainTextLineReader() override;
 
     Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
                      const io::IOContext* io_ctx) override;
 
+    inline TextLineReaderCtxPtr text_line_reader_ctx() { return _line_reader_ctx; }
+
     void close() override;
 
 private:
     bool update_eof();
 
-    size_t output_buf_read_remaining() const { return _output_buf_limit - _output_buf_pos; }
+    [[nodiscard]] size_t output_buf_read_remaining() const {
+        return _output_buf_limit - _output_buf_pos;
+    }
 
-    size_t input_buf_read_remaining() const { return _input_buf_limit - _input_buf_pos; }
+    [[nodiscard]] size_t input_buf_read_remaining() const {
+        return _input_buf_limit - _input_buf_pos;
+    }
 
     bool done() { return _file_eof && output_buf_read_remaining() == 0; }
 
     // find line delimiter from 'start' to 'start' + len,
     // return line delimiter pos if found, otherwise return nullptr.
-    // TODO:
-    //  save to positions of field separator
-    uint8_t* update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len);
+    const uint8_t* update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len);
 
     void extend_input_buf();
     void extend_output_buf();
@@ -76,8 +201,8 @@ private:
     // and only valid if the content is uncompressed
     size_t _min_length;
     size_t _total_read_bytes;
-    std::string _line_delimiter;
-    size_t _line_delimiter_length;
+
+    TextLineReaderCtxPtr _line_reader_ctx;
 
     // save the data read from file reader
     uint8_t* _input_buf;

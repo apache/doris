@@ -244,6 +244,8 @@ struct TFileTextScanRangeParams {
     1: optional string column_separator;
     2: optional string line_delimiter;
     3: optional string array_delimiter;
+    4: optional i8 enclose;
+    5: optional i8 escape;
 }
 
 struct TFileScanSlotInfo {

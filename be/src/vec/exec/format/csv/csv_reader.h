@@ -32,6 +32,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/slice.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -87,7 +88,6 @@ private:
                               std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
-    void _split_line_for_single_char_delimiter(const Slice& line);
     void _split_line_for_proto_format(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
     bool _is_null(const Slice& slice);
@@ -102,6 +102,8 @@ private:
     Status _parse_col_names(std::vector<std::string>* col_names);
     // TODO(ftw): parse type
     Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
+    void _process_value_field(const char* data, size_t start_offset, size_t value_len);
+    void _trim_ends(const char* data, size_t* start_offset, size_t* value_len, const char c) const;
 
     RuntimeState* _state;
     RuntimeProfile* _profile;
@@ -127,6 +129,7 @@ private:
     std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
+    std::shared_ptr<CsvLineReaderContext> _text_line_reader_ctx;
     bool _line_reader_eof;
     std::unique_ptr<TextConverter> _text_converter;
     std::unique_ptr<Decompressor> _decompressor;
@@ -143,6 +146,8 @@ private:
     std::string _value_separator;
     std::string _line_delimiter;
     std::string _array_delimiter;
+    char _enclose = '\"';
+    char _escape = '\\';
 
     int _value_separator_length;
     int _line_delimiter_length;
