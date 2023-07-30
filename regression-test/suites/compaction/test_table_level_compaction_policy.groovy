@@ -32,7 +32,6 @@ suite("test_table_level_compaction_policy") {
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
-                    "enable_unique_key_merge_on_write" = "true",
                     "compaction_policy" = "time_series",
                     "time_series_compaction_goal_size_mbytes" = "1024", 
                     "time_series_compaction_file_count_threshold" = "5000",
