@@ -718,11 +718,6 @@ public class SystemInfoService {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
 
-        String[] pair = hostPort.split(":");
-        if (pair.length != 2) {
-            throw new AnalysisException("Invalid host port: " + hostPort);
-        }
-
         HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
 
         String host = hostInfo.getHost();
