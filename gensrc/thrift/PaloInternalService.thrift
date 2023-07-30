@@ -225,6 +225,8 @@ struct TQueryOptions {
   74: optional bool enable_scan_node_run_serial = false; 
 
   75: optional bool enable_insert_strict = false;
+
+  76: optional bool enable_inverted_index_query = true;
 }
 
 

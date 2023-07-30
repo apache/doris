@@ -705,7 +705,7 @@ public class UdfConvert {
     }
 
 
-    ////////////////////////////////////copyBatchArray//////////////////////////////////////////////////////////
+    //////////////////////////////////// copyBatchArray//////////////////////////////////////////////////////////
 
     public static long copyBatchArrayBooleanResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {

@@ -411,7 +411,7 @@ Status gen_timestamp_string(std::string* out_string) {
     if (localtime_r(&now, &local_tm) == nullptr) {
         return Status::Error<OS_ERROR>("fail to localtime_r time. time={}", now);
     }
-    char time_suffix[16] = {0}; // Example: 20150706111404, 长度是15个字符
+    char time_suffix[16] = {0}; // Example: 20150706111404's length is 15
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
         return Status::Error<OS_ERROR>("fail to strftime time. time={}", now);
     }

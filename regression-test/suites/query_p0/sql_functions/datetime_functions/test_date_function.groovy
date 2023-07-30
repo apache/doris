@@ -317,6 +317,8 @@ suite("test_date_function") {
     // NOW
     def now_result = sql """ select now() """
     assertTrue(now_result[0].size() == 1)
+    def now_null_result = sql """ select now(null) """
+    assertTrue(now_null_result[0].size() == 1)
 
     // SECOND
     qt_sql """ select second('2018-12-31 23:59:59') """

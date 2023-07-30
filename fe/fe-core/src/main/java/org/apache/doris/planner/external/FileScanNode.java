@@ -76,6 +76,8 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     @Override
     protected void toThrift(TPlanNode planNode) {
+        planNode.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+
         planNode.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
         TFileScanNode fileScanNode = new TFileScanNode();
         fileScanNode.setTupleId(desc.getId().asInt());
