@@ -605,6 +605,10 @@ struct TStreamLoadPutRequest {
     44: optional bool enable_profile
     45: optional bool partial_update
     46: optional list<string> table_names
+    // only valid when file type is CSV
+    47: optional i8 enclose
+    // only valid when file type is CSV
+    48: optional i8 escape
 }
 
 struct TStreamLoadPutResult {

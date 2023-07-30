@@ -24,8 +24,9 @@
 #include <algorithm>
 #include <memory>
 #include <ostream>
+#include <string>
 
-#include "common/status.h"
+#include "common/compiler_util.h"
 #include "exec/decompressor.h"
 #include "io/fs/file_reader.h"
 #include "util/slice.h"
@@ -42,18 +43,201 @@
 
 namespace doris {
 
+const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_t len) {
+    while (!(_idx == len || _result != nullptr)) {
+        switch (_state.curr_state) {
+        case ReaderState::START: {
+            on_start(start, len);
+            break;
+        }
+        case ReaderState::NORMAL: {
+            on_normal(start, len);
+            break;
+        }
+        case ReaderState::MATCH_COLUMN_SEP: {
+            on_match_column_sep(start, len);
+            break;
+        }
+        case ReaderState::PRE_MATCH_ENCLOSE: {
+            on_pre_match_enclose(start, len);
+            break;
+        }
+        case ReaderState::MATCH_ENCLOSE: {
+            on_match_enclose(start, len);
+            break;
+        }
+        case ReaderState::POST_ENCLOSE_LINE_DELIMITER: {
+            on_post_match_enclose_line_delimiter(start, len);
+            break;
+        }
+        case ReaderState::POST_ENCLOSE_COLUMN_SEP: {
+            on_post_match_enclose_column_sep(start, len);
+            break;
+        }
+        case ReaderState::MATCH_ESCAPE: {
+            on_match_escape(start, len);
+            break;
+        }
+        case ReaderState::FOUND_LINE: {
+            on_found_line(start, len);
+            break;
+        }
+        }
+    }
+    if (UNLIKELY(_state == ReaderState::FOUND_LINE && _delimiter_match_len == line_delimiter_len)) {
+        // means it happens to be a complete line
+        _result = start + (_idx - line_delimiter_len);
+    }
+    return _result;
+}
+
+void CsvLineReaderContext::on_start(const uint8_t* start, size_t len) {
+    DCHECK_EQ(_delimiter_match_len, 0);
+    if (start[_idx] == _enclose) {
+        _state.forward_to(ReaderState::PRE_MATCH_ENCLOSE);
+    } else if (UNLIKELY(start[_idx] == _column_sep[0])) {
+        ++_delimiter_match_len;
+        _state.forward_to(ReaderState::MATCH_COLUMN_SEP);
+    } else if (UNLIKELY(start[_idx] == line_delimiter[0])) {
+        ++_delimiter_match_len;
+        _state.forward_to(ReaderState::FOUND_LINE);
+    } else {
+        _state.forward_to(ReaderState::NORMAL);
+    }
+    ++_idx;
+}
+
+void CsvLineReaderContext::on_normal(const uint8_t* start, size_t len) {
+    DCHECK_EQ(_delimiter_match_len, 0);
+    if (UNLIKELY(start[_idx] == _column_sep[0])) {
+        ++_delimiter_match_len;
+        _state.forward_to(ReaderState::MATCH_COLUMN_SEP);
+    } else if (UNLIKELY(start[_idx] == line_delimiter[0])) {
+        ++_delimiter_match_len;
+        _state.forward_to(ReaderState::FOUND_LINE);
+    }
+    ++_idx;
+}
+
+void CsvLineReaderContext::on_match_column_sep(const uint8_t* start, size_t len) {
+    DCHECK_NE(_delimiter_match_len, 0);
+    if (_delimiter_match_len == _column_sep_len) {
+        // found colum sep
+        _column_sep_positions.push_back(_idx - _column_sep_len);
+        _delimiter_match_len = 0;
+        _state.forward_to(ReaderState::START);
+    } else if (start[_idx] == _column_sep[_delimiter_match_len]) {
+        // matching multi-char col sep
+        DCHECK_GT(_column_sep_len, 1);
+        ++_delimiter_match_len;
+        ++_idx;
+    } else {
+        // not found
+        _delimiter_match_len = 0;
+        _state.forward_to(ReaderState::NORMAL);
+    }
+}
+
+void CsvLineReaderContext::on_pre_match_enclose(const uint8_t* start, size_t len) {
+    if (_state.prev_state == ReaderState::START) {
+        DCHECK_GT(_idx, 0);
+        _left_enclose_pos = _idx - 1;
+        _state.forward_to(_state.curr_state);
+        return;
+    }
+    if (start[_idx] == _escape) {
+        _state.forward_to(ReaderState::MATCH_ESCAPE);
+    } else if (start[_idx] == _enclose) {
+        _state.forward_to(ReaderState::MATCH_ENCLOSE);
+    }
+    ++_idx;
+}
+
+void CsvLineReaderContext::on_match_enclose(const uint8_t* start, size_t len) {
+    if (LIKELY(start[_idx] == _column_sep[0])) {
+        _state.forward_to(ReaderState::POST_ENCLOSE_COLUMN_SEP);
+        ++_delimiter_match_len;
+    } else if (start[_idx] == line_delimiter[0]) {
+        _state.forward_to(ReaderState::POST_ENCLOSE_LINE_DELIMITER);
+        ++_delimiter_match_len;
+    } else {
+        // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
+        // will reset to left enclose idx to do parse in nornal state
+        _state.forward_to(ReaderState::NORMAL);
+        _idx = _left_enclose_pos;
+        return;
+    }
+    ++_idx;
+}
+
+void CsvLineReaderContext::on_match_escape(const uint8_t* start, size_t len) {
+    _state.forward_to(_state.prev_state);
+    ++_idx;
+}
+
+void CsvLineReaderContext::on_post_match_enclose_column_sep(const uint8_t* start, size_t len) {
+    if (_delimiter_match_len == _column_sep_len) {
+        _column_sep_positions.push_back(_idx - _column_sep_len);
+        _delimiter_match_len = 0;
+        _state.forward_to(ReaderState::START);
+    } else if (start[_idx] == _column_sep[_delimiter_match_len]) {
+        DCHECK_GT(_column_sep_len, 1);
+        ++_delimiter_match_len;
+        ++_idx;
+    } else {
+        // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
+        // will reset to left enclose idx to do parse in nornal state
+        _state.forward_to(ReaderState::NORMAL);
+        _idx = _left_enclose_pos;
+    }
+}
+
+void CsvLineReaderContext::on_post_match_enclose_line_delimiter(const uint8_t* start, size_t len) {
+    if (_delimiter_match_len == line_delimiter_len) {
+        _result = start + _idx - line_delimiter_len;
+    } else if (start[_idx] == line_delimiter[_delimiter_match_len]) {
+        DCHECK_GT(line_delimiter_len, 1);
+        ++_delimiter_match_len;
+        ++_idx;
+    } else {
+        // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
+        // will reset to left enclose idx to do parse in nornal state
+        _state.forward_to(ReaderState::NORMAL);
+        _idx = _left_enclose_pos;
+    }
+}
+
+void CsvLineReaderContext::on_found_line(const uint8_t* start, size_t len) {
+    DCHECK_NE(_delimiter_match_len, 0);
+    if (_delimiter_match_len == line_delimiter_len) {
+        // found line delimiter
+        _result = start + _idx - line_delimiter_len;
+        _delimiter_match_len = 0;
+    } else if (start[_idx] == line_delimiter[_delimiter_match_len]) {
+        // matching multi-char line delimiter
+        DCHECK_GT(line_delimiter_len, 1);
+        ++_delimiter_match_len;
+        ++_idx;
+    } else {
+        // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
+        // will reset to left enclose idx to do parse in nornal state
+        _state.forward_to(ReaderState::NORMAL);
+        _idx = _left_enclose_pos;
+        return;
+    }
+}
+
 NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
                                                io::FileReaderSPtr file_reader,
-                                               Decompressor* decompressor, size_t length,
-                                               const std::string& line_delimiter,
-                                               size_t line_delimiter_length, size_t current_offset)
+                                               Decompressor* decompressor,
+                                               TextLineReaderCtxPtr line_reader_ctx, size_t length,
+                                               size_t current_offset)
         : _profile(profile),
           _file_reader(file_reader),
           _decompressor(decompressor),
           _min_length(length),
           _total_read_bytes(0),
-          _line_delimiter(line_delimiter),
-          _line_delimiter_length(line_delimiter_length),
+          _line_reader_ctx(line_reader_ctx),
           _input_buf(new uint8_t[INPUT_CHUNK]),
           _input_buf_size(INPUT_CHUNK),
           _input_buf_pos(0),
@@ -103,10 +287,9 @@ inline bool NewPlainTextLineReader::update_eof() {
     return _eof;
 }
 
-uint8_t* NewPlainTextLineReader::update_field_pos_and_find_line_delimiter(const uint8_t* start,
-                                                                          size_t len) {
-    // TODO: meanwhile find and save field pos
-    return (uint8_t*)memmem(start, len, _line_delimiter.c_str(), _line_delimiter_length);
+const uint8_t* NewPlainTextLineReader::update_field_pos_and_find_line_delimiter(
+        const uint8_t* start, size_t len) {
+    return _line_reader_ctx->read_line(start, len);
 }
 
 // extend input buf if necessary only when _more_input_bytes > 0
@@ -190,12 +373,13 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
         *eof = true;
         return Status::OK();
     }
+    _line_reader_ctx->refresh();
     int found_line_delimiter = 0;
     size_t offset = 0;
     while (!done()) {
         // find line delimiter in current decompressed data
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
-        uint8_t* pos =
+        const uint8_t* pos =
                 update_field_pos_and_find_line_delimiter(cur_ptr, output_buf_read_remaining());
 
         if (pos == nullptr) {
@@ -327,7 +511,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             // we found a complete line
             // ready to return
             offset = pos - cur_ptr;
-            found_line_delimiter = _line_delimiter_length;
+            found_line_delimiter = _line_reader_ctx->line_delimiter_length();
             break;
         }
     } // while (!done())
