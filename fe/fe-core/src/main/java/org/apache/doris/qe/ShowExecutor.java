@@ -874,7 +874,8 @@ public class ShowExecutor {
                 // Rows
                 // Use estimatedRowCount(), not getRowCount().
                 // because estimatedRowCount() is an async call, it will not block, and it will call getRowCount()
-                // finally. So that for some table(especially external table), we can get the row count without blocking.
+                // finally. So that for some table(especially external table),
+                // we can get the row count without blocking.
                 row.add(String.valueOf(table.estimatedRowCount()));
                 // Avg_row_length
                 row.add(String.valueOf(table.getAvgRowLength()));
