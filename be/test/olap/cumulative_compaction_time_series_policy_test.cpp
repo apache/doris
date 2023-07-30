@@ -41,11 +41,10 @@ public:
                 1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                 TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
 
-        _tablet_meta->tablet_schema()->set_compaction_policy(
-                std::string(CUMULATIVE_TIME_SERIES_POLICY));
-        _tablet_meta->tablet_schema()->set_time_series_compaction_goal_size_mbytes(100);
-        _tablet_meta->tablet_schema()->set_time_series_compaction_file_count_threshold(10);
-        _tablet_meta->tablet_schema()->set_time_series_compaction_time_threshold_seconds(3600);
+        _tablet_meta->set_compaction_policy(std::string(CUMULATIVE_TIME_SERIES_POLICY));
+        _tablet_meta->set_time_series_compaction_goal_size_mbytes(100);
+        _tablet_meta->set_time_series_compaction_file_count_threshold(10);
+        _tablet_meta->set_time_series_compaction_time_threshold_seconds(3600);
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -337,7 +336,8 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_scor
     _tablet->calculate_cumulative_point();
 
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_time_series_cumulative_compaction_policy();
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    CUMULATIVE_TIME_SERIES_POLICY);
     const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
                                                           cumulative_compaction_policy);
 
@@ -356,7 +356,8 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_scor
     _tablet->init();
     _tablet->calculate_cumulative_point();
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_time_series_cumulative_compaction_policy();
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    CUMULATIVE_TIME_SERIES_POLICY);
     const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
                                                           cumulative_compaction_policy);
 
