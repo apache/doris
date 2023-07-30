@@ -208,7 +208,7 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
     size_t offset = 0;
     if (bitmap_size > 0) {
         for (size_t j = 0; j < nullmap_columns.size(); j++) {
-            if (nullmap_columns[j] == nullptr) {
+            if (!nullmap_columns[j]) {
                 continue;
             }
             size_t bucket = j / 8;
@@ -222,28 +222,76 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
         offset += bitmap_size;
     }
 
+    // make sure null cell is filled by 0x0
+    T zero {};
     for (size_t j = 0; j < key_columns.size(); ++j) {
         const char* data = key_columns[j]->get_raw_data().data;
 
         if (key_sizes[j] == 1) {
-            for (size_t i = 0; i < row_numbers; ++i) {
-                memcpy_fixed_1((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            if (nullmap_columns[j]) {
+                const auto& nullmap =
+                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_1((char*)(&result[i]) + offset,
+                                   nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
+                }
+            } else {
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_1((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+                }
             }
+
         } else if (key_sizes[j] == 2) {
-            for (size_t i = 0; i < row_numbers; ++i) {
-                memcpy_fixed_2((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            if (nullmap_columns[j]) {
+                const auto& nullmap =
+                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_2((char*)(&result[i]) + offset,
+                                   nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
+                }
+            } else {
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_2((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+                }
             }
         } else if (key_sizes[j] == 4) {
-            for (size_t i = 0; i < row_numbers; ++i) {
-                memcpy_fixed_4((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            if (nullmap_columns[j]) {
+                const auto& nullmap =
+                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_4((char*)(&result[i]) + offset,
+                                   nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
+                }
+            } else {
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_4((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+                }
             }
         } else if (key_sizes[j] == 8) {
-            for (size_t i = 0; i < row_numbers; ++i) {
-                memcpy_fixed_8((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            if (nullmap_columns[j]) {
+                const auto& nullmap =
+                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_8((char*)(&result[i]) + offset,
+                                   nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
+                }
+            } else {
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_8((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+                }
             }
         } else if (key_sizes[j] == 16) {
-            for (size_t i = 0; i < row_numbers; ++i) {
-                memcpy_fixed_16((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+            if (nullmap_columns[j]) {
+                const auto& nullmap =
+                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_16((char*)(&result[i]) + offset,
+                                    nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
+                }
+            } else {
+                for (size_t i = 0; i < row_numbers; ++i) {
+                    memcpy_fixed_16((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+                }
             }
         } else {
             throw Exception(ErrorCode::INTERNAL_ERROR,
