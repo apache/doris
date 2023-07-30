@@ -46,7 +46,7 @@ statement
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
         (COMMENT constant)?
-        (PARTITION BY RANGE partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
+        (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
         DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (number | AUTO)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         PROPERTIES LEFT_PAREN propertySeq RIGHT_PAREN                   #createTable
@@ -334,7 +334,7 @@ columnDefs
     
 columnDef
     : colName=identifier type=colType
-        KEY? (aggType=identifier)? ((NOT NULL) | NULL)?
+        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
         (DEFAULT (defaultValue=constant | CURRENT_TIMESTAMP))?
         (comment=constant)?
     ;
@@ -374,9 +374,10 @@ stepPartitionDef
     : FROM from=constantSeq TO to=constantSeq
         ((INTERVAL unitsAmount=valueExpression unit=datetimeUnit) | unitsAmount=valueExpression)
     ;
-    
+
 inPartitionDef
-    : PARTITION partitionName=identifier VALUES IN LEFT_PAREN constants+=constantSeq (COMMA constants+=constantSeq)*
+    : PARTITION partitionName=identifier VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
+        (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq)
     ;
     
 constantSeq

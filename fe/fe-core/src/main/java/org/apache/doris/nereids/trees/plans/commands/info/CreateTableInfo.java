@@ -59,6 +59,7 @@ public class CreateTableInfo {
     private final KeysType keysType;
     private List<String> keys;
     private final String comment;
+    private final String partitionType;
     private final List<String> partitionColumns;
     private final List<PartitionDefinition> partitions;
     private final DistributionDescriptor distribution;
@@ -70,8 +71,8 @@ public class CreateTableInfo {
      */
     public CreateTableInfo(boolean ifNotExists, String dbName, String tableName, List<ColumnDefinition> columns,
             List<IndexDefinition> indexes, String engineName, KeysType keysType, List<String> keys, String comment,
-            List<String> partitionColumns, List<PartitionDefinition> partitions, DistributionDescriptor distribution,
-            List<RollupDefinition> rollups, Map<String, String> properties) {
+            String partitionType, List<String> partitionColumns, List<PartitionDefinition> partitions,
+            DistributionDescriptor distribution, List<RollupDefinition> rollups, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.dbName = dbName;
         this.tableName = tableName;
@@ -81,6 +82,7 @@ public class CreateTableInfo {
         this.keysType = keysType;
         this.keys = Utils.copyRequiredList(keys);
         this.comment = comment;
+        this.partitionType = partitionType;
         this.partitionColumns = partitionColumns;
         this.partitions = partitions;
         this.distribution = distribution;

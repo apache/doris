@@ -65,7 +65,6 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
-import org.apache.doris.nereids.DorisParser.FixedContext;
 import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
@@ -77,6 +76,7 @@ import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
+import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefsContext;
 import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
@@ -87,7 +87,6 @@ import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
-import org.apache.doris.nereids.DorisParser.LessThanContext;
 import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
@@ -100,6 +99,7 @@ import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
 import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
+import org.apache.doris.nereids.DorisParser.PartitionsDefContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
@@ -127,7 +127,6 @@ import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
-import org.apache.doris.nereids.DorisParser.StepContext;
 import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
@@ -293,6 +292,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
+import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
@@ -1753,7 +1753,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Object visitCreateTable(CreateTableContext ctx) {
         String dbName = null;
-        String tableName = null;
+        String tableName;
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         if (nameParts.size() == 1) {
             tableName = nameParts.get(0);
@@ -1774,6 +1774,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
                 visitIdentifierList(ctx.hashKeys));
         Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
+        String partitionType = null;
+        if (ctx.PARTITION() != null) {
+            partitionType = ctx.RANGE() != null ? "range" : "list";
+        }
 
         return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
                 ctx.EXISTS() != null,
@@ -1785,8 +1789,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 keysType,
                 ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
                 "",
+                partitionType,
                 ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                ctx.partitions != null ? ((List<PartitionDefinition>) visit(ctx.partitions)) : null,
+                ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
                 desc,
                 ImmutableList.of(),
                 properties));
@@ -1816,7 +1821,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         try {
             aggType = AggregateType.valueOf(aggTypeString.toUpperCase());
         } catch (Exception e) {
-            throw new AnalysisException(String.format("aggregate type %s is unsupported", aggTypeString));
+            throw new AnalysisException(String.format("aggregate type %s is unsupported", aggTypeString), e.getCause());
         }
         String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : null;
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
@@ -1846,40 +1851,46 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public List<PartitionDefinition> visitLessThan(LessThanContext ctx) {
-        List<PartitionDefinition> partitions = Lists.newArrayList();
-        for (LessThanPartitionDefContext lessThanCtx : ctx.partitions) {
-            String partitionName = lessThanCtx.partitionName.getText();
-            if (lessThanCtx.MAXVALUE() == null) {
-                List<Expression> lessThanValues = visitConstantSeq(lessThanCtx.constantSeq());
-                partitions.add(new LessThanPartition(partitionName, lessThanValues, false));
-            } else {
-                partitions.add(new LessThanPartition(partitionName, null, true));
-            }
-        }
-        return partitions;
+    public List<PartitionDefinition> visitPartitionsDef(PartitionsDefContext ctx) {
+        return ctx.partitions.stream().map(p -> ((PartitionDefinition) visit(p))).collect(Collectors.toList());
     }
 
     @Override
-    public List<PartitionDefinition> visitFixed(FixedContext ctx) {
-        List<PartitionDefinition> partitions = Lists.newArrayList();
-        for (FixedPartitionDefContext fixedCtx : ctx.partitions) {
-            String partitionName = fixedCtx.partitionName.getText();
-            partitions.add(new FixedRangePartition(partitionName, null, null));
+    public PartitionDefinition visitLessThanPartitionDef(LessThanPartitionDefContext ctx) {
+        String partitionName = ctx.partitionName.getText();
+        if (ctx.MAXVALUE() == null) {
+            List<Expression> lessThanValues = visitConstantSeq(ctx.constantSeq());
+            return new LessThanPartition(partitionName, lessThanValues, false);
+        } else {
+            return new LessThanPartition(partitionName, null, true);
         }
-        return partitions;
     }
 
     @Override
-    public List<PartitionDefinition> visitStep(StepContext ctx) {
-        List<PartitionDefinition> partitions = Lists.newArrayList();
-        for (StepPartitionDefContext stepCtx : ctx.partitions) {
-            List<Expression> fromExpression = visitConstantSeq(stepCtx.from);
-            List<Expression> toExpression = visitConstantSeq(stepCtx.to);
-            partitions.add(new StepPartition(fromExpression, toExpression, ((Expression) visit(stepCtx.unitsAmount)),
-                    stepCtx.unit != null ? stepCtx.unit.getText() : null));
+    public PartitionDefinition visitFixedPartitionDef(FixedPartitionDefContext ctx) {
+        String partitionName = ctx.partitionName.getText();
+        return new FixedRangePartition(partitionName, null, null);
+    }
+
+    @Override
+    public PartitionDefinition visitStepPartitionDef(StepPartitionDefContext ctx) {
+        List<Expression> fromExpression = visitConstantSeq(ctx.from);
+        List<Expression> toExpression = visitConstantSeq(ctx.to);
+        return new StepPartition(fromExpression, toExpression, ((Expression) visit(ctx.unitsAmount)),
+                ctx.unit != null ? ctx.unit.getText() : null);
+    }
+
+    @Override
+    public PartitionDefinition visitInPartitionDef(InPartitionDefContext ctx) {
+        List<List<Expression>> values;
+        if (ctx.constants == null) {
+            values = ctx.constantSeqs.stream().map(this::visitConstantSeq)
+                    .collect(Collectors.toList());
+        } else {
+            values = visitConstantSeq(ctx.constants).stream().map(ImmutableList::of)
+                    .collect(Collectors.toList());
         }
-        return partitions;
+        return new InPartition(ctx.partitionName.getText(), values);
     }
 
     @Override
