@@ -540,12 +540,13 @@ void CsvReader::_process_value_field(const char* data, size_t start_offset, size
         _trim_ends(data, &start_offset, &value_len, _enclose);
         _trim_ends(data, &start_offset, &value_len, '\"');
     }
-     _split_values.emplace_back(data + start_offset, value_len);
+    _split_values.emplace_back(data + start_offset, value_len);
 }
 
-void CsvReader::_trim_ends(const char* data, size_t* start_offset, size_t* value_len, const char c) const {
+void CsvReader::_trim_ends(const char* data, size_t* start_offset, size_t* value_len,
+                           const char c) const {
     const bool trim_cond = *value_len > 1 && *(data + *start_offset) == c &&
-                                   *(data + *start_offset + *value_len - 1) == c;
+                           *(data + *start_offset + *value_len - 1) == c;
     if (trim_cond) {
         ++(*start_offset);
         *value_len -= 2;
