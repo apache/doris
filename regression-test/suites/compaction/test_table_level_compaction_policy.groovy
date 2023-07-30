@@ -86,7 +86,7 @@ suite("test_table_level_compaction_policy") {
                     "compaction_policy" = "ok"
              );
         """
-        exception "Table compaction policy only support for time_series or size_based"
+        exception "compaction_policy must be time_series or size_based"
     }
 
     test {
@@ -118,7 +118,7 @@ suite("test_table_level_compaction_policy") {
             DUPLICATE KEY (`c_custkey`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
-                    "replication_num" = "1",
+                    "replication_num" = "1"
              );
         """
 
