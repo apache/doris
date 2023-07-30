@@ -2056,4 +2056,9 @@ public class Config extends ConfigBase {
                     + "and modifying table properties. "
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "master fe同步image文件到其他fe时是否校验md5",
+        "Whether to verify md5 when synchronizing image files from master fe to other fe"})
+    public static boolean enable_image_md5_check = true;
 }

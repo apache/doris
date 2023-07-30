@@ -18,8 +18,10 @@
 package org.apache.doris.master;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.httpv2.util.Md5Util;
 
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -29,11 +31,17 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 public class MetaHelper {
     private static final String PART_SUFFIX = ".part";
     public static final String X_IMAGE_SIZE = "X-Image-Size";
+    public static final String X_MD5 = "X-MD5";
     private static final int BUFFER_BYTES = 8 * 1024;
     private static final int CHECKPOINT_LIMIT_BYTES = 30 * 1024 * 1024;
+    private static final Logger LOG = LogManager.getLogger(MetaHelper.class);
 
     public static File getMasterImageDir() {
         String metaDir = Env.getCurrentEnv().getImageDir();
@@ -63,8 +71,13 @@ public class MetaHelper {
     // download file from remote node
     public static void getRemoteFile(String urlStr, int timeout, OutputStream out)
             throws IOException {
-        HttpURLConnection conn = null;
+        getRemoteFileAndReturnMd5(urlStr, timeout, out);
+    }
 
+    // download file from remote node and get md5 from header
+    public static String getRemoteFileAndReturnMd5(String urlStr, int timeout, OutputStream out) {
+        HttpURLConnection conn = null;
+        String md5Sum = null;
         try {
             conn = HttpURLUtil.getConnectionWithNodeIdent(urlStr);
             conn.setConnectTimeout(timeout);
@@ -85,6 +98,10 @@ public class MetaHelper {
             if ((imageSize > 0) && (bytes != imageSize)) {
                 throw new IOException("Unexpected image size, expected: " + imageSize + ", actual: " + bytes);
             }
+
+            if (Config.enable_image_md5_check) {
+                md5Sum = conn.getHeaderField(X_MD5);
+            }
         } finally {
             if (conn != null) {
                 conn.disconnect();
@@ -93,6 +110,29 @@ public class MetaHelper {
                 out.close();
             }
         }
+        return md5Sum;
     }
 
+    /**
+     * Check image file md5sum between master and non-master fe when do checkpoint
+     * @param masterImageMd5 master fe md5 get in http header
+     * @param fileName non-master fe image filename
+     * @param dir non-master fe image dir
+     * @throws IOException
+     */
+    public static void checkMd5WithMaster(String masterImageMd5, String fileName, File dir) throws IOException {
+        if (StringUtils.isEmpty(masterImageMd5)) {
+            return;
+        }
+        File newFile = new File(dir, fileName);
+        String newFileMd5 = Md5Util.getMd5String(newFile);
+        if (!masterImageMd5.equals(newFileMd5)) {
+            LOG.error("The Master image md5 is different with copied image md5, fileName is: {}, "
+                + "master md5 is: {}, copied md5 is: {}", fileName, masterImageMd5, newFileMd5);
+            throw new IOException("The Master image md5 is different with copied image md5, fileName is:"
+                + fileName + ", master md5 is: " + masterImageMd5 + ", copied md5 is :" + newFileMd5);
+        }
+        LOG.info("The Master image md5 is same as copied image md5, fileName is :{} , md5 is: {}",
+            fileName, newFileMd5);
+    }
 }

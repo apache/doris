@@ -37,6 +37,8 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+import sun.security.krb5.Config;
+import sun.security.provider.ConfigFile;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -50,7 +52,8 @@ import javax.servlet.http.HttpServletResponse;
 public class MetaService extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(MetaService.class);
 
-    private static final int TIMEOUT_SECOND = 10;
+    // Because master fe timeout is 3600s when call /put, so this param can set to 1800s
+    private static final int TIMEOUT_SECOND = 1800;
 
     private static final String VERSION = "version";
     private static final String HOST = "host";
@@ -164,8 +167,11 @@ public class MetaService extends RestBaseController {
         File dir = new File(Env.getCurrentEnv().getImageDir());
         try {
             OutputStream out = MetaHelper.getOutputStream(filename, dir);
-            MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, out);
+            String masterImageMd5 = MetaHelper.getRemoteFileAndReturnMd5(url, TIMEOUT_SECOND * 1000, out);
             MetaHelper.complete(filename, dir);
+            if (Config.enable_image_md5_check) {
+                MetaHelper.checkMd5WithMaster(masterImageMd5, filename, dir);
+            }
         } catch (FileNotFoundException e) {
             return ResponseEntityBuilder.notFound("file not found.");
         } catch (IOException e) {
