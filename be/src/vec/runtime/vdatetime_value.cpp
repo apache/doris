@@ -2406,6 +2406,12 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
 
 template <typename T>
 int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
+    // if this is an invalid date, write nothing(instead of 0000-00-00) to output string, or else
+    // it will cause problem for null DataTypeDateV2 value in cast function,
+    // e.g. cast(cast(null_date as char) as date)
+    if (!is_valid_date()) {
+        return 0;
+    }
     char* start = buffer;
     uint32_t temp;
     // Year
