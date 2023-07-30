@@ -2137,15 +2137,13 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         long storagePolicyId = storagePolicyNameToId(storagePolicy);
 
-        // if (isInMemory < 0 && storagePolicyId < 0) {
-        //     LOG.info("Properties already up-to-date");
-        //     return;
-        // }
-
         String compactionPolicy = properties.get(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
-        if (!Strings.isNullOrEmpty(compactionPolicy) && !compactionPolicy.equals("time_series")
-                                                            && !compactionPolicy.equals("size_based")) {
-            throw new UserException("Table compaction policy only support for time series or size_based");
+        if (compactionPolicy != null
+                                    && !compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                                    && !compactionPolicy.equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+            throw new UserException("Table compaction policy only support for "
+                                                + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
+                                                + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
         }
 
         Map<String, Long> timeSeriesCompactionConfig = new HashMap<>();
@@ -2171,6 +2169,11 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
                                         null, compactionPolicy, timeSeriesCompactionConfig);
+        }
+
+        if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()) {
+            LOG.info("Properties already up-to-date");
+            return;
         }
 
         olapTable.writeLockOrDdlException();

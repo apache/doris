@@ -86,13 +86,16 @@ public class TableProperty implements Writable {
 
     private boolean skipWriteIndexOnLoad = false;
 
-    private String compactionPolicy = "";
+    private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
 
-    private long timeSeriesCompactionGoalSizeMbytes = 512;
+    private long timeSeriesCompactionGoalSizeMbytes
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
 
-    private long timeSeriesCompactionFileCountThreshold = 2000;
+    private long timeSeriesCompactionFileCountThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
 
-    private long timeSeriesCompactionTimeThresholdSeconds = 3600;
+    private long timeSeriesCompactionTimeThresholdSeconds
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -223,7 +226,8 @@ public class TableProperty implements Writable {
     }
 
     public TableProperty buildCompactionPolicy() {
-        compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
+        compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY,
+                                                                PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
         return this;
     }
 
@@ -233,7 +237,8 @@ public class TableProperty implements Writable {
 
     public TableProperty buildTimeSeriesCompactionGoalSizeMbytes() {
         timeSeriesCompactionGoalSizeMbytes = Long.parseLong(properties
-                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES, "512"));
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE)));
         return this;
     }
 
@@ -243,7 +248,9 @@ public class TableProperty implements Writable {
 
     public TableProperty buildTimeSeriesCompactionFileCountThreshold() {
         timeSeriesCompactionFileCountThreshold = Long.parseLong(properties
-                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD, "2000"));
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE)));
+
         return this;
     }
 
@@ -253,7 +260,9 @@ public class TableProperty implements Writable {
 
     public TableProperty buildTimeSeriesCompactionTimeThresholdSeconds() {
         timeSeriesCompactionTimeThresholdSeconds = Long.parseLong(properties
-                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS, "3600"));
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE)));
+
         return this;
     }
 

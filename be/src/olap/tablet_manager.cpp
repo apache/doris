@@ -732,8 +732,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
             }
             auto cumulative_compaction_policy =
-                    tablet_ptr->tablet_meta()->tablet_schema()->compaction_policy() ==
-                                    CUMULATIVE_TIME_SERIES_POLICY
+                    tablet_ptr->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
                             ? all_cumulative_compaction_policy.at(CUMULATIVE_TIME_SERIES_POLICY)
                             : all_cumulative_compaction_policy.at(CUMULATIVE_SIZE_BASED_POLICY);
             uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(

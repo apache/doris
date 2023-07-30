@@ -434,59 +434,43 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                 need_to_save = true;
             }
             if (tablet_meta_info.__isset.compaction_policy) {
-                tablet->tablet_meta()->mutable_tablet_schema()->set_compaction_policy(
-                        tablet_meta_info.compaction_policy);
-                std::shared_lock rlock(tablet->get_header_lock());
-                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                    rowset_meta->tablet_schema()->set_compaction_policy(
-                            tablet_meta_info.compaction_policy);
+                if (tablet_meta_info.compaction_policy != "size_based" &&
+                    tablet_meta_info.compaction_policy != "time_series") {
+                    status = Status::InvalidArgument(
+                            "invalid compaction policy, only support for size_based or "
+                            "time_series");
+                    continue;
                 }
-                tablet->tablet_schema_unlocked()->set_compaction_policy(
-                        tablet_meta_info.compaction_policy);
+                tablet->tablet_meta()->set_compaction_policy(tablet_meta_info.compaction_policy);
                 need_to_save = true;
             }
-            if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes &&
-                tablet_meta_info.time_series_compaction_goal_size_mbytes != -1) {
-                tablet->tablet_meta()
-                        ->mutable_tablet_schema()
-                        ->set_time_series_compaction_goal_size_mbytes(
-                                tablet_meta_info.time_series_compaction_goal_size_mbytes);
-                std::shared_lock rlock(tablet->get_header_lock());
-                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                    rowset_meta->tablet_schema()->set_time_series_compaction_goal_size_mbytes(
-                            tablet_meta_info.time_series_compaction_goal_size_mbytes);
+            if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes) {
+                if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                    status = Status::InvalidArgument(
+                            "only time series compaction policy support time series config");
+                    continue;
                 }
-                tablet->tablet_schema_unlocked()->set_time_series_compaction_goal_size_mbytes(
+                tablet->tablet_meta()->set_time_series_compaction_goal_size_mbytes(
                         tablet_meta_info.time_series_compaction_goal_size_mbytes);
                 need_to_save = true;
             }
-            if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold &&
-                tablet_meta_info.time_series_compaction_file_count_threshold != -1) {
-                tablet->tablet_meta()
-                        ->mutable_tablet_schema()
-                        ->set_time_series_compaction_file_count_threshold(
-                                tablet_meta_info.time_series_compaction_file_count_threshold);
-                std::shared_lock rlock(tablet->get_header_lock());
-                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                    rowset_meta->tablet_schema()->set_time_series_compaction_file_count_threshold(
-                            tablet_meta_info.time_series_compaction_file_count_threshold);
+            if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold) {
+                if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                    status = Status::InvalidArgument(
+                            "only time series compaction policy support time series config");
+                    continue;
                 }
-                tablet->tablet_schema_unlocked()->set_time_series_compaction_file_count_threshold(
+                tablet->tablet_meta()->set_time_series_compaction_file_count_threshold(
                         tablet_meta_info.time_series_compaction_file_count_threshold);
                 need_to_save = true;
             }
-            if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds &&
-                tablet_meta_info.time_series_compaction_time_threshold_seconds != -1) {
-                tablet->tablet_meta()
-                        ->mutable_tablet_schema()
-                        ->set_time_series_compaction_time_threshold_seconds(
-                                tablet_meta_info.time_series_compaction_time_threshold_seconds);
-                std::shared_lock rlock(tablet->get_header_lock());
-                for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
-                    rowset_meta->tablet_schema()->set_time_series_compaction_time_threshold_seconds(
-                            tablet_meta_info.time_series_compaction_time_threshold_seconds);
+            if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds) {
+                if (tablet->tablet_meta()->compaction_policy() != "time_series") {
+                    status = Status::InvalidArgument(
+                            "only time series compaction policy support time series config");
+                    continue;
                 }
-                tablet->tablet_schema_unlocked()->set_time_series_compaction_time_threshold_seconds(
+                tablet->tablet_meta()->set_time_series_compaction_time_threshold_seconds(
                         tablet_meta_info.time_series_compaction_time_threshold_seconds);
                 need_to_save = true;
             }
