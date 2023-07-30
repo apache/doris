@@ -46,7 +46,7 @@ suite("test_table_level_compaction_policy") {
     assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_time_threshold_seconds" = "86400"'))
 
     sql """
-        alter table ${tableName} set properties ("time_series_compaction_goal_size_mbytes" = "2048")
+        alter table ${tableName} set ("time_series_compaction_goal_size_mbytes" = "2048")
         """
 
     result = sql """show create table ${tableName}"""
@@ -54,7 +54,7 @@ suite("test_table_level_compaction_policy") {
     assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_goal_size_mbytes" = "2048"'))
 
     sql """
-        alter table ${tableName} set properties ("time_series_compaction_file_count_threshold" = "6000")
+        alter table ${tableName} set ("time_series_compaction_file_count_threshold" = "6000")
         """
 
     result = sql """show create table ${tableName}"""
@@ -62,7 +62,7 @@ suite("test_table_level_compaction_policy") {
     assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_file_count_threshold" = "6000"'))
 
      sql """
-        alter table ${tableName} set properties ("time_series_compaction_time_threshold_seconds" = "3000")
+        alter table ${tableName} set ("time_series_compaction_time_threshold_seconds" = "3000")
         """
 
     result = sql """show create table ${tableName}"""
