@@ -142,7 +142,7 @@ public class CatalogFactory {
         if (!isReplay) {
             // set some default properties when creating catalog.
             // do not call this method when replaying edit log. Because we need to keey the original properties.
-            catalog.setDefaultProps();
+            catalog.setDefaultPropsWhenCreating(isReplay);
         }
         return catalog;
     }

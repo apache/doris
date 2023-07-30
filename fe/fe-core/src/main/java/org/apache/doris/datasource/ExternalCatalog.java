@@ -109,7 +109,7 @@ public abstract class ExternalCatalog
                 + "listDatabaseNames from remote client when init catalog with " + logType.name());
     }
 
-    public void setDefaultProps() {
+    public void setDefaultPropsWhenCreating(boolean isReplay) throws DdlException {
         // set some default properties when creating catalog
     }
 
