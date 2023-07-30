@@ -23,6 +23,7 @@
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/s3/S3Client.h>
+#include <bvar/reducer.h>
 #include <util/string_util.h>
 
 #include <atomic>
@@ -36,6 +37,18 @@
 #include "s3_uri.h"
 
 namespace doris {
+
+namespace s3_bvar {
+bvar::Adder<uint64_t> s3_get_total("s3_get", "total_num");
+bvar::Adder<uint64_t> s3_put_total("s3_put", "total_num");
+bvar::Adder<uint64_t> s3_delete_total("s3_delete", "total_num");
+bvar::Adder<uint64_t> s3_head_total("s3_head", "total_num");
+bvar::Adder<uint64_t> s3_multi_part_upload_total("s3_multi_part_upload", "total_num");
+bvar::Adder<uint64_t> s3_list_total("s3_list", "total_num");
+bvar::Adder<uint64_t> s3_list_object_versions_total("s3_list_object_versions", "total_num");
+bvar::Adder<uint64_t> s3_get_bucket_version_total("s3_get_bucket_version", "total_num");
+bvar::Adder<uint64_t> s3_copy_object_total("s3_copy_object", "total_num");
+}; // namespace s3_bvar
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
 public:
