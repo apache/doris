@@ -57,6 +57,8 @@ suite('test_partial_update_delete') {
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     qt_with_delete_sign "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName1} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
+    sql "drop table if exists ${tableName1};"
+    sql "drop table if exists ${tableName2};"
 
     sql "set skip_delete_sign=false;"
     sql "set skip_storage_engine_merge=false;"
@@ -84,7 +86,7 @@ suite('test_partial_update_delete') {
         set 'column_separator', ','
         set 'format', 'csv'
         set 'columns', 'k1'
-        set 'partial_colunms', 'true'
+        set 'partial_columns', 'true'
         set 'merge_type', 'DELETE'
 
         file 'partial_update_delete.csv'
@@ -95,5 +97,5 @@ suite('test_partial_update_delete') {
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     qt_sql "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName3} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
-
+    sql "drop table if exists ${tableName3};"
 }
