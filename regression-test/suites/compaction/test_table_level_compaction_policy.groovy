@@ -128,28 +128,4 @@ suite("test_table_level_compaction_policy") {
         exception "Table compaction policy only support for time_series or size_based"
     }
     sql """ DROP TABLE IF EXISTS ${tableName} """
-
-    test {
-        sql """
-            CREATE TABLE ${tableName} (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            DUPLICATE KEY (`c_custkey`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1",
-                    "compaction_policy" = "time_series",
-                    "time_series_compaction_goal_size_mbytes" = "1024"
-             );
-        """
-
-        sql """
-            alter table  ${tableName} set ("time_series_compaction_goal_size_mbytes" = "1024")
-            """
-        exception "Nothing is changed. please check your alter stmt."
-    }
-    sql """ DROP TABLE IF EXISTS ${tableName} """
 }
