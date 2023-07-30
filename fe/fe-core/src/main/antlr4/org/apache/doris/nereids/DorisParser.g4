@@ -352,9 +352,14 @@ indexDef
     ;
     
 partitionsDef
-    : partitions+=lessThanPartitionDef (COMMA partitions+=lessThanPartitionDef)*    #lessThan
-    | partitions+=fixedPartitionDef (COMMA partitions+=fixedPartitionDef)*          #fixed
-    | partitions+=stepPartitionDef (COMMA partitions+=stepPartitionDef)*            #step
+    : partitions+=partitionDef (COMMA partitions+=partitionDef)*
+    ;
+    
+partitionDef
+    : lessThanPartitionDef
+    | fixedPartitionDef
+    | stepPartitionDef
+    | inPartitionDef
     ;
     
 lessThanPartitionDef
@@ -368,6 +373,10 @@ fixedPartitionDef
 stepPartitionDef
     : FROM from=constantSeq TO to=constantSeq
         ((INTERVAL unitsAmount=valueExpression unit=datetimeUnit) | unitsAmount=valueExpression)
+    ;
+    
+inPartitionDef
+    : PARTITION partitionName=identifier VALUES IN LEFT_PAREN constants+=constantSeq (COMMA constants+=constantSeq)*
     ;
     
 constantSeq
