@@ -365,7 +365,6 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(_bucket).WithKey(_key);
     const auto& _stream_ptr = buf.get_stream();
-    request.SetBody(buf.get_stream());
     Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*_stream_ptr));
     request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
     request.SetBody(buf.get_stream());
