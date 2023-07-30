@@ -19,7 +19,6 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
-#include <string.h>
 
 #include <algorithm>
 #include <memory>
