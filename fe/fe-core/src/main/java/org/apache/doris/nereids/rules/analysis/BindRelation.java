@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.EsExternalTable;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
@@ -212,8 +213,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                     }
                 }
-                return new LogicalFileScan(RelationUtil.newRelationId(),
-                    (HMSExternalTable) table, ImmutableList.of(dbName));
+                return new LogicalFileScan(RelationUtil.newRelationId(), (HMSExternalTable) table, tableQualifier);
+            case ICEBERG_EXTERNAL_TABLE:
+            case PAIMON_EXTERNAL_TABLE:
+            case MAX_COMPUTE_EXTERNAL_TABLE:
+                return new LogicalFileScan(RelationUtil.newRelationId(), (ExternalTable) table, tableQualifier);
             case SCHEMA:
                 return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
             case JDBC_EXTERNAL_TABLE:

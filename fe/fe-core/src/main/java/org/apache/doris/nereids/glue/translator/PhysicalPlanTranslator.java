@@ -48,6 +48,7 @@ import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.catalog.external.JdbcExternalTable;
+import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
@@ -157,6 +158,7 @@ import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.HiveScanNode;
+import org.apache.doris.planner.external.MaxComputeScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
@@ -403,6 +405,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else if (table instanceof PaimonExternalTable) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+        } else if (table instanceof MaxComputeExternalTable) {
+            scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
