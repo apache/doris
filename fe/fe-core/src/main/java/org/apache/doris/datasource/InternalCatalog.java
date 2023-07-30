@@ -2028,7 +2028,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setCompactionPolicy(compactionPolicy);
 
-        if (compactionPolicy != PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
+        if (!compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
                 && (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
                 || properties
