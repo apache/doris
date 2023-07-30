@@ -655,6 +655,8 @@ public:
         _type = TIME_DATETIME;
     }
 
+    bool get_date_from_daynr(uint64_t);
+
 private:
     // Used to make sure sizeof VecDateTimeValue
     friend class UnusedClass;
@@ -684,9 +686,6 @@ private:
 
     static uint8_t calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year,
                              bool disable_lut = false);
-
-    // This is private function which modify date but modify `_type`
-    bool get_date_from_daynr(uint64_t);
 
     // Helper to set max, min, zero
     void set_zero(int type);
