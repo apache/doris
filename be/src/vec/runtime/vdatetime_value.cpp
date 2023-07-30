@@ -2482,6 +2482,21 @@ typename DateV2Value<T>::underlying_value DateV2Value<T>::to_date_int_val() cons
     return int_val_;
 }
 
+static std::array<DateV2Value<DateV2ValueType>, 25500> DATE_DAY_OFFSET_DICT;
+
+void init_date_day_offset_dict() {
+    DateV2Value<DateV2ValueType> d;
+    d.set_time(1970, 1, 1, 0, 0, 0, 0);
+    for (int i = 0; i < DATE_DAY_OFFSET_DICT.size(); ++i) {
+        DATE_DAY_OFFSET_DICT[i] = d;
+        d += 1;
+    }
+}
+
+DateV2Value<DateV2ValueType>* get_date_day_offset_dict() {
+    return DATE_DAY_OFFSET_DICT.data();
+}
+
 template <typename T>
 uint32_t DateV2Value<T>::set_date_uint32(uint32_t int_val) {
     union DateV2UInt32Union {

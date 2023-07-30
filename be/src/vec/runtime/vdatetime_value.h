@@ -1470,6 +1470,9 @@ class DataTypeDateTime;
 class DataTypeDateV2;
 class DataTypeDateTimeV2;
 
+[[maybe_unused]] void init_date_day_offset_dict();
+[[maybe_unused]] DateV2Value<DateV2ValueType>* get_date_day_offset_dict();
+
 template <typename T>
 struct DateTraits {};
 
