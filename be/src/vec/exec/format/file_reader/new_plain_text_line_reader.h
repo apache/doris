@@ -82,7 +82,8 @@ public:
 
 class PlainTexLineReaderCtx : public TextLineReaderContextIf {
 public:
-    explicit PlainTexLineReaderCtx(const std::string& line_delimiter_, const size_t line_delimiter_len_)
+    explicit PlainTexLineReaderCtx(const std::string& line_delimiter_,
+                                   const size_t line_delimiter_len_)
             : line_delimiter(line_delimiter_), line_delimiter_len(line_delimiter_len_) {}
 
     inline const uint8_t* read_line(const uint8_t* start, const size_t len) override {
@@ -102,9 +103,10 @@ protected:
 
 class CsvLineReaderContext final : public PlainTexLineReaderCtx {
 public:
-    explicit CsvLineReaderContext(const std::string& line_delimiter_, const size_t line_delimiter_len_,
-                                  const std::string& column_sep_, const size_t column_sep_len_,
-                                  const char enclose, const char escape)
+    explicit CsvLineReaderContext(const std::string& line_delimiter_,
+                                  const size_t line_delimiter_len_, const std::string& column_sep_,
+                                  const size_t column_sep_len_, const char enclose,
+                                  const char escape)
             : PlainTexLineReaderCtx(line_delimiter_, line_delimiter_len_),
               _enclose(enclose),
               _escape(escape),
