@@ -71,10 +71,8 @@ using KeysNullMap = std::array<UInt8, get_bitmap_size<T>()>;
 
 /// Pack into a binary blob of type T a set of fixed-size keys. Granted that all the keys fit into the
 /// binary blob, they are disposed in it consecutively.
-template <typename T, bool has_low_cardinality = false>
-T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes,
-             const ColumnRawPtrs* low_cardinality_positions [[maybe_unused]] = nullptr,
-             const Sizes* low_cardinality_sizes [[maybe_unused]] = nullptr) {
+template <typename T>
+T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const Sizes& key_sizes) {
     union {
         T key;
         char bytes[sizeof(key)] = {};
@@ -85,26 +83,6 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
     for (size_t j = 0; j < keys_size; ++j) {
         size_t index = i;
         const IColumn* column = key_columns[j];
-        if constexpr (has_low_cardinality) {
-            if (const IColumn* positions = (*low_cardinality_positions)[j]) {
-                switch ((*low_cardinality_sizes)[j]) {
-                case sizeof(UInt8):
-                    index = assert_cast<const ColumnUInt8*>(positions)->get_element(i);
-                    break;
-                case sizeof(UInt16):
-                    index = assert_cast<const ColumnUInt16*>(positions)->get_element(i);
-                    break;
-                case sizeof(UInt32):
-                    index = assert_cast<const ColumnUInt32*>(positions)->get_element(i);
-                    break;
-                case sizeof(UInt64):
-                    index = assert_cast<const ColumnUInt64*>(positions)->get_element(i);
-                    break;
-                default:
-                    LOG(FATAL) << "Unexpected size of index type for low cardinality column.";
-                }
-            }
-        }
 
         switch (key_sizes[j]) {
         case 1:
@@ -221,10 +199,13 @@ T pack_fixed(size_t i, size_t keys_size, const ColumnRawPtrs& key_columns, const
 template <typename T>
 std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                            const Sizes& key_sizes, const ColumnRawPtrs& nullmap_columns) {
-    static constexpr auto bitmap_size = std::tuple_size<KeysNullMap<T>>::value;
+    size_t bitmap_size = 0;
+    if (!nullmap_columns.empty()) {
+        bitmap_size = std::tuple_size<KeysNullMap<T>>::value;
+    }
+
     std::vector<T> result(row_numbers);
     size_t offset = 0;
-
     if (bitmap_size > 0) {
         for (size_t j = 0; j < nullmap_columns.size(); j++) {
             if (nullmap_columns[j] == nullptr) {

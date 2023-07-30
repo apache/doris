@@ -77,9 +77,9 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     }
 
     std::vector<FieldType> get_keys(size_t rows_number) const {
-        std::vector<FieldType> keys;
+        std::vector<FieldType> keys(rows_number);
         for (size_t row = 0; row < rows_number; row++) {
-            keys.push_back(unaligned_load<FieldType>(vec + row * sizeof(FieldType)));
+            keys[row] = unaligned_load<FieldType>(vec + row * sizeof(FieldType));
         }
         return keys;
     }
@@ -152,9 +152,9 @@ struct HashMethodSerialized
     }
 
     std::vector<StringRef> get_keys(size_t rows_number) const {
-        std::vector<StringRef> keys;
+        std::vector<StringRef> keys(rows_number);
         for (size_t row = 0; row < rows_number; row++) {
-            keys.push_back(this->keys[row]);
+            keys[row] = this->keys[row];
         }
         return keys;
     }

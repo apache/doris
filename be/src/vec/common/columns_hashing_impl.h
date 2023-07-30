@@ -459,8 +459,7 @@ private:
 template <typename Key>
 class BaseStateKeysFixed<Key, false> {
 protected:
-    BaseStateKeysFixed(const ColumnRawPtrs& columns)
-            : actual_columns(columns), null_maps(columns.size()) {}
+    BaseStateKeysFixed(const ColumnRawPtrs& columns) : actual_columns(columns) {}
 
     const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
 
