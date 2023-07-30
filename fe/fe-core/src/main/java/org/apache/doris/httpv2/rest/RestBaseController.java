@@ -35,7 +35,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.servlet.view.RedirectView;
-import sun.security.krb5.Config;
 
 import java.io.BufferedInputStream;
 import java.io.File;
