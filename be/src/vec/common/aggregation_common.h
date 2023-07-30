@@ -228,7 +228,7 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
         const char* data = key_columns[j]->get_raw_data().data;
 
         if (key_sizes[j] == 1) {
-            if (nullmap_columns[j]) {
+            if (nullmap_columns.size() && nullmap_columns[j]) {
                 const auto& nullmap =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
@@ -242,7 +242,7 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
             }
 
         } else if (key_sizes[j] == 2) {
-            if (nullmap_columns[j]) {
+            if (nullmap_columns.size() && nullmap_columns[j]) {
                 const auto& nullmap =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
@@ -255,7 +255,7 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                 }
             }
         } else if (key_sizes[j] == 4) {
-            if (nullmap_columns[j]) {
+            if (nullmap_columns.size() && nullmap_columns[j]) {
                 const auto& nullmap =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
@@ -268,7 +268,7 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                 }
             }
         } else if (key_sizes[j] == 8) {
-            if (nullmap_columns[j]) {
+            if (nullmap_columns.size() && nullmap_columns[j]) {
                 const auto& nullmap =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
@@ -281,7 +281,7 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
                 }
             }
         } else if (key_sizes[j] == 16) {
-            if (nullmap_columns[j]) {
+            if (nullmap_columns.size() && nullmap_columns[j]) {
                 const auto& nullmap =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
