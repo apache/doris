@@ -934,17 +934,26 @@ Status VFileScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
-        io::FileCacheProfileReporter cache_profile(_profile);
-        cache_profile.update(_file_cache_statistics.get());
-    }
-
     if (_cur_reader) {
         _cur_reader->close();
     }
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
+}
+
+void VFileScanner::_update_counters_before_close() {
+    if (!_state->enable_profile() || _has_updated_counter) {
+        return;
+    }
+    _has_updated_counter = true;
+
+    VScanner::_update_counters_before_close();
+
+    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
+    }
 }
 
 } // namespace doris::vectorized

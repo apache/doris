@@ -87,6 +87,8 @@ protected:
     // TODO: cast input block columns type to string.
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
+    void _update_counters_before_close() override;
+
 protected:
     std::unique_ptr<TextConverter> _text_converter;
     const TFileScanRangeParams* _params;
