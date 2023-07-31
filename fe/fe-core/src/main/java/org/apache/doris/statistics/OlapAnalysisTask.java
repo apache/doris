@@ -50,11 +50,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "     (SELECT NDV(`${colName}`) AS ndv "
             + "     FROM `${dbName}`.`${tblName}` ${sampleExpr}) t2\n";
 
-    @VisibleForTesting
-    public OlapAnalysisTask() {
-        super();
-    }
-
     public OlapAnalysisTask(AnalysisInfo info) {
         super(info);
     }
@@ -113,6 +108,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (killed) {
             return;
         }
+        long startTime = System.currentTimeMillis();
+        LOG.info("ANALYZE SQL : " + sql + " start at " + startTime);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
@@ -123,6 +120,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
                         info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
             }
+        } finally {
+            LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
         }
     }
+
 }
