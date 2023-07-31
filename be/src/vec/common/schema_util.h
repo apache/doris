@@ -28,6 +28,7 @@
 
 #include "common/status.h"
 #include "olap/tablet_schema.h"
+#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
@@ -58,14 +59,16 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type);
 Array create_empty_array_field(size_t num_dimensions);
 
 // Cast column to dst type
-Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
+Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result,
+                   RuntimeState* = nullptr);
 
 // Object column will be unfolded and if  cast_to_original_type
 // the original column in the block will be replaced with the subcolumn
 // from object column and casted to the new type from slot_descs.
 // Also if column in block is empty, it will be filled
 // with num_rows of default values
-Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type);
+Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type,
+                     RuntimeState* = nullptr);
 
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,
