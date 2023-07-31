@@ -1316,6 +1316,13 @@ public class Config extends ConfigBase {
     public static int max_multi_partition_num = 4096;
 
     /**
+     * Use this parameter to set the partition name prefix for multi partition,
+     * Only multi partition takes effect, not dynamic partitions.
+     * The default prefix is "p_".
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String multi_partition_name_prefix = "p_";
+    /**
      * Control the max num of backup/restore job per db
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1674,13 +1681,6 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int statistics_simultaneously_running_task_num = 10;
-
-    /**
-     * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
-     * otherwise the statistics related internal table creation would be failed.
-     */
-    @ConfField
-    public static int statistic_internal_table_replica_num = 1;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.

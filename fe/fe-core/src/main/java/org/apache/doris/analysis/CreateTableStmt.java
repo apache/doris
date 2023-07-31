@@ -269,6 +269,9 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     public Map<String, String> getProperties() {
+        if (this.properties == null) {
+            this.properties = Maps.newHashMap();
+        }
         return this.properties;
     }
 

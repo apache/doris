@@ -64,12 +64,15 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
+    def try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
     
     // test load data without new column
@@ -174,12 +177,15 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
 
     // test load data without delete column
@@ -206,32 +212,33 @@ suite("test_partial_update_schema_change", "p0") {
         }
     }
     qt_sql5 " select * from ${tableName} order by c0 "
-    
-    // test load data with delete column
-    // todo bug
-    // streamLoad {
-    //     table "${tableName}"
 
-    //     set 'column_separator', ','
-    //     set 'partial_columns', 'true'
-    //     set 'columns', 'c0, c1, c8'
+    // test load data with delete column, stream load will ignore the
+    // non-existing column
+    streamLoad {
+        table "${tableName}"
 
-    //     file 'schema_change/load_without_delete_column.csv'
-    //     time 10000 // limit inflight 10s
+        set 'column_separator', ','
+        set 'partial_columns', 'true'
+        set 'columns', 'c0, c1, c7, c8'
 
-    //     check { result, exception, startTime, endTime ->
-    //         if (exception != null) {
-    //             throw exception
-    //         }
-    //         // check result, which is fail for loading delete column.
-    //         log.info("Stream load result: ${result}".toString())
-    //         def json = parseJson(result)
-    //         assertEquals("fail", json.Status.toLowerCase())
-    //         assertEquals(1, json.NumberTotalRows)
-    //         assertEquals(1, json.NumberFilteredRows)
-    //         assertEquals(0, json.NumberUnselectedRows)
-    //     }
-    // }
+        file 'schema_change/load_without_delete_column.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            // check result, which is fail for loading delete column.
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(1, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    qt_sql6 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -279,16 +286,19 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql6 " select * from ${tableName} order by c0 "
+    qt_sql7 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
 
     // test load data with update column
@@ -314,7 +324,7 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql7 " select * from ${tableName} order by c0 "
+    qt_sql8 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -354,52 +364,57 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-    qt_sql8 " select * from ${tableName} order by c0 "
+    qt_sql9 " select * from ${tableName} order by c0 "
     
     // schema change
     sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
+
     sql " ALTER table ${tableName} ADD COLUMN c2 int null "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
 
-    // test load data with all key column
-    // todo cause core
-    // streamLoad {
-    //     table "${tableName}"
+    // test load data with all key column, should fail because
+    // it don't have any value columns
+    streamLoad {
+        table "${tableName}"
 
-    //     set 'column_separator', ','
-    //     set 'partial_columns', 'true'
-    //     set 'columns', 'c0, c1'
+        set 'column_separator', ','
+        set 'partial_columns', 'true'
+        set 'columns', 'c0, c1'
 
-    //     file 'schema_change/load_with_key_column.csv'
-    //     time 10000 // limit inflight 10s
+        file 'schema_change/load_with_key_column.csv'
+        time 10000 // limit inflight 10s
 
-    //     check { result, exception, startTime, endTime ->
-    //         if (exception != null) {
-    //             throw exception
-    //         }
-    //         log.info("Stream load result: ${result}".toString())
-    //         def json = parseJson(result)
-    //         assertEquals("success", json.Status.toLowerCase())
-    //         assertEquals(1, json.NumberTotalRows)
-    //         assertEquals(0, json.NumberFilteredRows)
-    //         assertEquals(0, json.NumberUnselectedRows)
-    //     }
-    // }
-    // //check data
-    // qt_sql9 " select * from ${tableName} order by c0 "
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -451,12 +466,15 @@ suite("test_partial_update_schema_change", "p0") {
     qt_sql10 " select * from ${tableName} order by c0 "
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
 
     //test load data with create index
@@ -605,12 +623,15 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
     
     // test load data without new column
@@ -714,12 +735,15 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} DROP COLUMN c8 "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
 
     // test load data without delete column
@@ -822,12 +846,15 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} MODIFY COLUMN c2 double "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
 
     // test load data with update column
@@ -896,20 +923,26 @@ suite("test_partial_update_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} ADD COLUMN c1 int key null "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
     sql " ALTER table ${tableName} ADD COLUMN c2 int null "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
 
     // test load data with all key column
@@ -987,12 +1020,15 @@ suite("test_partial_update_schema_change", "p0") {
     qt_sql23 " select * from ${tableName} order by c0 "
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
+    try_times=100
     while(true){
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "
+        Thread.sleep(1000)
         if(res[0][9].toString() == "FINISHED"){
             break;
         }
-        Thread.sleep(500)
+        assert(try_times>0)
+        try_times--
     }
 
     //test load data with create index

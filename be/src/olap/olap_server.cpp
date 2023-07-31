@@ -54,7 +54,6 @@
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segcompaction.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
@@ -182,11 +181,6 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
     LOG(INFO) << "fd cache clean thread started";
 
-    RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "clean_lookup_cache", [this]() { this->_start_clean_lookup_cache(); },
-            &_lookup_cache_clean_thread));
-    LOG(INFO) << "clean lookup cache thread started";
-
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
@@ -263,13 +257,6 @@ void StorageEngine::_fd_cache_clean_callback() {
         }
 
         _start_clean_cache();
-    }
-}
-
-void StorageEngine::_start_clean_lookup_cache() {
-    while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::tablet_lookup_cache_clean_interval))) {
-        LookupCache::instance().prune();
     }
 }
 
@@ -995,17 +982,17 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
     return _submit_compaction_task(tablet, compaction_type, force);
 }
 
-Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
+Status StorageEngine::_handle_seg_compaction(SegcompactionWorker* worker,
                                              SegCompactionCandidatesSharedPtr segments) {
-    writer->get_segcompaction_worker().compact_segments(segments);
+    worker->compact_segments(segments);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
 
-Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
+Status StorageEngine::submit_seg_compaction_task(SegcompactionWorker* worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
     return _seg_compaction_thread_pool->submit_func(
-            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
+            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, worker, segments));
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {

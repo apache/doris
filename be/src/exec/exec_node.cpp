@@ -44,6 +44,7 @@
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
+#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -371,7 +372,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        if (tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec()) {
+            *node = pool->add(new vectorized::DistinctAggregationNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:

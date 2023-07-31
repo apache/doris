@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_show_where", "query") {
+suite("test_show_where", "query,external,mysql") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     String ex_db_name = "doris_test";
