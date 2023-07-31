@@ -2617,7 +2617,7 @@ static std::array<DateV2Value<DateV2ValueType>, 25500> DATE_DAY_OFFSET_DICT;
 
 void init_date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
-    d.set_time(1970, 1, 1, 0, 0, 0, 0);
+    d.set_time(1969, 12, 31, 0, 0, 0, 0);
     for (int i = 0; i < DATE_DAY_OFFSET_DICT.size(); ++i) {
         DATE_DAY_OFFSET_DICT[i] = d;
         d += 1;

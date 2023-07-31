@@ -258,6 +258,7 @@ Status FixLengthPlainDecoder::_decode_date(MutableColumnPtr& doris_column,
                 int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start)) +
                                      _decode_params->offset_days;
                 DCHECK_LT(date_value, 25500);
+                DCHECK_GE(date_value, 0);
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
                     auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
                     v.create_from_date_v2(date_day_offset_dict[date_value], TIME_DATE);
