@@ -441,7 +441,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
     /**
      * Window Functions that have common PartitionKeys and OrderKeys.
      */
-    public static class OrderKeyGroup extends WindowFunctionRelatedGroup<WindowFrameGroup> {
+    private static class OrderKeyGroup extends WindowFunctionRelatedGroup<WindowFrameGroup> {
 
         private final Set<Expression> partitionKeys;
         private final List<OrderExpression> orderKeys;
