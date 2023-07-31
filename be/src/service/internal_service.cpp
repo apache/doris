@@ -169,10 +169,20 @@ private:
 
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
-          _heavy_work_pool(config::brpc_heavy_work_pool_threads,
-                           config::brpc_heavy_work_pool_max_queue_size, "brpc_heavy"),
-          _light_work_pool(config::brpc_light_work_pool_threads,
-                           config::brpc_light_work_pool_max_queue_size, "brpc_light") {
+          _heavy_work_pool(config::brpc_heavy_work_pool_threads != -1
+                                   ? config::brpc_heavy_work_pool_threads
+                                   : std::max(128, CpuInfo::num_cores() * 4),
+                           config::brpc_heavy_work_pool_max_queue_size != -1
+                                   ? config::brpc_heavy_work_pool_max_queue_size
+                                   : std::max(10240, CpuInfo::num_cores() * 320),
+                           "brpc_heavy"),
+          _light_work_pool(config::brpc_light_work_pool_threads != -1
+                                   ? config::brpc_light_work_pool_threads
+                                   : std::max(128, CpuInfo::num_cores() * 4),
+                           config::brpc_light_work_pool_max_queue_size != -1
+                                   ? config::brpc_light_work_pool_max_queue_size
+                                   : std::max(10240, CpuInfo::num_cores() * 320),
+                           "brpc_light") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
