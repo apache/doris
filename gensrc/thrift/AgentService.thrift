@@ -70,6 +70,7 @@ struct TS3StorageParam {
     7: optional i32 conn_timeout_ms = 1000
     8: optional string root_path
     9: optional string bucket
+    10: optional bool use_path_style = false
 }
 
 struct TStoragePolicy {
@@ -103,7 +104,8 @@ enum TCompressionType {
     LZ4 = 4,
     LZ4F = 5,
     ZLIB = 6,
-    ZSTD = 7
+    ZSTD = 7,
+    LZ4HC = 8
 }
 
 

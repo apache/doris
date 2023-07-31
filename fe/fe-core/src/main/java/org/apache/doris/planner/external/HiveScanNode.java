@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -67,13 +68,13 @@ public class HiveScanNode extends FileQueryScanNode {
 
     public static final String PROP_FIELD_DELIMITER = "field.delim";
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
-
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
     public static final String PROP_ARRAY_DELIMITER_HIVE2 = "colelction.delim";
     public static final String PROP_ARRAY_DELIMITER_HIVE3 = "collection.delim";
     public static final String DEFAULT_ARRAY_DELIMITER = "\2";
+
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
@@ -105,12 +106,11 @@ public class HiveScanNode extends FileQueryScanNode {
             for (SlotDescriptor slot : desc.getSlots()) {
                 if (slot.getType().isMapType() || slot.getType().isStructType()) {
                     throw new UserException("For column `" + slot.getColumn().getName()
-                            + "`, The column types MAP/STRUCT are not supported yet"
-                            + " for text input format of Hive. ");
+                        + "`, The column types MAP/STRUCT are not supported yet"
+                        + " for text input format of Hive. ");
                 }
             }
         }
-
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
@@ -151,7 +151,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 partitionValuesList.add(listPartitionItem.getItems().get(0).getPartitionValuesAsStringList());
             }
             List<HivePartition> allPartitions =
-                    cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(), partitionValuesList);
+                     cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(), partitionValuesList);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionsFinishTime();
             }
@@ -309,5 +309,20 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         }
         params.setSlotNameToSchemaPos(columnNameToPosition);
+    }
+
+    @Override
+    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
+
+        String aggFunctionName = aggExpr.getFnName().getFunction();
+        if (aggFunctionName.equalsIgnoreCase("COUNT")) {
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
+        return !col.isAllowNull();
     }
 }

@@ -1316,6 +1316,13 @@ public class Config extends ConfigBase {
     public static int max_multi_partition_num = 4096;
 
     /**
+     * Use this parameter to set the partition name prefix for multi partition,
+     * Only multi partition takes effect, not dynamic partitions.
+     * The default prefix is "p_".
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String multi_partition_name_prefix = "p_";
+    /**
      * Control the max num of backup/restore job per db
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1673,14 +1680,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_task_num = 10;
-
-    /**
-     * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
-     * otherwise the statistics related internal table creation would be failed.
-     */
-    @ConfField
-    public static int statistic_internal_table_replica_num = 1;
+    public static int statistics_simultaneously_running_task_num = 5;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.
@@ -2031,13 +2031,13 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField
-    public static boolean enable_full_auto_analyze = false;
+    public static boolean enable_full_auto_analyze = true;
 
     @ConfField
     public static String full_auto_analyze_start_time = "00:00:00";
 
     @ConfField
-    public static String full_auto_analyze_end_time = "23:59:59";
+    public static String full_auto_analyze_end_time = "02:00:00";
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
@@ -2056,4 +2056,11 @@ public class Config extends ConfigBase {
                     + "and modifying table properties. "
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
+
+    @ConfField
+    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField
+    public static int cpu_resource_limit_per_analyze_task = 1;
+
 }

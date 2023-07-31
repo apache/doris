@@ -833,7 +833,7 @@ public:
     }
 };
 
-template <typename FunctionImpl, bool DefaultNullable = true>
+template <typename FunctionImpl>
 class FunctionCurrentDateOrDateTime : public IFunction {
 public:
     static constexpr bool has_variadic_argument =
@@ -845,8 +845,6 @@ public:
     String get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 0; }
-
-    bool use_default_implementation_for_nulls() const override { return DefaultNullable; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return std::make_shared<typename FunctionImpl::ReturnType>();

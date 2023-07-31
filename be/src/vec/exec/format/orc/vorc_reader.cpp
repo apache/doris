@@ -236,6 +236,8 @@ Status OrcReader::_create_file_reader() {
     } catch (std::exception& e) {
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
     }
+    _remaining_rows = _reader->getNumberOfRows();
+
     return Status::OK();
 }
 
@@ -1370,6 +1372,22 @@ std::string OrcReader::_get_field_name_lower_case(const orc::Type* orc_type, int
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+        auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
+
+        set_remaining_rows(get_remaining_rows() - rows);
+
+        for (auto& col : block->mutate_columns()) {
+            col->resize(rows);
+        }
+
+        *read_rows = rows;
+        if (get_remaining_rows() == 0) {
+            *eof = true;
+        }
+        return Status::OK();
+    }
+
     if (_lazy_read_ctx.can_lazy_read) {
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
@@ -1934,7 +1952,6 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
             texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
             texpr_node.__set_opcode(TExprOpcode::EQ);
-            texpr_node.__set_vector_opcode(TExprOpcode::EQ);
             texpr_node.__set_fn(fn);
             texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
@@ -1970,8 +1987,6 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             node.__set_node_type(TExprNodeType::IN_PRED);
             node.in_predicate.__set_is_not_in(false);
             node.__set_opcode(TExprOpcode::FILTER_IN);
-            node.__isset.vector_opcode = true;
-            node.__set_vector_opcode(TExprOpcode::FILTER_IN);
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
 

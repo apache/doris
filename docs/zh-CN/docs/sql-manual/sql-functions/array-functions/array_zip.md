@@ -24,7 +24,7 @@ under the License.
 
 ## array_zip
 
-<version since="1.2.3">
+<version since="2.0">
 
 array_zip
 

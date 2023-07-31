@@ -55,7 +55,7 @@ class DataDir;
 class EngineTask;
 class MemTableFlushExecutor;
 class TaskWorkerPool;
-class BetaRowsetWriter;
+class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
@@ -208,7 +208,7 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                   bool force);
-    Status submit_seg_compaction_task(BetaRowsetWriter* writer,
+    Status submit_seg_compaction_task(SegcompactionWorker* worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
@@ -288,8 +288,6 @@ private:
 
     void _start_clean_cache();
 
-    void _start_clean_lookup_cache();
-
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
     // When the disk status is unusable, but the unused logo is not _push_tablet_into_submitted_compactiondetected, you need to download it from root_path
@@ -326,7 +324,7 @@ private:
 
     void _cache_file_cleaner_tasks_producer_callback();
 
-    Status _handle_seg_compaction(BetaRowsetWriter* writer,
+    Status _handle_seg_compaction(SegcompactionWorker* worker,
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);

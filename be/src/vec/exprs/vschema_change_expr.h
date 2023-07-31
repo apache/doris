@@ -47,14 +47,11 @@ class VSchemaChangeExpr : public VExpr {
 public:
     VSchemaChangeExpr(const TExprNode& node) : VExpr(node), _tnode(node) {}
     ~VSchemaChangeExpr() = default;
-    Status execute(VExprContext* context, doris::vectorized::Block* block,
-                   int* result_column_id) override;
-    Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                   VExprContext* context) override;
-    Status open(doris::RuntimeState* state, VExprContext* context,
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
+    Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
-    VExprSPtr clone() const override { return VSchemaChangeExpr::create_shared(*this); }
     const std::string& expr_name() const override;
     std::string debug_string() const override;
 

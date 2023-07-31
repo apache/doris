@@ -759,6 +759,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         Database db = (Database) getDbOrDdlException(dbName);
+        long dbId = db.getId();
         Map<String, String> properties = stmt.getProperties();
 
         db.writeLockOrDdlException();
@@ -768,7 +769,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 return;
             }
 
-            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbName, properties);
+            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbId, dbName, properties);
             Env.getCurrentEnv().getEditLog().logAlterDatabaseProperty(info);
         } finally {
             db.writeUnlock();
@@ -1147,7 +1148,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
 
                 Env.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true, -1L,
-                        false);
+                        false, false);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
@@ -1888,6 +1889,20 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
 
+        BinlogConfig dbBinlogConfig;
+        db.readLock();
+        try {
+            dbBinlogConfig = new BinlogConfig(db.getBinlogConfig());
+        } finally {
+            db.readUnlock();
+        }
+        BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
+        createTableBinlogConfig.mergeFromProperties(stmt.getProperties());
+        if (dbBinlogConfig.isEnable() && !createTableBinlogConfig.isEnable()) {
+            throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
+        }
+        stmt.getProperties().putAll(createTableBinlogConfig.toProperties());
+
         // get keys type
         KeysDesc keysDesc = stmt.getKeysDesc();
         Preconditions.checkNotNull(keysDesc);
@@ -2070,6 +2085,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setIsInMemory(false);
 
+        boolean isBeingSynced = PropertyAnalyzer.analyzeIsBeingSynced(properties, false);
+        olapTable.setIsBeingSynced(isBeingSynced);
+        if (isBeingSynced) {
+            // erase colocate table, storage policy
+            olapTable.ignoreInvaildPropertiesWhenSynced(properties);
+            // remark auto bucket
+            if (isAutoBucket) {
+                olapTable.markAutoBucket();
+            }
+        }
+
         boolean storeRowColumn = false;
         try {
             storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
@@ -2136,6 +2162,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
                         new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                olapTable.setStorageMedium(dataProperty.getStorageMediumString());
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -2302,17 +2329,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
+                    DataProperty dataProperty = null;
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                    dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
                             new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                    olapTable.setStorageMedium(dataProperty.getStorageMediumString());
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
                         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                             throw new DdlException(
                                     "Only support dynamic partition properties on range partition table");
-
                         }
                     }
 

@@ -59,5 +59,6 @@ suite("fold_constant") {
     qt_select "select * from d_table2 order by 1;"
     sql "delete from d_table2 where k1=3+1;"
     qt_select "select * from d_table2 order by 1;"
+    qt_select "select 10.0/0, 0.0/10"
 
 }

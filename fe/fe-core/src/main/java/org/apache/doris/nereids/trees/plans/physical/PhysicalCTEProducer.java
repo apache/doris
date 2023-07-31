@@ -54,7 +54,8 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     public PhysicalCTEProducer(CTEId cteId, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_CTE_PRODUCE, groupExpression, logicalProperties, physicalProperties, statistics, child);
+        super(PlanType.PHYSICAL_CTE_PRODUCER, groupExpression,
+                logicalProperties, physicalProperties, statistics, child);
         this.cteId = cteId;
     }
 

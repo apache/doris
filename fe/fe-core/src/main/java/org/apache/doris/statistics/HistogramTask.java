@@ -59,6 +59,7 @@ public class HistogramTask extends BaseAnalysisTask {
 
     @Override
     public void doExecute() throws Exception {
+        setTaskStateToRunning();
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("histogramStatTbl", StatisticConstants.HISTOGRAM_TBL_NAME);

@@ -51,6 +51,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
@@ -233,6 +234,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
+        signal::set_signal_task_id(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open(*request);
         if (!st.ok()) {
@@ -373,6 +375,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            signal::set_signal_task_id(request->id());
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
@@ -400,6 +403,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     bool ret = _light_work_pool.try_offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
+        signal::set_signal_task_id(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->cancel(*request);
         if (!st.ok()) {
@@ -1476,10 +1480,23 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     }
 }
 
+template <typename Func>
+auto scope_timer_run(Func fn, int64_t* cost) -> decltype(fn()) {
+    MonotonicStopWatch watch;
+    watch.start();
+    auto res = fn();
+    *cost += watch.elapsed_time() / 1000 / 1000;
+    return res;
+}
+
 Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                                         PMultiGetResponse* response) {
     OlapReaderStatistics stats;
     vectorized::Block result_block;
+    int64_t acquire_tablet_ms = 0;
+    int64_t acquire_rowsets_ms = 0;
+    int64_t acquire_segments_ms = 0;
+    int64_t lookup_row_data_ms = 0;
 
     // init desc
     TupleDescriptor desc(request.desc());
@@ -1501,16 +1518,21 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         const auto& row_loc = request.row_locs(i);
         MonotonicStopWatch watch;
         watch.start();
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                row_loc.tablet_id(), true /*include deleted*/);
+        TabletSharedPtr tablet = scope_timer_run(
+                [&]() {
+                    return StorageEngine::instance()->tablet_manager()->get_tablet(
+                            row_loc.tablet_id(), true /*include deleted*/);
+                },
+                &acquire_tablet_ms);
         RowsetId rowset_id;
         rowset_id.init(row_loc.rowset_id());
         if (!tablet) {
             continue;
         }
         // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
-        BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
-                StorageEngine::instance()->get_quering_rowset(rowset_id));
+        BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
+                [&]() { return StorageEngine::instance()->get_quering_rowset(rowset_id); },
+                &acquire_rowsets_ms));
         if (!rowset) {
             LOG(INFO) << "no such rowset " << rowset_id;
             continue;
@@ -1523,7 +1545,11 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             *response->add_row_locs() = row_loc;
         });
         SegmentCacheHandle segment_cache;
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+        RETURN_IF_ERROR(scope_timer_run(
+                [&]() {
+                    return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
+                },
+                &acquire_segments_ms));
         // find segment
         auto it = std::find_if(segment_cache.get_segments().begin(),
                                segment_cache.get_segments().end(),
@@ -1541,7 +1567,11 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             CHECK(tablet->tablet_schema()->store_row_column());
             RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
             string* value = response->add_binary_row_data();
-            RETURN_IF_ERROR(tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value));
+            RETURN_IF_ERROR(scope_timer_run(
+                    [&]() {
+                        return tablet->lookup_row_data({}, loc, rowset, &desc, stats, *value);
+                    },
+                    &lookup_row_data_ms));
             row_size = value->size();
             continue;
         }
@@ -1570,7 +1600,6 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
             RETURN_IF_ERROR(
                     segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
             segment_v2::ColumnIteratorOptions opt;
-            OlapReaderStatistics stats;
             opt.file_reader = segment->file_reader().get();
             opt.stats = &stats;
             opt.use_page_cache = !config::disable_storage_page_cache;
@@ -1591,6 +1620,17 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                                                &uncompressed_size, &compressed_size,
                                                segment_v2::CompressionTypePB::LZ4));
     }
+
+    LOG(INFO) << "Query stats: "
+              << fmt::format(
+                         "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
+                         "io_latency:{}ns, "
+                         "uncompressed_bytes_read:{},"
+                         "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
+                         "lookup_row_data_ms:{}",
+                         stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
+                         stats.io_ns, stats.uncompressed_bytes_read, acquire_tablet_ms,
+                         acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms);
     return Status::OK();
 }
 

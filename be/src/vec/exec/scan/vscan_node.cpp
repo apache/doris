@@ -113,6 +113,19 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     } else {
         _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
+
+    // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
+    // Introduced a new field : tnode.push_down_agg_type_opt
+    //
+    // make it compatible here
+    if (tnode.__isset.push_down_agg_type_opt) {
+        _push_down_agg_type = tnode.push_down_agg_type_opt;
+    } else if (tnode.olap_scan_node.__isset.push_down_agg_type_opt) {
+        _push_down_agg_type = tnode.olap_scan_node.push_down_agg_type_opt;
+
+    } else {
+        _push_down_agg_type = TPushAggOp::type::NONE;
+    }
     return Status::OK();
 }
 
