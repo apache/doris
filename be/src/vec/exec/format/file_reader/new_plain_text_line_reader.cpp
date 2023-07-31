@@ -220,12 +220,8 @@ void CsvLineReaderContext::on_found_line(const uint8_t* start, size_t len) {
         ++_delimiter_match_len;
         ++_idx;
     } else {
-        // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
-        // will reset to left enclose idx to do parse in nornal state
         _delimiter_match_len = 0;
         _state.forward_to(ReaderState::NORMAL);
-        _idx = _left_enclose_pos;
-        return;
     }
 }
 
