@@ -1147,7 +1147,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
 
                 Env.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true, -1L,
-                        false);
+                        false, false);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
@@ -2071,6 +2071,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setIsInMemory(false);
 
+        boolean isBeingSynced = PropertyAnalyzer.analyzeIsBeingSynced(properties, false);
+        olapTable.setIsBeingSynced(isBeingSynced);
+        if (isBeingSynced) {
+            // erase colocate table, storage policy
+            olapTable.ignoreInvaildPropertiesWhenSynced(properties);
+            // remark auto bucket
+            if (isAutoBucket) {
+                olapTable.markAutoBucket();
+            }
+        }
+
         boolean storeRowColumn = false;
         try {
             storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
@@ -2312,7 +2323,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                             throw new DdlException(
                                     "Only support dynamic partition properties on range partition table");
-
                         }
                     }
 
