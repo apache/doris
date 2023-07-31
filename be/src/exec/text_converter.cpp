@@ -488,6 +488,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
 }
 
 void TextConverter::unescape_string_on_spot(const char* src, size_t* len) {
+    const char* start = src;
     char* dest_ptr = const_cast<char*>(src);
     const char* end = src + *len;
     bool escape_next_char = false;
@@ -506,7 +507,7 @@ void TextConverter::unescape_string_on_spot(const char* src, size_t* len) {
         }
     }
 
-    *len = dest_ptr - src;
+    *len = dest_ptr - start;
 }
 
 } // namespace doris
