@@ -1173,18 +1173,6 @@ under the License.
                 <artifactId>jettison</artifactId>
                 <version>${jettison.version}</version>
             </dependency>
-
-            <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-core -->
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-core</artifactId>
-                <version>${iceberg.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-aws</artifactId>
-                <version>${iceberg.version}</version>
-            </dependency>
             <dependency>
                 <groupId>com.aliyun.odps</groupId>
                 <artifactId>odps-sdk-core</artifactId>
