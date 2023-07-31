@@ -431,6 +431,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             Expression rightExpr, ColumnStatistic rightStats, EstimationContext context) {
         StatisticRange leftRange = StatisticRange.from(leftStats, leftExpr.getDataType());
         StatisticRange rightRange = StatisticRange.from(rightStats, rightExpr.getDataType());
+        double nullFrac = Math.max(leftStats.numNulls / leftStats.count,
+                rightStats.numNulls / rightStats.count);
+
         Statistics statistics = null;
         // Left always less than Right
         if (leftRange.getHigh() < rightRange.getLow()) {
@@ -469,13 +472,13 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         ColumnStatistic rightColumnStatistic = new ColumnStatisticBuilder(rightStats)
                 .setMinValue(Math.max(leftRange.getLow(), rightRange.getLow()))
                 .setMaxValue(rightRange.getHigh())
-                .setAvgSizeByte(rightStats.ndv * (rightAlwaysGreaterRangeFraction + rightOverlappingRangeFraction))
+                .setNdv(rightStats.ndv * (rightAlwaysGreaterRangeFraction + rightOverlappingRangeFraction))
                 .setNumNulls(0)
                 .build();
         double sel = leftAlwaysLessThanRightPercent
                 + leftOverlapPercent * rightOverlappingRangeFraction * DEFAULT_INEQUALITY_COEFFICIENT
                 + leftOverlapPercent * rightAlwaysGreaterRangeFraction;
-        return context.statistics.withSel(sel)
+        return context.statistics.withSel(sel * (1 - nullFrac))
                 .addColumnStats(leftExpr, leftColumnStatistic)
                 .addColumnStats(rightExpr, rightColumnStatistic);
     }
