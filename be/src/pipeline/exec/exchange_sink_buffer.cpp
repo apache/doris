@@ -197,6 +197,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         _instance_to_rpc_ctx[id] = rpc_ctx;
 
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        closure->cntl.ignore_eovercrowded();
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
         closure->start_rpc_time = GetCurrentTimeNanos();
@@ -247,6 +248,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         _instance_to_rpc_ctx[id] = rpc_ctx;
 
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        closure->cntl.ignore_eovercrowded();
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
         closure->start_rpc_time = GetCurrentTimeNanos();
