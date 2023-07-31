@@ -117,12 +117,12 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                 if (0 != result.push_string("\"", 1)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
-                RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, j, col_const));
+                RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, j, false));
                 if (0 != result.push_string("\"", 1)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
-                RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, j, col_const));
+                RETURN_IF_ERROR(nested_serde->write_column_to_mysql(data, result, j, false));
             }
         }
     }
