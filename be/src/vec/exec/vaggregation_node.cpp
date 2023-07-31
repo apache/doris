@@ -922,6 +922,8 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
+                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
+
                 auto creator = [this](const auto& ctor, const auto& key) {
                     using KeyType = std::decay_t<decltype(key)>;
                     if constexpr (HashTableTraits<HashTableType>::is_string_hash_table &&

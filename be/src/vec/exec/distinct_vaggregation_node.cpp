@@ -29,9 +29,7 @@ namespace doris::vectorized {
 
 DistinctAggregationNode::DistinctAggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                                  const DescriptorTbl& descs)
-        : AggregationNode(pool, tnode, descs) {
-    dummy_mapped_data = pool->add(new char('A'));
-}
+        : AggregationNode(pool, tnode, descs) {}
 
 Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
         doris::vectorized::Block* in_block, doris::vectorized::Block* out_block) {

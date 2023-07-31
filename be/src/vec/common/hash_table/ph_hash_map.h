@@ -20,6 +20,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <boost/noncopyable.hpp>
+#include <span>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/arena.h"
@@ -155,8 +156,8 @@ public:
         }
     }
 
-    template <typename KeyHolders, typename Func>
-    void lazy_emplace_keys(const KeyHolders& keys, const std::vector<size_t>& hash_values,
+    template <typename KeyHolder, typename Func>
+    void lazy_emplace_keys(const std::span<KeyHolder>& keys, const std::vector<size_t>& hash_values,
                            doris::vectorized::AggregateDataPtr* places, Func&& f) {
         for (size_t i = 0; i < keys.size(); i++) {
             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < keys.size())) {

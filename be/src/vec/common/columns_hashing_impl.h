@@ -164,9 +164,9 @@ public:
     }
 
     template <typename Data, typename Func, typename Keys>
-    void lazy_emplace_keys(Data& data, Keys keys, const std::vector<size_t>& hash_values, Func&& f,
-                           AggregateDataPtr* places) {
-        data.lazy_emplace_keys(keys, hash_values, places, std::forward<Func>(f));
+    void lazy_emplace_keys(Data& data, const Keys& keys, const std::vector<size_t>& hash_values,
+                           Func&& f, AggregateDataPtr* places) {
+        data.lazy_emplace_keys(std::span(keys), hash_values, places, std::forward<Func>(f));
     }
 
     template <typename Data>

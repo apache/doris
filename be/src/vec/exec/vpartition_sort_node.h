@@ -463,7 +463,7 @@ private:
                                     const ColumnRawPtrs& key_columns, const size_t num_rows) {
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<AggState>::value) {
             (agg_method.serialize_keys(key_columns, num_rows));
-            state.set_serialized_keys(agg_method.keys);
+            state.set_serialized_keys(agg_method.keys.data());
         }
     }
 

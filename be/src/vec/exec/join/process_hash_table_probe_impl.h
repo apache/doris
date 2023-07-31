@@ -234,7 +234,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         if (probe_index == 0) {
             _pre_serialize_key(probe_raw_ptrs, probe_rows, _probe_keys);
         }
-        key_getter.set_serialized_keys(_probe_keys);
+        key_getter.set_serialized_keys(_probe_keys.data());
     }
 
     auto& mcol = mutable_block.mutable_columns();
@@ -475,7 +475,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
             if (probe_index == 0) {
                 _pre_serialize_key(probe_raw_ptrs, probe_rows, _probe_keys);
             }
-            key_getter.set_serialized_keys(_probe_keys);
+            key_getter.set_serialized_keys(_probe_keys.data());
         }
 
         int right_col_idx = _join_node->_left_table_data_types.size();

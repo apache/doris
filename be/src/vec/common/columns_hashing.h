@@ -129,26 +129,25 @@ struct HashMethodSerialized
 
     ColumnRawPtrs key_columns;
     size_t keys_size;
-    std::vector<StringRef>* keys = nullptr;
+    StringRef* keys;
 
     HashMethodSerialized(const ColumnRawPtrs& key_columns_, const Sizes& /*key_sizes*/,
                          const HashMethodContextPtr&)
             : key_columns(key_columns_), keys_size(key_columns_.size()) {}
 
-    void set_serialized_keys(std::vector<StringRef>& keys_) { keys = &keys_; }
+    void set_serialized_keys(StringRef* keys_) { keys = keys_; }
 
     ALWAYS_INLINE KeyHolderType get_key_holder(size_t row, Arena& pool) const {
         if constexpr (keys_pre_serialized) {
-            return KeyHolderType {(*keys)[row], pool};
+            return KeyHolderType {keys[row], pool};
         } else {
             return KeyHolderType {
                     serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
         }
     }
 
-    const std::vector<StringRef>& get_keys(size_t rows_number) const {
-        CHECK(keys_pre_serialized);
-        return *keys;
+    std::span<StringRef> get_keys(size_t rows_number) const {
+        return std::span<StringRef>(keys, rows_number);
     }
 
 protected:

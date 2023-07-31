@@ -47,11 +47,10 @@ public:
     vectorized::VExprContextSPtrs get_conjuncts() { return _conjuncts; }
 
 private:
-    char* dummy_mapped_data = nullptr;
     void _emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
                                               ColumnRawPtrs& key_columns, const size_t num_rows);
 
-                                              IColumn::Selector _distinct_row;
+    IColumn::Selector _distinct_row;
 };
 } // namespace vectorized
 } // namespace doris

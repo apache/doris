@@ -169,7 +169,7 @@ struct ProcessHashTableBuild {
             if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
                 auto old_keys_memory = hash_table_ctx.keys_memory_usage;
                 hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
-                key_getter.set_serialized_keys(hash_table_ctx.keys);
+                key_getter.set_serialized_keys(hash_table_ctx.keys.data());
                 _join_node->_build_arena_memory_usage->add(hash_table_ctx.keys_memory_usage -
                                                            old_keys_memory);
             }
