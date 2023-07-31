@@ -151,6 +151,8 @@ public class OlapTable extends Table {
 
     private TableProperty tableProperty;
 
+    private String storageMedium;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -1299,6 +1301,13 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
+
+        if (storageMedium == null || storageMedium.length() == 0) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, storageMedium);
+        }
     }
 
     @Override
@@ -1394,6 +1403,10 @@ public class OlapTable extends Table {
             }
         }
         tempPartitions.unsetPartitionInfo();
+
+        if (in.readBoolean()) {
+            storageMedium = Text.readString(in);
+        }
 
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
@@ -1814,6 +1827,15 @@ public class OlapTable extends Table {
             return tableProperty.enableSingleReplicaCompaction();
         }
         return false;
+    }
+
+
+    public void setStorageMedium(String medium) {
+        storageMedium = medium;
+    }
+
+    public String getStorageMedium() {
+        return storageMedium;
     }
 
     public void setStoreRowColumn(boolean storeRowColumn) {
