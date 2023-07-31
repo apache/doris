@@ -255,7 +255,6 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                             ->get_data()
                             .data());
             int64_t value_nested_data_address = 0, value_nested_offset_address = 0;
-            // array type need pass address: [nullmap_address], offset_address, nested_nullmap_address, nested_data_address/nested_char_address,nested_offset_address
             if (value_data_column->is_column_string()) {
                 const ColumnString* col = assert_cast<const ColumnString*>(value_data_column.get());
                 value_nested_data_address = reinterpret_cast<int64_t>(col->get_chars().data());

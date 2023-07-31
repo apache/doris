@@ -42,6 +42,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 
 public abstract class BaseExecutor {
     private static final Logger LOG = Logger.getLogger(BaseExecutor.class);
@@ -1319,5 +1320,135 @@ public abstract class BaseExecutor {
             }
         }
         return argument;
+    }
+
+    public Object[] buildHashMap(PrimitiveType keyType, PrimitiveType valueType, Object[] keyCol, Object[] valueCol) {
+        switch (keyType) {
+            case BOOLEAN: {
+                return new HashMapBuilder<Boolean>().get(keyCol, valueCol, valueType);
+            }
+            case TINYINT: {
+                return new HashMapBuilder<Byte>().get(keyCol, valueCol, valueType);
+            }
+            case SMALLINT: {
+                return new HashMapBuilder<Short>().get(keyCol, valueCol, valueType);
+            }
+            case INT: {
+                return new HashMapBuilder<Integer>().get(keyCol, valueCol, valueType);
+            }
+            case BIGINT: {
+                return new HashMapBuilder<Long>().get(keyCol, valueCol, valueType);
+            }
+            case LARGEINT: {
+                return new HashMapBuilder<BigInteger>().get(keyCol, valueCol, valueType);
+            }
+            case FLOAT: {
+                return new HashMapBuilder<Float>().get(keyCol, valueCol, valueType);
+            }
+            case DOUBLE: {
+                return new HashMapBuilder<Double>().get(keyCol, valueCol, valueType);
+            }
+            case CHAR:
+            case VARCHAR:
+            case STRING: {
+                return new HashMapBuilder<String>().get(keyCol, valueCol, valueType);
+            }
+            case DATEV2:
+            case DATE: {
+                return new HashMapBuilder<LocalDate>().get(keyCol, valueCol, valueType);
+            }
+            case DATETIMEV2:
+            case DATETIME: {
+                return new HashMapBuilder<LocalDateTime>().get(keyCol, valueCol, valueType);
+            }
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMALV2:
+            case DECIMAL128: {
+                return new HashMapBuilder<BigDecimal>().get(keyCol, valueCol, valueType);
+            }
+            default: {
+                LOG.info("Not support: " + keyType);
+                Preconditions.checkState(false, "Not support type " + keyType.toString());
+                break;
+            }
+        }
+        return null;
+    }
+
+    public static class HashMapBuilder<keyType> {
+        public Object[] get(Object[] keyCol, Object[] valueCol, PrimitiveType valueType) {
+            switch (valueType) {
+                case BOOLEAN: {
+                    return new BuildMapFromType<keyType, Boolean>().get(keyCol, valueCol);
+                }
+                case TINYINT: {
+                    return new BuildMapFromType<keyType, Byte>().get(keyCol, valueCol);
+                }
+                case SMALLINT: {
+                    return new BuildMapFromType<keyType, Short>().get(keyCol, valueCol);
+                }
+                case INT: {
+                    return new BuildMapFromType<keyType, Integer>().get(keyCol, valueCol);
+                }
+                case BIGINT: {
+                    return new BuildMapFromType<keyType, Long>().get(keyCol, valueCol);
+                }
+                case LARGEINT: {
+                    return new BuildMapFromType<keyType, BigInteger>().get(keyCol, valueCol);
+                }
+                case FLOAT: {
+                    return new BuildMapFromType<keyType, Float>().get(keyCol, valueCol);
+                }
+                case DOUBLE: {
+                    return new BuildMapFromType<keyType, Double>().get(keyCol, valueCol);
+                }
+                case CHAR:
+                case VARCHAR:
+                case STRING: {
+                    return new BuildMapFromType<keyType, String>().get(keyCol, valueCol);
+                }
+                case DATEV2:
+                case DATE: {
+                    return new BuildMapFromType<keyType, LocalDate>().get(keyCol, valueCol);
+                }
+                case DATETIMEV2:
+                case DATETIME: {
+                    return new BuildMapFromType<keyType, LocalDateTime>().get(keyCol, valueCol);
+                }
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMALV2:
+                case DECIMAL128: {
+                    return new BuildMapFromType<keyType, BigDecimal>().get(keyCol, valueCol);
+                }
+                default: {
+                    LOG.info("Not support: " + valueType);
+                    Preconditions.checkState(false, "Not support type " + valueType.toString());
+                    break;
+                }
+            }
+            return null;
+        }
+    }
+
+    public static class BuildMapFromType<T1, T2> {
+        public Object[] get(Object[] keyCol, Object[] valueCol) {
+            Object[] retHashMap = new HashMap[keyCol.length];
+            for (int colIdx = 0; colIdx < keyCol.length; colIdx++) {
+                HashMap<T1, T2> hashMap = new HashMap<>();
+                ArrayList<T1> keys = (ArrayList<T1>) (keyCol[colIdx]);
+                ArrayList<T2> values = (ArrayList<T2>) (valueCol[colIdx]);
+                for (int i = 0; i < keys.size(); i++) {
+                    T1 key = keys.get(i);
+                    T2 value = values.get(i);
+                    if (!hashMap.containsKey(key)) {
+                        hashMap.put(key, value);
+                    }
+                }
+                retHashMap[colIdx] = hashMap;
+            }
+            return retHashMap;
+        }
     }
 }
