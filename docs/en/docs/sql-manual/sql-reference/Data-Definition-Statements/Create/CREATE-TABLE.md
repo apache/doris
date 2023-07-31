@@ -315,6 +315,16 @@ Set table properties. The following attributes are currently supported:
 
     Set the copy distribution according to Tag. This attribute can completely cover the function of the `replication_num` attribute.
 
+* `is_being_synced`  
+
+    Used to identify whether this table is copied by CCR and is being synchronized by syncer. The default is `false`.  
+
+    If set to `true`:  
+    `colocate_with`, `storage_policy` properties will be erased  
+    `dynamic partition`, `auto bucket` features will be disabled, that is, they will be displayed as enabled in `show create table`, but will not actually take effect. When `is_being_synced` is set to `false`, these features will resume working.  
+
+    This property is for CCR peripheral modules only and should not be manually set during CCR synchronization.  
+
 * `storage_medium/storage_cooldown_time`
 
    Data storage medium. `storage_medium` is used to declare the initial storage medium of the table data, and `storage_cooldown_time` is used to set the expiration time. Example:

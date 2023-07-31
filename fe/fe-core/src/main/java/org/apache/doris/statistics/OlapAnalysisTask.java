@@ -110,21 +110,24 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     @VisibleForTesting
     public void execSQL(String sql) throws Exception {
-        if (killed) {
-            return;
-        }
-        long startTime = System.currentTimeMillis();
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
-            stmtExecutor.execute();
-            QueryState queryState = r.connectContext.getState();
-            if (queryState.getStateType().equals(MysqlStateType.ERR)) {
-                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+        synchronized (OlapAnalysisTask.class) {
+            if (killed) {
+                return;
             }
-            LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
+            long startTime = System.currentTimeMillis();
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+                r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
+                stmtExecutor = new StmtExecutor(r.connectContext, sql);
+                r.connectContext.setExecutor(stmtExecutor);
+                stmtExecutor.execute();
+                QueryState queryState = r.connectContext.getState();
+                if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+                    throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                            info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+                }
+                LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
+            }
         }
+
     }
 }

@@ -105,4 +105,14 @@ suite("join_order") {
         sql("select * from outerjoin_A_order, outerjoin_B_order, outerjoin_C_order where outerjoin_A_order.a1 = outerjoin_C_order.c and outerjoin_B_order.b = outerjoin_C_order.c;")
         notContains "CROSS JOIN"
     }
+
+    qt_sql2 """SELECT 
+                    subq_0.`c1`,
+                    subq_0.`c0`
+                FROM 
+                    (SELECT ref_1.b AS c0,
+                        ref_7.a1 AS c1
+                    FROM outerjoin_B_order AS ref_1
+                    INNER JOIN outerjoin_A_order AS ref_7
+                        ON (true) order by ref_7.a2) AS subq_0 order by 1, 2;"""
 }

@@ -182,6 +182,7 @@ private:
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
+    Status _check_output_block_types();
     Status _cast_to_input_block(Block* block);
     Status _fill_columns_from_path(size_t rows);
     Status _fill_missing_columns(size_t rows);

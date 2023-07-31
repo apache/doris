@@ -54,7 +54,6 @@
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segcompaction.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
@@ -983,17 +982,17 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
     return _submit_compaction_task(tablet, compaction_type, force);
 }
 
-Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
+Status StorageEngine::_handle_seg_compaction(SegcompactionWorker* worker,
                                              SegCompactionCandidatesSharedPtr segments) {
-    writer->get_segcompaction_worker().compact_segments(segments);
+    worker->compact_segments(segments);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
 
-Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
+Status StorageEngine::submit_seg_compaction_task(SegcompactionWorker* worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
     return _seg_compaction_thread_pool->submit_func(
-            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
+            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, worker, segments));
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {

@@ -92,10 +92,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showCreateTableByName("select_decimal_table").getResultRows().get(0).get(1));
         String selectFromDecimal1 =
@@ -112,10 +114,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                             + "PROPERTIES (\n"
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "\"is_being_synced\" = \"false\",\n"
                             + "\"storage_format\" = \"V2\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
                             + "\"disable_auto_compaction\" = \"false\",\n"
-                            + "\"enable_single_replica_compaction\" = \"false\"\n"
+                            + "\"enable_single_replica_compaction\" = \"false\",\n"
+                            + "\"storage_medium\" = \"hdd\"\n"
                             + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         } else {
@@ -128,10 +132,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                             + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                             + "PROPERTIES (\n"
                             + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                            + "\"is_being_synced\" = \"false\",\n"
                             + "\"storage_format\" = \"V2\",\n"
                             + "\"light_schema_change\" = \"true\",\n"
                             + "\"disable_auto_compaction\" = \"false\",\n"
-                            + "\"enable_single_replica_compaction\" = \"false\"\n"
+                            + "\"enable_single_replica_compaction\" = \"false\",\n"
+                            + "\"storage_medium\" = \"hdd\"\n"
                             + ");",
                     showCreateTableByName("select_decimal_table_1").getResultRows().get(0).get(1));
         }
@@ -162,10 +168,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -185,10 +193,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet1.getResultRows().get(0).get(1));
 
@@ -210,10 +220,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet2.getResultRows().get(0).get(1));
     }
@@ -232,10 +244,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(`amount`) BUCKETS 10\n"
                 + "PROPERTIES (\n"
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"is_being_synced\" = \"false\",\n"
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
                 + "\"disable_auto_compaction\" = \"false\",\n"
-                + "\"enable_single_replica_compaction\" = \"false\"\n"
+                + "\"enable_single_replica_compaction\" = \"false\",\n"
+                + "\"storage_medium\" = \"hdd\"\n"
                 + ");", showResultSet1.getResultRows().get(0).get(1));
         String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") "
                 + "as select userId as alias_name, username from `test`.`varchar_table`";
@@ -250,10 +264,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`alias_name`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet2.getResultRows().get(0).get(1));
     }
@@ -275,10 +291,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
         String selectFromJoin1 = "create table `test`.`select_join1` PROPERTIES(\"replication_num\" = \"1\") "
@@ -297,10 +315,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId1`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet1.getResultRows().get(0).get(1));
     }
@@ -323,10 +343,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`user`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -346,10 +368,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");", showResultSet.getResultRows().get(0).get(1));
     }
 
@@ -368,10 +392,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
         String selectFromCteAndUnion = "create table `test`.`select_cte_union` PROPERTIES(\"replication_num\" = \"1\")"
@@ -386,10 +412,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n"
                 + "PROPERTIES (\n"
                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                + "\"is_being_synced\" = \"false\",\n"
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"light_schema_change\" = \"true\",\n"
                 + "\"disable_auto_compaction\" = \"false\",\n"
-                + "\"enable_single_replica_compaction\" = \"false\"\n"
+                + "\"enable_single_replica_compaction\" = \"false\",\n"
+                + "\"storage_medium\" = \"hdd\"\n"
                 + ");", showResultSet1.getResultRows().get(0).get(1));
     }
 
@@ -411,10 +439,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -435,10 +465,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -458,10 +490,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`username`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -482,10 +516,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n"
                         + "PROPERTIES (\n"
                         + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                        + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
-                        + "\"enable_single_replica_compaction\" = \"false\"\n"
+                        + "\"enable_single_replica_compaction\" = \"false\",\n"
+                        + "\"storage_medium\" = \"hdd\"\n"
                         + ");",
                 showResultSet.getResultRows().get(0).get(1));
     }
@@ -530,10 +566,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
                                 + "PROPERTIES (\n"
                                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                                + "\"is_being_synced\" = \"false\",\n"
                                 + "\"storage_format\" = \"V2\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
                                 + "\"disable_auto_compaction\" = \"false\",\n"
-                                + "\"enable_single_replica_compaction\" = \"false\"\n"
+                                + "\"enable_single_replica_compaction\" = \"false\",\n"
+                                + "\"storage_medium\" = \"hdd\"\n"
                                 + ");",
                         createTableStmts.get(0));
             } else {
@@ -546,10 +584,12 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                                 + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
                                 + "PROPERTIES (\n"
                                 + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
+                                + "\"is_being_synced\" = \"false\",\n"
                                 + "\"storage_format\" = \"V2\",\n"
                                 + "\"light_schema_change\" = \"true\",\n"
                                 + "\"disable_auto_compaction\" = \"false\",\n"
-                                + "\"enable_single_replica_compaction\" = \"false\"\n"
+                                + "\"enable_single_replica_compaction\" = \"false\",\n"
+                                + "\"storage_medium\" = \"hdd\"\n"
                                 + ");",
                         createTableStmts.get(0));
             }

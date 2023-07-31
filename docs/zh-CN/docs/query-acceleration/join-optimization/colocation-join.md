@@ -30,7 +30,9 @@ Colocation Join 是在 Doris 0.9 版本中引入的新功能。旨在为某些 J
 
 最初的设计、实现和效果可以参阅 [ISSUE 245](https://github.com/apache/incubator-doris/issues/245)。
 
-Colocation Join 功能经过一次改版，设计和使用方式和最初设计稍有不同。本文档主要介绍 Colocation Join 的原理、实现、使用方式和注意事项。
+Colocation Join 功能经过一次改版，设计和使用方式和最初设计稍有不同。本文档主要介绍 Colocation Join 的原理、实现、使用方式和注意事项。  
+
+注意：这个属性不会被CCR同步，如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，这个属性将会在这个表中被擦除。
 
 ## 名词解释
 
