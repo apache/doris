@@ -123,6 +123,13 @@ public class Utils {
     }
 
     /**
+     * Fully qualified identifier name, concat qualifier with `.` as separator.
+     */
+    public static String qualifiedName(List<String> qualifier) {
+        return StringUtils.join(qualifier, ".");
+    }
+
+    /**
      * Get sql string for plan.
      *
      * @param planName name of plan, like LogicalJoin.

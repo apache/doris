@@ -67,15 +67,12 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     @Override
     public DatabaseIf getDatabase() throws AnalysisException {
-        Preconditions.checkArgument(!qualifier.isEmpty(), "qualifier can not be empty");
+        Preconditions.checkArgument(qualifier.size() == 3, "qualifier format incorrect.");
         try {
-            CatalogIf catalog = qualifier.size() == 3
-                    ? Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(qualifier.get(0),
-                        s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."))
-                    : Env.getCurrentEnv().getCurrentCatalog();
-            return catalog.getDbOrException(qualifier.size() == 3 ? qualifier.get(1) : qualifier.get(0),
-                    s -> new Exception("Database [" + qualifier.get(1) + "] does not exist in catalog ["
-                        + qualifier.get(0) + "]."));
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(qualifier.get(0),
+                        s -> new Exception("Catalog [" + qualifier.get(0) + "] does not exist."));
+            return catalog.getDbOrException(qualifier.get(1),
+                    s -> new Exception("Database [" + qualifiedName() + "] does not exist."));
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -97,13 +94,13 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      * Full qualified name parts, i.e., concat qualifier and name into a list.
      */
     public List<String> qualified() {
-        return Utils.qualifiedNameParts(qualifier, table.getName());
+        return qualifier;
     }
 
     /**
      * Full qualified table name, concat qualifier and name with `.` as separator.
      */
     public String qualifiedName() {
-        return Utils.qualifiedName(qualifier, table.getName());
+        return Utils.qualifiedName(qualifier);
     }
 }

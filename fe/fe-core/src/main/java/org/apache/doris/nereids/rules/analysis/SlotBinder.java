@@ -144,6 +144,7 @@ class SlotBinder extends SubExprAnalyzer {
                 return new BoundStar(slots);
             case 1: // select table.*
             case 2: // select db.table.*
+            case 3: // select catalog.db.table.*
                 return bindQualifiedStar(qualifier, slots);
             default:
                 throw new AnalysisException("Not supported qualifier: "
@@ -167,6 +168,8 @@ class SlotBinder extends SubExprAnalyzer {
                             return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0));
                         case 2:// bound slot is `db`.`table`.`column`
                             return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(1));
+                        case 3:// bound slot is `catalog`.`db`.`table`.`column`
+                            return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(2));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
                                     + StringUtils.join(qualifierStar, "."));
@@ -181,9 +184,28 @@ class SlotBinder extends SubExprAnalyzer {
                         case 2:// bound slot is `db`.`table`.`column`
                             return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(0))
                                     && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
+                        case 3:// bound slot is `catlog`.`db`.`table`.`column`
+                            return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(1))
+                                && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(2));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
                                     + StringUtils.join(qualifierStar, ".") + ".*");
+                    }
+                case 3: // catalog.db.table.*
+                    boundSlotQualifier = boundSlot.getQualifier();
+                    switch (boundSlotQualifier.size()) {
+                        // bound slot is `column` and no qualified
+                        case 0:
+                        case 1: // bound slot is `table`.`column`
+                        case 2:// bound slot is `db`.`table`.`column`
+                            return false;
+                        case 3:// bound slot is `catlog`.`db`.`table`.`column`
+                            return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0))
+                                && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1))
+                                && qualifierStar.get(2).equalsIgnoreCase(boundSlotQualifier.get(2));
+                        default:
+                            throw new AnalysisException("Not supported qualifier: "
+                                + StringUtils.join(qualifierStar, ".") + ".*");
                     }
                 default:
                     throw new AnalysisException("Not supported name: "
