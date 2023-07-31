@@ -148,8 +148,8 @@ private:
     std::string _value_separator;
     std::string _line_delimiter;
     std::string _array_delimiter;
-    char _enclose = '\"';
-    char _escape = '\\';
+    char _enclose = 0;
+    char _escape = 0;
 
     int _value_separator_length;
     int _line_delimiter_length;
