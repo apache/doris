@@ -50,10 +50,6 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         this.isBeingSynced = isBeingSynced;
     }
 
-    public void setCcrEnable(boolean ccrEnable) {
-        this.ccrEnable = ccrEnable;
-    }
-
     public boolean isBeingSynced() {
         return isBeingSynced;
     }
