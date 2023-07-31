@@ -79,7 +79,7 @@ The user triggers a manual collection job through a statement `ANALYZE` to colle
 Column statistics collection syntax:
 
 ```SQL
-ANALYZE TABLE | DATABASE table_name | db_name
+ANALYZE < TABLE | DATABASE table_name | db_name >
     [ PARTITIONS (partition_name [, ...]) ]
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
@@ -463,7 +463,7 @@ Collect information for the job by `SHOW ANALYZE` viewing the statistics.
 The syntax is as follows:
 
 ```SQL
-SHOW ANALYZE [ table_name | job_id ]
+SHOW ANALYZE < table_name | job_id >
     [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
