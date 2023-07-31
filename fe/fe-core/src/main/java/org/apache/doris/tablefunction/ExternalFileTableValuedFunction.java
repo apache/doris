@@ -387,15 +387,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TNetworkAddress address = null;
         columns = Lists.newArrayList();
         for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
-            // for stream load
-            if (getTFileType() == TFileType.FILE_STREAM || getTFileType() == TFileType.FILE_LOCAL) {
-                ConnectContext ctx = ConnectContext.get();
-                long streamLoadBackendId = ctx.getBackendId();
-                if (be.getId() == streamLoadBackendId) {
-                    address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
-                    break;
-                }
-            }
             if (be.isAlive()) {
                 address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
                 break;
