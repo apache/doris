@@ -337,7 +337,7 @@ struct AggregationMethodKeysFixed {
 
             auto foo = [&]<typename Fixed>(Fixed zero) {
                 for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed<int8_t>(data + j * size, (char*)(&keys[j]) + pos);
+                    memcpy_fixed<Fixed>(data + j * size, (char*)(&keys[j]) + pos);
                 }
             };
 
