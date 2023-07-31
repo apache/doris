@@ -60,7 +60,7 @@ public class TableProperty implements Writable {
     private boolean isInMemory = false;
 
     private String storagePolicy = "";
-    private Boolean ccrEnable = null;
+    private Boolean isBeingSynced = null;
     private BinlogConfig binlogConfig;
     private boolean isDynamicSchema = false;
 
@@ -112,7 +112,7 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
                 buildStoragePolicy();
-                buildCcrEnable();
+                buildIsBeingSynced();
                 break;
             default:
                 break;
@@ -223,16 +223,27 @@ public class TableProperty implements Writable {
         return storagePolicy;
     }
 
-    public TableProperty buildCcrEnable() {
-        ccrEnable = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, "false"));
+    public TableProperty buildIsBeingSynced() {
+        isBeingSynced = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false"));
         return this;
     }
 
-    public boolean isCcrEnable() {
-        if (ccrEnable == null) {
-            buildCcrEnable();
+    public void setIsBeingSynced() {
+        properties.put(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "true");
+        isBeingSynced = true;
+    }
+
+    public boolean isBeingSynced() {
+        if (isBeingSynced == null) {
+            buildIsBeingSynced();
         }
-        return ccrEnable;
+        return isBeingSynced;
+    }
+
+    public void removeInvalidProperties() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
     }
 
     public TableProperty buildBinlogConfig() {
@@ -429,7 +440,7 @@ public class TableProperty implements Writable {
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
-                .buildCcrEnable()
+                .buildIsBeingSynced()
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
