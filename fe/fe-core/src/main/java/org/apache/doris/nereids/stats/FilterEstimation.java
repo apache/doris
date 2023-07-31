@@ -469,7 +469,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         ColumnStatistic rightColumnStatistic = new ColumnStatisticBuilder(rightStats)
                 .setMinValue(Math.max(leftRange.getLow(), rightRange.getLow()))
                 .setMaxValue(rightRange.getHigh())
-                .setAvgSizeByte(rightStats.ndv * (rightAlwaysGreaterRangeFraction + rightOverlappingRangeFraction))
                 .setNumNulls(0)
                 .build();
         double sel = leftAlwaysLessThanRightPercent

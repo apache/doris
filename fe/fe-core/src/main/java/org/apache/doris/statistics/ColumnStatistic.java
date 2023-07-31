@@ -316,8 +316,8 @@ public class ColumnStatistic {
 
     @Override
     public String toString() {
-        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f",
-                ndv, minValue, minExpr, maxValue, maxExpr, count);
+        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, avgSizeByte=%f",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, avgSizeByte);
     }
 
     public JSONObject toJson() {
