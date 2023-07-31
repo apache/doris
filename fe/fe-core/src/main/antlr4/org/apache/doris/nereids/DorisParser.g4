@@ -336,7 +336,7 @@ columnDef
     : colName=identifier type=colType
         KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
         (DEFAULT (defaultValue=constant | CURRENT_TIMESTAMP))?
-        (comment=constant)?
+        (COMMENT comment=constant)?
     ;
     
 colType
@@ -394,6 +394,10 @@ rollupDef
     
 propertySeq
     : properties+=tvfProperty (COMMA properties+=tvfProperty)*
+    ;
+
+aggTypeDef
+    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION
     ;
 
 tabletList

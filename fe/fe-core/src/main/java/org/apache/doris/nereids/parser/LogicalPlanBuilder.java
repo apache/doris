@@ -1776,7 +1776,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
         String partitionType = null;
         if (ctx.PARTITION() != null) {
-            partitionType = ctx.RANGE() != null ? "range" : "list";
+            partitionType = ctx.RANGE() != null ? "RANGE" : "LIST";
         }
 
         return new CreateTableCommand(Optional.empty(), new CreateTableInfo(

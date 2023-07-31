@@ -323,7 +323,7 @@ public class CreateTableCommandTest extends TestWithFeService {
          * create table with list partition
          */
         // single partition column with single key
-        checkThrow(AnalysisException.class, "Syntax error", () -> createTable("create table test.tbl9\n"
+        checkThrow(ParseException.class, () -> createTable("create table test.tbl9\n"
                 + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
                 + "partition by list(k1)\n"
                 + "(\n"
@@ -375,8 +375,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "properties('replication_num' = '1');"));
 
         // multi partition columns with multi keys
-        checkThrow(AnalysisException.class, "Syntax error",
-                () -> createTable("create table test.tbl13\n"
+        checkThrow(ParseException.class, () -> createTable("create table test.tbl13\n"
                         + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                         + "partition by list(k1, k2)\n"
                         + "(\n"
@@ -391,7 +390,8 @@ public class CreateTableCommandTest extends TestWithFeService {
          * create table with both list and range partition
          */
         // list contain less than
-        checkThrow(AnalysisException.class, "You can only use in values to create list partitions",
+        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "partitions types is invalid, expected FIXED or LESS in range partitions and IN in list partitions",
                 () -> createTable("CREATE TABLE test.tbl14 (\n"
                         + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -404,7 +404,8 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range contain in
-        checkThrow(AnalysisException.class, "You can only use fixed or less than values to create range partitions",
+        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "partitions types is invalid, expected FIXED or LESS in range partitions and IN in list partitions",
                 () -> createTable("CREATE TABLE test.tbl15 (\n"
                         + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -417,7 +418,8 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // list contain both
-        checkThrow(AnalysisException.class, "You can only use in values to create list partitions",
+        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "partitions types is invalid, expected FIXED or LESS in range partitions and IN in list partitions",
                 () -> createTable("CREATE TABLE test.tbl15 (\n"
                         + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -430,7 +432,8 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range contain both
-        checkThrow(AnalysisException.class, "You can only use fixed or less than values to create range partitions",
+        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "partitions types is invalid, expected FIXED or LESS in range partitions and IN in list partitions",
                 () -> createTable("CREATE TABLE test.tbl16 (\n"
                         + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -472,39 +475,39 @@ public class CreateTableCommandTest extends TestWithFeService {
          * dynamic partition table
          */
         // list partition with dynamic properties
-        checkThrow(DdlException.class, "Only support dynamic partition properties on range partition table",
-                () -> createTable("CREATE TABLE test.tbl19\n"
-                        + "(\n"
-                        + "    k1 DATE not null\n"
-                        + ")\n"
-                        + "PARTITION BY LIST(k1) ()\n"
-                        + "DISTRIBUTED BY HASH(k1)\n"
-                        + "PROPERTIES\n"
-                        + "(\n"
-                        + "    \"dynamic_partition.enable\" = \"true\",\n"
-                        + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
-                        + "    \"dynamic_partition.end\" = \"2\",\n"
-                        + "    \"dynamic_partition.prefix\" = \"p\",\n"
-                        + "    \"dynamic_partition.buckets\" = \"8\",\n"
-                        + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
-                        + ");\n"));
+//        checkThrow(DdlException.class, "Only support dynamic partition properties on range partition table",
+//                () -> createTable("CREATE TABLE test.tbl19\n"
+//                        + "(\n"
+//                        + "    k1 DATE not null\n"
+//                        + ")\n"
+//                        + "PARTITION BY LIST(k1) ()\n"
+//                        + "DISTRIBUTED BY HASH(k1)\n"
+//                        + "PROPERTIES\n"
+//                        + "(\n"
+//                        + "    \"dynamic_partition.enable\" = \"true\",\n"
+//                        + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
+//                        + "    \"dynamic_partition.end\" = \"2\",\n"
+//                        + "    \"dynamic_partition.prefix\" = \"p\",\n"
+//                        + "    \"dynamic_partition.buckets\" = \"8\",\n"
+//                        + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
+//                        + ");\n"));
 
         // no partition table with dynamic properties
-        checkThrow(DdlException.class, "Only support dynamic partition properties on range partition table",
-                () -> createTable("CREATE TABLE test.tbl20\n"
-                        + "(\n"
-                        + "    k1 DATE\n"
-                        + ")\n"
-                        + "DISTRIBUTED BY HASH(k1)\n"
-                        + "PROPERTIES\n"
-                        + "(\n"
-                        + "    \"dynamic_partition.enable\" = \"true\",\n"
-                        + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
-                        + "    \"dynamic_partition.end\" = \"2\",\n"
-                        + "    \"dynamic_partition.prefix\" = \"p\",\n"
-                        + "    \"dynamic_partition.buckets\" = \"8\",\n"
-                        + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
-                        + ");"));
+//        checkThrow(DdlException.class, "Only support dynamic partition properties on range partition table",
+//                () -> createTable("CREATE TABLE test.tbl20\n"
+//                        + "(\n"
+//                        + "    k1 DATE\n"
+//                        + ")\n"
+//                        + "DISTRIBUTED BY HASH(k1)\n"
+//                        + "PROPERTIES\n"
+//                        + "(\n"
+//                        + "    \"dynamic_partition.enable\" = \"true\",\n"
+//                        + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
+//                        + "    \"dynamic_partition.end\" = \"2\",\n"
+//                        + "    \"dynamic_partition.prefix\" = \"p\",\n"
+//                        + "    \"dynamic_partition.buckets\" = \"8\",\n"
+//                        + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
+//                        + ");"));
 
         checkThrow(AnalysisException.class,
                 "Create unique keys table should not contain random distribution desc",

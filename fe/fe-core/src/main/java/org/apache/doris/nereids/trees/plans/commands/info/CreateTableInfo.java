@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.KeysDesc;
+import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
@@ -117,6 +119,10 @@ public class CreateTableInfo {
                 .collect(Collectors.toMap(ColumnDefinition::getName, c -> c));
 
         if (partitions != null) {
+            if (!checkPartitionsTypes()) {
+                throw new AnalysisException("partitions types is invalid, expected FIXED or LESS in range partitions"
+                        + " and IN in list partitions");
+            }
             Set<String> partitionColumnSets = Sets.newHashSet(partitionColumns);
             if (partitionColumnSets.size() != partitionColumns.size()) {
                 throw new AnalysisException("Duplicate partition keys is not allowed");
@@ -184,6 +190,20 @@ public class CreateTableInfo {
     }
 
     /**
+     * check partitions types.
+     */
+    public boolean checkPartitionsTypes() {
+        if (partitionType.equals("RANGE")) {
+            if (partitions.stream().allMatch(p -> p instanceof StepPartition)) {
+                return true;
+            }
+            return partitions.stream().allMatch(p -> (p instanceof LessThanPartition)
+                    || (p instanceof FixedRangePartition));
+        }
+        return partitionType.equals("LIST") && partitions.stream().allMatch(p -> p instanceof InPartition);
+    }
+
+    /**
      * translate to catalog create table stmt
      */
     public CreateTableStmt translateToCatalogStyle() {
@@ -195,9 +215,14 @@ public class CreateTableInfo {
                 .collect(Collectors.toList());
         PartitionDesc partitionDesc = null;
         if (partitions != null) {
+            List<AllPartitionDesc> partitionDescs = partitions.stream()
+                    .map(PartitionDefinition::translateToCatalogStyle).collect(Collectors.toList());
             try {
-                partitionDesc = new RangePartitionDesc(partitionColumns, partitions.stream()
-                        .map(PartitionDefinition::translateToCatalogStyle).collect(Collectors.toList()));
+                if (partitionType.equals("RANGE")) {
+                    partitionDesc = new RangePartitionDesc(partitionColumns, partitionDescs);
+                } else {
+                    partitionDesc = new ListPartitionDesc(partitionColumns, partitionDescs);
+                }
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
