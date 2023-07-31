@@ -147,7 +147,6 @@ suite("test_table_level_compaction_policy") {
         exception "time_series_compaction_time_threshold_seconds can not be less than 60: 5"
     }
 
-
     test {
         sql """
             CREATE TABLE ${tableName} (
