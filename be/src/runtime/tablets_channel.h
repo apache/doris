@@ -132,7 +132,6 @@ private:
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                      google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                      PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
-    void _build_partition_tablets_relation(const PTabletWriterOpenRequest& request);
 
     void _add_broken_tablet(int64_t tablet_id);
     void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
@@ -171,8 +170,6 @@ private:
     // status to return when operate on an already closed/cancelled channel
     // currently it's OK.
     Status _close_status;
-    std::map<int64, std::vector<int64>> _partition_tablets_map;
-    std::map<int64, int64> _tablet_partition_map;
 
     // tablet_id -> TabletChannel
     std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;

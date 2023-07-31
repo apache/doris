@@ -114,13 +114,6 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     return Status::OK();
 }
 
-void TabletsChannel::_build_partition_tablets_relation(const PTabletWriterOpenRequest& request) {
-    for (auto& tablet : request.tablets()) {
-        _partition_tablets_map[tablet.partition_id()].emplace_back(tablet.tablet_id());
-        _tablet_partition_map[tablet.tablet_id()] = tablet.partition_id();
-    }
-}
-
 Status TabletsChannel::close(
         LoadChannel* parent, int sender_id, int64_t backend_id, bool* finished,
         const google::protobuf::RepeatedField<int64_t>& partition_ids,
