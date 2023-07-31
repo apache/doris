@@ -1052,7 +1052,7 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 // enable window_funnel_function with different modes
-DEFINE_Bool(enable_window_funnel_function_v2, "false");
+DEFINE_mBool(enable_window_funnel_function_v2, "false");
 
 #ifdef BE_TEST
 // test s3

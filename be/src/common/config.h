@@ -1081,7 +1081,7 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 DECLARE_mInt64(LZ4_HC_compression_level);
 
 // enable window_funnel_function with different modes
-DECLARE_Bool(enable_window_funnel_function_v2);
+DECLARE_mBool(enable_window_funnel_function_v2);
 
 #ifdef BE_TEST
 // test s3
