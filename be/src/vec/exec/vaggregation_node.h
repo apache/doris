@@ -336,8 +336,9 @@ struct AggregationMethodKeysFixed {
             }
 
             auto foo = [&]<typename Fixed>(Fixed zero) {
+                CHECK_EQ(sizeof(Fixed), size);
                 for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed<Fixed>(data + j * size, (char*)(&keys[j]) + pos);
+                    memcpy_fixed<Fixed>(data + j * sizeof(Fixed), (char*)(&keys[j]) + pos);
                 }
             };
 

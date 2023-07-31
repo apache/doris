@@ -226,17 +226,18 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
         const char* data = key_columns[j]->get_raw_data().data;
 
         auto foo = [&]<typename Fixed>(Fixed zero) {
+            CHECK_EQ(sizeof(Fixed), key_sizes[j]);
             if (nullmap_columns.size() && nullmap_columns[j]) {
                 const auto& nullmap =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
                     // make sure null cell is filled by 0x0
                     memcpy_fixed<Fixed>((char*)(&result[i]) + offset,
-                                        nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
+                                        nullmap[i] ? (char*)&zero : data + i * sizeof(Fixed));
                 }
             } else {
                 for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed<Fixed>((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+                    memcpy_fixed<Fixed>((char*)(&result[i]) + offset, data + i * sizeof(Fixed));
                 }
             }
         };
