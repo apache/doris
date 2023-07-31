@@ -164,6 +164,7 @@ Status get_hosts(std::vector<InetAddress>* hosts) {
             continue;
         }
         auto addr = if_addr->ifa_addr;
+        std::cout << "netWorkUtil:" << addr->sa_family << std::endl;
         if (addr->sa_family == AF_INET) {
             // check legitimacy of IP4 Address
             char addr_buf[INET_ADDRSTRLEN];

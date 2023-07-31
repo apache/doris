@@ -119,6 +119,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 //step2: resolve FQDN to IP
                 std::string ip;
                 Status status = hostname_to_ip(master_info.backend_ip, ip);
+                std::cout << "master_info.backend_ip:" << master_info.backend_ip << ",ip:" << ip
+                          << std::endl;
                 if (!status.ok()) {
                     std::stringstream ss;
                     ss << "can not get ip from fqdn: " << status.to_string();
@@ -140,6 +142,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 bool set_new_localhost = false;
                 for (auto& addr : hosts) {
                     if (addr.get_host_address() == ip) {
+                        std::cout << "addr.get_host_address():" << addr.get_host_address()
+                                  << addr.is_ipv6() << std::endl;
                         BackendOptions::set_localhost(master_info.backend_ip);
                         set_new_localhost = true;
                         break;
