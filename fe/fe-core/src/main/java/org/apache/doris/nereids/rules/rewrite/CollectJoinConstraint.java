@@ -182,9 +182,9 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             LogicalPlan scan = null;
             String tableName = leading.getExprIdToTableNameMap().get(slot.getExprId());
             if (tableName != null) {
-                scan = leading.getTableNameToScanMap().get(tableName);
+                scan = leading.getLogicalPlanByName(tableName);
             } else {
-                scan = leading.getTableNameToScanMap().get(slot.getQualifier().get(1));
+                scan = leading.getLogicalPlanByName(slot.getQualifier().get(1));
                 leading.getExprIdToTableNameMap().put(slot.getExprId(), slot.getQualifier().get(1));
             }
             long currBitmap = LongBitmap.set(bitmap, ((LogicalRelation) scan).getRelationId().asInt());

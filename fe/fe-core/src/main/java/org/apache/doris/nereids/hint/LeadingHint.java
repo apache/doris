@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.JoinUtils;
 
@@ -50,7 +51,9 @@ public class LeadingHint extends Hint {
     private final List<String> tablelist = new ArrayList<>();
     private final List<Integer> levellist = new ArrayList<>();
 
-    private final Map<String, LogicalPlan> tableNameToScanMap = Maps.newLinkedHashMap();
+    private final Map<RelationId, LogicalPlan> relationIdToScanMap = Maps.newLinkedHashMap();
+
+    private final List<Pair<RelationId, String>> relationIdAndTableName = new ArrayList<>();
 
     private final Map<ExprId, String> exprIdToTableNameMap = Maps.newLinkedHashMap();
 
@@ -92,8 +95,61 @@ public class LeadingHint extends Hint {
         return levellist;
     }
 
-    public Map<String, LogicalPlan> getTableNameToScanMap() {
-        return tableNameToScanMap;
+    public Map<RelationId, LogicalPlan> getRelationIdToScanMap() {
+        return relationIdToScanMap;
+    }
+
+    public LogicalPlan getLogicalPlanByName(String name) {
+        RelationId id = findRelationIdAndTableName(name);
+        return relationIdToScanMap.get(id);
+    }
+
+    /**
+     * putting pair into list, if relation id already exist update table name
+     * @param relationIdTableNamePair pair of relation id and table name to be inserted
+     */
+    public void putRelationIdAndTableName(Pair<RelationId, String> relationIdTableNamePair) {
+        boolean isUpdate = false;
+        for (Pair<RelationId, String> pair : relationIdAndTableName) {
+            if (pair.first.equals(relationIdTableNamePair.first)) {
+                pair.second = relationIdTableNamePair.second;
+                isUpdate = true;
+            }
+        }
+        if (!isUpdate) {
+            relationIdAndTableName.add(relationIdTableNamePair);
+        }
+    }
+
+    /**
+     * putting pair into list, if relation id already exist update table name
+     * @param relationIdTableNamePair pair of relation id and table name to be inserted
+     */
+    public void updateRelationIdByTableName(Pair<RelationId, String> relationIdTableNamePair) {
+        boolean isUpdate = false;
+        for (Pair<RelationId, String> pair : relationIdAndTableName) {
+            if (pair.second.equals(relationIdTableNamePair.second)) {
+                pair.first = relationIdTableNamePair.first;
+                isUpdate = true;
+            }
+        }
+        if (!isUpdate) {
+            relationIdAndTableName.add(relationIdTableNamePair);
+        }
+    }
+
+    /**
+     * find relation id and table name pair, relation id is unique, but table name is not
+     * @param name table name
+     * @return relation id
+     */
+    public RelationId findRelationIdAndTableName(String name) {
+        for (Pair<RelationId, String> pair : relationIdAndTableName) {
+            if (pair.second.equals(name)) {
+                return pair.first;
+            }
+        }
+        return null;
     }
 
     public Map<ExprId, String> getExprIdToTableNameMap() {
@@ -247,7 +303,7 @@ public class LeadingHint extends Hint {
         this.setStatus(HintStatus.SUCCESS);
         Stack<Pair<Integer, LogicalPlan>> stack = new Stack<>();
         int index = 0;
-        LogicalPlan logicalPlan = getTableNameToScanMap().get(getTablelist().get(index));
+        LogicalPlan logicalPlan = getLogicalPlanByName(getTablelist().get(index));
         logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
         assert (logicalPlan != null);
         stack.push(Pair.of(getLevellist().get(index), logicalPlan));
@@ -256,7 +312,7 @@ public class LeadingHint extends Hint {
             int currentLevel = getLevellist().get(index);
             if (currentLevel == stackTopLevel) {
                 // should return error if can not found table
-                logicalPlan = getTableNameToScanMap().get(getTablelist().get(index++));
+                logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
                 Pair<Integer, LogicalPlan> newStackTop = stack.peek();
                 while (!(stack.isEmpty() || stackTopLevel != newStackTop.first)) {
@@ -289,7 +345,7 @@ public class LeadingHint extends Hint {
                 stack.push(Pair.of(stackTopLevel, logicalPlan));
             } else {
                 // push
-                logicalPlan = getTableNameToScanMap().get(getTablelist().get(index++));
+                logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
                 stack.push(Pair.of(currentLevel, logicalPlan));
                 stackTopLevel = currentLevel;
@@ -363,6 +419,8 @@ public class LeadingHint extends Hint {
             return LongBitmap.set(0L, (((LogicalRelation) root).getRelationId().asInt()));
         } else if (root instanceof LogicalFilter) {
             return getBitmap((LogicalPlan) root.child(0));
+        } else if (root instanceof LogicalProject) {
+            return getBitmap((LogicalPlan) root.child(0));
         } else {
             return null;
         }
@@ -375,8 +433,7 @@ public class LeadingHint extends Hint {
     public Long getLeadingTableBitmap() {
         Long totalBitmap = 0L;
         for (int index = 0; index < getTablelist().size(); index++) {
-            LogicalPlan logicalPlan = getTableNameToScanMap().get(getTablelist().get(index));
-            totalBitmap = LongBitmap.set(totalBitmap, (((LogicalRelation) logicalPlan).getRelationId().asInt()));
+            totalBitmap = LongBitmap.set(totalBitmap, findRelationIdAndTableName(getTablelist().get(index)).asInt());
         }
         return totalBitmap;
     }

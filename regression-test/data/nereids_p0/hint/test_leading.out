@@ -166,3 +166,40 @@ PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 ----------PhysicalDistribute
 ------------PhysicalOlapScan[t3]
+
+-- !select16 --
+PhysicalDistribute
+--PhysicalProject
+----hashJoin[LEFT_SEMI_JOIN](t1.c1 = t2.c2)
+------PhysicalOlapScan[t1]
+------PhysicalDistribute
+--------PhysicalProject
+----------PhysicalOlapScan[t2]
+
+-- !select17 --
+PhysicalDistribute
+--PhysicalProject
+----hashJoin[RIGHT_SEMI_JOIN](t1.c1 = t2.c2)
+------PhysicalOlapScan[t2]
+------PhysicalDistribute
+--------PhysicalOlapScan[t1]
+
+-- !select18 --
+PhysicalDistribute
+--PhysicalProject
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalOlapScan[t1]
+------PhysicalDistribute
+--------PhysicalLimit
+----------PhysicalDistribute
+------------PhysicalLimit
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
+
+-- !select19 --
+PhysicalDistribute
+--PhysicalProject
+----NestedLoopJoin[INNER_JOIN]
+------PhysicalOlapScan[t2]
+------PhysicalDistribute
+--------PhysicalOlapScan[t1]

@@ -17,10 +17,16 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.RelationId;
 
 import com.google.common.collect.ImmutableList;
 
@@ -34,8 +40,21 @@ public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory 
     @Override
     public Rule build() {
         return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(
-                logicalSubQueryAlias().then(
-                        alias -> new LogicalProject<>(ImmutableList.copyOf(alias.getOutput()), alias.child()))
+                logicalSubQueryAlias().thenApply(ctx -> {
+                    LogicalProject project = new LogicalProject<>(
+                            ImmutableList.copyOf(ctx.root.getOutput()), ctx.root.child());
+                    if (ctx.cascadesContext.getStatementContext().getHintMap().get("Leading") != null) {
+                        String aliasName = ctx.root.getAlias();
+                        Hint leading = ctx.cascadesContext.getStatementContext().getHintMap().get("Leading");
+                        RelationId id = ((LeadingHint) leading).findRelationIdAndTableName(aliasName);
+                        if (id == null) {
+                            id = StatementScopeIdGenerator.newRelationId();
+                        }
+                        ((LeadingHint) leading).putRelationIdAndTableName(Pair.of(id, aliasName));
+                        ((LeadingHint) leading).getRelationIdToScanMap().put(id, project);
+                    }
+                    return project;
+                })
         );
     }
 }

@@ -75,6 +75,18 @@ suite("test_leading") {
     qt_select15 """explain shape plan select /*+ leading(t1 t2 t3) */ * from t1 left join (select * from t2 join t3 on c2 = c3) as tmp on c1 = c2;"""
 
 //// test semi join
+    qt_select16 """explain shape plan select * from t1 where c1 in (select c2 from t2);"""
+    qt_select17 """explain shape plan select /*+ leading(t2 t1) */ * from t1 where c1 in (select c2 from t2);"""
+
+//// test anti join
+    qt_select18 """explain shape plan select * from t1 where exists (select 1 from t2);"""
+    qt_select19 """explain shape plan select /*+ leading (t2 t1) */ * from t1 where exists (select 1 from t2);"""
+
+//// test cte
+    // inside cte
+    // outside cte
+    // inside and outside together (after unnest subquery)
+    qt_select20 """"""
 
     sql """drop table if exists t1;"""
     sql """drop table if exists t2;"""

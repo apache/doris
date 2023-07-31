@@ -26,6 +26,7 @@ import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -126,8 +128,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (cteContext != null) {
             Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTEPlan(tableName);
             if (analyzedCte.isPresent()) {
-                return new LogicalCTEConsumer(unboundRelation.getRelationId(),
+                LogicalCTEConsumer consumer = new LogicalCTEConsumer(unboundRelation.getRelationId(),
                         cteContext.getCteId(), tableName, analyzedCte.get());
+                if (cascadesContext.getStatementContext().getHintMap().get("Leading") != null) {
+                    ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
+                            .putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
+                    ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
+                        .getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
+                }
+                return consumer;
             }
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
@@ -151,7 +160,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.getStatementContext().getHintMap().get("Leading") != null) {
             ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
-                    .getTableNameToScanMap().put(tableName, scan);
+                .putRelationIdAndTableName(Pair.of(((LogicalRelation) scan).getRelationId(), tableName));
+            ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
+                .getRelationIdToScanMap().put(((LogicalRelation) scan).getRelationId(), scan);
         }
         return scan;
     }
