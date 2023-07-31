@@ -219,7 +219,7 @@ WITH BROKER broker_name
 
    导入文件 `file.txt`，按逗号分隔，导入到表 `my_table`。
 
-2. 从 HDFS 导入数据，使用通配符匹配两批两批文件。分别导入到两个表中。
+2. 从 HDFS 导入数据，使用通配符匹配两批文件。分别导入到两个表中。
 
    ```sql
    LOAD LABEL example_db.label2
