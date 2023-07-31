@@ -29,7 +29,7 @@ under the License.
 
 [Apache Doris](https://github.com/apache/doris) 聚集了世界全国各地的用户与开发人员，致力于打造一个内容完整、持续成长的互联网开发者学习生态圈！在 2022 年 6 月，Apache Doris 成功从 Apache 孵化器毕业，正式成为 Apache 顶级项目（Top-Level Project, TLP）。
 
-<hr>
+<hr />
 
 
 ## 🙌 更多开发者加入我们
@@ -93,7 +93,7 @@ under the License.
 
 
 
-<hr>
+<hr />
 
 ## 👋 想要了解更多？别错过社区最新动态！
 
