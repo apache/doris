@@ -353,6 +353,7 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
                                                      _sender_queues[i], std::placeholders::_1,
                                                      std::placeholders::_2));
     }
+    _merger->set_pipeline_engine_enabled(_enable_pipeline);
     RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
     return Status::OK();
 }
