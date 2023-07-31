@@ -53,7 +53,6 @@ public class UdafExecutor extends BaseExecutor {
     private HashMap<Long, Object> stateObjMap;
     private Class retClass;
     private int addIndex;
-    private MethodAccess methodAccess;
 
     /**
      * Constructor to create an object.
@@ -82,16 +81,17 @@ public class UdafExecutor extends BaseExecutor {
                 dataAddr, strOffsetAddr);
     }
 
-    public Object[] convertMapArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
+    public Object[] convertMapArguments(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
             long offsetsAddr, long keyNestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
             long valueNestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) {
         PrimitiveType keyType = argTypes[argIdx].getKeyType().getPrimitiveType();
         PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
-        Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
+        Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr,
                 keyNestedNullMapAddr, keyDataAddr,
                 keyStrOffsetAddr);
-        Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
-                valueNestedNullMapAddr, valueDataAddr,
+        Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr,
+                valueNestedNullMapAddr,
+                valueDataAddr,
                 valueStrOffsetAddr);
         return buildHashMap(keyType, valueType, keyCol, valueCol);
     }
@@ -126,7 +126,7 @@ public class UdafExecutor extends BaseExecutor {
                 methodAccess.invoke(udf, addIndex, inputArgs);
             }
         } catch (Exception e) {
-            LOG.warn("invoke add function meet some error: " + e.getCause().toString());
+            LOG.info("invoke add function meet some error: " + e.getCause().toString());
             throw new UdfRuntimeException("UDAF failed to addBatchSingle: ", e);
         }
     }
@@ -158,7 +158,7 @@ public class UdafExecutor extends BaseExecutor {
                 methodAccess.invoke(udf, addIndex, inputArgs);
             }
         } catch (Exception e) {
-            LOG.warn("invoke add function meet some error: " + Arrays.toString(e.getStackTrace()));
+            LOG.info("invoke add function meet some error: " + Arrays.toString(e.getStackTrace()));
             throw new UdfRuntimeException("UDAF failed to addBatchPlaces: ", e);
         }
     }

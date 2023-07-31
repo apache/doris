@@ -452,7 +452,7 @@ private:
                                     executor_convert_basic_argument_id));
         RETURN_IF_ERROR(register_id("convertArrayArguments", "(IZIIJJJJJ)[Ljava/lang/Object;",
                                     executor_convert_array_argument_id));
-        RETURN_IF_ERROR(register_id("convertMapArguments", "(IZIJJJJJJJJ)[Ljava/lang/Object;",
+        RETURN_IF_ERROR(register_id("convertMapArguments", "(IZIIJJJJJJJJ)[Ljava/lang/Object;",
                                     executor_convert_map_argument_id));
         RETURN_IF_ERROR(
                 register_id("addBatch", "(ZIIJI[Ljava/lang/Object;)V", executor_add_batch_id));

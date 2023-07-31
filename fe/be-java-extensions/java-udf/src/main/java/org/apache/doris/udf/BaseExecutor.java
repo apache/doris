@@ -25,6 +25,7 @@ import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
+import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Preconditions;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -33,6 +34,7 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.IOException;
 import java.lang.reflect.Array;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -43,6 +45,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Map;
 
 public abstract class BaseExecutor {
     private static final Logger LOG = Logger.getLogger(BaseExecutor.class);
@@ -89,12 +92,14 @@ public abstract class BaseExecutor {
     protected final long outputArrayStringOffsetsPtr;
     protected final long outputIntermediateStatePtr;
     protected Class[] argClass;
+    protected MethodAccess methodAccess;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used
      * by
      * the backend.
      */
+
     public BaseExecutor(byte[] thriftParams) throws Exception {
         TJavaUdfExecutorCtorParams request = new TJavaUdfExecutorCtorParams();
         TDeserializer deserializer = new TDeserializer(PROTOCOL_FACTORY);
@@ -1449,6 +1454,370 @@ public abstract class BaseExecutor {
                 retHashMap[colIdx] = hashMap;
             }
             return retHashMap;
+        }
+    }
+
+    public void copyBatchBasicResultImpl(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
+            long resColumnAddr, long strOffsetAddr, Method method) {
+        switch (retType) {
+            case BOOLEAN: {
+                UdfConvert.copyBatchBooleanResult(isNullable, numRows, (Boolean[]) result, nullMapAddr, resColumnAddr);
+                break;
+            }
+            case TINYINT: {
+                UdfConvert.copyBatchTinyIntResult(isNullable, numRows, (Byte[]) result, nullMapAddr, resColumnAddr);
+                break;
+            }
+            case SMALLINT: {
+                UdfConvert.copyBatchSmallIntResult(isNullable, numRows, (Short[]) result, nullMapAddr, resColumnAddr);
+                break;
+            }
+            case INT: {
+                UdfConvert.copyBatchIntResult(isNullable, numRows, (Integer[]) result, nullMapAddr, resColumnAddr);
+                break;
+            }
+            case BIGINT: {
+                UdfConvert.copyBatchBigIntResult(isNullable, numRows, (Long[]) result, nullMapAddr, resColumnAddr);
+                break;
+            }
+            case LARGEINT: {
+                UdfConvert.copyBatchLargeIntResult(isNullable, numRows, (BigInteger[]) result, nullMapAddr,
+                        resColumnAddr);
+                break;
+            }
+            case FLOAT: {
+                UdfConvert.copyBatchFloatResult(isNullable, numRows, (Float[]) result, nullMapAddr, resColumnAddr);
+                break;
+            }
+            case DOUBLE: {
+                UdfConvert.copyBatchDoubleResult(isNullable, numRows, (Double[]) result, nullMapAddr, resColumnAddr);
+                break;
+            }
+            case CHAR:
+            case VARCHAR:
+            case STRING: {
+                UdfConvert.copyBatchStringResult(isNullable, numRows, (String[]) result, nullMapAddr, resColumnAddr,
+                        strOffsetAddr);
+                break;
+            }
+            case DATE: {
+                UdfConvert.copyBatchDateResult(method.getReturnType(), isNullable, numRows, result,
+                        nullMapAddr, resColumnAddr);
+                break;
+            }
+            case DATETIME: {
+                UdfConvert
+                        .copyBatchDateTimeResult(method.getReturnType(), isNullable, numRows, result,
+                                nullMapAddr,
+                                resColumnAddr);
+                break;
+            }
+            case DATEV2: {
+                UdfConvert.copyBatchDateV2Result(method.getReturnType(), isNullable, numRows, result,
+                        nullMapAddr,
+                        resColumnAddr);
+                break;
+            }
+            case DATETIMEV2: {
+                UdfConvert.copyBatchDateTimeV2Result(method.getReturnType(), isNullable, numRows,
+                        result, nullMapAddr,
+                        resColumnAddr);
+                break;
+            }
+            case DECIMALV2:
+            case DECIMAL128: {
+                UdfConvert.copyBatchDecimal128Result(retType.getScale(), isNullable, numRows, (BigDecimal[]) result,
+                        nullMapAddr,
+                        resColumnAddr);
+                break;
+            }
+            case DECIMAL32: {
+                UdfConvert.copyBatchDecimal32Result(retType.getScale(), isNullable, numRows, (BigDecimal[]) result,
+                        nullMapAddr,
+                        resColumnAddr);
+                break;
+            }
+            case DECIMAL64: {
+                UdfConvert.copyBatchDecimal64Result(retType.getScale(), isNullable, numRows, (BigDecimal[]) result,
+                        nullMapAddr,
+                        resColumnAddr);
+                break;
+            }
+            default: {
+                LOG.info("Not support return type: " + retType);
+                Preconditions.checkState(false, "Not support type: " + retType.toString());
+                break;
+            }
+        }
+    }
+
+    public void copyBatchArrayResultImpl(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr,
+            PrimitiveType type) {
+        long hasPutElementNum = 0;
+        for (int row = 0; row < numRows; ++row) {
+            switch (type) {
+                case BOOLEAN: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayBooleanResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case TINYINT: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayTinyIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case SMALLINT: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArraySmallIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case INT: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case BIGINT: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayBigIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case LARGEINT: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayLargeIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case FLOAT: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayFloatResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DOUBLE: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDoubleResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case CHAR:
+                case VARCHAR:
+                case STRING: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayStringResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr);
+                    break;
+                }
+                case DATE: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDateResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATETIME: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDateTimeResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATEV2: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDateV2Result(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATETIMEV2: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDateTimeV2Result(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMALV2: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDecimalResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMAL32: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDecimalV3Result(retType.getScale(), 4L, hasPutElementNum, isNullable, row,
+                                    result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMAL64: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDecimalV3Result(retType.getScale(), 8L, hasPutElementNum, isNullable, row,
+                                    result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMAL128: {
+                    hasPutElementNum = UdfConvert
+                            .copyBatchArrayDecimalV3Result(retType.getScale(), 16L, hasPutElementNum, isNullable, row,
+                                    result, nullMapAddr,
+                                    offsetsAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                default: {
+                    Preconditions.checkState(false, "Not support type in array: " + retType);
+                    break;
+                }
+            }
+        }
+    }
+
+    public void buildArrayListFromHashMap(Object[] result, PrimitiveType keyType, PrimitiveType valueType,
+            Object[] keyCol, Object[] valueCol) {
+        switch (keyType) {
+            case BOOLEAN: {
+                new ArrayListBuilder<Boolean>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case TINYINT: {
+                new ArrayListBuilder<Byte>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case SMALLINT: {
+                new ArrayListBuilder<Short>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case INT: {
+                new ArrayListBuilder<Integer>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case BIGINT: {
+                new ArrayListBuilder<Long>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case LARGEINT: {
+                new ArrayListBuilder<BigInteger>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case FLOAT: {
+                new ArrayListBuilder<Float>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case DOUBLE: {
+                new ArrayListBuilder<Double>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case CHAR:
+            case VARCHAR:
+            case STRING: {
+                new ArrayListBuilder<String>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case DATEV2:
+            case DATE: {
+                new ArrayListBuilder<LocalDate>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case DATETIMEV2:
+            case DATETIME: {
+                new ArrayListBuilder<LocalDateTime>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMALV2:
+            case DECIMAL128: {
+                new ArrayListBuilder<BigDecimal>().get(result, keyCol, valueCol, valueType);
+                break;
+            }
+            default: {
+                LOG.info("Not support: " + keyType);
+                Preconditions.checkState(false, "Not support type " + keyType.toString());
+                break;
+            }
+        }
+    }
+
+    public static class ArrayListBuilder<keyType> {
+        public void get(Object[] map, Object[] keyCol, Object[] valueCol, PrimitiveType valueType) {
+            switch (valueType) {
+                case BOOLEAN: {
+                    new BuildArrayFromType<keyType, Boolean>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case TINYINT: {
+                    new BuildArrayFromType<keyType, Byte>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case SMALLINT: {
+                    new BuildArrayFromType<keyType, Short>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case INT: {
+                    new BuildArrayFromType<keyType, Integer>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case BIGINT: {
+                    new BuildArrayFromType<keyType, Long>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case LARGEINT: {
+                    new BuildArrayFromType<keyType, BigInteger>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case FLOAT: {
+                    new BuildArrayFromType<keyType, Float>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case DOUBLE: {
+                    new BuildArrayFromType<keyType, Double>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case CHAR:
+                case VARCHAR:
+                case STRING: {
+                    new BuildArrayFromType<keyType, String>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case DATEV2:
+                case DATE: {
+                    new BuildArrayFromType<keyType, LocalDate>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case DATETIMEV2:
+                case DATETIME: {
+                    new BuildArrayFromType<keyType, LocalDateTime>().get(map, keyCol, valueCol);
+                    break;
+                }
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMALV2:
+                case DECIMAL128: {
+                    new BuildArrayFromType<keyType, BigDecimal>().get(map, keyCol, valueCol);
+                    break;
+                }
+                default: {
+                    LOG.info("Not support: " + valueType);
+                    Preconditions.checkState(false, "Not support type " + valueType.toString());
+                    break;
+                }
+            }
+        }
+    }
+
+    public static class BuildArrayFromType<T1, T2> {
+        public void get(Object[] map, Object[] keyCol, Object[] valueCol) {
+            for (int colIdx = 0; colIdx < map.length; colIdx++) {
+                HashMap<T1, T2> hashMap = (HashMap<T1, T2>) map[colIdx];
+                ArrayList<T1> keys = new ArrayList<>();
+                ArrayList<T2> values = new ArrayList<>();
+                for (Map.Entry<T1, T2> entry : hashMap.entrySet()) {
+                    keys.add(entry.getKey());
+                    values.add(entry.getValue());
+                }
+                keyCol[colIdx] = keys;
+                valueCol[colIdx] = values;
+            }
         }
     }
 }
