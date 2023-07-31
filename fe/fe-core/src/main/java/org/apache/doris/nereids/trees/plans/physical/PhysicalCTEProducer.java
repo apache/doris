@@ -133,4 +133,15 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     public String shapeInfo() {
         return Utils.toSqlString("CteProducer[cteId=", cteId, "]");
     }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalCTEProducer<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalCTEProducer<>(cteId, projects, groupExpression, null, physicalProperties,
+                statistics, child());
+    }
 }

@@ -176,4 +176,11 @@ public class PhysicalNestedLoopJoin<
         otherJoinConjuncts.forEach(expr -> builder.append(expr.shapeInfo()));
         return builder.toString();
     }
+
+    @Override
+    public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalNestedLoopJoin<>(joinType,
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, groupExpression,
+                null, physicalProperties, statistics, left(), right());
+    }
 }
