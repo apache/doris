@@ -63,6 +63,9 @@
 -- !select_map3 --
 {}
 
+-- !select_map4 --
+{1000:"k11", 2000:"k22"}
+
 -- !select_element1 --
 1000
 
