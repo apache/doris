@@ -310,6 +310,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
+    public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
+
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
@@ -363,6 +365,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String CBO_NET_WEIGHT = "cbo_net_weight";
 
+    public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -376,6 +380,9 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
+    public boolean roundPreciseDecimalV2Value = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
@@ -396,7 +403,7 @@ public class SessionVariable implements Serializable, Writable {
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
     @VariableMgr.VarAttr(name = DEFAULT_ORDER_BY_LIMIT)
-    public long defaultOrderByLimit = -1;
+    private long defaultOrderByLimit = -1;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
@@ -475,7 +482,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean sqlAutoIsNull = false;
 
     @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
-    public long sqlSelectLimit = 9223372036854775807L;
+    private long sqlSelectLimit = Long.MAX_VALUE;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
@@ -803,7 +810,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableDpHypTrace = false;
 
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
-    private double broadcastRightTableScaleFactor = 10.0;
+    private double broadcastRightTableScaleFactor = 0.0;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 30000000;
@@ -956,6 +963,11 @@ public class SessionVariable implements Serializable, Writable {
             "Specify the storage path of the block file cache on BE, default 'random', "
                     + "and randomly select the storage path configured by BE."})
     public String fileCacheBasePath = "random";
+
+    // Whether enable query with inverted index.
+    @VariableMgr.VarAttr(name = ENABLE_INVERTED_INDEX_QUERY, needForward = true, description = {
+            "是否启用inverted index query。", "Set wether to use inverted index query."})
+    public boolean enableInvertedIndexQuery = true;
 
     // Whether drop table when create table as select insert data appear error.
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
@@ -1309,7 +1321,14 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public long getSqlSelectLimit() {
+        if (sqlSelectLimit < 0 || sqlSelectLimit >= Long.MAX_VALUE) {
+            return -1;
+        }
         return sqlSelectLimit;
+    }
+
+    public long getDefaultOrderByLimit() {
+        return defaultOrderByLimit;
     }
 
     public int getMaxAllowedPacket() {
@@ -1982,6 +2001,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fileCacheBasePath = basePath;
     }
 
+    public boolean isEnableInvertedIndexQuery() {
+        return enableInvertedIndexQuery;
+    }
+
+    public void setEnableInvertedIndexQuery(boolean enableInvertedIndexQuery) {
+        this.enableInvertedIndexQuery = enableInvertedIndexQuery;
+    }
+
     public int getMaxTableCountUseCascadesJoinReorder() {
         return this.maxTableCountUseCascadesJoinReorder;
     }
@@ -2074,6 +2101,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFileCache(enableFileCache);
 
         tResult.setFileCacheBasePath(fileCacheBasePath);
+
+        tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);

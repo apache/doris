@@ -180,6 +180,16 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
+    private void handleStmtClose() {
+        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        int stmtId = packetBuf.getInt();
+        LOG.debug("close stmt id: {}", stmtId);
+        ConnectContext.get().removePrepareStmt(String.valueOf(stmtId));
+        // No response packet is sent back to the client, see
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_close.html
+        ctx.getState().setNoop();
+    }
+
     private void debugPacket() {
         byte[] bytes = packetBuf.array();
         StringBuilder printB = new StringBuilder();
@@ -597,8 +607,7 @@ public class ConnectProcessor {
                 handleStmtReset();
                 break;
             case COM_STMT_CLOSE:
-                // TODO
-                handleStmtReset();
+                handleStmtClose();
                 break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");

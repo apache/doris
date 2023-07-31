@@ -52,7 +52,7 @@ public class LogicalCTEConsumer extends LogicalRelation {
      */
     public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name,
             Map<Slot, Slot> consumerToProducerOutputMap, Map<Slot, Slot> producerToConsumerOutputMap) {
-        super(relationId, PlanType.LOGICAL_CTE_RELATION, Optional.empty(), Optional.empty());
+        super(relationId, PlanType.LOGICAL_CTE_CONSUMER, Optional.empty(), Optional.empty());
         this.cteId = Objects.requireNonNull(cteId, "cteId should not null");
         this.name = Objects.requireNonNull(name, "name should not null");
         this.consumerToProducerOutputMap = Objects.requireNonNull(consumerToProducerOutputMap,
@@ -65,7 +65,7 @@ public class LogicalCTEConsumer extends LogicalRelation {
      * Logical CTE consumer.
      */
     public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name, LogicalPlan producerPlan) {
-        super(relationId, PlanType.LOGICAL_CTE_RELATION, Optional.empty(), Optional.empty());
+        super(relationId, PlanType.LOGICAL_CTE_CONSUMER, Optional.empty(), Optional.empty());
         this.cteId = Objects.requireNonNull(cteId, "cteId should not null");
         this.name = Objects.requireNonNull(name, "name should not null");
         this.consumerToProducerOutputMap = new LinkedHashMap<>();
@@ -79,7 +79,7 @@ public class LogicalCTEConsumer extends LogicalRelation {
     public LogicalCTEConsumer(RelationId relationId, CTEId cteId, String name,
             Map<Slot, Slot> consumerToProducerOutputMap, Map<Slot, Slot> producerToConsumerOutputMap,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(relationId, PlanType.LOGICAL_CTE_RELATION, groupExpression, logicalProperties);
+        super(relationId, PlanType.LOGICAL_CTE_CONSUMER, groupExpression, logicalProperties);
         this.cteId = Objects.requireNonNull(cteId, "cteId should not null");
         this.name = Objects.requireNonNull(name, "name should not null");
         this.consumerToProducerOutputMap = Objects.requireNonNull(consumerToProducerOutputMap,

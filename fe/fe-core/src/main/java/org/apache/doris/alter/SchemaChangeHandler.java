@@ -2799,12 +2799,11 @@ public class SchemaChangeHandler extends AlterHandler {
 
     public boolean updateBinlogConfig(Database db, OlapTable olapTable, List<AlterClause> alterClauses)
             throws DdlException, UserException {
-        // TODO(Drogon): check olapTable read binlog thread safety
         List<Partition> partitions = Lists.newArrayList();
         BinlogConfig oldBinlogConfig;
         BinlogConfig newBinlogConfig;
 
-        db.readLock();
+        olapTable.readLock();
         try {
             oldBinlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
             newBinlogConfig = new BinlogConfig(oldBinlogConfig);
@@ -2812,7 +2811,7 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         for (AlterClause alterClause : alterClauses) {
@@ -2856,6 +2855,19 @@ public class SchemaChangeHandler extends AlterHandler {
             LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
                     olapTable.getName());
             return true;
+        }
+
+        // check db binlog config, if db binlog config is not same as table binlog config, throw exception
+        BinlogConfig dbBinlogConfig;
+        db.readLock();
+        try {
+            dbBinlogConfig = new BinlogConfig(db.getBinlogConfig());
+        } finally {
+            db.readUnlock();
+        }
+        boolean dbBinlogEnable = (dbBinlogConfig != null && dbBinlogConfig.isEnable());
+        if (dbBinlogEnable && !newBinlogConfig.isEnable()) {
+            throw new DdlException("db binlog is enable, but table binlog is disable");
         }
 
         LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",

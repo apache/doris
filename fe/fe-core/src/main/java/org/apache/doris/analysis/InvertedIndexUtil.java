@@ -50,7 +50,19 @@ public class InvertedIndexUtil {
 
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
             Map<String, String> properties) throws AnalysisException {
-        String parser = getInvertedIndexParser(properties);
+        String parser = null;
+        if (properties != null) {
+            parser = properties.get(INVERTED_INDEX_PARSER_KEY);
+            if (parser == null && !properties.isEmpty()) {
+                throw new AnalysisException("invalid index properties, please check the properties");
+            }
+        }
+
+        // default is "none" if not set
+        if (parser == null) {
+            parser = INVERTED_INDEX_PARSER_NONE;
+        }
+
         if (colType.isStringType()) {
             if (!(parser.equals(INVERTED_INDEX_PARSER_NONE)
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)

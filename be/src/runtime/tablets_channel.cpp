@@ -196,7 +196,7 @@ Status TabletsChannel::close(
         }
 
         // 3. build rowset
-        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end(); it++) {
+        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
             Status st = (*it)->build_rowset();
             if (!st.ok()) {
                 _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -210,16 +210,18 @@ Status TabletsChannel::close(
                 it = need_wait_writers.erase(it);
                 continue;
             }
+            it++;
         }
 
         // 4. wait for delete bitmap calculation complete if necessary
-        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end(); it++) {
+        for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
             Status st = (*it)->wait_calc_delete_bitmap();
             if (!st.ok()) {
                 _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
                 it = need_wait_writers.erase(it);
                 continue;
             }
+            it++;
         }
 
         // 5. commit all writers
@@ -289,18 +291,6 @@ void TabletsChannel::_add_error_tablet(
                   << "err msg " << error;
 }
 
-int64_t TabletsChannel::mem_consumption() {
-    int64_t mem_usage = 0;
-    {
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
-        for (auto& it : _tablet_writers) {
-            int64_t writer_mem = it.second->mem_consumption(MemType::ALL);
-            mem_usage += writer_mem;
-        }
-    }
-    return mem_usage;
-}
-
 void TabletsChannel::refresh_profile() {
     int64_t write_mem_usage = 0;
     int64_t flush_mem_usage = 0;
@@ -326,16 +316,6 @@ void TabletsChannel::refresh_profile() {
     COUNTER_SET(_max_tablet_memory_usage_counter, max_tablet_mem_usage);
     COUNTER_SET(_max_tablet_write_memory_usage_counter, max_tablet_write_mem_usage);
     COUNTER_SET(_max_tablet_flush_memory_usage_counter, max_tablet_flush_mem_usage);
-}
-
-void TabletsChannel::get_active_memtable_mem_consumption(
-        std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions) {
-    mem_consumptions->clear();
-    std::lock_guard<SpinLock> l(_tablet_writers_lock);
-    for (auto& it : _tablet_writers) {
-        int64_t active_memtable_mem = it.second->active_memtable_mem_consumption();
-        mem_consumptions->emplace(active_memtable_mem, it.first);
-    }
 }
 
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
@@ -499,69 +479,6 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     return Status::OK();
 }
 
-void TabletsChannel::flush_memtable_async(int64_t tablet_id) {
-    std::lock_guard<std::mutex> l(_lock);
-    if (_state == kFinished) {
-        // TabletsChannel is closed without LoadChannel's lock,
-        // therefore it's possible for reduce_mem_usage() to be called right after close()
-        LOG(INFO) << "TabletsChannel is closed when reduce mem usage, txn_id: " << _txn_id
-                  << ", index_id: " << _index_id;
-        return;
-    }
-
-    auto iter = _tablet_writers.find(tablet_id);
-    if (iter == _tablet_writers.end()) {
-        return;
-    }
-
-    if (!(_reducing_tablets.insert(tablet_id).second)) {
-        return;
-    }
-
-    Status st = iter->second->flush_memtable_and_wait(false);
-    if (!st.ok()) {
-        auto err_msg = fmt::format(
-                "tablet writer failed to reduce mem consumption by flushing memtable, "
-                "tablet_id={}, txn_id={}, err={}",
-                tablet_id, _txn_id, st.to_string());
-        LOG(WARNING) << err_msg;
-        iter->second->cancel_with_status(st);
-        _add_broken_tablet(tablet_id);
-    }
-}
-
-void TabletsChannel::wait_flush(int64_t tablet_id) {
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        if (_state == kFinished) {
-            // TabletsChannel is closed without LoadChannel's lock,
-            // therefore it's possible for reduce_mem_usage() to be called right after close()
-            LOG(INFO) << "TabletsChannel is closed when reduce mem usage, txn_id: " << _txn_id
-                      << ", index_id: " << _index_id;
-            return;
-        }
-    }
-
-    auto iter = _tablet_writers.find(tablet_id);
-    if (iter == _tablet_writers.end()) {
-        return;
-    }
-    Status st = iter->second->wait_flush();
-    if (!st.ok()) {
-        auto err_msg = fmt::format(
-                "tablet writer failed to reduce mem consumption by flushing memtable, "
-                "tablet_id={}, txn_id={}, err={}",
-                tablet_id, _txn_id, st.to_string());
-        LOG(WARNING) << err_msg;
-        iter->second->cancel_with_status(st);
-        _add_broken_tablet(tablet_id);
-    }
-
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        _reducing_tablets.erase(tablet_id);
-    }
-}
 void TabletsChannel::_add_broken_tablet(int64_t tablet_id) {
     std::unique_lock<std::shared_mutex> wlock(_broken_tablets_lock);
     _broken_tablets.insert(tablet_id);

@@ -154,14 +154,6 @@ struct AggregationMethodSerialized {
         return max_one_row_byte_size;
     }
 
-    static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
-                                        const Sizes&) {
-        auto pos = key.data;
-        for (auto& column : key_columns) {
-            pos = column->deserialize_and_insert_from_arena(pos);
-        }
-    }
-
     static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
         for (auto& column : key_columns) {
@@ -215,11 +207,6 @@ struct AggregationMethodStringNoCache {
 
     static const bool low_cardinality_optimization = false;
 
-    static void insert_key_into_columns(const StringRef& key, MutableColumns& key_columns,
-                                        const Sizes&) {
-        key_columns[0]->insert_data(key.data, key.size);
-    }
-
     static void insert_keys_into_columns(std::vector<StringRef>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
         key_columns[0]->reserve(num_rows);
@@ -255,14 +242,6 @@ struct AggregationMethodOneNumber {
     /// To use one `Method` in different threads, use different `State`.
     using State = ColumnsHashing::HashMethodOneNumber<typename Data::value_type, Mapped, FieldType,
                                                       consecutive_keys_optimization>;
-
-    // Insert the key from the hash table into columns.
-    static void insert_key_into_columns(const Key& key, MutableColumns& key_columns,
-                                        const Sizes& /*key_sizes*/) {
-        const auto* key_holder = reinterpret_cast<const char*>(&key);
-        auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
-        column->insert_raw_data<sizeof(FieldType)>(key_holder);
-    }
 
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
@@ -328,59 +307,44 @@ struct AggregationMethodKeysFixed {
     using State = ColumnsHashing::HashMethodKeysFixed<typename Data::value_type, Key, Mapped,
                                                       has_nullable_keys, false>;
 
-    static void insert_key_into_columns(const Key& key, MutableColumns& key_columns,
-                                        const Sizes& key_sizes) {
-        size_t keys_size = key_columns.size();
-
-        static constexpr auto bitmap_size =
-                has_nullable_keys ? std::tuple_size<KeysNullMap<Key>>::value : 0;
-        /// In any hash key value, column values to be read start just after the bitmap, if it exists.
-        size_t pos = bitmap_size;
-
-        for (size_t i = 0; i < keys_size; ++i) {
-            IColumn* observed_column;
-            ColumnUInt8* null_map;
-
-            bool column_nullable = false;
-            if constexpr (has_nullable_keys) {
-                column_nullable = is_column_nullable(*key_columns[i]);
-            }
-
-            /// If we have a nullable column, get its nested column and its null map.
-            if (column_nullable) {
-                ColumnNullable& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
-                observed_column = &nullable_col.get_nested_column();
-                null_map = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column());
-            } else {
-                observed_column = key_columns[i].get();
-                null_map = nullptr;
-            }
-
-            bool is_null = false;
-            if (column_nullable) {
-                /// The current column is nullable. Check if the value of the
-                /// corresponding key is nullable. Update the null map accordingly.
-                size_t bucket = i / 8;
-                size_t offset = i % 8;
-                UInt8 val = (reinterpret_cast<const UInt8*>(&key)[bucket] >> offset) & 1;
-                null_map->insert_value(val);
-                is_null = val == 1;
-            }
-
-            if (has_nullable_keys && is_null) {
-                observed_column->insert_default();
-            } else {
-                size_t size = key_sizes[i];
-                observed_column->insert_data(reinterpret_cast<const char*>(&key) + pos, size);
-                pos += size;
-            }
-        }
-    }
-
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes& key_sizes) {
-        for (size_t i = 0; i != num_rows; ++i) {
-            insert_key_into_columns(keys[i], key_columns, key_sizes);
+        // In any hash key value, column values to be read start just after the bitmap, if it exists.
+        size_t pos = has_nullable_keys ? std::tuple_size<KeysNullMap<Key>>::value : 0;
+
+        for (size_t i = 0; i < key_columns.size(); ++i) {
+            size_t size = key_sizes[i];
+            key_columns[i]->resize(num_rows);
+            // If we have a nullable column, get its nested column and its null map.
+            if (is_column_nullable(*key_columns[i])) {
+                ColumnNullable& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
+
+                char* data =
+                        const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
+                UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
+                                         ->get_data()
+                                         .data();
+
+                // The current column is nullable. Check if the value of the
+                // corresponding key is nullable. Update the null map accordingly.
+                size_t bucket = i / 8;
+                size_t offset = i % 8;
+                for (size_t j = 0; j < num_rows; j++) {
+                    const Key& key = keys[j];
+                    UInt8 val = (reinterpret_cast<const UInt8*>(&key)[bucket] >> offset) & 1;
+                    nullmap[j] = val;
+                    if (!val) {
+                        memcpy(data + j * size, reinterpret_cast<const char*>(&key) + pos, size);
+                    }
+                }
+            } else {
+                char* data = const_cast<char*>(key_columns[i]->get_raw_data().data);
+                for (size_t j = 0; j < num_rows; j++) {
+                    const Key& key = keys[j];
+                    memcpy(data + j * size, reinterpret_cast<const char*>(&key) + pos, size);
+                }
+            }
+            pos += size;
         }
     }
 
@@ -410,17 +374,6 @@ struct AggregationMethodSingleNullableColumn : public SingleColumnMethod {
     explicit AggregationMethodSingleNullableColumn(const Other& other) : Base(other) {}
 
     using State = ColumnsHashing::HashMethodSingleLowNullableColumn<BaseState, Mapped, true>;
-
-    static void insert_key_into_columns(const Key& key, MutableColumns& key_columns,
-                                        const Sizes& /*key_sizes*/) {
-        auto col = key_columns[0].get();
-
-        if constexpr (std::is_same_v<Key, StringRef>) {
-            col->insert_data(key.data, key.size);
-        } else {
-            col->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
-        }
-    }
 
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
@@ -865,7 +818,7 @@ struct SpillPartitionHelper {
 };
 
 // not support spill
-class AggregationNode final : public ::doris::ExecNode {
+class AggregationNode : public ::doris::ExecNode {
 public:
     using Sizes = std::vector<size_t>;
 
@@ -883,18 +836,34 @@ public:
     Status sink(doris::RuntimeState* state, vectorized::Block* input_block, bool eos) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
     bool is_streaming_preagg() const { return _is_streaming_preagg; }
+    bool is_aggregate_evaluators_empty() const { return _aggregate_evaluators.empty(); }
+    void _make_nullable_output_key(Block* block);
+
+protected:
+    bool _is_streaming_preagg;
+    bool _child_eos = false;
+    Block _preagg_block = Block();
+    ArenaUPtr _agg_arena_pool;
+    // group by k1,k2
+    VExprContextSPtrs _probe_expr_ctxs;
+    AggregatedDataVariantsUPtr _agg_data;
+
+    std::vector<size_t> _probe_key_sz;
+    std::vector<size_t> _hash_values;
+    // left / full join will change the key nullable make output/input solt
+    // nullable diff. so we need make nullable of it.
+    std::vector<size_t> _make_nullable_keys;
+    RuntimeProfile::Counter* _hash_table_compute_timer;
+    RuntimeProfile::Counter* _hash_table_input_counter;
+    RuntimeProfile::Counter* _build_timer;
+    RuntimeProfile::Counter* _expr_timer;
+    RuntimeProfile::Counter* _exec_timer;
 
 private:
     friend class pipeline::AggSinkOperator;
     friend class pipeline::StreamingAggSinkOperator;
     friend class pipeline::AggSourceOperator;
     friend class pipeline::StreamingAggSourceOperator;
-    // group by k1,k2
-    VExprContextSPtrs _probe_expr_ctxs;
-    // left / full join will change the key nullable make output/input solt
-    // nullable diff. so we need make nullable of it.
-    std::vector<size_t> _make_nullable_keys;
-    std::vector<size_t> _probe_key_sz;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
@@ -920,47 +889,32 @@ private:
     size_t _external_agg_bytes_threshold;
     size_t _partitioned_threshold = 0;
 
-    AggregatedDataVariantsUPtr _agg_data;
-
     AggSpillContext _spill_context;
     std::unique_ptr<SpillPartitionHelper> _spill_partition_helper;
 
-    ArenaUPtr _agg_arena_pool;
-
-    RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _build_table_convert_timer;
     RuntimeProfile::Counter* _serialize_key_timer;
-    RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _expr_timer;
     RuntimeProfile::Counter* _get_results_timer;
     RuntimeProfile::Counter* _serialize_data_timer;
     RuntimeProfile::Counter* _serialize_result_timer;
     RuntimeProfile::Counter* _deserialize_data_timer;
-    RuntimeProfile::Counter* _hash_table_compute_timer;
     RuntimeProfile::Counter* _hash_table_iterate_timer;
     RuntimeProfile::Counter* _insert_keys_to_column_timer;
     RuntimeProfile::Counter* _streaming_agg_timer;
     RuntimeProfile::Counter* _hash_table_size_counter;
-    RuntimeProfile::Counter* _hash_table_input_counter;
     RuntimeProfile::Counter* _max_row_size_counter;
-
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _hash_table_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage;
 
-    bool _is_streaming_preagg;
-    Block _preagg_block = Block();
     bool _should_expand_hash_table = true;
-    bool _child_eos = false;
-
     bool _should_limit_output = false;
     bool _reach_limit = false;
     bool _agg_data_created_without_key = false;
 
     PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
-    std::vector<size_t> _hash_values;
     std::vector<AggregateDataPtr> _values;
     std::unique_ptr<AggregateDataContainer> _aggregate_data_container;
 
@@ -970,8 +924,6 @@ private:
     bool _should_expand_preagg_hash_tables();
 
     size_t _get_hash_table_size();
-
-    void _make_nullable_output_key(Block* block);
 
     Status _create_agg_status(AggregateDataPtr data);
     Status _destroy_agg_status(AggregateDataPtr data);
@@ -1003,6 +955,7 @@ private:
     void _close_with_serialized_key();
     void _init_hash_method(const VExprContextSPtrs& probe_exprs);
 
+protected:
     template <typename AggState, typename AggMethod>
     void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
                                     const ColumnRawPtrs& key_columns, const size_t num_rows) {
@@ -1017,6 +970,7 @@ private:
         }
     }
 
+private:
     template <bool limit>
     Status _execute_with_serialized_key_helper(Block* block) {
         SCOPED_TIMER(_build_timer);

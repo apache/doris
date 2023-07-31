@@ -223,7 +223,7 @@ public class Config extends ConfigBase {
             + "可以适当增大这个值",
             "The lock timeout of bdbje operation, in seconds. "
                     + "If there are many LockTimeoutException in FE WARN log, you can try to increase this value"})
-    public static int bdbje_lock_timeout_second = 1;
+    public static int bdbje_lock_timeout_second = 5;
 
     @ConfField(description = {"BDBJE 主从节点间同步的超时时间，单位为秒。如果出现大量的 ReplicaWriteException，"
             + "可以适当增大这个值",
@@ -1316,6 +1316,13 @@ public class Config extends ConfigBase {
     public static int max_multi_partition_num = 4096;
 
     /**
+     * Use this parameter to set the partition name prefix for multi partition,
+     * Only multi partition takes effect, not dynamic partitions.
+     * The default prefix is "p_".
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String multi_partition_name_prefix = "p_";
+    /**
      * Control the max num of backup/restore job per db
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1470,7 +1477,7 @@ public class Config extends ConfigBase {
      * the system automatically checks the time interval for statistics
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_minutes = 5;
+    public static int auto_check_statistics_in_minutes = 1;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -1674,13 +1681,6 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int statistics_simultaneously_running_task_num = 10;
-
-    /**
-     * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
-     * otherwise the statistics related internal table creation would be failed.
-     */
-    @ConfField
-    public static int statistic_internal_table_replica_num = 1;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.
@@ -2018,7 +2018,7 @@ public class Config extends ConfigBase {
     public static boolean enable_feature_binlog = false;
 
     @ConfField
-    public static int analyze_task_timeout_in_minutes = 120;
+    public static int analyze_task_timeout_in_hours = 12;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",

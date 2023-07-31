@@ -190,6 +190,7 @@ public:
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
     UIntGauge* load_channel_mem_consumption;
+    UIntGauge* memtable_memory_limiter_mem_consumption;
     UIntGauge* query_mem_consumption;
     UIntGauge* schema_change_mem_consumption;
     UIntGauge* storage_migration_mem_consumption;

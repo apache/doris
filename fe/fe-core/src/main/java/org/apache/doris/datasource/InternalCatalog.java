@@ -759,13 +759,17 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         Database db = (Database) getDbOrDdlException(dbName);
+        long dbId = db.getId();
         Map<String, String> properties = stmt.getProperties();
 
         db.writeLockOrDdlException();
         try {
-            db.updateDbProperties(properties);
+            boolean update = db.updateDbProperties(properties);
+            if (!update) {
+                return;
+            }
 
-            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbName, properties);
+            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbId, dbName, properties);
             Env.getCurrentEnv().getEditLog().logAlterDatabaseProperty(info);
         } finally {
             db.writeUnlock();
@@ -777,7 +781,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = (Database) getDbOrMetaException(dbName);
         db.writeLock();
         try {
-            db.updateDbProperties(properties);
+            db.replayUpdateDbProperties(properties);
         } finally {
             db.writeUnlock();
         }
@@ -1884,6 +1888,20 @@ public class InternalCatalog implements CatalogIf<Database> {
     private void createOlapTable(Database db, CreateTableStmt stmt) throws UserException {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
+
+        BinlogConfig dbBinlogConfig;
+        db.readLock();
+        try {
+            dbBinlogConfig = new BinlogConfig(db.getBinlogConfig());
+        } finally {
+            db.readUnlock();
+        }
+        BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
+        createTableBinlogConfig.mergeFromProperties(stmt.getProperties());
+        if (dbBinlogConfig.isEnable() && !createTableBinlogConfig.isEnable()) {
+            throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
+        }
+        stmt.getProperties().putAll(createTableBinlogConfig.toProperties());
 
         // get keys type
         KeysDesc keysDesc = stmt.getKeysDesc();

@@ -396,7 +396,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
             LOG(INFO) << "submit segcompaction task, tablet_id:" << _context.tablet_id
                       << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
                       << ", segcompacted_point:" << _segcompacted_point;
-            status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
+            status = StorageEngine::instance()->submit_seg_compaction_task(&_segcompaction_worker,
+                                                                           segments);
             if (status.ok()) {
                 return status;
             }
@@ -431,7 +432,8 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
         LOG(INFO) << "submit segcompaction remaining task, tablet_id:" << _context.tablet_id
                   << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
                   << " segcompacted_point:" << _segcompacted_point;
-        status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
+        status = StorageEngine::instance()->submit_seg_compaction_task(&_segcompaction_worker,
+                                                                       segments);
         if (status.ok()) {
             return status;
         }

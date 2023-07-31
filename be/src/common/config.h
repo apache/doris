@@ -592,8 +592,8 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
-// Sleep time in milliseconds between load channel memory refresh iterations
-DECLARE_mInt64(load_channel_memory_refresh_sleep_time_ms);
+// Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
+DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
 // Alignment
 DECLARE_Int32(memory_max_alignment);
@@ -1074,6 +1074,11 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 
 // number of threads that fetch auto-inc ranges from FE
 DECLARE_mInt64(auto_inc_fetch_thread_num);
+// Max connection cache num for point lookup queries
+DECLARE_mInt64(lookup_connection_cache_bytes_limit);
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DECLARE_mInt64(LZ4_HC_compression_level);
 
 #ifdef BE_TEST
 // test s3

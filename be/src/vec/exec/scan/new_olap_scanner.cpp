@@ -127,10 +127,11 @@ Status NewOlapScanner::init() {
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
-    _tablet_reader->set_batch_size(
-            _parent->limit() == -1
-                    ? _state->batch_size()
-                    : std::min(static_cast<int64_t>(_state->batch_size()), _parent->limit()));
+    // batch size is passed down to segment iterator, use _state->batch_size()
+    // instead of _parent->limit(), because if _parent->limit() is a very small
+    // value (e.g. select a from t where a .. and b ... limit 1),
+    // it will be very slow when reading data in segment iterator
+    _tablet_reader->set_batch_size(_state->batch_size());
 
     // Get olap table
     TTabletId tablet_id = _scan_range.tablet_id;
@@ -247,14 +248,13 @@ Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
-    auto real_parent = reinterpret_cast<NewOlapScanNode*>(_parent);
+
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
-        _tablet_reader_params.direct_mode =
-                _aggregation || single_version ||
-                real_parent->_olap_scan_node.__isset.push_down_agg_type_opt;
+        _tablet_reader_params.direct_mode = _aggregation || single_version ||
+                                            (_parent->get_push_down_agg_type() != TPushAggOp::NONE);
     }
 
     RETURN_IF_ERROR(_init_return_columns());
@@ -263,10 +263,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
-    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt) {
-        _tablet_reader_params.push_down_agg_type_opt =
-                real_parent->_olap_scan_node.push_down_agg_type_opt;
-    }
+    _tablet_reader_params.push_down_agg_type_opt = _parent->get_push_down_agg_type();
     _tablet_reader_params.version = Version(0, _version);
 
     // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,

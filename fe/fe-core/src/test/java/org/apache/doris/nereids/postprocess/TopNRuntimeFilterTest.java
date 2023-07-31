@@ -40,8 +40,8 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
         new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        Assertions.assertTrue(plan.children().get(0) instanceof PhysicalTopN);
-        PhysicalTopN localTopN = (PhysicalTopN) plan.children().get(0);
+        Assertions.assertTrue(plan.children().get(0).child(0) instanceof PhysicalTopN);
+        PhysicalTopN localTopN = (PhysicalTopN) plan.children().get(0).child(0);
         Assertions.assertTrue(localTopN.getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
     }
 

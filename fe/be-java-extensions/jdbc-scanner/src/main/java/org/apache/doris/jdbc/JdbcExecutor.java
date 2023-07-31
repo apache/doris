@@ -460,7 +460,7 @@ public class JdbcExecutor {
     }
 
     private void setValidationQuery(DruidDataSource ds, TOdbcTableType tableType) {
-        if (tableType == TOdbcTableType.ORACLE) {
+        if (tableType == TOdbcTableType.ORACLE || tableType == TOdbcTableType.OCEANBASE_ORACLE) {
             ds.setValidationQuery("SELECT 1 FROM dual");
         } else if (tableType == TOdbcTableType.SAP_HANA) {
             ds.setValidationQuery("SELECT 1 FROM DUMMY");
@@ -742,6 +742,23 @@ public class JdbcExecutor {
         }
     }
 
+    private void longPutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+                                 long columnAddr, int startRowForNullable) {
+        if (isNullable) {
+            for (int i = startRowForNullable; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L), ((Long) column[i]).intValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L), ((Long) column[i]).intValue());
+            }
+        }
+    }
+
     public void clickHouseUInt16ToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int startRowForNullable) {
         if (isNullable) {
@@ -775,6 +792,9 @@ public class JdbcExecutor {
             integerPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedShort) {
             clickHouseUInt16ToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof java.lang.Long) {
+            // For mysql view. But don't worry about overflow
+            longPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -1548,6 +1568,53 @@ public class JdbcExecutor {
         UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
     }
 
+    private void oracleClobToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+                                    long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    try {
+                        oracle.sql.CLOB clob = (oracle.sql.CLOB) column[i];
+                        String result = clob.getSubString(1, (int) clob.length());
+                        byteRes[i] = result.getBytes(StandardCharsets.UTF_8);
+                    } catch (Exception e) {
+                        LOG.info("clobToString have error when convert " + e.getMessage());
+                    }
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                try {
+                    oracle.sql.CLOB clob = (oracle.sql.CLOB) column[i];
+                    String result = clob.getSubString(1, (int) clob.length());
+                    byteRes[i] = result.getBytes(StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    LOG.info("clobToString have error when convert " + e.getMessage());
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeStringColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
     private void objectPutToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
         int[] offsets = new int[numRows];
@@ -1727,7 +1794,7 @@ public class JdbcExecutor {
             if (hex.length() == 1) {
                 hexString.append('0');
             }
-            hexString.append(hex);
+            hexString.append(hex.toUpperCase());
         }
         return hexString.toString();
     }
@@ -1752,9 +1819,13 @@ public class JdbcExecutor {
                 && tableType == TOdbcTableType.CLICKHOUSE) {
             // for clickhouse ipv4 and ipv6 type
             ipPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
-        } else if (column[firstNotNullIndex] instanceof byte[] && tableType == TOdbcTableType.MYSQL) {
+        } else if (column[firstNotNullIndex] instanceof byte[] && (tableType == TOdbcTableType.MYSQL
+                || tableType == TOdbcTableType.OCEANBASE)) {
             // for mysql bytea type
             byteaPutToMySQLString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else if (column[firstNotNullIndex] instanceof oracle.sql.CLOB && tableType == TOdbcTableType.ORACLE) {
+            // for oracle clob type
+            oracleClobToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
         } else {
             // object like in pg type point, polygon, jsonb..... get object is
             // org.postgresql.util.PGobject.....

@@ -66,8 +66,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         }
 
         if (properties.size() != 1
-                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
-            throw new AnalysisException("Can only set one table property at a time");
+                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
+                && !TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)) {
+            throw new AnalysisException(
+                    "Can only set one table property(without dynamic partition && binlog) at a time");
         }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {

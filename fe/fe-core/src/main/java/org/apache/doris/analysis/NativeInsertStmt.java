@@ -849,7 +849,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
-            ((OlapTableSink) dataSink).complete();
+            ((OlapTableSink) dataSink).complete(analyzer);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), transactionId);

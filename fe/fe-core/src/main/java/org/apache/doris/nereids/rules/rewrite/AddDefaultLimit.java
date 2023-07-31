@@ -44,8 +44,8 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
         // check if children contain logical sort and add limit.
         ConnectContext ctx = context.getConnectContext();
         if (ctx != null) {
-            long defaultLimit = ctx.getSessionVariable().sqlSelectLimit;
-            if (defaultLimit >= 0 && defaultLimit < Long.MAX_VALUE) {
+            long defaultLimit = ctx.getSessionVariable().getSqlSelectLimit();
+            if (defaultLimit >= 0) {
                 return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, plan);
             }
         }
@@ -63,8 +63,7 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
     // currently, it's one of the olap table sink and file sink.
     @Override
     public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, StatementContext context) {
-        Plan child = logicalSink.child().accept(this, context);
-        return logicalSink.withChildren(child);
+        return super.visit(logicalSink, context);
     }
 
     @Override
@@ -76,8 +75,8 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
     public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, StatementContext context) {
         ConnectContext ctx = context.getConnectContext();
         if (ctx != null) {
-            long defaultLimit = ctx.getSessionVariable().defaultOrderByLimit;
-            long sqlLimit = ctx.getSessionVariable().sqlSelectLimit;
+            long defaultLimit = ctx.getSessionVariable().getDefaultOrderByLimit();
+            long sqlLimit = ctx.getSessionVariable().getSqlSelectLimit();
             if (defaultLimit >= 0 || sqlLimit >= 0) {
                 if (defaultLimit < 0) {
                     defaultLimit = Long.MAX_VALUE;

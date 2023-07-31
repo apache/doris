@@ -249,8 +249,7 @@ Status NewOlapScanNode::_process_conjuncts() {
 }
 
 Status NewOlapScanNode::_build_key_ranges_and_filters() {
-    if (!_olap_scan_node.__isset.push_down_agg_type_opt ||
-        _olap_scan_node.push_down_agg_type_opt == TPushAggOp::NONE) {
+    if (_push_down_agg_type == TPushAggOp::NONE) {
         const std::vector<std::string>& column_names = _olap_scan_node.key_column_name;
         const std::vector<TPrimitiveType::type>& column_types = _olap_scan_node.key_column_type;
         DCHECK(column_types.size() == column_names.size());
@@ -326,9 +325,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                        range);
         }
     } else {
-        _runtime_profile->add_info_string(
-                "PushDownAggregate",
-                push_down_agg_to_string(_olap_scan_node.push_down_agg_type_opt));
+        _runtime_profile->add_info_string("PushDownAggregate",
+                                          push_down_agg_to_string(_push_down_agg_type));
     }
 
     if (_state->enable_profile()) {
@@ -657,6 +655,7 @@ bool NewOlapScanNode::_is_key_column(const std::string& key_name) {
 }
 
 void NewOlapScanNode::add_filter_info(int id, const PredicateFilterInfo& update_info) {
+    std::unique_lock lock(_profile_mtx);
     // update
     _filter_info[id].filtered_row += update_info.filtered_row;
     _filter_info[id].input_row += update_info.input_row;

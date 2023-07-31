@@ -123,6 +123,8 @@ public:
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
+    int64_t txn_id() { return _req.txn_id; }
+
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
     int64_t total_received_rows() const { return _total_received_rows; }

@@ -263,7 +263,7 @@ public class ConnectContext {
             mysqlChannel = new DummyMysqlChannel();
         }
         sessionVariable = VariableMgr.newSessionVariable();
-        if (isMajorVersionUpgrade) {
+        if (connection != null && isMajorVersionUpgrade) {
             VariableMgr.setGlobalPipelineTask(sessionVariable.parallelExecInstanceNum);
             sessionVariable = VariableMgr.newSessionVariable();
         }
@@ -287,6 +287,10 @@ public class ConnectContext {
 
     public void addPreparedStmt(String stmtName, PrepareStmtContext ctx) {
         this.preparedStmtCtxs.put(stmtName, ctx);
+    }
+
+    public void removePrepareStmt(String stmtName) {
+        this.preparedStmtCtxs.remove(stmtName);
     }
 
     public PrepareStmtContext getPreparedStmt(String stmtName) {

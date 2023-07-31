@@ -130,7 +130,7 @@ public class AnalysisJobTest extends TestWithFeService {
                 .setAnalysisType(AnalysisType.FUNDAMENTALS)
                 .setColToPartitions(colToPartitions)
                 .build();
-        new OlapAnalysisTask(analysisJobInfo).execute();
+        new OlapAnalysisTask(analysisJobInfo).doExecute();
     }
 
 }
