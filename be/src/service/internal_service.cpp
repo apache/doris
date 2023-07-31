@@ -22,6 +22,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/signal_handler.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "http/http_client.h"
@@ -207,6 +208,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
+        signal::set_signal_task_id(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open(*request);
         if (!st.ok()) {
@@ -345,6 +347,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            signal::set_signal_task_id(request->id());
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
@@ -438,6 +441,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     bool ret = _light_work_pool.try_offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
+        signal::set_signal_task_id(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->cancel(*request);
         if (!st.ok()) {
