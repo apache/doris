@@ -101,23 +101,6 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
         TJavaUdfExecutorCtorParams ctor_params;
         ctor_params.__set_fn(fn_);
         ctor_params.__set_location(local_location);
-        ctor_params.__set_input_offsets_ptrs((int64_t)jni_ctx->input_offsets_ptrs.get());
-        ctor_params.__set_input_buffer_ptrs((int64_t)jni_ctx->input_values_buffer_ptr.get());
-        ctor_params.__set_input_nulls_ptrs((int64_t)jni_ctx->input_nulls_buffer_ptr.get());
-        ctor_params.__set_input_array_nulls_buffer_ptr(
-                (int64_t)jni_ctx->input_array_nulls_buffer_ptr.get());
-        ctor_params.__set_input_array_string_offsets_ptrs(
-                (int64_t)jni_ctx->input_array_string_offsets_ptrs.get());
-        ctor_params.__set_output_buffer_ptr((int64_t)jni_ctx->output_value_buffer.get());
-        ctor_params.__set_output_null_ptr((int64_t)jni_ctx->output_null_value.get());
-        ctor_params.__set_output_offsets_ptr((int64_t)jni_ctx->output_offsets_ptr.get());
-        ctor_params.__set_output_array_null_ptr((int64_t)jni_ctx->output_array_null_ptr.get());
-        ctor_params.__set_output_array_string_offsets_ptr(
-                (int64_t)jni_ctx->output_array_string_offsets_ptr.get());
-        ctor_params.__set_output_intermediate_state_ptr(
-                (int64_t)jni_ctx->output_intermediate_state_ptr.get());
-        ctor_params.__set_batch_size_ptr((int64_t)jni_ctx->batch_size_ptr.get());
-
         jbyteArray ctor_params_bytes;
 
         // Pushed frame will be popped when jni_frame goes out-of-scope.

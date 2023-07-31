@@ -57,12 +57,6 @@ public:
     AggregateJavaUdafData() = default;
     AggregateJavaUdafData(int64_t num_args) {
         argument_size = num_args;
-        input_values_buffer_ptr = std::make_unique<int64_t[]>(num_args);
-        input_nulls_buffer_ptr = std::make_unique<int64_t[]>(num_args);
-        input_offsets_ptrs = std::make_unique<int64_t[]>(num_args);
-        input_array_nulls_buffer_ptr = std::make_unique<int64_t[]>(num_args);
-        input_array_string_offsets_ptrs = std::make_unique<int64_t[]>(num_args);
-        input_place_ptrs = std::make_unique<int64_t>(0);
         output_value_buffer = std::make_unique<int64_t>(0);
         output_null_value = std::make_unique<int64_t>(0);
         output_offsets_ptr = std::make_unique<int64_t>(0);
@@ -94,16 +88,8 @@ public:
             TJavaUdfExecutorCtorParams ctor_params;
             ctor_params.__set_fn(fn);
             ctor_params.__set_location(local_location);
-            ctor_params.__set_input_offsets_ptrs((int64_t)input_offsets_ptrs.get());
-            ctor_params.__set_input_buffer_ptrs((int64_t)input_values_buffer_ptr.get());
-            ctor_params.__set_input_nulls_ptrs((int64_t)input_nulls_buffer_ptr.get());
-            ctor_params.__set_input_array_nulls_buffer_ptr(
-                    (int64_t)input_array_nulls_buffer_ptr.get());
-            ctor_params.__set_input_array_string_offsets_ptrs(
-                    (int64_t)input_array_string_offsets_ptrs.get());
 
             ctor_params.__set_output_buffer_ptr((int64_t)output_value_buffer.get());
-            ctor_params.__set_input_places_ptr((int64_t)input_place_ptrs.get());
 
             ctor_params.__set_output_null_ptr((int64_t)output_null_value.get());
             ctor_params.__set_output_offsets_ptr((int64_t)output_offsets_ptr.get());
@@ -224,7 +210,7 @@ public:
                                 ->get_data()
                                 .data());
                 int64_t value_nested_data_address = 0, value_nested_offset_address = 0;
-                 if (value_data_column->is_column_string()) {
+                if (value_data_column->is_column_string()) {
                     const ColumnString* col =
                             assert_cast<const ColumnString*>(value_data_column.get());
                     value_nested_data_address = reinterpret_cast<int64_t>(col->get_chars().data());
@@ -491,12 +477,6 @@ private:
     jmethodID executor_convert_basic_argument_id;
     jmethodID executor_convert_array_argument_id;
     jmethodID executor_convert_map_argument_id;
-    std::unique_ptr<int64_t[]> input_values_buffer_ptr;
-    std::unique_ptr<int64_t[]> input_nulls_buffer_ptr;
-    std::unique_ptr<int64_t[]> input_offsets_ptrs;
-    std::unique_ptr<int64_t[]> input_array_nulls_buffer_ptr;
-    std::unique_ptr<int64_t[]> input_array_string_offsets_ptrs;
-    std::unique_ptr<int64_t> input_place_ptrs;
     std::unique_ptr<int64_t> output_value_buffer;
     std::unique_ptr<int64_t> output_null_value;
     std::unique_ptr<int64_t> output_offsets_ptr;
