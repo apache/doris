@@ -208,8 +208,8 @@ public class Alter {
 
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkCcrEnable(alterClauses)) {
-            olapTable.setCcrEnable(currentAlterOps.isCcrEnable(alterClauses));
+        } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
+            olapTable.setIsBeingSynced(currentAlterOps.isBeingSynced(alterClauses));
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.checkBinlogConfigChange(alterClauses)) {
             if (!Config.enable_feature_binlog) {
@@ -514,7 +514,7 @@ public class Alter {
                 // currently, only in memory and storage policy property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
                         || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)
-                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_CCR_ENABLE));
+                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
