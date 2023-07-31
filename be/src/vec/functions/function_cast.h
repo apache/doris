@@ -412,12 +412,12 @@ struct ConvertImpl {
                     for (size_t i = 0; i < size; ++i) {
                         (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
                                 vec_from[i], vec_to[i], context->state()->timezone_obj());
+                        vec_to[i] *= (1000 * 1000);
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                }
-                else {
+                } else {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
                     }
@@ -870,7 +870,9 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        return TimeCast::try_parse_time(s, len, x, local_time_zone, time_zone_cache);
+        auto ret = TimeCast::try_parse_time(s, len, x, local_time_zone, time_zone_cache);
+        x *= (1000 * 1000);
+        return ret;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
         return try_read_float_text(x, rb);
