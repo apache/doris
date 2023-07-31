@@ -335,26 +335,22 @@ struct AggregationMethodKeysFixed {
                 data = const_cast<char*>(key_columns[i]->get_raw_data().data);
             }
 
+            auto foo = [&]<typename Fixed>(Fixed zero) {
+                for (size_t j = 0; j < num_rows; j++) {
+                    memcpy_fixed<int8_t>(data + j * size, (char*)(&keys[j]) + pos);
+                }
+            };
+
             if (size == 1) {
-                for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed_1(data + j * size, (char*)(&keys[j]) + pos);
-                }
+                foo(int8_t());
             } else if (size == 2) {
-                for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed_2(data + j * size, (char*)(&keys[j]) + pos);
-                }
+                foo(int16_t());
             } else if (size == 4) {
-                for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed_4(data + j * size, (char*)(&keys[j]) + pos);
-                }
+                foo(int32_t());
             } else if (size == 8) {
-                for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed_8(data + j * size, (char*)(&keys[j]) + pos);
-                }
+                foo(int64_t());
             } else if (size == 16) {
-                for (size_t j = 0; j < num_rows; j++) {
-                    memcpy_fixed_16(data + j * size, (char*)(&keys[j]) + pos);
-                }
+                foo(UInt128());
             } else {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "pack_fixeds input invalid key size, key_size={}", size);

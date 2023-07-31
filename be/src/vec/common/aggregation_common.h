@@ -222,77 +222,35 @@ std::vector<T> pack_fixeds(size_t row_numbers, const ColumnRawPtrs& key_columns,
         offset += bitmap_size;
     }
 
-    // make sure null cell is filled by 0x0
-    T zero {};
     for (size_t j = 0; j < key_columns.size(); ++j) {
         const char* data = key_columns[j]->get_raw_data().data;
 
-        if (key_sizes[j] == 1) {
+        auto foo = [&]<typename Fixed>(Fixed zero) {
             if (nullmap_columns.size() && nullmap_columns[j]) {
                 const auto& nullmap =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_1((char*)(&result[i]) + offset,
-                                   nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
+                    // make sure null cell is filled by 0x0
+                    memcpy_fixed<Fixed>((char*)(&result[i]) + offset,
+                                        nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
                 }
             } else {
                 for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_1((char*)(&result[i]) + offset, data + i * key_sizes[j]);
+                    memcpy_fixed<Fixed>((char*)(&result[i]) + offset, data + i * key_sizes[j]);
                 }
             }
+        };
 
+        if (key_sizes[j] == 1) {
+            foo(int8_t());
         } else if (key_sizes[j] == 2) {
-            if (nullmap_columns.size() && nullmap_columns[j]) {
-                const auto& nullmap =
-                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_2((char*)(&result[i]) + offset,
-                                   nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
-                }
-            } else {
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_2((char*)(&result[i]) + offset, data + i * key_sizes[j]);
-                }
-            }
+            foo(int16_t());
         } else if (key_sizes[j] == 4) {
-            if (nullmap_columns.size() && nullmap_columns[j]) {
-                const auto& nullmap =
-                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_4((char*)(&result[i]) + offset,
-                                   nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
-                }
-            } else {
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_4((char*)(&result[i]) + offset, data + i * key_sizes[j]);
-                }
-            }
+            foo(int32_t());
         } else if (key_sizes[j] == 8) {
-            if (nullmap_columns.size() && nullmap_columns[j]) {
-                const auto& nullmap =
-                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_8((char*)(&result[i]) + offset,
-                                   nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
-                }
-            } else {
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_8((char*)(&result[i]) + offset, data + i * key_sizes[j]);
-                }
-            }
+            foo(int64_t());
         } else if (key_sizes[j] == 16) {
-            if (nullmap_columns.size() && nullmap_columns[j]) {
-                const auto& nullmap =
-                        assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_16((char*)(&result[i]) + offset,
-                                    nullmap[i] ? (char*)&zero : data + i * key_sizes[j]);
-                }
-            } else {
-                for (size_t i = 0; i < row_numbers; ++i) {
-                    memcpy_fixed_16((char*)(&result[i]) + offset, data + i * key_sizes[j]);
-                }
-            }
+            foo(UInt128());
         } else {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "pack_fixeds input invalid key size, key_size={}", key_sizes[j]);
