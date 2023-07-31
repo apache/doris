@@ -48,7 +48,7 @@ BRpcService::BRpcService(ExecEnv* exec_env) : _exec_env(exec_env), _server(new b
     brpc::FLAGS_socket_max_unwritten_bytes =
             config::brpc_socket_max_unwritten_bytes != -1
                     ? config::brpc_socket_max_unwritten_bytes
-                    : std::max(1073741824L, (MemInfo::mem_limit() / 1024) * 20);
+                    : std::max((int64_t)1073741824, (MemInfo::mem_limit() / 1024) * 20);
 }
 
 BRpcService::~BRpcService() = default;
