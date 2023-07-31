@@ -61,6 +61,8 @@ import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
+import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
@@ -365,7 +367,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_EXPORT_UPDATE_STATE: {
-                    ExportJob.StateTransfer op = (ExportJob.StateTransfer) journal.getData();
+                    ExportJobStateTransfer op = (ExportJobStateTransfer) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
                     exportMgr.replayUpdateJobState(op);
                     break;
@@ -1461,8 +1463,8 @@ public class EditLog {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
 
-    public void logExportUpdateState(long jobId, ExportJob.JobState newState) {
-        ExportJob.StateTransfer transfer = new ExportJob.StateTransfer(jobId, newState);
+    public void logExportUpdateState(long jobId, ExportJobState newState) {
+        ExportJobStateTransfer transfer = new ExportJobStateTransfer(jobId, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
     }
 

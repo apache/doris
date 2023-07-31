@@ -30,8 +30,8 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.load.ExportFailMsg;
 import org.apache.doris.load.ExportFailMsg.CancelType;
 import org.apache.doris.load.ExportJob;
-import org.apache.doris.load.ExportJob.JobState;
-import org.apache.doris.load.ExportJob.OutfileInfo;
+import org.apache.doris.load.ExportJobState;
+import org.apache.doris.load.OutfileInfo;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -69,9 +69,9 @@ public class ExportExportingTask extends MasterTask {
 
         private ExportFailMsg failMsg;
 
-        private ExportJob.OutfileInfo outfileInfo;
+        private OutfileInfo outfileInfo;
 
-        public ExportResult(boolean isFailed, ExportFailMsg failMsg, ExportJob.OutfileInfo outfileInfo) {
+        public ExportResult(boolean isFailed, ExportFailMsg failMsg, OutfileInfo outfileInfo) {
             this.isFailed = isFailed;
             this.failMsg = failMsg;
             this.outfileInfo = outfileInfo;
@@ -93,11 +93,11 @@ public class ExportExportingTask extends MasterTask {
 
     @Override
     protected void exec() {
-        if (job.getState() == JobState.IN_QUEUE) {
+        if (job.getState() == ExportJobState.IN_QUEUE) {
             handleInQueueState();
         }
 
-        if (job.getState() != ExportJob.JobState.EXPORTING) {
+        if (job.getState() != ExportJobState.EXPORTING) {
             return;
         }
         LOG.info("begin execute export job in exporting state. job: {}", job);
@@ -112,7 +112,7 @@ public class ExportExportingTask extends MasterTask {
 
         List<SelectStmt> selectStmtList = job.getSelectStmtList();
         int completeTaskNum = 0;
-        List<ExportJob.OutfileInfo> outfileInfoList = Lists.newArrayList();
+        List<OutfileInfo> outfileInfoList = Lists.newArrayList();
 
         int parallelNum = selectStmtList.size();
         CompletionService<ExportResult> completionService = new ExecutorCompletionService<>(exportExecPool);
@@ -122,7 +122,7 @@ public class ExportExportingTask extends MasterTask {
             final int idx = i;
             completionService.submit(() -> {
                 // maybe user cancelled this job
-                if (job.getState() != JobState.EXPORTING) {
+                if (job.getState() != ExportJobState.EXPORTING) {
                     return new ExportResult(true, null, null);
                 }
                 try {
@@ -162,7 +162,7 @@ public class ExportExportingTask extends MasterTask {
                         return new ExportResult(true, new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL,
                                 r.connectContext.getState().getErrorMessage()), null);
                     }
-                    ExportJob.OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
+                    OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
                     return new ExportResult(false, null, outfileInfo);
                 } catch (Exception e) {
                     return new ExportResult(true, new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL,
@@ -250,8 +250,8 @@ public class ExportExportingTask extends MasterTask {
         return new AutoCloseConnectContext(connectContext);
     }
 
-    private ExportJob.OutfileInfo getOutFileInfo(Map<String, String> resultAttachedInfo) {
-        ExportJob.OutfileInfo outfileInfo = new ExportJob.OutfileInfo();
+    private OutfileInfo getOutFileInfo(Map<String, String> resultAttachedInfo) {
+        OutfileInfo outfileInfo = new OutfileInfo();
         outfileInfo.setFileNumber(resultAttachedInfo.get(OutFileClause.FILE_NUMBER));
         outfileInfo.setTotalRows(resultAttachedInfo.get(OutFileClause.TOTAL_ROWS));
         outfileInfo.setFileSize(resultAttachedInfo.get(OutFileClause.FILE_SIZE) + "bytes");
@@ -274,7 +274,7 @@ public class ExportExportingTask extends MasterTask {
         //     return;
         // }
 
-        if (job.updateState(ExportJob.JobState.EXPORTING)) {
+        if (job.updateState(ExportJobState.EXPORTING)) {
             LOG.info("Exchange pending status to exporting status success. job: {}", job);
         }
     }

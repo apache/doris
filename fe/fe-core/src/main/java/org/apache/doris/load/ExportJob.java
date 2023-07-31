@@ -48,11 +48,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -66,10 +64,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import lombok.Getter;
+import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -81,27 +78,33 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
-// NOTE: we must be carefully if we send next request
-//       as soon as receiving one instance's report from one BE,
-//       because we may change job's member concurrently.
+@Slf4j
+@Data
 public class ExportJob implements Writable {
-    private static final Logger LOG = LogManager.getLogger(ExportJob.class);
-
     private static final String BROKER_PROPERTY_PREFIXES = "broker.";
 
-    public enum JobState {
-        PENDING,
-        IN_QUEUE,
-        EXPORTING,
-        FINISHED,
-        CANCELLED,
-    }
+    public static final MemoryTaskRegister register = new MemoryTaskRegister() {
+        @Override
+        public Long registerJob(MemoryJobExecutor executor) {
+            return 1234L;
+        }
+
+        @Override
+        public JobStatus queryJobStatus(Long taskId) {
+            return JobStatus.WAITING_FINISH;
+        }
+
+        @Override
+        public void cancelJob(Long taskId) {
+            return;
+        }
+    };
 
     @SerializedName("id")
     private long id;
-    @SerializedName("queryId")
-    private String queryId;
     @SerializedName("label")
     private String label;
     @SerializedName("dbId")
@@ -121,7 +124,7 @@ public class ExportJob implements Writable {
     @SerializedName("tableName")
     private TableName tableName;
     @SerializedName("state")
-    private JobState state;
+    private ExportJobState state;
     @SerializedName("createTimeMs")
     private long createTimeMs;
     // this is the origin stmt of ExportStmt, we use it to persist where expr of Export job,
@@ -161,7 +164,7 @@ public class ExportJob implements Writable {
 
     private String sql = "";
 
-    private Integer parallelNum;
+    private Integer parallelism;
 
     public Map<String, Long> getPartitionToVersion() {
         return partitionToVersion;
@@ -170,7 +173,6 @@ public class ExportJob implements Writable {
     private Map<String, Long> partitionToVersion = Maps.newHashMap();
 
     // The selectStmt is sql 'select ... into outfile ...'
-    @Getter
     private List<SelectStmt> selectStmtList = Lists.newArrayList();
 
     private List<StmtExecutor> stmtExecutorList;
@@ -192,12 +194,17 @@ public class ExportJob implements Writable {
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
+    private List<ExportJobExecutor> jobExecutorList;
+
+    private Map<ExportJobExecutor, Long> executorToTaskId = Maps.newHashMap();
+
+    private ConcurrentHashMap<Long, JobStatus> taskIdToJobStatus = new ConcurrentHashMap<>();
+
     public ExportJob() {
         this.id = -1;
-        this.queryId = "";
         this.dbId = -1;
         this.tableId = -1;
-        this.state = JobState.PENDING;
+        this.state = ExportJobState.PENDING;
         this.progress = 0;
         this.createTimeMs = System.currentTimeMillis();
         this.startTimeMs = -1;
@@ -215,55 +222,27 @@ public class ExportJob implements Writable {
         this.id = jobId;
     }
 
-    public void setJob(ExportStmt stmt) throws UserException {
-        String dbName = stmt.getTblName().getDb();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        Preconditions.checkNotNull(stmt.getBrokerDesc());
-        this.brokerDesc = stmt.getBrokerDesc();
-        this.columnSeparator = stmt.getColumnSeparator();
-        this.lineDelimiter = stmt.getLineDelimiter();
-        this.label = stmt.getLabel();
-        this.queryId = ConnectContext.get() != null ? DebugUtil.printId(ConnectContext.get().queryId()) : "N/A";
-        String path = stmt.getPath();
-        Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
-        this.whereExpr = stmt.getWhereExpr();
-        this.parallelNum = stmt.getParallelNum();
-        this.exportPath = path;
-        this.sessionVariables = stmt.getSessionVariables();
-        this.timeoutSecond = sessionVariables.getQueryTimeoutS();
-
-        this.qualifiedUser = stmt.getQualifiedUser();
-        this.userIdentity = stmt.getUserIdentity();
-        this.format = stmt.getFormat();
-        this.maxFileSize = stmt.getMaxFileSize();
-        this.deleteExistingFiles = stmt.getDeleteExistingFiles();
-        this.partitionNames = stmt.getPartitions();
-
-        this.exportTable = db.getTableOrDdlException(stmt.getTblName().getTbl());
-        this.columns = stmt.getColumns();
-        this.tableRef = stmt.getTableRef();
-        if (!Strings.isNullOrEmpty(this.columns)) {
-            Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-            this.exportColumns = split.splitToList(stmt.getColumns().toLowerCase());
-        }
+    public void analyze() throws UserException {
         exportTable.readLock();
         try {
-            this.dbId = db.getId();
-            this.tableId = exportTable.getId();
-            this.tableName = stmt.getTblName();
-            if (selectStmtList.isEmpty()) {
-                // This scenario is used for 'EXPORT TABLE tbl INTO PATH'
-                // we need generate Select Statement
-                generateQueryStmt(stmt);
-            }
+            generateQueryStmt();
         } finally {
             exportTable.readUnlock();
         }
-        this.sql = stmt.toSql();
-        this.origStmt = stmt.getOrigStmt();
+        generateExportJobExecutor();
     }
 
-    private void generateQueryStmt(ExportStmt stmt) throws UserException {
+    public void generateExportJobExecutor() {
+        jobExecutorList = Lists.newArrayList();
+        for (int i = 0; i < selectStmtList.size(); i++) {
+            List<SelectStmt> selectStmts = Lists.newArrayList();
+            selectStmts.add(selectStmtList.get(i));
+            ExportJobExecutor executor = new ExportJobExecutor(selectStmts, this);
+            jobExecutorList.add(executor);
+        }
+    }
+
+    private void generateQueryStmt() throws UserException {
         SelectList list = new SelectList();
         if (exportColumns.isEmpty()) {
             list.addItem(SelectListItem.createStarItem(this.tableName));
@@ -278,16 +257,18 @@ public class ExportJob implements Writable {
             }
         }
 
-        ArrayList<ArrayList<TableRef>> tableRefListPerQuery = splitTablets(stmt);
-        LOG.info("Export task is split into {} outfile statements.", tableRefListPerQuery.size());
+        ArrayList<ArrayList<TableRef>> tableRefListPerQuery = splitTablets();
+        log.info("Export task is split into {} outfile statements.", tableRefListPerQuery.size());
 
-        if (LOG.isDebugEnabled()) {
+        // debug log output
+        if (log.isDebugEnabled()) {
             for (int i = 0; i < tableRefListPerQuery.size(); i++) {
-                LOG.debug("Outfile clause {} is responsible for tables: {}", i,
+                log.debug("Outfile clause {} is responsible for tablets: {}", i,
                         tableRefListPerQuery.get(i).get(0).getSampleTabletIds());
             }
         }
 
+        // generate 'select..outfile..' statement
         for (ArrayList<TableRef> tableRefList : tableRefListPerQuery) {
             FromClause fromClause = new FromClause(tableRefList);
             // generate outfile clause
@@ -299,37 +280,34 @@ public class ExportJob implements Writable {
             selectStmtList.add(selectStmt);
         }
         stmtExecutorList = Arrays.asList(new StmtExecutor[selectStmtList.size()]);
-        if (LOG.isDebugEnabled()) {
+
+        // debug log output
+        if (log.isDebugEnabled()) {
             for (int i = 0; i < selectStmtList.size(); i++) {
-                LOG.debug("Outfile clause {} is: {}", i, selectStmtList.get(i).toSql());
+                log.debug("Outfile clause {} is: {}", i, selectStmtList.get(i).toSql());
             }
         }
     }
 
-    private ArrayList<ArrayList<TableRef>> splitTablets(ExportStmt stmt) throws UserException {
+    private ArrayList<ArrayList<TableRef>> splitTablets() throws UserException {
         // get tablets
-        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(stmt.getTblName().getDb());
-        OlapTable table = db.getOlapTableOrAnalysisException(stmt.getTblName().getTbl());
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(this.tableName.getDb());
+        OlapTable table = db.getOlapTableOrAnalysisException(this.tableName.getTbl());
         List<Long> tabletIdList = Lists.newArrayList();
         table.readLock();
         try {
-            Collection<Partition> partitions = new ArrayList<Partition>();
+            // TODO(ftw): check final
+            final Collection<Partition> partitions = new ArrayList<Partition>();
             // get partitions
             // user specifies partitions, already checked in ExportStmt
             if (this.partitionNames != null) {
-                if (partitionNames.size() > Config.maximum_number_of_export_partitions) {
-                    throw new UserException("The partitions number of this export job is larger than the maximum number"
-                            + " of partitions allowed by a export job");
-                }
-                for (String partName : this.partitionNames) {
-                    partitions.add(table.getPartition(partName));
-                }
+                this.partitionNames.forEach(partitionName -> partitions.add(table.getPartition(partitionName)));
             } else {
                 if (table.getPartitions().size() > Config.maximum_number_of_export_partitions) {
                     throw new UserException("The partitions number of this export job is larger than the maximum number"
                             + " of partitions allowed by a export job");
                 }
-                partitions = table.getPartitions();
+                partitions.addAll(table.getPartitions());
             }
 
             // get tablets
@@ -344,19 +322,17 @@ public class ExportJob implements Writable {
         }
 
         Integer tabletsAllNum = tabletIdList.size();
-        Integer tabletsNumPerQuery = tabletsAllNum / this.parallelNum;
-        Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerQuery * this.parallelNum;
-
-        Integer start = 0;
+        Integer tabletsNumPerQuery = tabletsAllNum / this.parallelism;
+        Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerQuery * this.parallelism;
 
         ArrayList<ArrayList<TableRef>> tableRefListPerQuery = Lists.newArrayList();
-
-        int outfileNum = this.parallelNum;
-        if (tabletsAllNum < this.parallelNum) {
+        int outfileNum = this.parallelism;
+        if (tabletsAllNum < this.parallelism) {
             outfileNum = tabletsAllNum;
-            LOG.warn("Export Job [{}]: The number of tablets ({}) is smaller than parallelism ({}), "
+            log.warn("Export Job [{}]: The number of tablets ({}) is smaller than parallelism ({}), "
                         + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelNum);
         }
+        Integer start = 0;
         for (int i = 0; i < outfileNum; ++i) {
             Integer tabletsNum = tabletsNumPerQuery;
             if (tabletsNumPerQueryRemainder > 0) {
@@ -375,7 +351,7 @@ public class ExportJob implements Writable {
     }
 
     private Map<String, String> convertOutfileProperties() {
-        Map<String, String> outfileProperties = Maps.newHashMap();
+        final Map<String, String> outfileProperties = Maps.newHashMap();
 
         // file properties
         if (format.equals("csv") || format.equals("csv_with_names") || format.equals("csv_with_names_and_types")) {
@@ -393,9 +369,7 @@ public class ExportJob implements Writable {
         // outfile clause's broker properties need 'broker.' prefix
         if (brokerDesc.getStorageType() == StorageType.BROKER) {
             outfileProperties.put(BROKER_PROPERTY_PREFIXES + "name", brokerDesc.getName());
-            for (Entry<String, String> kv : brokerDesc.getProperties().entrySet()) {
-                outfileProperties.put(BROKER_PROPERTY_PREFIXES + kv.getKey(), kv.getValue());
-            }
+            brokerDesc.getProperties().forEach((k, v) -> outfileProperties.put(BROKER_PROPERTY_PREFIXES + k, v));
         } else {
             for (Entry<String, String> kv : brokerDesc.getProperties().entrySet()) {
                 outfileProperties.put(kv.getKey(), kv.getValue());
@@ -404,122 +378,9 @@ public class ExportJob implements Writable {
         return outfileProperties;
     }
 
-    public String getColumns() {
-        return columns;
-    }
-
-    public long getId() {
-        return id;
-    }
-
-    public long getDbId() {
-        return dbId;
-    }
-
-    public long getTableId() {
-        return this.tableId;
-    }
-
-    public Expr getWhereExpr() {
-        return whereExpr;
-    }
-
-    public synchronized JobState getState() {
+    public synchronized ExportJobState getState() {
         return state;
     }
-
-    public BrokerDesc getBrokerDesc() {
-        return brokerDesc;
-    }
-
-    public void setBrokerDesc(BrokerDesc brokerDesc) {
-        this.brokerDesc = brokerDesc;
-    }
-
-    public String getExportPath() {
-        return exportPath;
-    }
-
-    public String getColumnSeparator() {
-        return this.columnSeparator;
-    }
-
-    public String getLineDelimiter() {
-        return this.lineDelimiter;
-    }
-
-    public int getTimeoutSecond() {
-        return timeoutSecond;
-    }
-
-    public String getFormat() {
-        return format;
-    }
-
-    public String getMaxFileSize() {
-        return maxFileSize;
-    }
-
-    public String getDeleteExistingFiles() {
-        return deleteExistingFiles;
-    }
-
-    public String getQualifiedUser() {
-        return qualifiedUser;
-    }
-
-    public UserIdentity getUserIdentity() {
-        return userIdentity;
-    }
-
-    public List<String> getPartitions() {
-        return partitionNames;
-    }
-
-    public int getProgress() {
-        return progress;
-    }
-
-    public void setProgress(int progress) {
-        this.progress = progress;
-    }
-
-    public long getCreateTimeMs() {
-        return createTimeMs;
-    }
-
-    public long getStartTimeMs() {
-        return startTimeMs;
-    }
-
-    public void setStartTimeMs(long startTimeMs) {
-        this.startTimeMs = startTimeMs;
-    }
-
-    public long getFinishTimeMs() {
-        return finishTimeMs;
-    }
-
-    public void setFinishTimeMs(long finishTimeMs) {
-        this.finishTimeMs = finishTimeMs;
-    }
-
-    public ExportFailMsg getFailMsg() {
-        return failMsg;
-    }
-
-    public void setFailMsg(ExportFailMsg failMsg) {
-        this.failMsg = failMsg;
-    }
-
-    public String getOutfileInfo() {
-        return outfileInfo;
-    }
-
-    public void setOutfileInfo(String outfileInfo) {
-        this.outfileInfo = outfileInfo;
-    }
-
 
     public synchronized Thread getDoExportingThread() {
         return doExportingThread;
@@ -537,56 +398,24 @@ public class ExportJob implements Writable {
         return this.stmtExecutorList.get(idx);
     }
 
-    public List<TScanRangeLocations> getTabletLocations() {
-        return tabletLocations;
-    }
-
-    public List<Pair<TNetworkAddress, String>> getSnapshotPaths() {
-        return this.snapshotPaths;
-    }
-
-    public void addSnapshotPath(Pair<TNetworkAddress, String> snapshotPath) {
-        this.snapshotPaths.add(snapshotPath);
-    }
-
-    public String getSql() {
-        return sql;
-    }
-
-    public ExportExportingTask getTask() {
-        return task;
-    }
-
-    public void setTask(ExportExportingTask task) {
-        this.task = task;
-    }
-
-    public TableName getTableName() {
-        return tableName;
-    }
-
-    public SessionVariable getSessionVariables() {
-        return sessionVariables;
-    }
-
     public synchronized void cancel(ExportFailMsg.CancelType type, String msg) {
         if (msg != null) {
             failMsg = new ExportFailMsg(type, msg);
         }
 
         // maybe user cancel this job
-        if (task != null && state == JobState.EXPORTING && stmtExecutorList != null) {
+        if (task != null && state == ExportJobState.EXPORTING && stmtExecutorList != null) {
             for (int idx = 0; idx < stmtExecutorList.size(); ++idx) {
                 stmtExecutorList.get(idx).cancel();
             }
         }
 
-        if (updateState(ExportJob.JobState.CANCELLED, false)) {
+        if (updateState(ExportJobState.CANCELLED, false)) {
             // release snapshot
             // Status releaseSnapshotStatus = releaseSnapshotPaths();
             // if (!releaseSnapshotStatus.ok()) {
             //     // snapshot will be removed by GC thread on BE, finally.
-            //     LOG.warn("failed to release snapshot for export job: {}. err: {}", id,
+            //     log.warn("failed to release snapshot for export job: {}. err: {}", id,
             //             releaseSnapshotStatus.getErrorMsg());
             // }
         }
@@ -594,21 +423,59 @@ public class ExportJob implements Writable {
 
     public synchronized boolean finish(List<OutfileInfo> outfileInfoList) {
         outfileInfo = GsonUtils.GSON.toJson(outfileInfoList);
-        if (updateState(ExportJob.JobState.FINISHED)) {
+        if (updateState(ExportJobState.FINISHED)) {
             return true;
         }
         return false;
     }
 
-    public synchronized boolean updateState(ExportJob.JobState newState) {
+    public void exportExportJob() {
+        state = ExportJobState.EXPORTING;
+    }
+
+    public synchronized void finishExportTask(Long taskId) {
+        taskIdToJobStatus.put(taskId, JobStatus.FINISHED);
+
+        // if all task finished
+        Optional<JobStatus> notFinishTask =  taskIdToJobStatus.values().stream()
+                .filter(jobStatus -> jobStatus != JobStatus.FINISHED).findFirst();
+        if (!notFinishTask.isPresent()) {
+            // TODO(ftw): increase progress
+            progress++;
+            return;
+        }
+        finishExportJob();
+    }
+
+    private void finishExportJob() {
+        progress = 100;
+        state = ExportJobState.FINISHED;
+        Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.FINISHED);
+    }
+
+    public synchronized void cancelExportTask(Long taskId) {
+        taskIdToJobStatus.put(taskId, JobStatus.FAILED);
+
+        // cancel all task
+        taskIdToJobStatus.keySet().forEach(id -> {
+            register.cancelJob(id);
+        });
+        cancelExportJob();
+    }
+
+    private void cancelExportJob() {
+        state = ExportJobState.CANCELLED;
+    }
+
+    public synchronized boolean updateState(ExportJobState newState) {
         return this.updateState(newState, false);
     }
 
-    public synchronized boolean updateState(ExportJob.JobState newState, boolean isReplay) {
+    public synchronized boolean updateState(ExportJobState newState, boolean isReplay) {
         // We do not persist EXPORTING state in new version of metadata,
         // but EXPORTING state may still exist in older versions of metadata.
         // So if isReplay == true and newState == EXPORTING, we just ignore this update.
-        if (isFinalState() || (isReplay && newState == JobState.EXPORTING)) {
+        if (isFinalState() || (isReplay && newState == ExportJobState.EXPORTING)) {
             return false;
         }
         state = newState;
@@ -640,27 +507,19 @@ public class ExportJob implements Writable {
                 break;
         }
         // we only persist Pending/Cancel/Finish state
-        if (!isReplay && newState != JobState.IN_QUEUE && newState != JobState.EXPORTING) {
+        if (!isReplay && newState != ExportJobState.IN_QUEUE && newState != ExportJobState.EXPORTING) {
             Env.getCurrentEnv().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
     }
 
     public synchronized boolean isFinalState() {
-        return this.state == ExportJob.JobState.CANCELLED || this.state == ExportJob.JobState.FINISHED;
+        return this.state == ExportJobState.CANCELLED || this.state == ExportJobState.FINISHED;
     }
 
     public boolean isExpired(long curTime) {
         return (curTime - createTimeMs) / 1000 > Config.history_job_keep_max_second
-                && (state == ExportJob.JobState.CANCELLED || state == ExportJob.JobState.FINISHED);
-    }
-
-    public String getLabel() {
-        return label;
-    }
-
-    public String getQueryId() {
-        return queryId;
+                && (state == ExportJobState.CANCELLED || state == ExportJobState.FINISHED);
     }
 
     @Override
@@ -737,7 +596,7 @@ public class ExportJob implements Writable {
             }
         }
 
-        state = JobState.valueOf(Text.readString(in));
+        state = ExportJobState.valueOf(Text.readString(in));
         createTimeMs = in.readLong();
         startTimeMs = in.readLong();
         finishTimeMs = in.readLong();
@@ -792,133 +651,5 @@ public class ExportJob implements Writable {
         }
 
         return false;
-    }
-
-    public boolean isReplayed() {
-        return isReplayed;
-    }
-
-    // for only persist op when switching job state.
-    public static class StateTransfer implements Writable {
-        @SerializedName("jobId")
-        long jobId;
-        @SerializedName("state")
-        JobState state;
-        @SerializedName("startTimeMs")
-        private long startTimeMs;
-        @SerializedName("finishTimeMs")
-        private long finishTimeMs;
-        @SerializedName("failMsg")
-        private ExportFailMsg failMsg;
-        @SerializedName("outFileInfo")
-        private String outFileInfo;
-
-        // used for reading from one log
-        public StateTransfer() {
-            this.jobId = -1;
-            this.state = JobState.CANCELLED;
-            this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.UNKNOWN, "");
-            this.outFileInfo = "";
-        }
-
-        // used for persisting one log
-        public StateTransfer(long jobId, JobState state) {
-            this.jobId = jobId;
-            this.state = state;
-            ExportJob job = Env.getCurrentEnv().getExportMgr().getJob(jobId);
-            this.startTimeMs = job.getStartTimeMs();
-            this.finishTimeMs = job.getFinishTimeMs();
-            this.failMsg = job.getFailMsg();
-            this.outFileInfo = job.getOutfileInfo();
-        }
-
-        public long getJobId() {
-            return jobId;
-        }
-
-        public JobState getState() {
-            return state;
-        }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            String json = GsonUtils.GSON.toJson(this);
-            Text.writeString(out, json);
-        }
-
-        public static StateTransfer read(DataInput in) throws IOException {
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_120) {
-                StateTransfer transfer = new StateTransfer();
-                transfer.readFields(in);
-                return transfer;
-            }
-            String json = Text.readString(in);
-            StateTransfer transfer = GsonUtils.GSON.fromJson(json, ExportJob.StateTransfer.class);
-            return transfer;
-        }
-
-        private void readFields(DataInput in) throws IOException {
-            jobId = in.readLong();
-            state = JobState.valueOf(Text.readString(in));
-        }
-
-        public long getStartTimeMs() {
-            return startTimeMs;
-        }
-
-        public long getFinishTimeMs() {
-            return finishTimeMs;
-        }
-
-        public String getOutFileInfo() {
-            return outFileInfo;
-        }
-
-        public ExportFailMsg getFailMsg() {
-            return failMsg;
-        }
-    }
-
-    public static class OutfileInfo {
-        @SerializedName("fileNumber")
-        private String fileNumber;
-        @SerializedName("totalRows")
-        private String totalRows;
-        @SerializedName("fileSize")
-        private String fileSize;
-        @SerializedName("url")
-        private String url;
-
-        public String getUrl() {
-            return url;
-        }
-
-        public void setUrl(String url) {
-            this.url = url;
-        }
-
-        public String getFileNumber() {
-            return fileNumber;
-        }
-
-        public void setFileNumber(String fileNumber) {
-            this.fileNumber = fileNumber;
-        }
-
-        public String getTotalRows() {
-            return totalRows;
-        }
-
-        public void setTotalRows(String totalRows) {
-            this.totalRows = totalRows;
-        }
-
-        public String getFileSize() {
-            return fileSize;
-        }
-
-        public void setFileSize(String fileSize) {
-            this.fileSize = fileSize;
-        }
     }
 }

@@ -23,6 +23,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -154,12 +155,12 @@ public class CancelExportStmtTest extends TestWithFeService {
         List<ExportJob> exportJobList2 = Lists.newLinkedList();
         ExportJob job1 = new ExportJob();
         ExportJob job2 = new ExportJob();
-        job2.updateState(ExportJob.JobState.CANCELLED, true);
+        job2.updateState(ExportJobState.CANCELLED, true);
         ExportJob job3 = new ExportJob();
-        job3.updateState(ExportJob.JobState.EXPORTING, false);
+        job3.updateState(ExportJobState.EXPORTING, false);
         ExportJob job4 = new ExportJob();
         ExportJob job5 = new ExportJob();
-        job5.updateState(ExportJob.JobState.IN_QUEUE, false);
+        job5.updateState(ExportJobState.IN_QUEUE, false);
         exportJobList1.add(job1);
         exportJobList1.add(job2);
         exportJobList1.add(job3);

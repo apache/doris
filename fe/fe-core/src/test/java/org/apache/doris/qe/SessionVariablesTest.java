@@ -30,6 +30,7 @@ import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
@@ -171,14 +172,14 @@ public class SessionVariablesTest extends TestWithFeService {
 
             ExportStmt exportStmt = (ExportStmt)
                     parseAndAnalyzeStmt("EXPORT TABLE test_d.test_t1 TO \"file:///tmp/test_t1\"", connectContext);
-            ExportJob job = new ExportJob(1234);
-            job.setJob(exportStmt);
+            ExportJob job = exportStmt.getExportJob();
+            job.setId(1234);
 
             new Expectations(job) {
                 {
                     job.getState();
                     minTimes = 0;
-                    result = ExportJob.JobState.EXPORTING;
+                    result = ExportJobState.EXPORTING;
                 }
             };
 
@@ -201,14 +202,14 @@ public class SessionVariablesTest extends TestWithFeService {
 
             ExportStmt exportStmt = (ExportStmt)
                     parseAndAnalyzeStmt("EXPORT TABLE test_d.test_t1 TO \"file:///tmp/test_t1\"", connectContext);
-            ExportJob job = new ExportJob(1234);
-            job.setJob(exportStmt);
+            ExportJob job = exportStmt.getExportJob();
+            job.setId(1234);
 
             new Expectations(job) {
                 {
                     job.getState();
                     minTimes = 0;
-                    result = ExportJob.JobState.EXPORTING;
+                    result = ExportJobState.EXPORTING;
                 }
             };
 
