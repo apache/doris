@@ -425,7 +425,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // For load task, we always read "string" from file, so use "write_string_column"
             // TODO(tsy): use escape = true
             _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
-                                                 value.size);
+                                                 value.size, true);
         }
     } else {
         // if _split_values.size > _file_slot_descs.size()
