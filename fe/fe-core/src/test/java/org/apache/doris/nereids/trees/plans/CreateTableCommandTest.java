@@ -476,39 +476,39 @@ public class CreateTableCommandTest extends TestWithFeService {
          * dynamic partition table
          */
         // list partition with dynamic properties
-//        checkThrow(AnalysisException.class, "Only support dynamic partition properties on range partition table",
-//                () -> createTable("CREATE TABLE test.tbl19\n"
-//                        + "(\n"
-//                        + "    k1 DATE not null\n"
-//                        + ")\n"
-//                        + "PARTITION BY LIST(k1) ()\n"
-//                        + "DISTRIBUTED BY HASH(k1)\n"
-//                        + "PROPERTIES\n"
-//                        + "(\n"
-//                        + "    \"dynamic_partition.enable\" = \"true\",\n"
-//                        + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
-//                        + "    \"dynamic_partition.end\" = \"2\",\n"
-//                        + "    \"dynamic_partition.prefix\" = \"p\",\n"
-//                        + "    \"dynamic_partition.buckets\" = \"8\",\n"
-//                        + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
-//                        + ");\n"));
+        checkThrow(AnalysisException.class, "Only support dynamic partition properties on range partition table",
+                () -> createTable("CREATE TABLE test.tbl19\n"
+                        + "(\n"
+                        + "    k1 DATE not null\n"
+                        + ")\n"
+                        + "PARTITION BY LIST(k1) ()\n"
+                        + "DISTRIBUTED BY HASH(k1)\n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "    \"dynamic_partition.enable\" = \"true\",\n"
+                        + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
+                        + "    \"dynamic_partition.end\" = \"2\",\n"
+                        + "    \"dynamic_partition.prefix\" = \"p\",\n"
+                        + "    \"dynamic_partition.buckets\" = \"8\",\n"
+                        + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
+                        + ");\n"));
 
         // no partition table with dynamic properties
-//        checkThrow(AnalysisException.class, "Only support dynamic partition properties on range partition table",
-//                () -> createTable("CREATE TABLE test.tbl20\n"
-//                        + "(\n"
-//                        + "    k1 DATE\n"
-//                        + ")\n"
-//                        + "DISTRIBUTED BY HASH(k1)\n"
-//                        + "PROPERTIES\n"
-//                        + "(\n"
-//                        + "    \"dynamic_partition.enable\" = \"true\",\n"
-//                        + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
-//                        + "    \"dynamic_partition.end\" = \"2\",\n"
-//                        + "    \"dynamic_partition.prefix\" = \"p\",\n"
-//                        + "    \"dynamic_partition.buckets\" = \"8\",\n"
-//                        + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
-//                        + ");"));
+        checkThrow(AnalysisException.class, "Only support dynamic partition properties on range partition table",
+                () -> createTable("CREATE TABLE test.tbl20\n"
+                        + "(\n"
+                        + "    k1 DATE\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(k1)\n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "    \"dynamic_partition.enable\" = \"true\",\n"
+                        + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
+                        + "    \"dynamic_partition.end\" = \"2\",\n"
+                        + "    \"dynamic_partition.prefix\" = \"p\",\n"
+                        + "    \"dynamic_partition.buckets\" = \"8\",\n"
+                        + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
+                        + ");"));
 
         checkThrow(AnalysisException.class,
                 "Create unique keys table should not contain random distribution desc",
