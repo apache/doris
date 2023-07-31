@@ -499,12 +499,12 @@ public:
                 then_column.column = materialize_column_if_const(then_column.column);
             }
         }
-        if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
-            if (check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
-                ColumnWithTypeAndName& else_column = block.get_by_position(arguments[2]);
-                else_column.column = materialize_column_if_const(else_column.column);
-            }
-        }
+        // if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
+        //     if (check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
+        //         ColumnWithTypeAndName& else_column = block.get_by_position(arguments[2]);
+        //         else_column.column = materialize_column_if_const(else_column.column);
+        //     }
+        // }
 
         Status ret = Status::OK();
         if (execute_for_null_condition(context, block, arg_cond, arg_then, arg_else, result) ||
