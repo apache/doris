@@ -152,4 +152,19 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
                 Optional.empty(), getLogicalProperties(), physicalProperties,
                 statistics, child());
     }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return ImmutableList.<Slot>builder()
+                .addAll(child().getOutput())
+                .addAll(generatorOutput)
+                .build();
+    }
+
+    @Override
+    public PhysicalGenerate<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalGenerate<>(generators, generatorOutput,
+                Optional.empty(), null, physicalProperties,
+                statistics, child());
+    }
 }
