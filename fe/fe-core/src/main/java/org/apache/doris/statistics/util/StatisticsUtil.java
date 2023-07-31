@@ -33,7 +33,6 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
@@ -532,7 +531,10 @@ public class StatisticsUtil {
     public static long getIcebergRowCount(HMSExternalTable table) {
         long rowCount = 0;
         try {
-            Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(table);
+            Table icebergTable = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getIcebergTable(table);
             TableScan tableScan = icebergTable.newScan().includeColumnStats();
             for (FileScanTask task : tableScan.planFiles()) {
                 rowCount += task.file().recordCount();

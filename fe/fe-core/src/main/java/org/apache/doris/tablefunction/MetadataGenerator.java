@@ -20,11 +20,13 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TBackendsMetadataParams;
@@ -108,21 +110,22 @@ public class MetadataGenerator {
         if (!params.isSetIcebergMetadataParams()) {
             return errorResult("Iceberg metadata params is not set.");
         }
+
         TIcebergMetadataParams icebergMetadataParams =  params.getIcebergMetadataParams();
-        HMSExternalCatalog catalog = (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
-                .getCatalog(icebergMetadataParams.getCatalog());
-        org.apache.iceberg.Table table;
-        try {
-            table = getIcebergTable(catalog, icebergMetadataParams.getDatabase(), icebergMetadataParams.getTable());
-        } catch (MetaNotFoundException e) {
-            return errorResult(e.getMessage());
-        }
-        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        List<TRow> dataBatch = Lists.newArrayList();
         TIcebergQueryType icebergQueryType = icebergMetadataParams.getIcebergQueryType();
+        IcebergMetadataCache icebergMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        List<TRow> dataBatch = Lists.newArrayList();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
         switch (icebergQueryType) {
             case SNAPSHOTS:
-                for (Snapshot snapshot : table.snapshots()) {
+                List<Snapshot> snapshotList;
+                try {
+                    snapshotList = icebergMetadataCache.getSnapshotList(icebergMetadataParams);
+                } catch (UserException e) {
+                    return errorResult(e.getMessage());
+                }
+                for (Snapshot snapshot : snapshotList) {
                     TRow trow = new TRow();
                     LocalDateTime committedAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(
                             snapshot.timestampMillis()), TimeUtils.getTimeZone().toZoneId());
