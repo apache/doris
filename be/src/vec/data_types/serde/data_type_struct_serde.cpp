@@ -106,13 +106,13 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
                     return Status::InternalError("pack mysql buffer failed.");
                 }
                 RETURN_IF_ERROR(elemSerDeSPtrs[j]->write_column_to_mysql(col.get_column(j), result,
-                                                                         col_index, col_const));
+                                                                         col_index, false));
                 if (0 != result.push_string("\"", 1)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
                 RETURN_IF_ERROR(elemSerDeSPtrs[j]->write_column_to_mysql(col.get_column(j), result,
-                                                                         col_index, col_const));
+                                                                         col_index, false));
             }
         }
         begin = false;
