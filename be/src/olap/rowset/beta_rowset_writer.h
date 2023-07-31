@@ -143,11 +143,10 @@ private:
                                  int64_t* flush_size = nullptr);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
-    Status _segcompaction_ramaining_if_necessary();
+    Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
                                        size_t num);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
-    Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
     bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
 
     bool _check_and_set_is_doing_segcompaction();
