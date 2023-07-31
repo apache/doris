@@ -68,9 +68,9 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
 Status ScannerContext::init() {
     _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;
     // 1. Calculate max concurrency
-    // TODO: now the max thread num <= SCANNER_THREAD_POOL_THREAD_NUM / 4
+    // TODO: now the max thread num <= scanner_thread_pool_thread_num() / 4
     // should find a more reasonable value.
-    _max_thread_num = SCANNER_THREAD_POOL_THREAD_NUM / 4;
+    _max_thread_num = scanner_thread_pool_thread_num() / 4;
     if (_parent->_shared_scan_opt) {
         DCHECK(_num_parallel_instances > 0);
         _max_thread_num *= _num_parallel_instances;

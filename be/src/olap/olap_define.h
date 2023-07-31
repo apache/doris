@@ -23,6 +23,7 @@
 #include <sstream>
 #include <string>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "util/disk_info.h"
 
@@ -123,10 +124,11 @@ static const uint32_t MAX_OP_IN_FIELD_NUM = 100;
 
 static const uint64_t GB_EXCHANGE_BYTE = 1024 * 1024 * 1024;
 
-static const uint32_t SCANNER_THREAD_POOL_THREAD_NUM =
-        config::doris_scanner_thread_pool_thread_num != -1
-                ? config::doris_scanner_thread_pool_thread_num
-                : DiskInfo::num_disks() * 48;
+static inline uint32_t scanner_thread_pool_thread_num() {
+    return config::doris_scanner_thread_pool_thread_num != -1
+                   ? config::doris_scanner_thread_pool_thread_num
+                   : DiskInfo::num_disks() * 48;
+}
 
 // bloom filter fpp
 static const double BLOOM_FILTER_DEFAULT_FPP = 0.05;

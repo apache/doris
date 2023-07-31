@@ -60,7 +60,7 @@ Status NewFileScanNode::prepare(RuntimeState* state) {
 }
 
 void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
-    int max_scanners = SCANNER_THREAD_POOL_THREAD_NUM;
+    int max_scanners = scanner_thread_pool_thread_num();
     if (scan_ranges.size() <= max_scanners) {
         _scan_ranges = scan_ranges;
     } else {
@@ -113,7 +113,7 @@ Status NewFileScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     }
 
     // TODO: determine kv cache shard num
-    size_t shard_num = std::min<size_t>(SCANNER_THREAD_POOL_THREAD_NUM, _scan_ranges.size());
+    size_t shard_num = std::min<size_t>(scanner_thread_pool_thread_num(), _scan_ranges.size());
     _kv_cache.reset(new ShardedKVCache(shard_num));
     for (auto& scan_range : _scan_ranges) {
         std::unique_ptr<VFileScanner> scanner =

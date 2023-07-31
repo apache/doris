@@ -459,7 +459,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     // Split tablet segment by scanner, only use in pipeline in duplicate key
     // 1. if tablet count lower than scanner thread num, count segment num of all tablet ready for scan
     // TODO: some tablet may do not have segment, may need split segment all case
-    if (_shared_scan_opt && _scan_ranges.size() < SCANNER_THREAD_POOL_THREAD_NUM) {
+    if (_shared_scan_opt && _scan_ranges.size() < scanner_thread_pool_thread_num()) {
         for (int i = 0; i < _scan_ranges.size(); ++i) {
             auto& scan_range = _scan_ranges[i];
             auto tablet_id = scan_range->tablet_id;
@@ -515,7 +515,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         };
         // 2. Split segment evenly to each scanner (e.g. each scanner need to scan `avg_segment_count_per_scanner` segments)
         const auto avg_segment_count_by_scanner =
-                std::max(segment_count / SCANNER_THREAD_POOL_THREAD_NUM, (size_t)1);
+                std::max(segment_count / scanner_thread_pool_thread_num(), (size_t)1);
         for (int i = 0; i < _scan_ranges.size(); ++i) {
             auto& scan_range = _scan_ranges[i];
             std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
