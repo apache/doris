@@ -692,7 +692,7 @@ public class PropertyAnalyzer {
             try {
                 timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
                 if (timeThresholdSeconds < 60) {
-                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be"
+                    throw new AnalysisException("time_series_compaction_time_threshold_seconds can not be"
                                                                 + " less than 60: " + timeThresholdSecondsStr);
                 }
             } catch (NumberFormatException e) {
