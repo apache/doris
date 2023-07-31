@@ -209,6 +209,10 @@ Status CsvReader::init_reader(bool is_load) {
     }
     _text_converter->set_escape_char(_escape);
 
+    _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
+            _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
+            _enclose, _escape);
+
     //get array delimiter
     _array_delimiter = _params.file_attributes.text_params.array_delimiter;
     _text_converter->set_array_delimiter(_array_delimiter[0]);
@@ -220,10 +224,6 @@ Status CsvReader::init_reader(bool is_load) {
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
-
-    _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
-            _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-            _enclose, _escape);
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
