@@ -82,6 +82,7 @@ public:
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
+    // only for compound type now.
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
     // get specific serializer or deserializer
