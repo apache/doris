@@ -334,7 +334,6 @@ public class ExportJob implements Writable {
 
             // get tablets
             for (Partition partition : partitions) {
-                partition.getVisibleVersion();
                 partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     tabletIdList.addAll(index.getTabletIdsInOrder());
@@ -355,7 +354,8 @@ public class ExportJob implements Writable {
         int outfileNum = this.parallelNum;
         if (tabletsAllNum < this.parallelNum) {
             outfileNum = tabletsAllNum;
-            LOG.warn("The number of tablets is smaller than parallelism, set parallelism to tablets num.");
+            LOG.warn("Export Job [{}]: The number of tablets ({}) is smaller than parallelism ({}), "
+                        + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelNum);
         }
         for (int i = 0; i < outfileNum; ++i) {
             Integer tabletsNum = tabletsNumPerQuery;
@@ -365,8 +365,7 @@ public class ExportJob implements Writable {
             }
             ArrayList<Long> tablets = new ArrayList<>(tabletIdList.subList(start, start + tabletsNum));
             start += tabletsNum;
-            TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(),
-                    this.tableRef.getPartitionNames(), tablets,
+            TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(), null, tablets,
                     this.tableRef.getTableSample(), this.tableRef.getCommonHints());
             ArrayList<TableRef> tableRefList = Lists.newArrayList();
             tableRefList.add(tblRef);
