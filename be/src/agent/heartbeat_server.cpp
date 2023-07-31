@@ -142,8 +142,6 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 bool set_new_localhost = false;
                 for (auto& addr : hosts) {
                     if (addr.get_host_address() == ip) {
-                        std::cout << "addr.get_host_address():" << addr.get_host_address()
-                                  << addr.is_ipv6() << std::endl;
                         BackendOptions::set_localhost(master_info.backend_ip);
                         set_new_localhost = true;
                         break;
