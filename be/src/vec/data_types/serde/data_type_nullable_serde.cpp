@@ -167,6 +167,7 @@ Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
                                                      int row_idx, bool col_const) const {
     auto& col = static_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
+    col_const = col_const || is_column_const(nested_col);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
         if (UNLIKELY(0 != result.push_null())) {

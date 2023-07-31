@@ -120,8 +120,6 @@ public:
 
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
 
-    SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
-
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
             KeyBoundsPB& key_bounds);
