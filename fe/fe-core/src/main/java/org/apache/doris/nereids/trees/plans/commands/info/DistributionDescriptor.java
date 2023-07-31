@@ -23,7 +23,6 @@ import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.Sets;
 
@@ -67,7 +66,7 @@ public class DistributionDescriptor {
             } else if (keysType.equals(KeysType.AGG_KEYS) && columnMap.values().stream()
                     .anyMatch(c -> c.getAggType().equals(AggregateType.REPLACE)
                             || c.getAggType().equals(AggregateType.REPLACE_IF_NOT_NULL))) {
-                throw new AnalysisException("Create aggregate keys table with value columns of which aggregate type is " 
+                throw new AnalysisException("Create aggregate keys table with value columns of which aggregate type is "
                         + "REPLACE or REPLACE_IF_NOT_NULL should not contain random distribution desc");
             }
         }

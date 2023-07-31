@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
-
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -595,8 +594,8 @@ public class CreateTableCommandTest extends TestWithFeService {
         checkThrow(ParseException.class,
                 () -> createTable("create table test.table2(k1 INT, k2 Array<Array<int>>) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
-        checkThrow(ParseException.class, 
-                () -> createTable("CREATE TABLE test.table3 (\n" 
+        checkThrow(ParseException.class,
+                () -> createTable("CREATE TABLE test.table3 (\n"
                         + "  `k1` INT(11) NULL COMMENT \"\",\n"
                         + "  `k2` ARRAY<ARRAY<SMALLINT>> NULL COMMENT \"\",\n"
                         + "  `k3` ARRAY<ARRAY<ARRAY<INT(11)>>> NULL COMMENT \"\",\n"
