@@ -35,7 +35,7 @@ under the License.
 
 支持date_format中的format格式，默认为 %Y-%m-%d %H:%i:%s
 
-传入的是整形，返回的是字符串类型
+传入的是整型，返回的是字符串类型
 
 其余 `string_format` 格式是非法的，返回NULL
 
