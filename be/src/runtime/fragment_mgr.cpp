@@ -138,7 +138,7 @@ public:
     }
 
     // Update status of this fragment execute
-    Status update_status(Status status) {
+    Status update_status(const Status& status) {
         std::lock_guard<std::mutex> l(_status_lock);
         if (!status.ok() && _exec_status.ok()) {
             _exec_status = status;
@@ -183,6 +183,11 @@ private:
     int _backend_num;
     TNetworkAddress _coord_addr;
 
+    // This context is shared by all fragments of this host in a query.
+    // _query_ctx should be the last one to be destructed, because _executor's
+    // destruct method will call close and it will depend on query context,
+    // for example runtime profile.
+    std::shared_ptr<QueryContext> _query_ctx;
     PlanFragmentExecutor _executor;
     vectorized::VecDateTimeValue _start_time;
 
@@ -195,9 +200,6 @@ private:
 
     int _timeout_second;
     std::atomic<bool> _cancelled {false};
-
-    // This context is shared by all fragments of this host in a query
-    std::shared_ptr<QueryContext> _query_ctx;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
@@ -213,12 +215,12 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
         : _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
+          _query_ctx(std::move(query_ctx)),
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3, std::placeholders::_4)),
           _set_rsc_info(false),
           _timeout_second(-1),
-          _query_ctx(std::move(query_ctx)),
           _report_status_cb_impl(report_status_cb_impl) {
     _start_time = vectorized::VecDateTimeValue::local_time();
     _coord_addr = _query_ctx->coord_addr;

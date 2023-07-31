@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.sqltest;
 
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class JoinOrderJobTest extends SqlTestBase {
@@ -83,5 +85,27 @@ public class JoinOrderJobTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .dpHypOptimize();
+    }
+
+    @Test
+    protected void testCountJoin() {
+        String sql = "select count(*) \n"
+                + "from \n"
+                + "T1, \n"
+                + "(\n"
+                + "select sum(T2.score + T3.score) as score from T2 join T3 on T2.id = T3.id"
+                + ") subTable, \n"
+                + "( \n"
+                + "select sum(T4.id*2) as id from T4"
+                + ") doubleT4 \n"
+                + "where \n"
+                + "T1.id = doubleT4.id and \n"
+                + "T1.score = subTable.score;\n";
+        Memo memo = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getCascadesContext()
+                .getMemo();
+        Assertions.assertEquals(memo.countMaxContinuousJoin(), 2);
     }
 }

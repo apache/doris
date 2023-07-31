@@ -46,6 +46,7 @@
 #include <roaring/roaring.hh>
 #include <set>
 
+#include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/file_system.h"
@@ -105,10 +106,8 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         reader.reset(
                 (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
     } else if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
-        analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
-        reader.reset(new lucene::util::SimpleInputStreamReader(
-                new lucene::util::AStringReader(value.c_str()),
-                lucene::util::SimpleInputStreamReader::UTF8));
+        analyzer = std::make_shared<lucene::analysis::standard95::StandardAnalyzer>();
+        reader.reset(new lucene::util::SStringReader<char>(value.data(), value.size(), false));
     } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
         auto chinese_analyzer =
                 std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
@@ -139,9 +138,17 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
     lucene::analysis::Token token;
 
     while (token_stream->next(&token)) {
-        if (token.termLength<TCHAR>() != 0) {
-            analyse_result.emplace_back(
-                    std::wstring(token.termBuffer<TCHAR>(), token.termLength<TCHAR>()));
+        if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
+            if (token.termLength<char>() != 0) {
+                std::string_view term(token.termBuffer<char>(), token.termLength<char>());
+                std::wstring ws_term = lucene_utf8stows(term);
+                analyse_result.emplace_back(ws_term);
+            }
+        } else {
+            if (token.termLength<TCHAR>() != 0) {
+                analyse_result.emplace_back(
+                        std::wstring(token.termBuffer<TCHAR>(), token.termLength<TCHAR>()));
+            }
         }
     }
 
@@ -244,7 +251,9 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
 
         if (analyse_result.empty()) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                    "invalid input query_str: {}, please check your query sql", search_str);
+                    "token parser result is empty for query, "
+                    "please check your query: '{}' and index parser: '{}'",
+                    search_str, get_parser_string_from_properties(_index_meta.properties()));
         }
 
         std::unique_ptr<lucene::search::Query> query;
@@ -609,7 +618,6 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
         }
         *count = r->estimate_point_count(visitor.get());
     } catch (const CLuceneError& e) {
-        LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "BKD Query CLuceneError Occurred, error msg: {}", e.what());
     }

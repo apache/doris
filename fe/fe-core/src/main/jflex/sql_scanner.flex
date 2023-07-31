@@ -509,6 +509,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
         keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
         keywordMap.put("expired", new Integer(SqlParserSymbols.KW_EXPIRED));
+        keywordMap.put("cron", new Integer(SqlParserSymbols.KW_CRON));
    }
     
   // map from token id to token description
@@ -642,7 +643,8 @@ FLit1 = [0-9]+ \. [0-9]*
 FLit2 = \. [0-9]+
 FLit3 = [0-9]+
 Exponent = [eE] [+-]? [0-9]+
-DoubleLiteral = ({FLit1}|{FLit2}|{FLit3}) {Exponent}?
+DoubleLiteral = ({FLit1}|{FLit2}|{FLit3})
+ExponentLiteral = ({FLit1}|{FLit2}|{FLit3}) {Exponent}
 
 EolHintBegin = "--" " "* "+"
 CommentedHintBegin = "/*" " "* "+"
@@ -704,6 +706,17 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 "'" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "`" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "?" { return newToken(SqlParserSymbols.PLACEHOLDER, null); }
+
+{ExponentLiteral} {
+  BigDecimal decimal_val;
+  try {
+    decimal_val = new BigDecimal(yytext());
+  } catch (NumberFormatException e) {
+    return newToken(SqlParserSymbols.NUMERIC_OVERFLOW, yytext());
+  }
+
+  return newToken(SqlParserSymbols.DECIMAL_LITERAL, decimal_val);
+}
 
 {QuotedIdentifier} {
     // Remove the quotes

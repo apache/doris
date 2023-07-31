@@ -32,7 +32,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -121,6 +120,9 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
+        if (!FeConstants.enableInternalSchemaDb) {
+            return Collections.emptyList();
+        }
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
@@ -171,6 +173,8 @@ public class StatisticsUtil {
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
+        sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -523,7 +527,10 @@ public class StatisticsUtil {
     public static long getIcebergRowCount(HMSExternalTable table) {
         long rowCount = 0;
         try {
-            Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(table);
+            Table icebergTable = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getIcebergTable(table);
             TableScan tableScan = icebergTable.newScan().includeColumnStats();
             for (FileScanTask task : tableScan.planFiles()) {
                 rowCount += task.file().recordCount();

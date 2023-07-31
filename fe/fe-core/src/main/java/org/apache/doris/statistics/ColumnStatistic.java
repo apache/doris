@@ -50,7 +50,7 @@ public class ColumnStatistic {
 
     public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setCount(1).setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
-            .setSelectivity(1.0).setIsUnknown(true)
+            .setSelectivity(1.0).setIsUnknown(true).setUpdatedTime("")
             .build();
 
     public static ColumnStatistic ZERO = new ColumnStatisticBuilder().setAvgSizeByte(0).setNdv(0)
@@ -121,9 +121,12 @@ public class ColumnStatistic {
 
     public final Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
 
+    public final String updatedTime;
+
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
-            double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
+            double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram,
+            String updatedTime) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -137,6 +140,7 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.histogram = histogram;
+        this.updatedTime = updatedTime;
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
@@ -152,7 +156,7 @@ public class ColumnStatistic {
                 }
             }
         } catch (Throwable t) {
-            LOG.warn("Failed to deserialize column stats", t);
+            LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
         Preconditions.checkState(columnStatistic != null, "Column stats is null");
@@ -205,6 +209,7 @@ public class ColumnStatistic {
             Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName)
                     .orElse(null);
             columnStatisticBuilder.setHistogram(histogram);
+            columnStatisticBuilder.setUpdatedTime(resultRow.getColumnValue("update_time"));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
@@ -345,6 +350,7 @@ public class ColumnStatistic {
         statistic.put("IsUnKnown", isUnKnown);
         statistic.put("Histogram", Histogram.serializeToJson(histogram));
         statistic.put("Original", original);
+        statistic.put("LastUpdatedTime", updatedTime);
         return statistic;
     }
 
@@ -393,7 +399,8 @@ public class ColumnStatistic {
             null,
             null,
             stat.getBoolean("IsUnKnown"),
-            Histogram.deserializeFromJson(stat.getString("Histogram"))
+            Histogram.deserializeFromJson(stat.getString("Histogram")),
+            stat.getString("LastUpdatedTime")
         );
     }
 

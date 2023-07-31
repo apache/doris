@@ -64,7 +64,7 @@ Add configuration items to BE's configuration file `be.conf`:
   
 This defualt value of this is `mix`, and this is original BE node type. After setting to `computation`, the node is a computing node.
   
-You can see the value of the'NodeRole 'field through the `show backend\G` command. If it is'mix ', it is a mixed node, and if it is'computation', it is a computing node
+You can see the value of the'NodeRole 'field through the `show backends\G` command. If it is'mix ', it is a mixed node, and if it is'computation', it is a computing node
   
 ```sql
 *************************** 1. row ***************************

@@ -169,6 +169,11 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
+// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// will print a warning containing the stacktrace, but not prevent memory alloc.
+// large memory alloc looking forward to using Allocator.
+DECLARE_mInt64(large_memory_check_bytes);
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
 
@@ -512,9 +517,6 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
-// The configuration is used to enable lazy open feature, and the default value is false.
-// When there is mixed deployment in the upgraded version, it needs to be set to false.
-DECLARE_mBool(enable_lazy_open_partition);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
@@ -590,8 +592,8 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
-// Sleep time in milliseconds between load channel memory refresh iterations
-DECLARE_mInt64(load_channel_memory_refresh_sleep_time_ms);
+// Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
+DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
 // Alignment
 DECLARE_Int32(memory_max_alignment);
@@ -1032,6 +1034,8 @@ DECLARE_mInt32(s3_write_buffer_size);
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DECLARE_mInt32(s3_write_buffer_whole_size);
+// the max number of cached file handle for block segemnt
+DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 //enable shrink memory
 DECLARE_Bool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
@@ -1070,6 +1074,11 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 
 // number of threads that fetch auto-inc ranges from FE
 DECLARE_mInt64(auto_inc_fetch_thread_num);
+// Max connection cache num for point lookup queries
+DECLARE_mInt64(lookup_connection_cache_bytes_limit);
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DECLARE_mInt64(LZ4_HC_compression_level);
 
 #ifdef BE_TEST
 // test s3

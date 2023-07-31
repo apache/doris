@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_jdbc_catalog", "p0") {
+suite("test_mysql_jdbc_catalog", "p0,external,mysql") {
     qt_sql """select current_catalog()"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -220,5 +220,18 @@ suite("test_mysql_jdbc_catalog", "p0") {
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
         sql """ drop catalog if exists ${catalog_name} """
+
+        // test mysql view
+        sql """ CREATE CATALOG view_catalog PROPERTIES (
+            "type"="jdbc",
+            "jdbc.user"="root",
+            "jdbc.password"="123456",
+            "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+        """
+        qt_mysql_view """ select * from  view_catalog.doris_test.mysql_view order by col_1;"""
+        sql """ drop catalog if exists  view_catalog; """
     }
 }
+

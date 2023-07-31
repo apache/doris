@@ -21,6 +21,8 @@
 #include <algorithm>
 #include <cctype>
 // IWYU pragma: no_include <bthread/errno.h>
+#include <lz4/lz4hc.h>
+
 #include <cerrno> // IWYU pragma: keep
 #include <cstdlib>
 #include <cstring>
@@ -128,6 +130,8 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
+DEFINE_mInt64(large_memory_check_bytes, "1073741824");
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
@@ -233,7 +237,7 @@ DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "512");
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 DEFINE_mInt32(thrift_connect_timeout_seconds, "3");
-DEFINE_mInt32(fetch_rpc_timeout_seconds, "20");
+DEFINE_mInt32(fetch_rpc_timeout_seconds, "30");
 // default thrift client retry interval (in milliseconds)
 DEFINE_mInt64(thrift_client_retry_interval_ms, "1000");
 // max row count number for single scan range, used in segmentv1
@@ -301,7 +305,7 @@ DEFINE_String(row_cache_mem_limit, "20%");
 DEFINE_String(storage_page_cache_limit, "20%");
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
-DEFINE_Int32(storage_page_cache_shard_size, "16");
+DEFINE_Int32(storage_page_cache_shard_size, "256");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
@@ -371,7 +375,7 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 
 // cumulative compaction policy: min and max delta file's number
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
-DEFINE_mInt64(cumulative_compaction_max_deltas, "100");
+DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
 
 // This config can be set to limit thread number in  segcompaction thread pool.
 DEFINE_mInt32(seg_compaction_max_threads, "10");
@@ -453,9 +457,9 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
-DEFINE_Int32(brpc_heavy_work_pool_threads, "192");
+DEFINE_Int32(brpc_heavy_work_pool_threads, "128");
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
-DEFINE_Int32(brpc_light_work_pool_threads, "32");
+DEFINE_Int32(brpc_light_work_pool_threads, "128");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "10240");
 
@@ -472,9 +476,6 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
-// The configuration is used to enable lazy open feature, and the default value is false.
-// When there is mixed deployment in the upgraded version, it needs to be set to false.
-DEFINE_mBool(enable_lazy_open_partition, "false");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
@@ -550,8 +551,8 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 
-// Sleep time in milliseconds between load channel memory refresh iterations
-DEFINE_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
+// Sleep time in milliseconds between memtbale flush mgr refresh iterations
+DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "100");
 
 // Alignment
 DEFINE_Int32(memory_max_alignment, "16");
@@ -580,10 +581,10 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-DEFINE_mInt32(thrift_rpc_timeout_ms, "20000");
+DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 
 // txn commit rpc timeout
-DEFINE_mInt32(txn_commit_rpc_timeout_ms, "10000");
+DEFINE_mInt32(txn_commit_rpc_timeout_ms, "60000");
 
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");
@@ -661,11 +662,11 @@ DEFINE_mInt64(max_runnings_transactions_per_txn_map, "2000");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
-DEFINE_Int32(tablet_map_shard_size, "4");
+DEFINE_Int32(tablet_map_shard_size, "256");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
-DEFINE_Int32(txn_map_shard_size, "128");
+DEFINE_Int32(txn_map_shard_size, "1024");
 
 // txn_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to commit and publish txn
@@ -689,7 +690,7 @@ DEFINE_Int32(query_cache_max_partition_count, "1024");
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
 // the load process will reject new incoming load job of this tablet.
 // This is to avoid too many version num.
-DEFINE_mInt32(max_tablet_version_num, "500");
+DEFINE_mInt32(max_tablet_version_num, "2000");
 
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
@@ -750,7 +751,7 @@ DEFINE_Int64(download_cache_buffer_size, "10485760");
 // so if there are too many segment in a rowset, the compaction process
 // will run out of memory.
 // When doing compaction, each segment may take at least 1MB buffer.
-DEFINE_mInt32(max_segment_num_per_rowset, "200");
+DEFINE_mInt32(max_segment_num_per_rowset, "1000");
 DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
 // The connection timeout when connecting to external table such as odbc table.
@@ -1012,6 +1013,7 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 
 //disable shrink memory by default
 DEFINE_Bool(enable_shrink_memory, "false");
@@ -1043,6 +1045,11 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
+// default 4GB
+DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 #ifdef BE_TEST
 // test s3

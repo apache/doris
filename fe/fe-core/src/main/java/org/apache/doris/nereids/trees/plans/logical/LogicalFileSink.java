@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
@@ -37,7 +38,8 @@ import java.util.Optional;
 /**
  * logicalFileSink for select into outfile
  */
-public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> implements Sink {
+
     private final String filePath;
     private final String format;
     private final Map<String, String> properties;
@@ -87,7 +89,7 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), filePath, format, properties);
+        return Objects.hash(filePath, format, properties);
     }
 
     @Override

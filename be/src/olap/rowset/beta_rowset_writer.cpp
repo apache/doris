@@ -70,6 +70,7 @@ BetaRowsetWriter::BetaRowsetWriter()
           _total_data_size(0),
           _total_index_size(0),
           _raw_num_rows_written(0),
+          _num_rows_filtered(0),
           _segcompaction_worker(this),
           _is_doing_segcompaction(false) {
     _segcompaction_status.store(OK);
@@ -152,17 +153,12 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock meta_rlock(_context.tablet->get_header_lock());
-        // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (_context.tablet->tablet_state() == TABLET_NOTREADY &&
-            SchemaChangeHandler::tablet_in_converting(_context.tablet->tablet_id())) {
-            return Status::OK();
-        }
         specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
     }
     OlapStopWatch watch;
-    RETURN_IF_ERROR(_context.tablet->calc_delete_bitmap(rowset, segments, specified_rowsets,
-                                                        _context.mow_context->delete_bitmap,
-                                                        _context.mow_context->max_version));
+    RETURN_IF_ERROR(_context.tablet->calc_delete_bitmap(
+            rowset, segments, specified_rowsets, _context.mow_context->delete_bitmap,
+            _context.mow_context->max_version, nullptr));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
@@ -868,6 +864,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     segstat.index_size = index_size + writer->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
 
+    _num_rows_filtered += writer->num_rows_filtered();
     writer.reset();
     if (flush_size) {
         *flush_size = segment_size + index_size;

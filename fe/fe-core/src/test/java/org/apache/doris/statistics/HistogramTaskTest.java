@@ -28,7 +28,6 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -117,12 +116,6 @@ public class HistogramTaskTest extends TestWithFeService {
         new MockUp<AnalysisManager>() {
             @Mock
             public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
-        };
-        new Expectations() {
-            {
-                task.execute();
-                times = 1;
-            }
         };
 
         Deencapsulation.invoke(analysisTaskExecutor, "doFetchAndExecute");

@@ -62,6 +62,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhys
 import org.apache.doris.nereids.rules.implementation.LogicalPartitionTopNToPhysicalPartitionTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalRepeatToPhysicalRepeat;
+import org.apache.doris.nereids.rules.implementation.LogicalResultSinkToPhysicalResultSink;
 import org.apache.doris.nereids.rules.implementation.LogicalSchemaScanToPhysicalSchemaScan;
 import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickSort;
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
@@ -161,6 +162,7 @@ public class RuleSet {
             .add(new LogicalGenerateToPhysicalGenerate())
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
+            .add(new LogicalResultSinkToPhysicalResultSink())
             .build();
 
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
@@ -195,7 +197,6 @@ public class RuleSet {
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
             .add(JoinCommute.BUSHY.build())
-            .addAll(OTHER_REORDER_RULES)
             .build();
 
     public List<Rule> getDPHypReorderRules() {

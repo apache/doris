@@ -82,6 +82,10 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         if (cumu_interval > (config::time_series_compaction_time_threshold_seconds * 1000)) {
             return score;
         }
+    } else if (score > 0) {
+        // If the compaction process has not been successfully executed,
+        // the condition for triggering compaction based on the last successful compaction time (condition 3) will never be met
+        tablet->set_last_cumu_compaction_success_time(now);
     }
 
     return 0;
@@ -135,11 +139,9 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
             break;
         }
 
-        // check the rowset is whether less than _compaction_goal_size
-        // The result of compaction may be slightly smaller than the _compaction_goal_size.
-        if (!is_delete && rs->version().first != 0 &&
-            rs->total_disk_size() <
-                    (config::time_series_compaction_goal_size_mbytes * 1024 * 1024 * 0.8)) {
+        // check if the rowset has already been compacted
+        // [2-11] : rowset has been compacted
+        if (!is_delete && rs->version().first == rs->version().second) {
             *ret_cumulative_point = rs->version().first;
             break;
         }
@@ -166,7 +168,14 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     input_rowsets->clear();
     int64_t total_size = 0;
 
-    for (auto& rowset : candidate_rowsets) {
+    // when single replica compaction is enabled and BE1 fetchs merged rowsets from BE2, and then BE2 goes offline.
+    // BE1 should performs compaction on its own, the time series compaction may re-compact previously fetched rowsets.
+    // time series compaction policy needs to skip over the fetched rowset
+    const auto& first_rowset_iter = std::find_if(
+            candidate_rowsets.begin(), candidate_rowsets.end(),
+            [](const RowsetSharedPtr& rs) { return rs->start_version() == rs->end_version(); });
+    for (auto it = first_rowset_iter; it != candidate_rowsets.end(); ++it) {
+        const auto& rowset = *it;
         // check whether this rowset is delete version
         if (rowset->rowset_meta()->has_delete_predicate()) {
             *last_delete_version = rowset->version();

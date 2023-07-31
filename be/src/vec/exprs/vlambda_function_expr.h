@@ -28,12 +28,9 @@ public:
     VLambdaFunctionExpr(const TExprNode& node) : VExpr(node) {}
     ~VLambdaFunctionExpr() override = default;
 
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         return get_child(0)->execute(context, block, result_column_id);
     }
-
-    VExprSPtr clone() const override { return VLambdaFunctionExpr::create_shared(*this); }
 
     const std::string& expr_name() const override { return _expr_name; }
 

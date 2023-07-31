@@ -99,6 +99,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -107,6 +108,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Daemon;
@@ -294,10 +296,13 @@ public class Env {
     public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
+    private static final String VERSION_DIR = "/VERSION";
+    private String latestFeVersion;
+    private String previousFeVersion;
     private String metaDir;
     private String bdbDir;
     private String imageDir;
-
+    private String versionDir;
     private MetaContext metaContext;
     private long epoch = 0;
 
@@ -861,6 +866,7 @@ public class Env {
         this.metaDir = Config.meta_dir;
         this.bdbDir = this.metaDir + BDB_DIR;
         this.imageDir = this.metaDir + IMAGE_DIR;
+        this.versionDir = EnvUtils.getDorisHome() + VERSION_DIR;
 
         // 0. get local node and helper node info
         getSelfHostPort();
@@ -880,12 +886,21 @@ public class Env {
                 bdbDir.mkdirs();
             }
         }
+
         File imageDir = new File(this.imageDir);
+
         if (!imageDir.exists()) {
             imageDir.mkdirs();
         }
 
+        File verDir = new File(this.versionDir);
+
+        if (!verDir.exists()) {
+            verDir.mkdirs();
+        }
+
         // init plugin manager
+        initVersionInfo();
         pluginMgr.init();
         auditEventProcessor.start();
 
@@ -4430,8 +4445,9 @@ public class Env {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table, false);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(table.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME,
                 TimeUtils.getCurrentFormatTime());
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                logProperties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        logProperties);
         editLog.logDynamicPartition(info);
     }
 
@@ -4503,9 +4519,9 @@ public class Env {
     public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         table.setReplicaAllocation(properties);
-        // log
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                properties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        properties);
         editLog.logModifyReplicationNum(info);
         LOG.debug("modify table[{}] replication num to {}", table.getName(),
                 properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
@@ -4530,8 +4546,9 @@ public class Env {
             table.getPartitionInfo().setStoragePolicy(partition.getId(), tableProperty.getStoragePolicy());
         }
 
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                properties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        properties);
         editLog.logModifyInMemory(info);
     }
 
@@ -4540,8 +4557,9 @@ public class Env {
 
         table.setBinlogConfig(newBinlogConfig);
 
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                newBinlogConfig.toProperties());
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        newBinlogConfig.toProperties());
         editLog.logUpdateBinlogConfig(info);
     }
 
@@ -5372,6 +5390,64 @@ public class Env {
     private static void addTableComment(Table table, StringBuilder sb) {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
+        }
+    }
+
+    public void writeVersionFile(String version, int seq) {
+        String versionName = versionDir + "/" + version + "-commitid-" + seq + "-version";
+        File versionFile = new File(versionName);
+        try {
+            versionFile.createNewFile();
+        } catch (Exception e) {
+            LOG.error(e.toString());
+        }
+    }
+
+    public boolean isMajorVersionUpgrade() {
+        if (previousFeVersion == null) {
+            // There are two possible scenarios when there is no 'previousFeVersion':
+            // If 'image' is empty, it indicates a completely new FE.
+            // If 'image' is not empty, it means an upgrade from a lower version.
+            File imageDir = new File(this.imageDir);
+            File[] files = imageDir.listFiles();
+            if (files == null || files.length == 0) {
+                return false;
+            }
+            return true;
+        }
+        return previousFeVersion.charAt(0) != latestFeVersion.charAt(0);
+    }
+
+    private void initVersionInfo() {
+        latestFeVersion = Version.DORIS_BUILD_VERSION_MAJOR + "_" + Version.DORIS_BUILD_VERSION_MINOR + "_"
+                + Version.DORIS_BUILD_VERSION_PATCH;
+        File folder = new File(versionDir);
+        File[] files = folder.listFiles();
+        int previousSeq = 0;
+        if (files != null) {
+            // Every part meaning (2_0_0-commitid-1-version)
+            // [version] - [commitid] - [seq]
+            // 'VersionFile' can be transformed like this.
+            // 2_0_0-commitid-1-version -> 2_1_0-commitid-2-version ->
+            // 2_3_0-commitid-3-version -> 2_0_0-commitid-4-version
+            // You can observe the process of FE upgrades through these files.
+            for (File file : files) {
+                String[] splitArr = file.getName().split("-");
+                String version = splitArr[0];
+                int seq = Integer.parseInt(splitArr[2]);
+                if (seq > previousSeq) {
+                    previousSeq = seq;
+                    previousFeVersion = version;
+                }
+            }
+        }
+        if (previousFeVersion == null) {
+            writeVersionFile(latestFeVersion, 1);
+        } else if (!previousFeVersion.equals(latestFeVersion)) {
+            writeVersionFile(latestFeVersion, previousSeq + 1);
+        }
+        if (isMajorVersionUpgrade()) {
+            ConnectContext.isMajorVersionUpgrade = true;
         }
     }
 

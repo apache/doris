@@ -146,9 +146,6 @@ public class Analyzer {
     private String schemaWild;
     private String schemaTable; // table used in DESCRIBE Table
 
-    // True if the corresponding select block has a limit and/or offset clause.
-    private boolean hasLimitOffsetClause = false;
-
     // Current depth of nested analyze() calls. Used for enforcing a
     // maximum expr-tree depth. Needs to be manually maintained by the user
     // of this Analyzer with incrementCallDepth() and decrementCallDepth().
@@ -654,6 +651,14 @@ public class Analyzer {
                 continue;
             }
             globalState.conjuncts.put(id, (Predicate) globalState.conjuncts.get(id).substitute(sMap));
+        }
+    }
+
+    public void registerTupleDescriptor(TupleDescriptor desc) {
+        tupleByAlias.put(desc.getAlias(), desc);
+        for (SlotDescriptor slot : desc.getSlots()) {
+            String key = desc.getAlias() + "." + slot.getColumn().getName();
+            slotRefMap.put(key, slot);
         }
     }
 
@@ -1818,10 +1823,6 @@ public class Analyzer {
         return hasEmptySpjResultSet;
     }
 
-    public void setHasLimitOffsetClause(boolean hasLimitOffset) {
-        this.hasLimitOffsetClause = hasLimitOffset;
-    }
-
     /**
      * Register all conjuncts in 'conjuncts' that make up the On-clause of the given
      * right-hand side of a join. Assigns each conjunct a unique id. If rhsRef is
@@ -1891,7 +1892,9 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                Expr newConjunct = conjunct.getResultValue(true);
+                // getResultValue will modify the conjunct internally
+                // we have to use a clone to keep conjunct unchanged
+                Expr newConjunct = conjunct.clone().getResultValue(true);
                 newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;

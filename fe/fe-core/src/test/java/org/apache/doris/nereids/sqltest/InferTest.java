@@ -29,7 +29,7 @@ public class InferTest extends SqlTestBase {
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         innerLogicalJoin(
                             logicalFilter().when(f -> f.getPredicate().toString().equals("(id#0 = 4)")),
@@ -47,7 +47,7 @@ public class InferTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .printlnTree()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         innerLogicalJoin(
                             logicalFilter().when(
@@ -65,7 +65,7 @@ public class InferTest extends SqlTestBase {
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             leftOuterLogicalJoin(

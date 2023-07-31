@@ -2627,6 +2627,7 @@ public class ShowExecutor {
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
+            row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
             row.add(analysisInfo.scheduleType.toString());
             resultRows.add(row);
         }
@@ -2827,6 +2828,7 @@ public class ShowExecutor {
             row.add(TimeUtils.DATETIME_FORMAT.format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
+            row.add(String.valueOf(analysisInfo.timeCostInMs));
             row.add(analysisInfo.state.toString());
             rows.add(row);
         }

@@ -371,6 +371,10 @@ public class NativeInsertStmt extends InsertStmt {
                     targetPartitionIds.add(part.getId());
                 }
             }
+            if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                    && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+                partialUpdateCols.add(Column.SEQUENCE_COL);
+            }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
@@ -525,7 +529,7 @@ public class NativeInsertStmt extends InsertStmt {
                 final List<Expr> resultExprs = queryStmt.getResultExprs();
                 Preconditions.checkState(resultExprs.isEmpty(), "result exprs should be empty.");
                 for (int i = 0; i < rowSize; i++) {
-                    resultExprs.add(new IntLiteral(1));
+                    resultExprs.add(new StringLiteral(SelectStmt.DEFAULT_VALUE));
                     final DefaultValueExpr defaultValueExpr = new DefaultValueExpr();
                     valueList.getFirstRow().add(defaultValueExpr);
                     colLabels.add(defaultValueExpr.toColumnLabel());
@@ -541,11 +545,15 @@ public class NativeInsertStmt extends InsertStmt {
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
-        realTargetColumnNames = targetColumns.stream().map(column -> column.getName()).collect(Collectors.toList());
+        realTargetColumnNames = targetColumns.stream().map(Column::getName).collect(Collectors.toList());
         Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (int i = 0; i < queryStmt.getResultExprs().size(); i++) {
-            slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
-                    .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+            Expr expr = queryStmt.getResultExprs().get(i);
+            if (!(expr instanceof StringLiteral && ((StringLiteral) expr).getValue()
+                    .equals(SelectStmt.DEFAULT_VALUE))) {
+                slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
+                        .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+            }
         }
 
         for (Column column : targetTable.getBaseSchema()) {
@@ -841,7 +849,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
-            ((OlapTableSink) dataSink).complete();
+            ((OlapTableSink) dataSink).complete(analyzer);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), transactionId);

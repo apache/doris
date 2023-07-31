@@ -41,7 +41,6 @@ import java.util.Optional;
 public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements TopN {
 
     public static final String TOPN_RUNTIME_FILTER = "topn_runtime_filter";
-    public static final String TWO_PHASE_READ_OPT = "two_phase_read_opt";
 
     private final long limit;
     private final long offset;

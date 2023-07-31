@@ -28,7 +28,6 @@ import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -124,12 +123,6 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         new MockUp<AnalysisManager>() {
             @Mock
             public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
-        };
-        new Expectations() {
-            {
-                task.execute();
-                times = 1;
-            }
         };
         Deencapsulation.invoke(analysisTaskExecutor, "doFetchAndExecute");
     }

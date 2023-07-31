@@ -759,13 +759,17 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         Database db = (Database) getDbOrDdlException(dbName);
+        long dbId = db.getId();
         Map<String, String> properties = stmt.getProperties();
 
         db.writeLockOrDdlException();
         try {
-            db.updateDbProperties(properties);
+            boolean update = db.updateDbProperties(properties);
+            if (!update) {
+                return;
+            }
 
-            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbName, properties);
+            AlterDatabasePropertyInfo info = new AlterDatabasePropertyInfo(dbId, dbName, properties);
             Env.getCurrentEnv().getEditLog().logAlterDatabaseProperty(info);
         } finally {
             db.writeUnlock();
@@ -777,7 +781,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = (Database) getDbOrMetaException(dbName);
         db.writeLock();
         try {
-            db.updateDbProperties(properties);
+            db.replayUpdateDbProperties(properties);
         } finally {
             db.writeUnlock();
         }
@@ -1885,6 +1889,20 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
 
+        BinlogConfig dbBinlogConfig;
+        db.readLock();
+        try {
+            dbBinlogConfig = new BinlogConfig(db.getBinlogConfig());
+        } finally {
+            db.readUnlock();
+        }
+        BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
+        createTableBinlogConfig.mergeFromProperties(stmt.getProperties());
+        if (dbBinlogConfig.isEnable() && !createTableBinlogConfig.isEnable()) {
+            throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
+        }
+        stmt.getProperties().putAll(createTableBinlogConfig.toProperties());
+
         // get keys type
         KeysDesc keysDesc = stmt.getKeysDesc();
         Preconditions.checkNotNull(keysDesc);
@@ -1978,14 +1996,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         // use light schema change optimization
         olapTable.setDisableAutoCompaction(disableAutoCompaction);
 
-        boolean enableSingleReplicaCompaction = false;
-        try {
-            enableSingleReplicaCompaction = PropertyAnalyzer.analyzeEnableSingleReplicaCompaction(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
-
         // get storage format
         TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
         try {
@@ -2018,6 +2028,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         olapTable.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+
+        boolean enableSingleReplicaCompaction = false;
+        try {
+            enableSingleReplicaCompaction = PropertyAnalyzer.analyzeEnableSingleReplicaCompaction(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        if (enableUniqueKeyMergeOnWrite && enableSingleReplicaCompaction) {
+            throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
+                    + " property is not supported for merge-on-write table");
+        }
+        olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
         // analyze bloom filter columns
         Set<String> bfColumns = null;
@@ -2692,8 +2714,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
         }
-        if (encounterAutoIncColumn && type != KeysType.DUP_KEYS) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE);
+        if (encounterAutoIncColumn && type == KeysType.AGG_KEYS) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_IN_AGGREGATE_TABLE);
         }
     }
 
