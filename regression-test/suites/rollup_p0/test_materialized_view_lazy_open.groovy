@@ -25,7 +25,6 @@ suite("test_materialized_view_load_open", "rollup") {
     def tbName3 = "test_materialized_view_load_open_schema_change"
     def tbName4 = "test_materialized_view_load_open_dynamic_partition_schema_change"
 
-
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
         return jobStateResult[0][8]
