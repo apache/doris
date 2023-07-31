@@ -94,8 +94,6 @@ import java.util.stream.Collectors;
 
 public class AnalysisManager extends Daemon implements Writable {
 
-    public AnalysisTaskScheduler taskScheduler;
-
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
     private ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -112,8 +110,7 @@ public class AnalysisManager extends Daemon implements Writable {
     public AnalysisManager() {
         super(TimeUnit.SECONDS.toMillis(StatisticConstants.ANALYZE_MANAGER_INTERVAL_IN_SECS));
         if (!Env.isCheckpointThread()) {
-            this.taskScheduler = new AnalysisTaskScheduler();
-            this.taskExecutor = new AnalysisTaskExecutor(taskScheduler);
+            this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num);
             this.statisticsCache = new StatisticsCache();
             taskExecutor.start();
         }
@@ -192,7 +189,9 @@ public class AnalysisManager extends Daemon implements Writable {
                         table.getName());
                 // columnNames null means to add all visitable columns.
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
-                        null, db.getId(), table);
+                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType())).map(
+                                Column::getName).collect(
+                                Collectors.toList()), db.getId(), table);
                 try {
                     analyzeTblStmt.check();
                 } catch (AnalysisException analysisException) {
@@ -254,12 +253,13 @@ public class AnalysisManager extends Daemon implements Writable {
             return null;
         }
 
-        analysisTaskInfos.values().forEach(taskScheduler::schedule);
+        analysisTaskInfos.values().forEach(taskExecutor::submitTask);
         return jobInfo;
     }
 
     // Analysis job created by the system
-    public void createSystemAnalysisJob(AnalysisInfo info) throws DdlException {
+    public void createSystemAnalysisJob(AnalysisInfo info, AnalysisTaskExecutor analysisTaskExecutor)
+            throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(info);
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
@@ -273,8 +273,7 @@ public class AnalysisManager extends Daemon implements Writable {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         }
-
-        analysisTaskInfos.values().forEach(taskScheduler::schedule);
+        analysisTaskInfos.values().forEach(taskExecutor::submitTask);
     }
 
     private void sendJobId(List<AnalysisInfo> analysisInfos, boolean proxy) {
