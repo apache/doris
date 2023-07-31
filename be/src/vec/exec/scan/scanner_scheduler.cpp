@@ -102,12 +102,12 @@ Status ScannerScheduler::init(ExecEnv* env) {
 
     // 2. local scan thread pool
     _local_scan_thread_pool.reset(new PriorityWorkStealingThreadPool(
-            config::doris_scanner_thread_pool_thread_num, env->store_paths().size(),
+            SCANNER_THREAD_POOL_THREAD_NUM, env->store_paths().size(),
             config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
     ThreadPoolBuilder("RemoteScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
+            .set_min_threads(SCANNER_THREAD_POOL_THREAD_NUM) // 48 default
             .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num != -1
                                      ? config::doris_max_remote_scanner_thread_pool_thread_num
                                      : std::max(512, CpuInfo::num_cores() * 10))
@@ -116,19 +116,19 @@ Status ScannerScheduler::init(ExecEnv* env) {
 
     // 4. limited scan thread pool
     ThreadPoolBuilder("LimitedScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+            .set_min_threads(SCANNER_THREAD_POOL_THREAD_NUM)
+            .set_max_threads(SCANNER_THREAD_POOL_THREAD_NUM)
             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
             .build(&_limited_scan_thread_pool);
 
     // 5. task group local scan
-    _task_group_local_scan_queue = std::make_unique<taskgroup::ScanTaskTaskGroupQueue>(
-            config::doris_scanner_thread_pool_thread_num);
+    _task_group_local_scan_queue =
+            std::make_unique<taskgroup::ScanTaskTaskGroupQueue>(SCANNER_THREAD_POOL_THREAD_NUM);
     ThreadPoolBuilder("local_scan_group")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
-            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+            .set_min_threads(SCANNER_THREAD_POOL_THREAD_NUM)
+            .set_max_threads(SCANNER_THREAD_POOL_THREAD_NUM)
             .build(&_group_local_scan_thread_pool);
-    for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
+    for (int i = 0; i < SCANNER_THREAD_POOL_THREAD_NUM; i++) {
         _group_local_scan_thread_pool->submit_func([this] {
             this->_task_group_scanner_scan(this, _task_group_local_scan_queue.get());
         });
