@@ -165,7 +165,6 @@ private:
     Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
                                        size_t num);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
-    Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
     bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
 
     bool _check_and_set_is_doing_segcompaction();
