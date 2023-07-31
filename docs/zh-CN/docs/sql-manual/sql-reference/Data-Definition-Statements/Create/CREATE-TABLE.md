@@ -412,7 +412,7 @@ UNIQUE KEY(k1, k2)
 
     compaction 的合并策略为 time_series 时，将使用此参数来调整每次 compaction 输入的文件的大小，输出的文件大小和输入相当
 
-    `"time_series_compaction_goal_size_mbytes" = "512"`
+    `"time_series_compaction_goal_size_mbytes" = "1024"`
 
 * `time_series_compaction_file_count_threshold`
 

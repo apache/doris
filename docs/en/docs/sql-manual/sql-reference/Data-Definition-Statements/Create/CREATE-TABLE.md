@@ -429,7 +429,7 @@ Set table properties. The following attributes are currently supported:
 
     Time series compaction policy will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
 
-    `"time_series_compaction_goal_size_mbytes" = "512"`
+    `"time_series_compaction_goal_size_mbytes" = "1024"`
 
 * `time_series_compaction_file_count_threshold`
 

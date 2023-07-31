@@ -165,7 +165,7 @@ public class PropertyAnalyzer {
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
-    public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 512;
+    public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
     public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
 
@@ -644,6 +644,10 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
             try {
                 goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+                if (goalSizeMbytes < 10) {
+                    throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be"
+                                                                + " less than 10: " + goalSizeMbytesStr);
+                }
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
                         + goalSizeMbytesStr);
@@ -664,6 +668,10 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
             try {
                 fileCountThreshold = Long.parseLong(fileCountThresholdStr);
+                if (fileCountThreshold < 10) {
+                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be "
+                                                            + "less than 10: " + fileCountThresholdStr);
+                }
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
                                                                                 + fileCountThresholdStr);
@@ -683,6 +691,10 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
             try {
                 timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
+                if (timeThresholdSeconds < 60) {
+                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be"
+                                                                + " less than 60: " + timeThresholdSecondsStr);
+                }
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
                                                                                 + timeThresholdSecondsStr);

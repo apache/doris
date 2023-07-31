@@ -3144,27 +3144,24 @@ public class Env {
             }
 
             // time series compaction goal size
-            if (olapTable.getTimeSeriesCompactionGoalSizeMbytes() != null
-                                        && olapTable.getTimeSeriesCompactionGoalSizeMbytes()
-                                        != PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE) {
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
             }
 
             // time series compaction file count threshold
-            if (olapTable.getTimeSeriesCompactionFileCountThreshold() != null
-                                        && olapTable.getTimeSeriesCompactionFileCountThreshold()
-                                        != PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE) {
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
             }
 
             // time series compaction time threshold
-            if (olapTable.getTimeSeriesCompactionTimeThresholdSeconds() != null
-                                    && olapTable.getTimeSeriesCompactionTimeThresholdSeconds()
-                                    != PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE) {
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
                 sb.append(",\n\"").append(PropertyAnalyzer
                                     .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
                 sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");

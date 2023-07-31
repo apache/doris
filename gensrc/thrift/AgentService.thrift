@@ -144,7 +144,7 @@ struct TCreateTabletReq {
     20: optional i64 storage_policy_id
     21: optional TBinlogConfig binlog_config
     22: optional string compaction_policy = "size_based"
-    23: optional i64 time_series_compaction_goal_size_mbytes = 512
+    23: optional i64 time_series_compaction_goal_size_mbytes = 1024
     24: optional i64 time_series_compaction_file_count_threshold = 2000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
 }
