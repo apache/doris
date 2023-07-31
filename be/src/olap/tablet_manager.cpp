@@ -731,7 +731,8 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                     continue;
                 }
             }
-            auto cumulative_compaction_policy =  all_cumulative_compaction_policies.at(tablet_ptr->tablet_meta()->compaction_policy());
+            auto cumulative_compaction_policy = all_cumulative_compaction_policies.at(
+                    tablet_ptr->tablet_meta()->compaction_policy());
             uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
                     compaction_type, cumulative_compaction_policy);
             if (current_compaction_score < 5) {

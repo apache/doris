@@ -986,7 +986,7 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
         tablet->get_cumulative_compaction_policy()->name() !=
                 tablet->tablet_meta()->compaction_policy()) {
         tablet->set_cumulative_compaction_policy(
-                    _cumulative_compaction_policies.at(tablet->tablet_meta()->compaction_policy()));
+                _cumulative_compaction_policies.at(tablet->tablet_meta()->compaction_policy()));
     }
     tablet->set_skip_compaction(false);
     return _submit_compaction_task(tablet, compaction_type, force);
