@@ -203,8 +203,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
             try {
                 goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
-                if (goalSizeMbytes < 0) {
-                    throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                if (goalSizeMbytes < 10) {
+                    throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be less than 10:"
                         + goalSizeMbytesStr);
                 }
             } catch (NumberFormatException e) {
@@ -219,8 +219,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
             try {
                 fileCountThreshold = Long.parseLong(fileCountThresholdStr);
-                if (fileCountThreshold < 0) {
-                    throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                if (fileCountThreshold < 10) {
+                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be less than 10:"
                                                                                         + fileCountThresholdStr);
                 }
             } catch (NumberFormatException e) {
@@ -235,8 +235,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                                     .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
             try {
                 timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
-                if (timeThresholdSeconds < 0) {
-                    throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                if (timeThresholdSeconds < 60) {
+                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be less than 60:"
                                                                                         + timeThresholdSecondsStr);
                 }
             } catch (NumberFormatException e) {

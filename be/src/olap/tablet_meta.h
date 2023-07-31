@@ -108,7 +108,7 @@ public:
                bool enable_unique_key_merge_on_write = false,
                std::optional<TBinlogConfig> binlog_config = {},
                std::string compaction_policy = "size_based",
-               int64_t time_series_compaction_goal_size_mbytes = 512,
+               int64_t time_series_compaction_goal_size_mbytes = 1024,
                int64_t time_series_compaction_file_count_threshold = 2000,
                int64_t time_series_compaction_time_threshold_seconds = 3600);
     // If need add a filed in TableMeta, filed init copy in copy construct function

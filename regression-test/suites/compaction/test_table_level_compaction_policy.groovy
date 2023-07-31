@@ -33,7 +33,7 @@ suite("test_table_level_compaction_policy") {
             PROPERTIES (
                     "replication_num" = "1",
                     "compaction_policy" = "time_series",
-                    "time_series_compaction_goal_size_mbytes" = "1024", 
+                    "time_series_compaction_goal_size_mbytes" = "2048", 
                     "time_series_compaction_file_count_threshold" = "5000",
                     "time_series_compaction_time_threshold_seconds" = "86400"
              );
@@ -41,17 +41,17 @@ suite("test_table_level_compaction_policy") {
     result = sql """show create table ${tableName}"""
     logger.info("${result}")
     assertTrue(result.toString().containsIgnoreCase('"compaction_policy" = "time_series"'))
-    assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_goal_size_mbytes" = "1024"'))
+    assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_goal_size_mbytes" = "2048"'))
     assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_file_count_threshold" = "5000"'))
     assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_time_threshold_seconds" = "86400"'))
 
     sql """
-        alter table ${tableName} set ("time_series_compaction_goal_size_mbytes" = "2048")
+        alter table ${tableName} set ("time_series_compaction_goal_size_mbytes" = "1024")
         """
 
     result = sql """show create table ${tableName}"""
     logger.info("${result}")
-    assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_goal_size_mbytes" = "2048"'))
+    assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_goal_size_mbytes" = "1024"'))
 
     sql """
         alter table ${tableName} set ("time_series_compaction_file_count_threshold" = "6000")
@@ -70,6 +70,83 @@ suite("test_table_level_compaction_policy") {
     assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_time_threshold_seconds" = "3000"'))
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    sql """
+            CREATE TABLE ${tableName} (
+                    `c_custkey` int(11) NOT NULL COMMENT "",
+                    `c_name` varchar(26) NOT NULL COMMENT "",
+                    `c_address` varchar(41) NOT NULL COMMENT "",
+                    `c_city` varchar(11) NOT NULL COMMENT ""
+            )
+            DUPLICATE KEY (`c_custkey`)
+            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1"
+             );
+        """
+    result = sql """show create table ${tableName}"""
+    logger.info("${result}")
+    assertFalse(result.toString().containsIgnoreCase('"compaction_policy"'))
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    test {
+        sql """
+            CREATE TABLE ${tableName} (
+                    `c_custkey` int(11) NOT NULL COMMENT "",
+                    `c_name` varchar(26) NOT NULL COMMENT "",
+                    `c_address` varchar(41) NOT NULL COMMENT "",
+                    `c_city` varchar(11) NOT NULL COMMENT ""
+            )
+            DUPLICATE KEY (`c_custkey`)
+            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1",
+                    "compaction_policy" = "time_series",
+                    "time_series_compaction_goal_size_mbytes" = "5"
+             );
+        """
+        exception "time_series_compaction_goal_size_mbytes can not be less than 10: 5"
+    }
+
+    test {
+        sql """
+            CREATE TABLE ${tableName} (
+                    `c_custkey` int(11) NOT NULL COMMENT "",
+                    `c_name` varchar(26) NOT NULL COMMENT "",
+                    `c_address` varchar(41) NOT NULL COMMENT "",
+                    `c_city` varchar(11) NOT NULL COMMENT ""
+            )
+            DUPLICATE KEY (`c_custkey`)
+            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1",
+                    "compaction_policy" = "time_series",
+                    "time_series_compaction_file_count_threshold" = "5"
+             );
+        """
+        exception "time_series_compaction_file_count_threshold can not be less than 10: 5"
+    }
+
+    test {
+        sql """
+            CREATE TABLE ${tableName} (
+                    `c_custkey` int(11) NOT NULL COMMENT "",
+                    `c_name` varchar(26) NOT NULL COMMENT "",
+                    `c_address` varchar(41) NOT NULL COMMENT "",
+                    `c_city` varchar(11) NOT NULL COMMENT ""
+            )
+            DUPLICATE KEY (`c_custkey`)
+            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1",
+                    "compaction_policy" = "time_series",
+                    "time_series_compaction_time_threshold_seconds" = "5"
+             );
+        """
+        exception "time_series_compaction_time_threshold_seconds can not be less than 60: 5"
+    }
+
 
     test {
         sql """
@@ -101,7 +178,7 @@ suite("test_table_level_compaction_policy") {
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
                     "replication_num" = "1",
-                    "time_series_compaction_goal_size_mbytes" = "1024"
+                    "time_series_compaction_goal_size_mbytes" = "2048"
              );
         """
         exception "only time series compaction policy support for time series config"

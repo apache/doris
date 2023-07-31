@@ -985,13 +985,8 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
     if (tablet->get_cumulative_compaction_policy() == nullptr ||
         tablet->get_cumulative_compaction_policy()->name() !=
                 tablet->tablet_meta()->compaction_policy()) {
-        if (tablet->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
-            tablet->set_cumulative_compaction_policy(
-                    _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY]);
-        } else {
-            tablet->set_cumulative_compaction_policy(
-                    _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY]);
-        }
+        tablet->set_cumulative_compaction_policy(
+                    _cumulative_compaction_policies.at(tablet->tablet_meta()->compaction_policy()));
     }
     tablet->set_skip_compaction(false);
     return _submit_compaction_task(tablet, compaction_type, force);
