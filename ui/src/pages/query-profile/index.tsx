@@ -71,7 +71,7 @@ export default function QueryProfile(params: any) {
                                     size="small"
                                     onClick={() => {
                                         queryProfile<any>({
-                                            path: row['Query ID'],
+                                            path: row['Profile ID'],
                                         }).then((profileDetailRes) => {
                                             if (
                                                 profileDetailRes &&
@@ -165,7 +165,13 @@ export default function QueryProfile(params: any) {
                             <Button type="primary" onClick={goPrev}>
                                 Back
                             </Button>
-                            <Button>Download</Button>
+                            <Button
+                                onClick={() => {
+                                    download(profile);
+                                }}
+                            >
+                                Download
+                            </Button>
                             <Button
                                 onClick={() => {
                                     copyToClipboard(profile);
@@ -188,7 +194,7 @@ export default function QueryProfile(params: any) {
                 </div>
             ) : (
                 <Table
-                    rowKey={(record) => record['Query ID']}
+                    rowKey={(record) => record['Profile ID']}
                     isSort={true}
                     isFilter={true}
                     isInner={'/QueryProfile'}
