@@ -155,9 +155,7 @@ class ThreadContext {
 public:
     ThreadContext() {
         thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
-        if (ExecEnv::GetInstance()->initialized()) {
-            thread_mem_tracker_mgr->init();
-        }
+        if (ExecEnv::GetInstance()->initialized()) thread_mem_tracker_mgr->init();
     }
 
     ~ThreadContext() { thread_context_ptr.init = false; }
@@ -167,16 +165,13 @@ public:
 #ifndef BE_TEST
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
         DCHECK(mem_tracker);
+        // Orphan is thread default tracker.
+        DCHECK(thread_mem_tracker()->label() == "Orphan")
+                << ", attach mem tracker label: " << mem_tracker->label();
 #endif
-        is_reset();
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
         thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, fragment_instance_id);
-    }
-
-    void attach_task(const TUniqueId& task_id) {
-        is_reset();
-        _task_id = task_id;
     }
 
     void detach_task() {
@@ -185,8 +180,8 @@ public:
         thread_mem_tracker_mgr->detach_limiter_tracker();
     }
 
-    [[nodiscard]] const TUniqueId& task_id() const { return _task_id; }
-    [[nodiscard]] const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
+    const TUniqueId& task_id() const { return _task_id; }
+    const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
     std::string get_thread_id() {
         std::stringstream ss;
@@ -201,7 +196,7 @@ public:
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the TCMalloc hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
-    [[nodiscard]] MemTrackerLimiter* thread_mem_tracker() const {
+    MemTrackerLimiter* thread_mem_tracker() {
         return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
     }
 
@@ -212,12 +207,6 @@ public:
     int switch_bthread_local_count = 0;
     int skip_memory_check = 0;
     bool large_memory_check = true;
-
-    void is_reset() const {
-        // Orphan is thread default tracker.
-        DCHECK(_task_id == TUniqueId() && _fragment_instance_id == TUniqueId() &&
-               thread_mem_tracker()->label() == "Orphan");
-    }
 
 private:
     TUniqueId _task_id;
@@ -316,8 +305,6 @@ public:
                         const TUniqueId& fragment_instance_id = TUniqueId());
 
     explicit AttachTask(RuntimeState* runtime_state);
-
-    explicit AttachTask(const TUniqueId& task_id);
 
     ~AttachTask();
 };
