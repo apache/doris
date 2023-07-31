@@ -62,8 +62,7 @@ public class JobTest {
         dos.flush();
         dos.close();
         DataInputStream dis = new DataInputStream(Files.newInputStream(path));
-        Job readJob = new Job();
-        readJob.readFields(dis);
+        Job readJob = Job.readFields(dis);
         Assertions.assertEquals(job.getJobName(), readJob.getJobName());
         Assertions.assertEquals(job.getTimezone(), readJob.getTimezone());
 
