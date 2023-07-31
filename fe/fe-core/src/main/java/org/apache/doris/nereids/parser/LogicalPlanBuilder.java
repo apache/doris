@@ -1772,7 +1772,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<ColumnDefinition> cols = visitColumnDefs(ctx.columnDefs());
         String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
-                visitIdentifierList(ctx.hashKeys));
+                ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
         Map<String, String> properties = ctx.propertySeq() != null ? visitPropertySeq(ctx.propertySeq()) : null;
         String partitionType = null;
         if (ctx.PARTITION() != null) {
@@ -1823,7 +1823,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } catch (Exception e) {
             throw new AnalysisException(String.format("aggregate type %s is unsupported", aggTypeString), e.getCause());
         }
-        String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : null;
+        String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : "";
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
     }
 

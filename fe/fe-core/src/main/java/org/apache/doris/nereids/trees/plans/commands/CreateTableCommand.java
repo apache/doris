@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -46,7 +47,11 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         createTableInfo.validate(ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
-        Env.getCurrentEnv().createTable(createTableStmt);
+        try {
+            Env.getCurrentEnv().createTable(createTableStmt);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
         if (ctasQuery.isPresent()) {
             return;
         }

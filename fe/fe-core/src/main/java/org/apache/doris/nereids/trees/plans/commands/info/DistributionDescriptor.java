@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
 
@@ -42,13 +44,13 @@ public class DistributionDescriptor {
         this.isHash = isHash;
         this.isAutoBucket = isAutoBucket;
         this.bucketNum = bucketNum;
-        this.cols = Utils.copyRequiredList(cols);
+        this.cols = cols;
     }
 
     /**
      * analyze distribution descriptor
      */
-    public void validate(Map<String, ColumnDefinition> columnMap) {
+    public void validate(Map<String, ColumnDefinition> columnMap, KeysType keysType) {
         if (isHash) {
             Set<String> colSet = Sets.newHashSet(cols);
             if (colSet.size() != cols.size()) {
@@ -59,6 +61,15 @@ public class DistributionDescriptor {
                     throw new AnalysisException(String.format("column %s is not found is distribution desc", c));
                 }
             });
+        } else {
+            if (keysType.equals(KeysType.UNIQUE_KEYS)) {
+                throw new AnalysisException("Create unique keys table should not contain random distribution desc");
+            } else if (keysType.equals(KeysType.AGG_KEYS) && columnMap.values().stream()
+                    .anyMatch(c -> c.getAggType().equals(AggregateType.REPLACE)
+                            || c.getAggType().equals(AggregateType.REPLACE_IF_NOT_NULL))) {
+                throw new AnalysisException("Create aggregate keys table with value columns of which aggregate type is " 
+                        + "REPLACE or REPLACE_IF_NOT_NULL should not contain random distribution desc");
+            }
         }
     }
 

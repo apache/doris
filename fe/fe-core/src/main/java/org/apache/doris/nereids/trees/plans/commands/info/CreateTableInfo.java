@@ -140,7 +140,7 @@ public class CreateTableInfo {
         }
 
         // analyze distribution descriptor
-        distribution.validate(columnMap);
+        distribution.validate(columnMap, keysType);
 
         // analyze key set.
         boolean enableDuplicateWithoutKeysByDefault = false;

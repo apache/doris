@@ -25,10 +25,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
+
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -234,34 +235,34 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     @Test
     public void testAbnormal() throws ConfigException {
-        checkThrow(DdlException.class,
+        checkThrow(AnalysisException.class,
                 "Unknown properties: {aa=bb}",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1','aa'='bb'); "));
 
-        checkThrow(DdlException.class,
+        checkThrow(AnalysisException.class,
                 "Floating point type should not be used in distribution column",
                 () -> createTable("create table test.atbl1\n" + "(k1 int, k2 float)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        checkThrow(AnalysisException.class,
                 "Floating point type column can not be partition column",
                 () -> createTable("create table test.atbl3\n" + "(k1 int, k2 int, k3 float)\n" + "duplicate key(k1)\n"
                         + "partition by range(k3)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-        checkThrow(DdlException.class,
+        checkThrow(AnalysisException.class,
                 "Varchar should not in the middle of short keys",
                 () -> createTable("create table test.atbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                         + "properties('replication_num' = '1', 'short_key' = '3');"));
 
-        checkThrow(DdlException.class, "Short key is too large. should less than: 3",
+        checkThrow(AnalysisException.class, "Short key is too large. should less than: 3",
                 () -> createTable("create table test.atbl4\n" + "(k1 int, k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                         + "properties('replication_num' = '1', 'short_key' = '4');"));
 
-        checkThrow(DdlException.class,
+        checkThrow(AnalysisException.class,
                 "replication num should be less than the number of available backends. replication num is 3, available backend num is 1",
                 () -> createTable("create table test.atbl5\n" + "(k1 int, k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
@@ -271,48 +272,48 @@ public class CreateTableCommandTest extends TestWithFeService {
                 () -> createTable("create table test.atbl6\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
 
-        checkThrow(DdlException.class, "Table 'atbl6' already exists",
+        checkThrow(AnalysisException.class, "Table 'atbl6' already exists",
                 () -> createTable("create table test.atbl6\n" + "(k1 int, k2 int, k3 int)\n"
                         + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                         + "properties('replication_num' = '1');"));
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
-        checkThrow(DdlException.class,
+        checkThrow(AnalysisException.class,
                 "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
                         + "Create failed replications:\n"
                         + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                 () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                         + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
-        checkThrow(DdlException.class, "sequence column only support UNIQUE_KEYS",
+        checkThrow(AnalysisException.class, "sequence column only support UNIQUE_KEYS",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int sum)\n"
                         + "aggregate key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'int');"));
 
-        checkThrow(DdlException.class, "sequence type only support integer types and date types",
+        checkThrow(AnalysisException.class, "sequence type only support integer types and date types",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                         + "unique key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'double');"));
 
-        checkThrow(DdlException.class, "The sequence_col and sequence_type cannot be set at the same time",
+        checkThrow(AnalysisException.class, "The sequence_col and sequence_type cannot be set at the same time",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                         + "unique key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_type' = 'int', 'function_column.sequence_col' = 'v1');"));
 
-        checkThrow(DdlException.class, "The specified sequence column[v3] not exists",
+        checkThrow(AnalysisException.class, "The specified sequence column[v3] not exists",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                         + "unique key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_col' = 'v3');"));
 
-        checkThrow(DdlException.class, "Sequence type only support integer types and date types",
+        checkThrow(AnalysisException.class, "Sequence type only support integer types and date types",
                 () -> createTable("create table test.atbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"
                         + "unique key(k1, k2)\n"
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -334,7 +335,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "properties('replication_num' = '1');"));
 
         // single partition column with multi keys
-        checkThrow(IllegalArgumentException.class,
+        checkThrow(AnalysisException.class,
                 "partition key desc list size[2] is not equal to partition column size[1]",
                 () -> createTable("create table test.tbl10\n"
                         + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
@@ -348,7 +349,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "properties('replication_num' = '1');"));
 
         // multi partition columns with single key
-        checkThrow(IllegalArgumentException.class,
+        checkThrow(AnalysisException.class,
                 "partition key desc list size[1] is not equal to partition column size[2]",
                 () -> createTable("create table test.tbl11\n"
                         + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
@@ -361,7 +362,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "properties('replication_num' = '1');"));
 
         // multi partition columns with multi keys
-        checkThrow(IllegalArgumentException.class,
+        checkThrow(AnalysisException.class,
                 "partition key desc list size[3] is not equal to partition column size[2]",
                 () -> createTable("create table test.tbl12\n"
                         + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
@@ -390,7 +391,7 @@ public class CreateTableCommandTest extends TestWithFeService {
          * create table with both list and range partition
          */
         // list contain less than
-        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        checkThrow(AnalysisException.class,
                 "partitions types is invalid, expected FIXED or LESS in range partitions and IN in list partitions",
                 () -> createTable("CREATE TABLE test.tbl14 (\n"
                         + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
@@ -404,7 +405,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range contain in
-        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        checkThrow(AnalysisException.class,
                 "partitions types is invalid, expected FIXED or LESS in range partitions and IN in list partitions",
                 () -> createTable("CREATE TABLE test.tbl15 (\n"
                         + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
@@ -418,7 +419,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // list contain both
-        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        checkThrow(AnalysisException.class,
                 "partitions types is invalid, expected FIXED or LESS in range partitions and IN in list partitions",
                 () -> createTable("CREATE TABLE test.tbl15 (\n"
                         + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
@@ -432,7 +433,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range contain both
-        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        checkThrow(AnalysisException.class,
                 "partitions types is invalid, expected FIXED or LESS in range partitions and IN in list partitions",
                 () -> createTable("CREATE TABLE test.tbl16 (\n"
                         + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
@@ -446,7 +447,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range: partition content != partition key type
-        checkThrow(DdlException.class, "Invalid number format: beijing",
+        checkThrow(AnalysisException.class, "Invalid number format: beijing",
                 () -> createTable("CREATE TABLE test.tbl17 (\n"
                         + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -459,7 +460,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // list: partition content != partition key type
-        checkThrow(DdlException.class, "Invalid number format: beijing",
+        checkThrow(AnalysisException.class, "Invalid number format: beijing",
                 () -> createTable("CREATE TABLE test.tbl18 (\n"
                         + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -475,7 +476,7 @@ public class CreateTableCommandTest extends TestWithFeService {
          * dynamic partition table
          */
         // list partition with dynamic properties
-//        checkThrow(DdlException.class, "Only support dynamic partition properties on range partition table",
+//        checkThrow(AnalysisException.class, "Only support dynamic partition properties on range partition table",
 //                () -> createTable("CREATE TABLE test.tbl19\n"
 //                        + "(\n"
 //                        + "    k1 DATE not null\n"
@@ -493,7 +494,7 @@ public class CreateTableCommandTest extends TestWithFeService {
 //                        + ");\n"));
 
         // no partition table with dynamic properties
-//        checkThrow(DdlException.class, "Only support dynamic partition properties on range partition table",
+//        checkThrow(AnalysisException.class, "Only support dynamic partition properties on range partition table",
 //                () -> createTable("CREATE TABLE test.tbl20\n"
 //                        + "(\n"
 //                        + "    k1 DATE\n"
@@ -526,7 +527,7 @@ public class CreateTableCommandTest extends TestWithFeService {
 
         checkThrow(AnalysisException.class,
                 "Create aggregate keys table with value columns of which aggregate type"
-                        + " is REPLACE should not contain random distribution desc",
+                        + " is REPLACE or REPLACE_IF_NOT_NULL should not contain random distribution desc",
                 () -> createTable("CREATE TABLE test.tbl22\n"
                         + "(\n"
                         + "  `k1` bigint(20) NULL COMMENT \"\",\n"
@@ -588,29 +589,30 @@ public class CreateTableCommandTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithArrayType() {
-        Assertions.assertDoesNotThrow(
+        checkThrow(ParseException.class,
                 () -> createTable("create table test.table1(k1 INT, k2 Array<int>) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
-        Assertions.assertDoesNotThrow(
+        checkThrow(ParseException.class,
                 () -> createTable("create table test.table2(k1 INT, k2 Array<Array<int>>) duplicate key (k1) "
                         + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
-        Assertions.assertDoesNotThrow(() -> createTable("CREATE TABLE test.table3 (\n"
-                + "  `k1` INT(11) NULL COMMENT \"\",\n"
-                + "  `k2` ARRAY<ARRAY<SMALLINT>> NULL COMMENT \"\",\n"
-                + "  `k3` ARRAY<ARRAY<ARRAY<INT(11)>>> NULL COMMENT \"\",\n"
-                + "  `k4` ARRAY<ARRAY<ARRAY<ARRAY<BIGINT>>>> NULL COMMENT \"\",\n"
-                + "  `k5` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<CHAR>>>>> NULL COMMENT \"\",\n"
-                + "  `k6` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<VARCHAR(20)>>>>>> NULL COMMENT \"\",\n"
-                + "  `k7` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DATE>>>>>>> NULL COMMENT \"\",\n"
-                + "  `k8` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DATETIME>>>>>>>> NULL COMMENT \"\",\n"
-                + "  `k11` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DECIMAL(20, 6)>>>>>>>>> NULL COMMENT \"\"\n"
-                + ") ENGINE=OLAP\n"
-                + "DUPLICATE KEY(`k1`)\n"
-                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 3\n"
-                + "PROPERTIES (\n"
-                + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
-                + ");"));
-        checkThrow(AnalysisException.class, "Type exceeds the maximum nesting depth of 9",
+        checkThrow(ParseException.class, 
+                () -> createTable("CREATE TABLE test.table3 (\n" 
+                        + "  `k1` INT(11) NULL COMMENT \"\",\n"
+                        + "  `k2` ARRAY<ARRAY<SMALLINT>> NULL COMMENT \"\",\n"
+                        + "  `k3` ARRAY<ARRAY<ARRAY<INT(11)>>> NULL COMMENT \"\",\n"
+                        + "  `k4` ARRAY<ARRAY<ARRAY<ARRAY<BIGINT>>>> NULL COMMENT \"\",\n"
+                        + "  `k5` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<CHAR>>>>> NULL COMMENT \"\",\n"
+                        + "  `k6` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<VARCHAR(20)>>>>>> NULL COMMENT \"\",\n"
+                        + "  `k7` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DATE>>>>>>> NULL COMMENT \"\",\n"
+                        + "  `k8` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DATETIME>>>>>>>> NULL COMMENT \"\",\n"
+                        + "  `k11` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DECIMAL(20, 6)>>>>>>>>> NULL COMMENT \"\"\n"
+                        + ") ENGINE=OLAP\n"
+                        + "DUPLICATE KEY(`k1`)\n"
+                        + "DISTRIBUTED BY HASH(`k1`) BUCKETS 3\n"
+                        + "PROPERTIES (\n"
+                        + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
+                        + ");"));
+        checkThrow(ParseException.class,
                 () -> createTable("CREATE TABLE test.table4 (\n"
                         + "  `k1` INT(11) NULL COMMENT \"\",\n"
                         + "  `k2` ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<ARRAY<DECIMAL(20, 6)>>>>>>>>>> NULL COMMENT \"\"\n"
@@ -621,31 +623,33 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                         + ");"));
 
-        Assertions.assertDoesNotThrow(() -> createTable("create table test.table5(\n"
-                + "\tk1 int,\n"
-                + "\tv1 array<int>\n"
-                + ") distributed by hash(k1) buckets 1\n"
-                + "properties(\"replication_num\" = \"1\");"));
+        checkThrow(ParseException.class,
+                () -> createTable("create table test.table5(\n"
+                        + "\tk1 int,\n"
+                        + "\tv1 array<int>\n"
+                        + ") distributed by hash(k1) buckets 1\n"
+                        + "properties(\"replication_num\" = \"1\");"));
 
-        Assertions.assertDoesNotThrow(() -> createTable("create table test.test_array( \n"
-                + "task_insert_time BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
-                + "task_project ARRAY<VARCHAR(64)>  DEFAULT NULL COMMENT \"\" ,\n"
-                + "route_key DATEV2 NOT NULL COMMENT \"range分区键\"\n"
-                + ") \n"
-                + "DUPLICATE KEY(`task_insert_time`)  \n"
-                + " COMMENT \"\"\n"
-                + "PARTITION BY RANGE(route_key) \n"
-                + "(PARTITION `p202209` VALUES LESS THAN (\"2022-10-01\"),\n"
-                + "PARTITION `p202210` VALUES LESS THAN (\"2022-11-01\"),\n"
-                + "PARTITION `p202211` VALUES LESS THAN (\"2022-12-01\")) \n"
-                + "DISTRIBUTED BY HASH(`task_insert_time` ) BUCKETS 32 \n"
-                + "PROPERTIES\n"
-                + "(\n"
-                + "    \"replication_num\" = \"1\",    \n"
-                + "    \"light_schema_change\" = \"true\"    \n"
-                + ");"));
+        checkThrow(ParseException.class,
+                () -> createTable("create table test.test_array( \n"
+                        + "task_insert_time BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
+                        + "task_project ARRAY<VARCHAR(64)>  DEFAULT NULL COMMENT \"\" ,\n"
+                        + "route_key DATEV2 NOT NULL COMMENT \"range分区键\"\n"
+                        + ") \n"
+                        + "DUPLICATE KEY(`task_insert_time`)  \n"
+                        + " COMMENT \"\"\n"
+                        + "PARTITION BY RANGE(route_key) \n"
+                        + "(PARTITION `p202209` VALUES LESS THAN (\"2022-10-01\"),\n"
+                        + "PARTITION `p202210` VALUES LESS THAN (\"2022-11-01\"),\n"
+                        + "PARTITION `p202211` VALUES LESS THAN (\"2022-12-01\")) \n"
+                        + "DISTRIBUTED BY HASH(`task_insert_time` ) BUCKETS 32 \n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "    \"replication_num\" = \"1\",    \n"
+                        + "    \"light_schema_change\" = \"true\"    \n"
+                        + ");"));
 
-        checkThrow(AnalysisException.class, "Complex type column can't be partition column",
+        checkThrow(ParseException.class,
                 () -> createTable("create table test.test_array2( \n"
                         + "task_insert_time BIGINT NOT NULL DEFAULT \"0\" COMMENT \"\" , \n"
                         + "task_project ARRAY<VARCHAR(64)>  DEFAULT NULL COMMENT \"\" ,\n"

@@ -62,6 +62,10 @@ public class ColumnDefinition {
         return type;
     }
 
+    public AggregateType getAggType() {
+        return aggType;
+    }
+
     /**
      * validate column definition and analyze
      */
