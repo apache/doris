@@ -25,6 +25,9 @@ suite("test_javaudf_agg_map") {
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
     log.info("Jar path: ${jarPath}".toString())
     try {
+        try_sql("DROP FUNCTION IF EXISTS mapii(Map<Int,Int>);")
+        try_sql("DROP FUNCTION IF EXISTS mapid(Map<Int,Double>);")
+        try_sql("DROP TABLE IF EXISTS db")
         sql """
              CREATE TABLE IF NOT EXISTS db(
                         `id` INT NULL COMMENT "",
