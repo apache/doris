@@ -359,6 +359,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
+    public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
+
     public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
 
     public static final String CBO_MEM_WEIGHT = "cbo_mem_weight";
@@ -1058,6 +1060,9 @@ public class SessionVariable implements Serializable, Writable {
                     + "real time. If you want strong consistent reads between sessions, set this variable to true. "
     })
     public boolean enableStrongConsistencyRead = false;
+
+    @VariableMgr.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
+    public int parallelSyncAnalyzeTaskNum = 2;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
