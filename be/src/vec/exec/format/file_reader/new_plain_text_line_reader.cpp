@@ -23,7 +23,6 @@
 #include <algorithm>
 #include <memory>
 #include <ostream>
-#include <string>
 
 #include "common/compiler_util.h"
 #include "exec/decompressor.h"
@@ -162,6 +161,7 @@ void CsvLineReaderContext::on_match_enclose(const uint8_t* start, size_t len) {
     } else {
         // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
         // will reset to left enclose idx to do parse in nornal state
+        _delimiter_match_len = 0;
         _state.forward_to(ReaderState::NORMAL);
         _idx = _left_enclose_pos;
         return;
@@ -186,6 +186,7 @@ void CsvLineReaderContext::on_post_match_enclose_column_sep(const uint8_t* start
     } else {
         // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
         // will reset to left enclose idx to do parse in nornal state
+        _delimiter_match_len = 0;
         _state.forward_to(ReaderState::NORMAL);
         _idx = _left_enclose_pos;
     }
@@ -201,6 +202,7 @@ void CsvLineReaderContext::on_post_match_enclose_line_delimiter(const uint8_t* s
     } else {
         // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
         // will reset to left enclose idx to do parse in nornal state
+        _delimiter_match_len = 0;
         _state.forward_to(ReaderState::NORMAL);
         _idx = _left_enclose_pos;
     }
@@ -220,6 +222,7 @@ void CsvLineReaderContext::on_found_line(const uint8_t* start, size_t len) {
     } else {
         // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
         // will reset to left enclose idx to do parse in nornal state
+        _delimiter_match_len = 0;
         _state.forward_to(ReaderState::NORMAL);
         _idx = _left_enclose_pos;
         return;
