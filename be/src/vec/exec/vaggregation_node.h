@@ -867,6 +867,7 @@ protected:
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_keys;
     RuntimeProfile::Counter* _hash_table_compute_timer;
+    RuntimeProfile::Counter* _hash_table_emplace_timer;
     RuntimeProfile::Counter* _hash_table_input_counter;
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _expr_timer;
@@ -912,7 +913,6 @@ private:
     RuntimeProfile::Counter* _serialize_data_timer;
     RuntimeProfile::Counter* _serialize_result_timer;
     RuntimeProfile::Counter* _deserialize_data_timer;
-    RuntimeProfile::Counter* _hash_table_lazy_emplace_timer;
     RuntimeProfile::Counter* _hash_table_iterate_timer;
     RuntimeProfile::Counter* _insert_keys_to_column_timer;
     RuntimeProfile::Counter* _streaming_agg_timer;
@@ -978,7 +978,7 @@ protected:
             SCOPED_TIMER(_serialize_key_timer);
             int64_t row_size = (int64_t)(agg_method.serialize_keys(key_columns, num_rows));
             COUNTER_SET(_max_row_size_counter, std::max(_max_row_size_counter->value(), row_size));
-            state.set_serialized_keys(agg_method.keys.data());
+            state.set_serialized_keys(agg_method.keys);
 
             _serialize_key_arena_memory_usage->add(agg_method.keys_memory_usage - old_keys_memory);
         }

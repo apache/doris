@@ -340,7 +340,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _serialize_result_timer = ADD_TIMER(runtime_profile(), "SerializeResultTime");
     _deserialize_data_timer = ADD_TIMER(runtime_profile(), "DeserializeDataTime");
     _hash_table_compute_timer = ADD_TIMER(runtime_profile(), "HashTableComputeTime");
-    _hash_table_lazy_emplace_timer = ADD_TIMER(runtime_profile(), "HashTableLazyEmplaceTime");
+    _hash_table_emplace_timer = ADD_TIMER(runtime_profile(), "HashTableEmplaceTime");
     _hash_table_iterate_timer = ADD_TIMER(runtime_profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(runtime_profile(), "InsertKeysToColumnTime");
     _streaming_agg_timer = ADD_TIMER(runtime_profile(), "StreamingAggTime");
@@ -922,25 +922,6 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
 
-                _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
-
-                if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < num_rows) {
-                        _hash_values.resize(num_rows);
-                    }
-                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
-                        }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, *_agg_arena_pool));
-                        }
-                    }
-                }
-
                 auto creator = [this](const auto& ctor, const auto& key) {
                     using KeyType = std::decay_t<decltype(key)>;
                     if constexpr (HashTableTraits<HashTableType>::is_string_hash_table &&
@@ -964,10 +945,16 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                     _create_agg_status(mapped);
                 };
 
-                /// For all rows.
-                COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-                SCOPED_TIMER(_hash_table_lazy_emplace_timer);
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
+                    auto keys = state.get_keys(num_rows);
+                    if (_hash_values.size() < num_rows) {
+                        _hash_values.resize(num_rows);
+                    }
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        _hash_values[i] = agg_method.data.hash(keys[i]);
+                    }
+
+                    SCOPED_TIMER(_hash_table_emplace_timer);
                     if constexpr (ColumnsHashing::IsSingleNullableColumnMethod<AggState>::value) {
                         for (size_t i = 0; i < num_rows; ++i) {
                             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
@@ -980,8 +967,8 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                                                                creator_for_null_key);
                         }
                     } else {
-                        state.lazy_emplace_keys(agg_method.data, _hash_values, num_rows,
-                                                *_agg_arena_pool, creator, places);
+                        state.lazy_emplace_keys(agg_method.data, keys, _hash_values, creator,
+                                                places);
                     }
                 } else {
                     for (size_t i = 0; i < num_rows; ++i) {
@@ -997,6 +984,8 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                         places[i] = mapped;
                     }
                 }
+
+                COUNTER_UPDATE(_hash_table_input_counter, num_rows);
             },
             _agg_data->_aggregated_method_variant);
 }

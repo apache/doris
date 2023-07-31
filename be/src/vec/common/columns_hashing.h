@@ -21,6 +21,7 @@
 #pragma once
 
 #include <memory>
+#include <span>
 
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
@@ -72,16 +73,10 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
     using Base::get_hash; /// (const Data & data, size_t row, Arena & pool) -> size_t
 
     /// Is used for default implementation in HashMethodBase.
-    FieldType get_key_holder(size_t row, Arena&) const {
-        return unaligned_load<FieldType>(vec + row * sizeof(FieldType));
-    }
+    FieldType get_key_holder(size_t row, Arena&) const { return ((FieldType*)(vec))[row]; }
 
-    std::vector<FieldType> get_keys(size_t rows_number) const {
-        std::vector<FieldType> keys(rows_number);
-        for (size_t row = 0; row < rows_number; row++) {
-            keys[row] = unaligned_load<FieldType>(vec + row * sizeof(FieldType));
-        }
-        return keys;
+    std::span<FieldType> get_keys(size_t rows_number) const {
+        return std::span<FieldType>((FieldType*)vec, rows_number);
     }
 };
 
@@ -134,29 +129,26 @@ struct HashMethodSerialized
 
     ColumnRawPtrs key_columns;
     size_t keys_size;
-    const StringRef* keys;
+    std::vector<StringRef>* keys = nullptr;
 
     HashMethodSerialized(const ColumnRawPtrs& key_columns_, const Sizes& /*key_sizes*/,
                          const HashMethodContextPtr&)
             : key_columns(key_columns_), keys_size(key_columns_.size()) {}
 
-    void set_serialized_keys(const StringRef* keys_) { keys = keys_; }
+    void set_serialized_keys(std::vector<StringRef>& keys_) { keys = &keys_; }
 
     ALWAYS_INLINE KeyHolderType get_key_holder(size_t row, Arena& pool) const {
         if constexpr (keys_pre_serialized) {
-            return KeyHolderType {keys[row], pool};
+            return KeyHolderType {(*keys)[row], pool};
         } else {
             return KeyHolderType {
                     serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
         }
     }
 
-    std::vector<StringRef> get_keys(size_t rows_number) const {
-        std::vector<StringRef> keys(rows_number);
-        for (size_t row = 0; row < rows_number; row++) {
-            keys[row] = this->keys[row];
-        }
-        return keys;
+    const std::vector<StringRef>& get_keys(size_t rows_number) const {
+        CHECK(keys_pre_serialized);
+        return *keys;
     }
 
 protected:
@@ -301,6 +293,36 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
         bool inserted = false;
         typename Data::LookupResult it;
         data.emplace(key_holder, it, hash_value, inserted);
+
+        if constexpr (has_mapped) {
+            auto& mapped = *lookup_result_get_mapped(it);
+            if (inserted) {
+                new (&mapped) Mapped();
+            }
+            return EmplaceResult(mapped, mapped, inserted);
+        } else {
+            return EmplaceResult(inserted);
+        }
+    }
+
+    template <typename Data, typename KeyHolder>
+    EmplaceResult emplace_with_key(Data& data, const KeyHolder& key, size_t hash_value,
+                                   size_t row) {
+        if (key_column->is_null_at(row)) {
+            bool has_null_key = data.has_null_key_data();
+            data.has_null_key_data() = true;
+
+            if constexpr (has_mapped) {
+                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(),
+                                     !has_null_key);
+            } else {
+                return EmplaceResult(!has_null_key);
+            }
+        }
+
+        bool inserted = false;
+        typename Data::LookupResult it;
+        data.emplace(key, it, hash_value, inserted);
 
         if constexpr (has_mapped) {
             auto& mapped = *lookup_result_get_mapped(it);

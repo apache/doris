@@ -79,7 +79,7 @@ struct HashTableBuild {
 
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
             hash_table_ctx.serialize_keys(_build_raw_ptrs, _rows);
-            key_getter.set_serialized_keys(hash_table_ctx.keys.data());
+            key_getter.set_serialized_keys(hash_table_ctx.keys);
         }
 
         for (size_t k = 0; k < _rows; ++k) {
@@ -129,7 +129,7 @@ struct HashTableProbe {
                 _probe_keys[i] =
                         serialize_keys_to_pool_contiguous(i, keys_size, _probe_raw_ptrs, *_arena);
             }
-            key_getter.set_serialized_keys(_probe_keys.data());
+            key_getter.set_serialized_keys(_probe_keys);
         }
 
         if constexpr (std::is_same_v<typename HashTableContext::Mapped, RowRefListWithFlags>) {

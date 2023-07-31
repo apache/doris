@@ -141,6 +141,12 @@ public:
         return emplaceImpl(key_holder, hash_value, data);
     }
 
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplace_with_key(Data& data, const KeyHolder& key,
+                                                 size_t hash_value, size_t row) {
+        return emplaceImpl(key, hash_value, data);
+    }
+
     template <typename Data, typename Func>
     ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(Data& data,
                                                                                   size_t row,
@@ -157,10 +163,9 @@ public:
         return lazy_emplace_impl(key_holder, hash_value, data, std::forward<Func>(f));
     }
 
-    template <typename Data, typename Func>
-    void lazy_emplace_keys(Data& data, const std::vector<size_t>& hash_values, size_t num_rows,
-                           Arena& pool, Func&& f, AggregateDataPtr* places) {
-        auto keys = static_cast<Derived&>(*this).get_keys(num_rows);
+    template <typename Data, typename Func, typename Keys>
+    void lazy_emplace_keys(Data& data, Keys keys, const std::vector<size_t>& hash_values, Func&& f,
+                           AggregateDataPtr* places) {
         data.lazy_emplace_keys(keys, hash_values, places, std::forward<Func>(f));
     }
 

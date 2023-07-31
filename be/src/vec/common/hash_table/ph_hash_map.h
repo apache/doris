@@ -155,8 +155,8 @@ public:
         }
     }
 
-    template <typename KeyHolder, typename Func>
-    void lazy_emplace_keys(std::vector<KeyHolder>& keys, const std::vector<size_t>& hash_values,
+    template <typename KeyHolders, typename Func>
+    void lazy_emplace_keys(const KeyHolders& keys, const std::vector<size_t>& hash_values,
                            doris::vectorized::AggregateDataPtr* places, Func&& f) {
         for (size_t i = 0; i < keys.size(); i++) {
             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < keys.size())) {
