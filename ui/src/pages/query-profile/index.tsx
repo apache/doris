@@ -25,6 +25,8 @@ import { useHistory } from 'react-router-dom';
 import { Result } from '@src/interfaces/http.interface';
 import { replaceToTxt } from 'Src/utils/utils';
 import { useTranslation } from 'react-i18next';
+import SyntaxHighlighter from 'react-syntax-highlighter';
+import { docco } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
 const { Text, Title } = Typography;
 export default function QueryProfile(params: any) {
@@ -42,7 +44,6 @@ export default function QueryProfile(params: any) {
             path: getLastPath(),
             signal: ac?.signal,
         };
-        console.log(param);
         queryProfile(param)
             .then((res: Result<any>) => {
                 if (res && res.msg === 'success') {
@@ -55,6 +56,16 @@ export default function QueryProfile(params: any) {
                         setProfile('');
                         res.data.column_names.push('Action');
                         res.data.rows = res.data.rows.map((row) => {
+                            row['Sql Statement'] = (
+                                <div style={{ maxWidth: 700 }}>
+                                    <SyntaxHighlighter
+                                        language="sql"
+                                        style={docco}
+                                    >
+                                        {row['Sql Statement']}
+                                    </SyntaxHighlighter>
+                                </div>
+                            );
                             row.Action = (
                                 <Button
                                     size="small"
