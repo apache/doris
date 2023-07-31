@@ -115,7 +115,7 @@ public:
         return _enable_memory_overcommit;
     };
 
-    bool memory_limit() const {
+    int64_t memory_limit() const {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _memory_limit;
     };
