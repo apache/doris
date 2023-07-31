@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_array_functions_by_literal") {
+    // array_nested function
+    qt_sql "select a from (select array(1, 1, 2, 2, 2, 2) as a) t"
+
+
     // array_contains function
     qt_sql "select array_contains([1,2,3], 1)"
     qt_sql "select array_contains([1,2,3], 4)"
