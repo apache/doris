@@ -50,6 +50,7 @@ private:
     void _emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
                                               ColumnRawPtrs& key_columns, const size_t num_rows);
 
+    char* dummy_mapped_data = nullptr;
     IColumn::Selector _distinct_row;
 };
 } // namespace vectorized

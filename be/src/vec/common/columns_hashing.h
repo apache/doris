@@ -74,6 +74,7 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
 
     /// Is used for default implementation in HashMethodBase.
     FieldType get_key_holder(size_t row, Arena&) const { return ((FieldType*)(vec))[row]; }
+    FieldType pack_key_holder(FieldType key, Arena&) const { return key; }
 
     std::span<FieldType> get_keys(size_t rows_number) const {
         return std::span<FieldType>((FieldType*)vec, rows_number);
@@ -146,6 +147,10 @@ struct HashMethodSerialized
         }
     }
 
+    KeyHolderType pack_key_holder(StringRef key, Arena& pool) const {
+        return KeyHolderType {key, pool};
+    }
+
     std::span<StringRef> get_keys(size_t rows_number) const {
         return std::span<StringRef>(keys, rows_number);
     }
@@ -211,6 +216,8 @@ struct HashMethodKeysFixed
         }
     }
 
+    Key pack_key_holder(Key key, Arena& pool) const { return key; }
+
     std::vector<Key> get_keys(size_t rows_number) const {
         return pack_fixeds<Key>(rows_number, Base::get_actual_columns(), key_sizes,
                                 Base::get_nullmap_columns());
@@ -275,38 +282,11 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     template <typename Data>
     ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t hash_value, size_t row,
                                             Arena& pool) {
-        if (key_column->is_null_at(row)) {
-            bool has_null_key = data.has_null_key_data();
-            data.has_null_key_data() = true;
-
-            if constexpr (has_mapped) {
-                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(),
-                                     !has_null_key);
-            } else {
-                return EmplaceResult(!has_null_key);
-            }
-        }
-
-        auto key_holder = Base::get_key_holder(row, pool);
-
-        bool inserted = false;
-        typename Data::LookupResult it;
-        data.emplace(key_holder, it, hash_value, inserted);
-
-        if constexpr (has_mapped) {
-            auto& mapped = *lookup_result_get_mapped(it);
-            if (inserted) {
-                new (&mapped) Mapped();
-            }
-            return EmplaceResult(mapped, mapped, inserted);
-        } else {
-            return EmplaceResult(inserted);
-        }
+        return emplace_with_key(data, Base::get_key_holder(row, pool), hash_value, row, pool);
     }
 
     template <typename Data, typename KeyHolder>
-    EmplaceResult emplace_with_key(Data& data, const KeyHolder& key, size_t hash_value,
-                                   size_t row) {
+    EmplaceResult emplace_with_key(Data& data, KeyHolder&& key, size_t hash_value, size_t row) {
         if (key_column->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;

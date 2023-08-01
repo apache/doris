@@ -142,8 +142,7 @@ public:
     }
 
     template <typename Data, typename KeyHolder>
-    ALWAYS_INLINE EmplaceResult emplace_with_key(Data& data, const KeyHolder& key,
-                                                 size_t hash_value, size_t row) {
+    EmplaceResult emplace_with_key(Data& data, KeyHolder&& key, size_t hash_value, size_t row) {
         return emplaceImpl(key, hash_value, data);
     }
 

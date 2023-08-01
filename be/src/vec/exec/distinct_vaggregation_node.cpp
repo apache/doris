@@ -29,7 +29,9 @@ namespace doris::vectorized {
 
 DistinctAggregationNode::DistinctAggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                                  const DescriptorTbl& descs)
-        : AggregationNode(pool, tnode, descs) {}
+        : AggregationNode(pool, tnode, descs) {
+    dummy_mapped_data = pool->add(new char('A'));
+}
 
 Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
         doris::vectorized::Block* in_block, doris::vectorized::Block* out_block) {
@@ -104,16 +106,19 @@ void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Sele
                             agg_method.data.prefetch_by_hash(
                                     _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                         }
-
-                        if (state.emplace_with_key(agg_method.data, keys[i], _hash_values[i], i)
-                                    .is_inserted()) {
+                        auto result = state.emplace_with_key(
+                                agg_method.data, state.pack_key_holder(keys[i], *_agg_arena_pool),
+                                _hash_values[i], i);
+                        if (result.is_inserted()) {
                             distinct_row.push_back(i);
                         }
                     }
                 } else {
                     SCOPED_TIMER(_hash_table_emplace_timer);
                     for (size_t i = 0; i < num_rows; ++i) {
-                        if (state.emplace_key(agg_method.data, i, *_agg_arena_pool).is_inserted()) {
+                        auto result = state.emplace_key(agg_method.data, i, *_agg_arena_pool);
+                        if (result.is_inserted()) {
+                            result.set_mapped(dummy_mapped_data);
                             distinct_row.push_back(i);
                         }
                     }
