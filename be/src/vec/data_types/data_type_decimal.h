@@ -505,7 +505,11 @@ void convert_decimal_cols(
         MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
         for (size_t i = 0; i < sz; i++) {
-            vec_to[i] = (vec_from[i] + multiplier / 2) / multiplier;
+            if (vec_from[i] >= 0) {
+                vec_to[i] = (vec_from[i] + multiplier / 2) / multiplier;
+            } else {
+                vec_to[i] = (vec_from[i] - multiplier / 2) / multiplier;
+            }
         }
     }
 
