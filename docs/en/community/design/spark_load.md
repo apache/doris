@@ -88,7 +88,7 @@ The Spark Load statement is similar to that of Broker Load. This is an example:
         );
 ```
 
-`spark.cluster_name` is the name of the Spark cluster to be loaded. It can be set via SET PROPERTY and users may refer to the configurations of the original Hadoop cluster. The Spark cluster configurations in the PROPERTIES will override those in `spark.cluster_name`.
+`spark.cluster_name` is the name of the Spark cluster to be loaded. It can be set via SET PROPERTY and users may refer to the configurations of the original Hadoop cluster. The Spark cluster configurations in the PROPERTIES will overwrite those in `spark.cluster_name`.
 
 Explanation of the properties:
 
