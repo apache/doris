@@ -454,14 +454,10 @@ DEFINE_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
 
-// be brpc interface is classified into two categories: light and heavy
-// each category has diffrent thread number
-// threads to handle heavy api interface, such as transmit_data/transmit_block etc
-DEFINE_Int32(brpc_heavy_work_pool_threads, "128");
-// threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
-DEFINE_Int32(brpc_light_work_pool_threads, "128");
-DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
-DEFINE_Int32(brpc_light_work_pool_max_queue_size, "10240");
+DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
+DEFINE_Int32(brpc_light_work_pool_threads, "-1");
+DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
+DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "10240");
@@ -478,6 +474,7 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
+DEFINE_mBool(exchange_sink_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -648,8 +645,7 @@ DEFINE_String(default_rowset_type, "BETA");
 
 // Maximum size of a single message body in all protocols
 DEFINE_Int64(brpc_max_body_size, "3147483648");
-// Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
-DEFINE_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
+DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -1050,6 +1046,9 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
+
+// enable window_funnel_function with different modes
+DEFINE_mBool(enable_window_funnel_function_v2, "false");
 
 #ifdef BE_TEST
 // test s3

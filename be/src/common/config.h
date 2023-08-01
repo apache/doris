@@ -498,6 +498,8 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
+// Default, if less than or equal 32 core, the following are 128, 128, 10240, 10240 in turn.
+//          if greater than 32 core, the following are core num * 4, core num * 4, core num * 320, core num * 320 in turn
 DECLARE_Int32(brpc_heavy_work_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
@@ -519,6 +521,7 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
+DECLARE_mBool(exchange_sink_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -690,6 +693,8 @@ DECLARE_String(default_rowset_type);
 // Maximum size of a single message body in all protocols
 DECLARE_Int64(brpc_max_body_size);
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
+// Default, if the physical memory is less than or equal to 64G, the value is 1G
+//          if the physical memory is greater than 64G, the value is physical memory * mem_limit(0.8) / 1024 * 20
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
@@ -1079,6 +1084,9 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
+
+// enable window_funnel_function with different modes
+DECLARE_mBool(enable_window_funnel_function_v2);
 
 #ifdef BE_TEST
 // test s3

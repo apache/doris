@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.sqltest;
 
-import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -50,12 +50,8 @@ public class JoinTest extends SqlTestBase {
                 .getBestPlanTree();
         // generate colocate join plan without physicalDistribute
         System.out.println(plan.treeString());
-        Assertions.assertFalse(plan.anyMatch(p -> {
-            if (p instanceof PhysicalDistribute) {
-                return !(((PhysicalDistribute<?>) p).getDistributionSpec() instanceof DistributionSpecGather);
-            }
-            return false;
-        }));
+        Assertions.assertFalse(plan.anyMatch(p -> p instanceof PhysicalDistribute
+                && ((PhysicalDistribute) p).getDistributionSpec() instanceof DistributionSpecHash));
         sql = "select * from T1 join T0 on T1.score = T0.score and T1.id = T0.id;";
         plan = PlanChecker.from(connectContext)
                 .analyze(sql)
@@ -63,12 +59,8 @@ public class JoinTest extends SqlTestBase {
                 .optimize()
                 .getBestPlanTree();
         // generate colocate join plan without physicalDistribute
-        Assertions.assertFalse(plan.anyMatch(p -> {
-            if (p instanceof PhysicalDistribute) {
-                return !(((PhysicalDistribute<?>) p).getDistributionSpec() instanceof DistributionSpecGather);
-            }
-            return false;
-        }));
+        Assertions.assertFalse(plan.anyMatch(p -> p instanceof PhysicalDistribute
+                && ((PhysicalDistribute) p).getDistributionSpec() instanceof DistributionSpecHash));
     }
 
     @Test
@@ -100,7 +92,7 @@ public class JoinTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .optimize()
-                .getBestPlanTree();
+                .getBestPlanTree(PhysicalProperties.ANY);
         Assertions.assertEquals(
                 ShuffleType.NATURAL,
                 ((DistributionSpecHash) ((PhysicalPlan) (plan.child(0).child(0)))

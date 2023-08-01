@@ -177,4 +177,10 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         return new PhysicalRepeat<>(groupingSets, newOutput, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, child());
     }
+
+    @Override
+    public PhysicalRepeat<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupExpression,
+                null, physicalProperties, statistics, child());
+    }
 }

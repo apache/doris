@@ -507,6 +507,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     // init _schema
     _schema->init_from_pb(tablet_meta_pb.schema());
 
+    if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
+        _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
+    }
+
     // init _rs_metas
     for (auto& it : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
@@ -514,10 +518,15 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _rs_metas.push_back(std::move(rs_meta));
     }
 
-    for (auto& it : tablet_meta_pb.stale_rs_metas()) {
-        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
-        rs_meta->init_from_pb(it);
-        _stale_rs_metas.push_back(std::move(rs_meta));
+    // For mow table, delete bitmap of stale rowsets has not been persisted.
+    // When be restart, query should not read the stale rowset, otherwise duplicate keys
+    // will be read out. Therefore, we don't add them to _stale_rs_meta for mow table.
+    if (!_enable_unique_key_merge_on_write) {
+        for (auto& it : tablet_meta_pb.stale_rs_metas()) {
+            RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+            rs_meta->init_from_pb(it);
+            _stale_rs_metas.push_back(std::move(rs_meta));
+        }
     }
 
     if (tablet_meta_pb.has_in_restore_mode()) {
@@ -531,10 +540,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _storage_policy_id = tablet_meta_pb.storage_policy_id();
     if (tablet_meta_pb.has_cooldown_meta_id()) {
         _cooldown_meta_id = tablet_meta_pb.cooldown_meta_id();
-    }
-
-    if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
-        _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
     }
 
     if (tablet_meta_pb.has_delete_bitmap()) {

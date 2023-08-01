@@ -115,7 +115,7 @@ public class Memo {
     public void removePhysicalExpression() {
         groupExpressions.entrySet().removeIf(entry -> entry.getValue().getPlan() instanceof PhysicalPlan);
 
-        Iterator<Entry<GroupId, Group>> iterator = groups.entrySet().iterator();
+        Iterator<Map.Entry<GroupId, Group>> iterator = groups.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<GroupId, Group> entry = iterator.next();
             Group group = entry.getValue();

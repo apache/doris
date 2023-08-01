@@ -53,7 +53,9 @@ under the License.
 
 <version since="dev"></version> 创建S3 RESOURCE的时候，会进行S3远端的链接校验，以保证RESOURCE创建的正确。
 
-此外，需要新增fe配置：`enable_storage_policy=true`
+此外，需要新增fe配置：`enable_storage_policy=true`  
+
+注意：这个属性不会被CCR同步，如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，这个属性将会在这个表中被擦除。
 
 例如：
 
@@ -106,6 +108,7 @@ ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="te
 - 单表或单partition只能关联一个storage policy，关联后不能drop掉storage policy，需要先解除二者的关联。
 - storage policy关联的对象信息不支持修改数据存储path的信息，比如bucket、endpoint、root_path等信息
 - storage policy支持创建和修改和支持删除，删除前需要先保证没有表引用此storage policy。
+- Unique 模型在开启 Merge-On-Write 特性时，不支持设置 storage policy。
 
 ## 冷数据占用对象大小
 方式一：
