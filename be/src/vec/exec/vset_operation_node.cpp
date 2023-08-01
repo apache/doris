@@ -327,7 +327,8 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
 
     bool use_fixed_key = true;
     bool has_null = false;
-    int key_byte_size = 0;
+    size_t key_byte_size = 0;
+    size_t bitmap_size = get_bitmap_size(_child_expr_lists[0].size());
 
     _build_key_sz.resize(_child_expr_lists[0].size());
     _probe_key_sz.resize(_child_expr_lists[0].size());
@@ -347,16 +348,15 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
         key_byte_size += _probe_key_sz[i];
     }
 
-    if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size > sizeof(UInt256)) {
+    if (bitmap_size + key_byte_size > sizeof(UInt256)) {
         use_fixed_key = false;
     }
     if (use_fixed_key) {
         if (has_null) {
-            if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
+            if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
                 _hash_table_variants
                         ->emplace<I64FixedKeyHashTableContext<true, RowRefListWithFlags>>();
-            } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                       sizeof(UInt128)) {
+            } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
                 _hash_table_variants
                         ->emplace<I128FixedKeyHashTableContext<true, RowRefListWithFlags>>();
             } else {
