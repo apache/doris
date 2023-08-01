@@ -142,6 +142,13 @@ message DeletePredicatePB {
     required int32 version = 1; // This field is useless, but could not removed, not depend on it
     repeated string sub_predicates = 2;
     repeated InPredicatePB in_predicates = 3;
+    repeated DeleteSubPredicatePB sub_predicates_v2 = 4;
+}
+
+message DeleteSubPredicatePB {
+    optional string column_name = 1;
+    optional string op = 2;
+    optional string cond_value = 3;
 }
 
 message InPredicatePB {

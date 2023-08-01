@@ -17,6 +17,7 @@
 
 #include "olap/delete_handler.h"
 
+#include <fmt/core.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
@@ -41,11 +42,6 @@ using apache::thrift::ThriftDebugString;
 using std::vector;
 using std::string;
 using std::stringstream;
-
-using std::regex;
-using std::regex_error;
-using std::regex_match;
-using std::smatch;
 
 namespace doris {
 using namespace ErrorCode;
@@ -81,9 +77,13 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
             LOG(INFO) << "store one sub-delete condition. condition name=" << in_pred->column_name()
                       << "condition size=" << in_pred->values().size();
         } else {
-            string condition_str = construct_sub_predicates(condition);
-            del_pred->add_sub_predicates(condition_str);
-            LOG(INFO) << "store one sub-delete condition. condition=" << condition_str;
+            DeleteSubPredicatePB* sub_predicate = del_pred->add_sub_predicates_v2();
+            sub_predicate->set_column_name(condition.column_name);
+            sub_predicate->set_op(_trans_op(condition.condition_op));
+            sub_predicate->set_cond_value(condition.condition_values[0]);
+            LOG(INFO) << "store one sub-delete condition. condition="
+                      << fmt::format(" {} {} {}", condition.column_name, condition.condition_op,
+                                     condition.condition_values[0]);
         }
     }
     del_pred->set_version(-1);
@@ -91,25 +91,22 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     return Status::OK();
 }
 
-std::string DeleteHandler::construct_sub_predicates(const TCondition& condition) {
-    string op = condition.condition_op;
+std::string DeleteHandler::_trans_op(const std::string& opt) {
+    std::string op = string(opt);
     if (op == "<") {
         op += "<";
     } else if (op == ">") {
         op += ">";
     }
     string condition_str;
-    if ("IS" == op) {
-        condition_str = condition.column_name + " " + op + " " + condition.condition_values[0];
-    } else {
+    if ("IS" != op) {
         if (op == "*=") {
             op = "=";
         } else if (op == "!*=") {
             op = "!=";
         }
-        condition_str = condition.column_name + op + "'" + condition.condition_values[0] + "'";
     }
-    return condition_str;
+    return op;
 }
 
 bool DeleteHandler::is_condition_value_valid(const TabletColumn& column,
@@ -203,43 +200,13 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     return Status::OK();
 }
 
-bool DeleteHandler::_parse_condition(const std::string& condition_str, TCondition* condition) {
-    bool matched = true;
-    smatch what;
-
-    try {
-        // Condition string format, the format is (column_name)(op)(value)
-        // eg:  condition_str="c1 = 1597751948193618247  and length(source)<1;\n;\n"
-        //  group1:  (\w+) matches "c1"
-        //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matches  "="
-        //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
-        const char* const CONDITION_STR_PATTERN =
-                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
-        regex ex(CONDITION_STR_PATTERN);
-        if (regex_match(condition_str, what, ex)) {
-            if (condition_str.size() != what[0].str().size()) {
-                matched = false;
-            }
-        } else {
-            matched = false;
-        }
-    } catch (regex_error& e) {
-        VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what()
-                    << "]";
-        matched = false;
-    }
-
-    if (!matched) {
+bool DeleteHandler::_parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition) {
+    if (!sub_cond.has_column_name() || !sub_cond.has_op() || !sub_cond.has_cond_value()) {
         return false;
     }
-    condition->column_name = what[1].str();
-    condition->condition_op = what[2].str();
-    if (what[4].matched) { // match string with single quotes, eg. a = 'b'
-        condition->condition_values.push_back(what[4].str());
-    } else { // match string without quote, compat with old conditions, eg. a = b
-        condition->condition_values.push_back(what[3].str());
-    }
-
+    condition->column_name = sub_cond.column_name();
+    condition->condition_op = sub_cond.op();
+    condition->condition_values.push_back(sub_cond.cond_value());
     return true;
 }
 
@@ -259,11 +226,12 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
-        for (const auto& sub_predicate : delete_condition.sub_predicates()) {
+        for (const auto& sub_predicate : delete_condition.sub_predicates_v2()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
                 return Status::Error<DELETE_INVALID_PARAMETERS>(
-                        "fail to parse condition. condition={}", sub_predicate);
+                        "fail to parse condition. condition={} {} {}", sub_predicate.column_name(),
+                        sub_predicate.op(), sub_predicate.cond_value());
             }
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());

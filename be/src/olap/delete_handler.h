@@ -62,9 +62,6 @@ public:
                                             const std::vector<TCondition>& conditions,
                                             DeletePredicatePB* del_pred);
 
-    // construct sub condition from TCondition
-    static std::string construct_sub_predicates(const TCondition& condition);
-
 private:
     // Validate the condition on the schema.
     static Status check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
@@ -95,7 +92,7 @@ public:
     Status init(TabletSchemaSPtr tablet_schema,
                 const std::vector<RowsetMetaSharedPtr>& delete_conditions, int64_t version);
 
-    bool empty() const { return _del_conds.empty(); }
+    [[nodiscard]] bool empty() const { return _del_conds.empty(); }
 
     // Release an instance of this class.
     void finalize();
@@ -106,8 +103,10 @@ public:
                     del_predicates_for_zone_map) const;
 
 private:
-    // Use regular expression to extract 'column_name', 'op' and 'operands'
-    bool _parse_condition(const std::string& condition_str, TCondition* condition);
+    // extract 'column_name', 'op' and 'operands' to condition
+    bool _parse_condition(const DeleteSubPredicatePB& condition_str, TCondition* condition);
+
+    [[nodiscard]] static std::string _trans_op(const string& op);
 
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship
