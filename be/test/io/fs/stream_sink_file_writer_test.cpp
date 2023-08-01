@@ -80,8 +80,6 @@ class StreamSinkFileWriterTest : public testing::Test {
             response->release_status();
         }
 
-        brpc::StreamId get_stream() { return _sd; }
-
     private:
         MockStreamSinkFileRecevier _receiver;
         brpc::StreamId _sd;

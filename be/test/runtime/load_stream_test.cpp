@@ -391,8 +391,6 @@ public:
             response->release_status();
         }
 
-        brpc::StreamId get_stream() const { return _sd; }
-
     private:
         Handler _receiver;
         brpc::StreamId _sd;
