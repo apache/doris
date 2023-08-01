@@ -85,6 +85,18 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         this.trans();
     }
 
+    /**
+     * for Nereids
+     */
+    public MultiPartitionDesc(PartitionKeyDesc partitionKeyDesc,
+            Map<String, String> properties, Void unused) throws AnalysisException {
+        this.partitionKeyDesc = partitionKeyDesc;
+        this.properties = properties;
+        this.intervalTrans();
+        this.trans();
+        getSinglePartitionDescList().forEach(p -> p.setAnalyzed(true));
+    }
+
     public List<SinglePartitionDesc> getSinglePartitionDescList() throws AnalysisException {
         if (singlePartitionDescList.size() == 0) {
             if (this.timeUnitType == null) {

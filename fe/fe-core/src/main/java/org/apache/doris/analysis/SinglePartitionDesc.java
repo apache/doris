@@ -186,6 +186,10 @@ public class SinglePartitionDesc implements AllPartitionDesc {
         this.isAnalyzed = true;
     }
 
+    public void setAnalyzed(boolean analyzed) {
+        isAnalyzed = analyzed;
+    }
+
     public boolean isAnalyzed() {
         return this.isAnalyzed;
     }

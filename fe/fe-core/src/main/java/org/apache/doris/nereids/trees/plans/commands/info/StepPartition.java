@@ -59,10 +59,10 @@ public class StepPartition extends PartitionDefinition {
         try {
             if (unitString == null) {
                 return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues,
-                        ((long) ((Literal) unit).getDouble())), Maps.newHashMap());
+                        ((long) ((Literal) unit).getDouble())), Maps.newHashMap(), null);
             }
             return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues,
-                    ((long) ((Literal) unit).getDouble()), unitString), Maps.newHashMap());
+                    ((long) ((Literal) unit).getDouble()), unitString), Maps.newHashMap(), null);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
