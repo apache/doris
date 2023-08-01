@@ -689,9 +689,6 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                 // overflowing the underlying storage while handling a string like
                 // 10000000000e-10 into a DECIMAL(1, 0). Adjustments for ignored digits and
                 // an exponent will be made later.
-                // keep a rounding precision to round the decimal value
-                value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
-                DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
                 ++precision;
                 scale += found_dot;
                 // decimalv3 should make sure the type_scale and type_precision
@@ -704,6 +701,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                                                   type_precision);
                     return value;
                 }
+                // keep a rounding precision to round the decimal value
+                value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
+                DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
             } else if (c == '.' && LIKELY(!found_dot)) {
                 found_dot = 1;
             } else if ((c == 'e' || c == 'E') && LIKELY(!found_exponent)) {
