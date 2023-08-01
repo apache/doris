@@ -16,6 +16,9 @@
 // under the License.
 
 suite("nereids_test_create_blocked") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+
     try {
         sql """ 
             CREATE TABLE test_create_blocked (c1 all) DISTRIBUTED BY HASH(c1) PROPERTIES('replication_num'='1'); 

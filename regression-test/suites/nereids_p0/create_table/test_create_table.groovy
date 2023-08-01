@@ -19,6 +19,9 @@
 // case. For example: 'year' and 'Year' datatype should also be valid in definition
 
 suite("nereids_create_time_range_table") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    
     def testTable = "test_time_range_table"
 
     sql "DROP TABLE IF EXISTS ${testTable}"

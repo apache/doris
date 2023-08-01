@@ -16,6 +16,9 @@
 // under the License.
 
 suite("nereids_test_ctas_decimalv3") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    
     def table1 = "test_uniq_tab_decimalv3"
     def table2 = "test_uniq_tab_decimalv3_2"
     try {

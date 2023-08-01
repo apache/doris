@@ -17,6 +17,8 @@
 
 
 suite("nereids_test_create_table_strlen") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
     def table = "test_ct_strlen"
     try {

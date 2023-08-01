@@ -16,6 +16,9 @@
 // under the License.
 
 suite("nereids_test_fnf") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    
     try {
         sql """
             CREATE TABLE IF NOT EXISTS `test_fnf` (

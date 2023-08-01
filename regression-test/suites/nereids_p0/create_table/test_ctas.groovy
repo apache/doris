@@ -16,6 +16,9 @@
 // under the License.
 
 suite("nereids_test_ctas") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
+    
     def dbname = "test_ctas";
     sql """drop database if exists ${dbname}"""
     sql """create database ${dbname}"""
