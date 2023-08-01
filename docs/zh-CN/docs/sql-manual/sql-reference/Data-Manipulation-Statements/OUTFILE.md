@@ -311,7 +311,7 @@ INTO OUTFILE "file_path"
         "broker.name" = "broker_name",
         "broker.fs.cosn.userinfo.secretId" = "xxx",
         "broker.fs.cosn.userinfo.secretKey" = "xxxx",
-        "broker.fs.cosn.bucket.endpoint_suffix" = "https://cos.xxxxxx.myqcloud.com/",
+        "broker.fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxx.myqcloud.com",
         "column_separator" = ",",
         "line_delimiter" = "\n",
         "max_file_size" = "1024MB",
