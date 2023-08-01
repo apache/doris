@@ -50,9 +50,11 @@ public class StepPartition extends PartitionDefinition {
      * translate to catalog objects.
      */
     public MultiPartitionDesc translateToCatalogStyle() {
-        List<PartitionValue> fromValues = fromExpression.stream().map(e -> new PartitionValue(e.toSql()))
+        List<PartitionValue> fromValues = fromExpression.stream()
+                .map(e -> new PartitionValue(((Literal) e).getStringValue()))
                 .collect(Collectors.toList());
-        List<PartitionValue> toValues = toExpression.stream().map(e -> new PartitionValue(e.toSql()))
+        List<PartitionValue> toValues = toExpression.stream()
+                .map(e -> new PartitionValue(((Literal) e).getStringValue()))
                 .collect(Collectors.toList());
         try {
             if (unitString == null) {
