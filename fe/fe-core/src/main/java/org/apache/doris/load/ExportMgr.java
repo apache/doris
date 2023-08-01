@@ -175,6 +175,7 @@ public class ExportMgr extends MasterDaemon {
             }
             job.getJobExecutorList().forEach(executor -> {
                 Long taskId = ExportJob.register.registerJob(executor);
+                executor.setTaskId(taskId);
                 job.getExecutorToTaskId().put(executor, taskId);
                 // TODO(ftw): 这里可以直接查询状态了吗
                 job.getTaskIdToJobStatus().put(taskId, ExportJob.register.queryJobStatus(taskId));

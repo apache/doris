@@ -88,7 +88,7 @@ public class ExportJob implements Writable {
 
     public static final MemoryTaskRegister register = new MemoryTaskRegister() {
         @Override
-        public Long registerJob(MemoryJobExecutor executor) {
+        public Long registerJob(MemoryTaskExecutor executor) {
             return 1234L;
         }
 
@@ -194,11 +194,13 @@ public class ExportJob implements Writable {
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
-    private List<ExportJobExecutor> jobExecutorList;
+    private List<ExportTaskExecutor> jobExecutorList;
 
-    private Map<ExportJobExecutor, Long> executorToTaskId = Maps.newHashMap();
+    private Map<ExportTaskExecutor, Long> executorToTaskId = Maps.newHashMap();
 
     private ConcurrentHashMap<Long, JobStatus> taskIdToJobStatus = new ConcurrentHashMap<>();
+
+    private List<List<OutfileInfo>> allOutfileInfo = Lists.newArrayList();
 
     public ExportJob() {
         this.id = -1;
@@ -237,7 +239,7 @@ public class ExportJob implements Writable {
         for (int i = 0; i < selectStmtList.size(); i++) {
             List<SelectStmt> selectStmts = Lists.newArrayList();
             selectStmts.add(selectStmtList.get(i));
-            ExportJobExecutor executor = new ExportJobExecutor(selectStmts, this);
+            ExportTaskExecutor executor = new ExportTaskExecutor(selectStmts, this);
             jobExecutorList.add(executor);
         }
     }
@@ -421,6 +423,23 @@ public class ExportJob implements Writable {
         }
     }
 
+    public synchronized void cancelExportTask(Long taskId, ExportFailMsg.CancelType type, String msg) {
+        taskIdToJobStatus.put(taskId, JobStatus.FAILED);
+
+        // cancel all task
+        taskIdToJobStatus.keySet().forEach(id -> {
+            register.cancelJob(id);
+        });
+
+        cancelExportJob(type, msg);
+    }
+
+    private void cancelExportJob(ExportFailMsg.CancelType type, String msg) {
+        state = ExportJobState.CANCELLED;
+        failMsg = new ExportFailMsg(type, msg);
+        Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.CANCELLED);
+    }
+
     public synchronized boolean finish(List<OutfileInfo> outfileInfoList) {
         outfileInfo = GsonUtils.GSON.toJson(outfileInfoList);
         if (updateState(ExportJobState.FINISHED)) {
@@ -433,8 +452,9 @@ public class ExportJob implements Writable {
         state = ExportJobState.EXPORTING;
     }
 
-    public synchronized void finishExportTask(Long taskId) {
+    public synchronized void finishExportTask(Long taskId, List<OutfileInfo> outfileInfoList) {
         taskIdToJobStatus.put(taskId, JobStatus.FINISHED);
+        allOutfileInfo.add(outfileInfoList);
 
         // if all task finished
         Optional<JobStatus> notFinishTask =  taskIdToJobStatus.values().stream()
@@ -450,21 +470,8 @@ public class ExportJob implements Writable {
     private void finishExportJob() {
         progress = 100;
         state = ExportJobState.FINISHED;
+        outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.FINISHED);
-    }
-
-    public synchronized void cancelExportTask(Long taskId) {
-        taskIdToJobStatus.put(taskId, JobStatus.FAILED);
-
-        // cancel all task
-        taskIdToJobStatus.keySet().forEach(id -> {
-            register.cancelJob(id);
-        });
-        cancelExportJob();
-    }
-
-    private void cancelExportJob() {
-        state = ExportJobState.CANCELLED;
     }
 
     public synchronized boolean updateState(ExportJobState newState) {
