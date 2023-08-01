@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -27,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -37,6 +40,7 @@ public class StepPartition extends PartitionDefinition {
     private final List<Expression> toExpression;
     private final Expression unit;
     private final String unitString;
+    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public StepPartition(List<Expression> fromExpression, List<Expression> toExpression, Expression unit,
             String unitString) {
@@ -44,6 +48,15 @@ public class StepPartition extends PartitionDefinition {
         this.toExpression = toExpression;
         this.unit = unit;
         this.unitString = unitString;
+    }
+
+    @Override
+    public void validate(Map<String, String> properties) {
+        try {
+            replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 
     /**
@@ -59,10 +72,10 @@ public class StepPartition extends PartitionDefinition {
         try {
             if (unitString == null) {
                 return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues,
-                        ((long) ((Literal) unit).getDouble())), Maps.newHashMap(), null);
+                        ((long) ((Literal) unit).getDouble())), replicaAllocation, Maps.newHashMap());
             }
             return new MultiPartitionDesc(PartitionKeyDesc.createMultiFixed(fromValues, toValues,
-                    ((long) ((Literal) unit).getDouble()), unitString), Maps.newHashMap(), null);
+                    ((long) ((Literal) unit).getDouble()), unitString), replicaAllocation, Maps.newHashMap());
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }

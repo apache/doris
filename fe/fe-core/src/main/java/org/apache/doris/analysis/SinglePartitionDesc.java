@@ -102,6 +102,10 @@ public class SinglePartitionDesc implements AllPartitionDesc {
         return replicaAlloc;
     }
 
+    public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
+        this.replicaAlloc = replicaAlloc;
+    }
+
     public boolean isInMemory() {
         return isInMemory;
     }
@@ -186,12 +190,12 @@ public class SinglePartitionDesc implements AllPartitionDesc {
         this.isAnalyzed = true;
     }
 
-    public void setAnalyzed(boolean analyzed) {
-        isAnalyzed = analyzed;
-    }
-
     public boolean isAnalyzed() {
         return this.isAnalyzed;
+    }
+
+    public void setAnalyzed(boolean analyzed) {
+        isAnalyzed = analyzed;
     }
 
     public String getStoragePolicy() {

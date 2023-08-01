@@ -20,11 +20,15 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Maps;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -34,11 +38,21 @@ public class FixedRangePartition extends PartitionDefinition {
     private final String partitionName;
     private final List<Expression> lowerBounds;
     private final List<Expression> upperBounds;
+    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public FixedRangePartition(String partitionName, List<Expression> lowerBounds, List<Expression> upperBounds) {
         this.partitionName = partitionName;
         this.lowerBounds = lowerBounds;
         this.upperBounds = upperBounds;
+    }
+
+    @Override
+    public void validate(Map<String, String> properties) {
+        try {
+            replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
     }
 
     /**
@@ -50,6 +64,6 @@ public class FixedRangePartition extends PartitionDefinition {
         List<PartitionValue> upperValues = upperBounds.stream().map(e -> new PartitionValue(e.toSql()))
                 .collect(Collectors.toList());
         return new SinglePartitionDesc(false, partitionName,
-                PartitionKeyDesc.createFixed(lowerValues, upperValues), Maps.newHashMap());
+                PartitionKeyDesc.createFixed(lowerValues, upperValues), replicaAllocation, Maps.newHashMap());
     }
 }
