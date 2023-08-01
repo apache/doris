@@ -1559,49 +1559,49 @@ public abstract class BaseExecutor {
             switch (type) {
                 case BOOLEAN: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayBooleanResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayBooleanResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case TINYINT: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayTinyIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayTinyIntResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case SMALLINT: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArraySmallIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArraySmallIntResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case INT: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayIntResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case BIGINT: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayBigIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayBigIntResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case LARGEINT: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayLargeIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayLargeIntResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case FLOAT: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayFloatResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayFloatResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DOUBLE: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayDoubleResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayDoubleResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
@@ -1609,58 +1609,58 @@ public abstract class BaseExecutor {
                 case VARCHAR:
                 case STRING: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayStringResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayStringResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr);
                     break;
                 }
                 case DATE: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayDateResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayDateResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DATETIME: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayDateTimeResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayDateTimeResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DATEV2: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayDateV2Result(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayDateV2Result(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DATETIMEV2: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayDateTimeV2Result(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayDateTimeV2Result(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DECIMALV2: {
                     hasPutElementNum = UdfConvert
-                            .copyBatchArrayDecimalResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                            .copyBatchArrayDecimalResult(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DECIMAL32: {
                     hasPutElementNum = UdfConvert
                             .copyBatchArrayDecimalV3Result(retType.getScale(), 4L, hasPutElementNum, isNullable, row,
-                                    result, nullMapAddr,
+                                    result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DECIMAL64: {
                     hasPutElementNum = UdfConvert
                             .copyBatchArrayDecimalV3Result(retType.getScale(), 8L, hasPutElementNum, isNullable, row,
-                                    result, nullMapAddr,
+                                    result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }
                 case DECIMAL128: {
                     hasPutElementNum = UdfConvert
                             .copyBatchArrayDecimalV3Result(retType.getScale(), 16L, hasPutElementNum, isNullable, row,
-                                    result, nullMapAddr,
+                                    result[row], nullMapAddr,
                                     offsetsAddr, nestedNullMapAddr, dataAddr);
                     break;
                 }

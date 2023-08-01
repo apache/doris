@@ -367,7 +367,6 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                 assert_cast<ColumnVector<UInt8>*>(value_data_column_null_map.get())->get_data();
         auto value_nested_nullmap_address = reinterpret_cast<int64_t>(value_null_map_data.data());
         int64_t value_nested_data_address = 0, value_nested_offset_address = 0;
-        // array type need pass address: [nullmap_address], offset_address, nested_nullmap_address, nested_data_address/nested_char_address,nested_offset_address
         if (value_data_column->is_column_string()) {
             ColumnString* str_col = assert_cast<ColumnString*>(value_data_column.get());
             ColumnString::Chars& chars = assert_cast<ColumnString::Chars&>(str_col->get_chars());
