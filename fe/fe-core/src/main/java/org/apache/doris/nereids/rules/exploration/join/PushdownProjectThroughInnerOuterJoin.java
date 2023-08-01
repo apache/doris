@@ -69,7 +69,7 @@ public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                                 return null;
                             }
                             return topJoin.withChildren(newLeft, topJoin.right());
-                        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN),
+                        }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_INNER_OUTER_JOIN),
                 logicalJoin(group(), logicalProject(logicalJoin()))
                         .when(j -> j.right().child().getJoinType().isOuterJoin()
                                 || j.right().child().getJoinType().isInnerJoin())
@@ -83,7 +83,7 @@ public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                                 return null;
                             }
                             return topJoin.withChildren(topJoin.left(), newRight);
-                        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN)
+                        }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_INNER_OUTER_JOIN)
         );
     }
 
