@@ -1808,7 +1808,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         DataType colType = visitColType(ctx.colType());
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
-        String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : "NONE";
+        String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
         Optional<Expression> defaultValue = Optional.empty();
         if (ctx.DEFAULT() != null) {
             if (ctx.defaultValue != null) {
@@ -1821,7 +1821,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         try {
             aggType = AggregateType.valueOf(aggTypeString.toUpperCase());
         } catch (Exception e) {
-            throw new AnalysisException(String.format("aggregate type %s is unsupported", aggTypeString), e.getCause());
+            throw new AnalysisException(String.format("Aggregate type %s is unsupported", aggTypeString), e.getCause());
         }
         String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : "";
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);

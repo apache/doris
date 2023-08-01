@@ -30,12 +30,13 @@ import java.util.Set;
 
 /**
  * column definition
+ * TODO: complex types will not work, we will support them later.
  */
 public class ColumnDefinition {
     private final String name;
     private DataType type;
     private boolean isKey;
-    private final AggregateType aggType;
+    private AggregateType aggType;
     private final boolean isNull;
     private final Optional<Expression> defaultValue;
     private final String comment;
@@ -83,12 +84,17 @@ public class ColumnDefinition {
         }
         if (keysSet.contains(name)) {
             isKey = true;
+            if (aggType != null) {
+                throw new AnalysisException(String.format("Key column %s can not set aggregation type", name));
+            }
+        } else if (aggType == null) {
+            aggType = AggregateType.NONE;
         }
     }
 
     public Column translateToCatalogStyle() {
         return new Column(name, type.toCatalogDataType(), isKey, aggType, isNull,
-                false, "", comment, true,
+                false, null, comment, true,
                 null, 0, "");
     }
 }
