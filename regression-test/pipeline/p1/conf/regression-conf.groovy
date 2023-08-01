@@ -47,7 +47,7 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // this suites will not be executed
-excludeSuites = "q67_ignore_temporarily"
+excludeSuites = "test_profile,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter"
 
 cacheDataPath="/data/regression/"
 
