@@ -71,7 +71,7 @@ public class SinglePartitionDesc implements AllPartitionDesc {
             ReplicaAllocation replicaAlloc, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
 
-        this.isAnalyzed = false;
+        this.isAnalyzed = true;
 
         this.partName = partName;
         this.partitionKeyDesc = partitionKeyDesc;
