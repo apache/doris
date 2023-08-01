@@ -23,7 +23,6 @@ suite('nereids_delete_mow_partial_update') {
 
     def tableName1 = "nereids_delete_mow_partial_update1"
     sql "DROP TABLE IF EXISTS ${tableName1};"
-
     sql """ CREATE TABLE IF NOT EXISTS ${tableName1} (
                 `uid` BIGINT NULL,
                 `v1` BIGINT NULL 
@@ -34,9 +33,9 @@ suite('nereids_delete_mow_partial_update') {
             "disable_auto_compaction" = "true",
             "replication_num" = "1"
         );"""
+
     def tableName2 = "nereids_delete_mow_partial_update2"
     sql "DROP TABLE IF EXISTS ${tableName2};"
-
     sql """ CREATE TABLE IF NOT EXISTS ${tableName2} (
                 `uid` BIGINT NULL
             ) UNIQUE KEY(uid)
@@ -46,7 +45,7 @@ suite('nereids_delete_mow_partial_update') {
             "disable_auto_compaction" = "true",
             "replication_num" = "1"
         );"""
-    
+
     sql "insert into ${tableName1} values(1,1),(2,2),(3,3),(4,4),(5,5);"
     qt_sql "select * from ${tableName1} order by uid;"
     sql "insert into ${tableName2} values(1),(2),(3);"
@@ -61,6 +60,8 @@ suite('nereids_delete_mow_partial_update') {
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     qt_sql "select uid,v1,__DORIS_DELETE_SIGN__ from ${tableName1} order by uid,v1,__DORIS_DELETE_SIGN__;"
+    sql "drop table if exists ${tableName1};"
+    sql "drop table if exists ${tableName2};"
 
     sql "set skip_delete_sign=false;"
     sql "set skip_storage_engine_merge=false;"
@@ -88,7 +89,7 @@ suite('nereids_delete_mow_partial_update') {
         set 'column_separator', ','
         set 'format', 'csv'
         set 'columns', 'k1'
-        set 'partial_colunms', 'true'
+        set 'partial_columns', 'true'
         set 'merge_type', 'DELETE'
 
         file 'partial_update_delete.csv'
@@ -99,4 +100,5 @@ suite('nereids_delete_mow_partial_update') {
     sql "set skip_storage_engine_merge=true;"
     sql "set skip_delete_bitmap=true;"
     qt_sql "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__ from ${tableName3} order by k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__;"
+    sql "drop table if exists ${tableName3};"
 }

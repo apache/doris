@@ -47,7 +47,6 @@ import java.util.Map;
  * https://bucket.us-east-1.amazonaws.com/csv/taxi.csv with "use_path_style"="false"
  */
 public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
-    private static final Logger LOG = LogManager.getLogger(S3TableValuedFunction.class);
     public static final String NAME = "s3";
     public static final String S3_URI = "uri";
 

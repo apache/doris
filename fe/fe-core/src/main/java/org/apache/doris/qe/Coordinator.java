@@ -191,8 +191,6 @@ public class Coordinator {
 
     private List<RuntimeProfile> fragmentProfile;
 
-    private ProfileWriter profileWriter;
-
     // populated in computeFragmentExecParams()
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 

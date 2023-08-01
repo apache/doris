@@ -17,28 +17,30 @@
 
 package org.apache.doris.planner.external.iceberg;
 
-import org.apache.doris.planner.external.FileSplit;
+public class IcebergMetadataCacheMgr {
 
-import lombok.Data;
-import org.apache.hadoop.fs.Path;
+    private final IcebergMetadataCache icebergMetadataCache = new IcebergMetadataCache();
 
-import java.util.List;
-import java.util.Map;
-
-@Data
-public class IcebergSplit extends FileSplit {
-    // File path will be changed if the file is modified, so there's no need to get modification time.
-    public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts,
-                        Map<String, String> config) {
-        super(file, start, length, fileLength, hosts, null);
-        this.config = config;
+    public IcebergMetadataCacheMgr() {
     }
 
-    private Integer formatVersion;
-    private List<IcebergDeleteFileFilter> deleteFileFilters;
-    private Map<String, String> config;
+    public IcebergMetadataCache getIcebergMetadataCache() {
+        return icebergMetadataCache;
+    }
+
+    public void removeCache(long catalogId) {
+        icebergMetadataCache.invalidateCatalogCache(catalogId);
+    }
+
+    public void invalidateCatalogCache(long catalogId) {
+        icebergMetadataCache.invalidateCatalogCache(catalogId);
+    }
+
+    public void invalidateTableCache(long catalogId, String dbName, String tblName) {
+        icebergMetadataCache.invalidateTableCache(catalogId, dbName, tblName);
+    }
+
+    public void invalidateDbCache(long catalogId, String dbName) {
+        icebergMetadataCache.invalidateDbCache(catalogId, dbName);
+    }
 }
-
-
-
-

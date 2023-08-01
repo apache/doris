@@ -48,7 +48,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
-#include "runtime/export_task_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/plan_fragment_executor.h"
@@ -59,7 +58,6 @@
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/json_util.h"
 #include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -190,15 +188,15 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
                 [&request, &result](FrontendServiceConnection& client) {
                     client->streamLoadWithLoadStatus(result, request);
                 });
-        Status stream_load_status(result.status);
-        if (stream_load_status.ok()) {
-            ctx->txn_id = result.txn_id;
-            ctx->number_total_rows = result.total_rows;
-            ctx->number_loaded_rows = result.loaded_rows;
-            ctx->number_filtered_rows = result.filtered_rows;
-            ctx->number_unselected_rows = result.unselected_rows;
-            break;
-        }
+//        Status stream_load_status(result.status);
+//        if (stream_load_status.ok()) {
+//            ctx->txn_id = result.txn_id;
+//            ctx->number_total_rows = result.total_rows;
+//            ctx->number_loaded_rows = result.loaded_rows;
+//            ctx->number_filtered_rows = result.filtered_rows;
+//            ctx->number_unselected_rows = result.unselected_rows;
+//            break;
+//        }
     }
 
     auto str = std::string(ctx->to_json());
@@ -334,7 +332,7 @@ Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req,
         try {
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid timeout format");
+            return Status::InvalidArgument("Invalid timeout format, {}", e.what());
         }
     }
 
@@ -475,7 +473,7 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req,
         try {
             request.__set_execMemLimit(std::stoll(http_req->header(HTTP_EXEC_MEM_LIMIT)));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid mem limit format");
+            return Status::InvalidArgument("Invalid mem limit format, {}", e.what());
         }
     } else {
         request.__set_execMemLimit(config::stream_load_exec_mem_limit);
@@ -490,8 +488,6 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req,
     }
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
-    } else {
-        request.__set_timeout(config::stream_load_exec_timeout_second);
     }
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
 
@@ -504,7 +500,7 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req,
                 client->streamLoadPut(ctx->put_result, request);
             }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
-    Status plan_status(ctx->put_result.status);
+    Status plan_status(Status::create(ctx->put_result.status));
     if (!plan_status.ok()) {
         LOG(WARNING) << "exec streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;

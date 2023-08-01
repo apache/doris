@@ -67,7 +67,6 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
@@ -1623,11 +1622,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
         try {
             rollbackTxnImpl(request);
-            if (request.getVersion() == 1) {
-                streamLoadPutWithSqlImpl(request);
-            } else {
-                result.setParams(streamLoadPutImpl(request));
-            }
         } catch (UserException e) {
             LOG.warn("failed to rollback txn {}: {}", request.getTxnId(), e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
@@ -1870,7 +1864,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 LOG.warn("report stream load failed. no backend");
                 return;
             }
-            address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
             try {
                 BackendServiceProxy.getInstance().reportStreamLoadStatus(address, request);
             } catch (Throwable e) {
@@ -1903,7 +1897,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.setExecutor(executor);
             TQueryOptions tQueryOptions = ctx.getSessionVariable().toThrift();
             executor.analyze(tQueryOptions);
-            Coordinator coord = new Coordinator(ctx, executor.getAnalyzer(), executor.planner());
+            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+            Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
             QeProcessorImpl.INSTANCE.registerQuery(request.getLoadId(), coord);
@@ -2092,14 +2087,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             try {
                 context.getEnv().getLoadManager()
-                        .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),
+                        .recordFinishedLoadJob(label, txnId, insertStmt.getDbName(), insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, System.currentTimeMillis(),
                                 throwable == null ? "" : throwable.getMessage(),
-                                coord.getTrackingUrl());
+                                coord.getTrackingUrl(), insertStmt.getUserInfo());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
             }
-            context.setOrUpdateInsertResult(txnId, label, insertStmt.getDb(), insertStmt.getTbl(),
+            context.setOrUpdateInsertResult(txnId, label, insertStmt.getDbName(), insertStmt.getTbl(),
                     txnStatus, loadedRows, filteredRows);
             context.updateReturnRows((int) loadedRows);
             result.setStatus(new TStatus(TStatusCode.OK));
