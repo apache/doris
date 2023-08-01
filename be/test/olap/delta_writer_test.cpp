@@ -789,9 +789,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {
-            10005, 270068377, WriteType::LOAD, 20003, 30003, load_id, tuple_desc, &(tuple_desc->slots()),
-            false, &param};
+    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
+                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer1 = nullptr;
     DeltaWriter* delta_writer2 = nullptr;
     std::unique_ptr<RuntimeProfile> profile1;
