@@ -30,7 +30,7 @@ suite("test_cast_as_decimalv3") {
         );
     """
     sql """
-        set enable_nereids_planner=false,enable_fold_constant_by_be = false
+        set enable_nereids_planner=true,enable_fold_constant_by_be = false
     """
     sql """
         INSERT INTO divtest VALUES(1,3.00)
@@ -49,11 +49,6 @@ suite("test_cast_as_decimalv3") {
     """ 
     qt_select3 """
         select 1.0 / val from divtest order by id
-    """
-
-
-    sql """
-        set enable_nereids_planner=true,enable_fold_constant_by_be = false
     """
     qt_select4 """
         select cast(-280.00000000 as decimal(16,4));
