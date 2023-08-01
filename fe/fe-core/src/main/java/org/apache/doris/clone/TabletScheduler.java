@@ -260,9 +260,7 @@ public class TabletScheduler extends MasterDaemon {
 
         pendingTablets.offer(tablet);
         if (!contains) {
-            LOG.info("Add tablet to pending queue, tablet id {}, type {}, status {}, priority {}",
-                    tablet.getTabletId(), tablet.getType(), tablet.getTabletStatus(),
-                    tablet.getPriority());
+            LOG.info("Add tablet to pending queue, {}", tablet);
         }
 
         return AddResult.ADDED;
@@ -1203,6 +1201,11 @@ public class TabletScheduler extends MasterDaemon {
     private void selectTabletsForBalance() {
         if (Config.disable_balance || Config.disable_tablet_scheduler) {
             LOG.info("balance or tablet scheduler is disabled. skip selecting tablets for balance");
+            return;
+        }
+
+        // no need to prefetch too many balance task to pending queue.
+        if (getPendingNum() >= Config.schedule_batch_size) {
             return;
         }
 

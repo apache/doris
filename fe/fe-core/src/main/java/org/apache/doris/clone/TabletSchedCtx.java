@@ -1161,8 +1161,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             value += 5 * 1000L;
         }
 
+        // repair tasks always prior than balance
         if (type == Type.BALANCE) {
-            value += 30 * 60 * 1000L;
+            value += 10 * 24 * 3600L;
         }
 
         return value;
@@ -1173,6 +1174,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         StringBuilder sb = new StringBuilder();
         sb.append("tablet id: ").append(tabletId).append(", status: ").append(tabletStatus.name());
         sb.append(", state: ").append(state.name()).append(", type: ").append(type.name());
+        if (type == Type.BALANCE) {
+            sb.append(", balance: ").append(balanceType.name());
+        }
+        sb.append(", priority: ").append(priority.name());
         if (srcReplica != null) {
             sb.append(". from backend: ").append(srcReplica.getBackendId());
             sb.append(", src path hash: ").append(srcPathHash);
