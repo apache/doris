@@ -365,13 +365,27 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_EQ(Status::OK(), success_res);
 
     // 验证存储在header中的过滤条件正确
-    EXPECT_EQ(size_t(6), del_pred.sub_predicates_size());
-    EXPECT_STREQ("k1='1'", del_pred.sub_predicates(0).c_str());
-    EXPECT_STREQ("k2>>'3'", del_pred.sub_predicates(1).c_str());
-    EXPECT_STREQ("k3<='5'", del_pred.sub_predicates(2).c_str());
-    EXPECT_STREQ("k4 IS NULL", del_pred.sub_predicates(3).c_str());
-    EXPECT_STREQ("k5='7'", del_pred.sub_predicates(4).c_str());
-    EXPECT_STREQ("k12!='9'", del_pred.sub_predicates(5).c_str());
+    EXPECT_EQ(size_t(6), del_pred.sub_predicates_v2_size());
+    EXPECT_STREQ("k1", del_pred.sub_predicates_v2(0).column_name);
+    EXPECT_STREQ("k2", del_pred.sub_predicates_v2(1).column_name);
+    EXPECT_STREQ("k3", del_pred.sub_predicates_v2(2).column_name);
+    EXPECT_STREQ("k4", del_pred.sub_predicates_v2(3).column_name);
+    EXPECT_STREQ("k5", del_pred.sub_predicates_v2(4).column_name);
+    EXPECT_STREQ("k12", sub_predicates_v2(5).column_name);
+
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(0).op);
+    EXPECT_STREQ(">>", del_pred.sub_predicates_v2(1).op);
+    EXPECT_STREQ("<=", del_pred.sub_predicates_v2(2).op);
+    EXPECT_STREQ("IS", del_pred.sub_predicates_v2(3).op);
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(4).op);
+    EXPECT_STREQ("!=", del_pred.sub_predicates_v2(5).op);
+
+    EXPECT_STREQ("1", del_pred.sub_predicates_v2(0).cond_value);
+    EXPECT_STREQ("3", del_pred.sub_predicates_v2(1).cond_value);
+    EXPECT_STREQ("5", del_pred.sub_predicates_v2(2).cond_value);
+    EXPECT_STREQ("NULL", del_pred.sub_predicates_v2(4).cond_value);
+    EXPECT_STREQ("7", del_pred.sub_predicates_v2(4).cond_value);
+    EXPECT_STREQ("9", del_pred.sub_predicates_v2(5).cond_value);
 
     EXPECT_EQ(size_t(1), del_pred.in_predicates_size());
     EXPECT_FALSE(del_pred.in_predicates(0).is_not_in());
