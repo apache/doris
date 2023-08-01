@@ -47,12 +47,15 @@ import com.google.common.base.Preconditions;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     /**
-     * The intuition behind `HEAVY_OPERATOR_PUNISH_FACTOR` is we need to avoid this form of join patterns:
+     * The intuition behind `HEAVY_OPERATOR_PUNISH_FACTOR` is we need to avoid this
+     * form of join patterns:
      * Plan1: L join ( AGG1(A) join AGG2(B))
      * But
      * Plan2: L join AGG1(A) join AGG2(B) is welcomed.
-     * AGG is time-consuming operator. From the perspective of rowCount, nereids may choose Plan1,
-     * because `Agg1 join Agg2` generates few tuples. But in Plan1, Agg1 and Agg2 are done in serial, in Plan2, Agg1 and
+     * AGG is time-consuming operator. From the perspective of rowCount, nereids may
+     * choose Plan1,
+     * because `Agg1 join Agg2` generates few tuples. But in Plan1, Agg1 and Agg2
+     * are done in serial, in Plan2, Agg1 and
      * Agg2 are done in parallel. And hence, Plan1 should be punished.
      * <p>
      * An example is tpch q15.
@@ -70,8 +73,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public CostModelV1() {
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
             // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
-            beNumber = 1;
-        } else if (ConnectContext.get().getSessionVariable().getBeNumber() != -1) {
+            // beNumber = 1;
+            // } else if (ConnectContext.get().getSessionVariable().getBeNumber() != -1) {
             beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
         } else {
             beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
@@ -108,7 +111,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
         CostV1 costValue = (CostV1) storageLayerAggregate.getRelation().accept(this, context);
-        // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
+        // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate
+        // as far as possible
         return new CostV1(costValue.getCpuCost() * 0.7, costValue.getMemoryCost(),
                 costValue.getNetworkCost(), costValue.getPenalty());
     }
@@ -172,9 +176,9 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics childStatistics = context.getChildStatistics(0);
         return CostV1.of(
-            childStatistics.getRowCount(),
-            statistics.getRowCount(),
-            childStatistics.getRowCount());
+                childStatistics.getRowCount(),
+                statistics.getRowCount(),
+                childStatistics.getRowCount());
     }
 
     @Override
@@ -196,7 +200,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         if (spec instanceof DistributionSpecReplicated) {
             double dataSize = childStatistics.computeSize();
             double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
-            //if build side is big, avoid use broadcast join
+            // if build side is big, avoid use broadcast join
             double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
             double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
             if (dataSize > memLimit * brMemlimit
@@ -204,7 +208,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
             // estimate broadcast cost by an experience formula: beNumber^0.5 * rowCount
-            // - sender number and receiver number is not available at RBO stage now, so we use beNumber
+            // - sender number and receiver number is not available at RBO stage now, so we
+            // use beNumber
             // - senders and receivers work in parallel, that why we use square of beNumber
             return CostV1.of(
                     0,
@@ -266,17 +271,17 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
         /*
-        pattern1: L join1 (Agg1() join2 Agg2())
-        result number of join2 may much less than Agg1.
-        but Agg1 and Agg2 are slow. so we need to punish this pattern1.
-
-        pattern2: (L join1 Agg1) join2 agg2
-        in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
-        */
+         * pattern1: L join1 (Agg1() join2 Agg2())
+         * result number of join2 may much less than Agg1.
+         * but Agg1 and Agg2 are slow. so we need to punish this pattern1.
+         * pattern2: (L join1 Agg1) join2 agg2
+         * in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be
+         * processed in parallel.
+         */
         double penalty = HEAVY_OPERATOR_PUNISH_FACTOR
                 * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
         if (buildStats.getWidth() >= 2) {
-            //penalty for right deep tree
+            // penalty for right deep tree
             penalty += rightRowCount;
         }
         if (physicalHashJoin.getJoinType().isCrossJoin()) {
@@ -287,41 +292,50 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         }
 
         if (context.isBroadcastJoin()) {
-            // compared with shuffle join, bc join will be taken a penalty for both build and probe side;
+            // compared with shuffle join, bc join will be taken a penalty for both build
+            // and probe side;
             // currently we use the following factor as the penalty factor:
-            // build side factor: totalInstanceNumber to the power of 2, standing for the additional effort for
-            //                    bigger cost for building hash table, taken on rightRowCount
-            // probe side factor: totalInstanceNumber to the power of 2, standing for the additional effort for
-            //                    bigger cost for ProbeWhenBuildSideOutput effort and ProbeWhenSearchHashTableTime
-            //                    on the output rows, taken on outputRowCount()
-            double probeSideFactor = 1.0;
-            double buildSideFactor = ConnectContext.get().getSessionVariable().getBroadcastRightTableScaleFactor();
-            int parallelInstance = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
-            int totalInstanceNumber = parallelInstance * beNumber;
-            if (buildSideFactor <= 1.0) {
-                // use totalInstanceNumber to the power of 2 as the default factor value
-                buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
-            }
-            // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
-            // will refine this in next generation cost model.
-            return CostV1.of(leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
+            // build side factor: totalInstanceNumber to the power of 2, standing for the
+            // additional effort for
+            // bigger cost for building hash table, taken on rightRowCount
+            // probe side factor: totalInstanceNumber to the power of 2, standing for the
+            // additional effort for
+            // bigger cost for ProbeWhenBuildSideOutput effort and
+            // ProbeWhenSearchHashTableTime
+            // on the output rows, taken on outputRowCount()
+            // double probeSideFactor = 1.0;
+            // double buildSideFactor =
+            // ConnectContext.get().getSessionVariable().getBroadcastRightTableScaleFactor();
+            // int parallelInstance = Math.max(1,
+            // ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+            // int totalInstanceNumber = parallelInstance * beNumber;
+            // if (buildSideFactor <= 1.0) {
+            // // use totalInstanceNumber to the power of 2 as the default factor value
+            // buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+            // }
+            double broadcastJoinPenalty = broadCastJoinBalancePenalty(probeStats, buildStats);
+            return CostV1.of(leftRowCount * broadcastJoinPenalty + rightRowCount + outputRowCount,
+                    // TODO: since the outputs rows may expand a lot, penalty on it will cause bc
+                    // never be chosen.
+                    // will refine this in next generation cost model.
+                    // return CostV1.of(leftRowCount + rightRowCount * buildSideFactor +
+                    // outputRowCount * probeSideFactor,
                     rightRowCount,
                     0,
-                    0
-            );
+                    0);
         }
         return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                 rightRowCount,
                 0,
-                0
-        );
+                0);
     }
 
     @Override
     public Cost visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
             PlanContext context) {
-        // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
+        // TODO: copy from physicalHashJoin, should update according to physical nested
+        // loop join properties.
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
@@ -338,8 +352,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         return CostV1.of(
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                 assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
-                0
-        );
+                0);
     }
 
     @Override
@@ -348,7 +361,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         return CostV1.of(
                 statistics.getRowCount(),
                 statistics.getRowCount(),
-                0
-        );
+                0);
     }
 }
