@@ -62,7 +62,7 @@ DEFINE_Int32(brpc_port, "8060");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
-DEFINE_Int32(brpc_num_threads, "-1");
+DEFINE_Int32(brpc_num_threads, "256");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -394,9 +394,9 @@ DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
-DEFINE_mInt32(compaction_task_num_per_disk, "2");
+DEFINE_mInt32(compaction_task_num_per_disk, "4");
 // compaction thread num for fast disk(typically .SSD), must be greater than 2.
-DEFINE_mInt32(compaction_task_num_per_fast_disk, "4");
+DEFINE_mInt32(compaction_task_num_per_fast_disk, "8");
 DEFINE_Validator(compaction_task_num_per_disk,
                  [](const int config) -> bool { return config >= 2; });
 DEFINE_Validator(compaction_task_num_per_fast_disk,
@@ -493,7 +493,7 @@ DEFINE_mInt32(olap_table_sink_send_interval_ms, "1");
 // Fragment thread pool
 DEFINE_Int32(fragment_pool_thread_num_min, "64");
 DEFINE_Int32(fragment_pool_thread_num_max, "2048");
-DEFINE_Int32(fragment_pool_queue_size, "2048");
+DEFINE_Int32(fragment_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
