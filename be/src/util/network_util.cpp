@@ -138,7 +138,6 @@ Status get_hosts(std::vector<InetAddress>* hosts) {
             in_addr_t s_addr = ((struct sockaddr_in*)addr)->sin_addr.s_addr;
             bool is_loopback = (ntohl(s_addr) & 0xFF000000) == 0x7F000000;
             hosts->emplace_back(std::string(addr_buf), AF_INET, is_loopback);
-            std::cout << "get_hosts():" << std::string(addr_buf) << AF_INET << std::endl;
         } else if (addr->sa_family == AF_INET6) {
             // check legitimacy of IP6 Address
             auto tmp_addr = &((struct sockaddr_in6*)if_addr->ifa_addr)->sin6_addr;
@@ -147,9 +146,7 @@ Status get_hosts(std::vector<InetAddress>* hosts) {
             // check is loopback Address
             bool is_loopback = IN6_IS_ADDR_LOOPBACK(tmp_addr);
             hosts->emplace_back(std::string(addr_buf), AF_INET6, is_loopback);
-            std::cout << "get_hosts():" << std::string(addr_buf) << AF_INET6 << std::endl;
         } else {
-            std::cout << "get_hosts:" << addr->sa_family << std::endl;
             continue;
         }
     }

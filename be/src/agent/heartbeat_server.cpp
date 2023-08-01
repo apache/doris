@@ -119,15 +119,14 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 //step2: resolve FQDN to IP
                 std::string ip;
                 Status status = hostname_to_ip(master_info.backend_ip, ip, BackendOptions::is_bind_ipv6());
-                std::cout << "master_info.backend_ip:" << master_info.backend_ip << ",ip:" << ip
-                          << std::endl;
                 if (!status.ok()) {
                     std::stringstream ss;
                     ss << "can not get ip from fqdn: " << status.to_string();
                     LOG(WARNING) << ss.str();
                     return status;
                 }
-
+                LOG(INFO) << "master_info.backend_ip:" << master_info.backend_ip
+                          << ",hostname_to_ip:" << ip;
                 //step3: get all ips of the interfaces on this machine
                 std::vector<InetAddress> hosts;
                 status = get_hosts(&hosts);
