@@ -72,70 +72,34 @@ Status get_hostname(std::string* hostname) {
     return Status::OK();
 }
 
-Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* addresses) {
-    addrinfo hints;
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = AF_INET6; // IPv4 addresses only
-    hints.ai_socktype = SOCK_STREAM;
-
-    struct addrinfo* addr_info;
-
-    if (getaddrinfo(name.c_str(), nullptr, &hints, &addr_info) != 0) {
-        return Status::InternalError("Could not find IPv4 address for: {}", name);
-    }
-
-    addrinfo* it = addr_info;
-
-    while (it != nullptr) {
-        char addr_buf[64];
-        const char* result =
-                inet_ntop(AF_INET, &((sockaddr_in*)it->ai_addr)->sin_addr, addr_buf, 64);
-
-        if (result == nullptr) {
-            freeaddrinfo(addr_info);
-            return Status::InternalError("Could not convert IPv4 address for: {}", name);
-        }
-
-        // add address if not exists
-        std::string address = std::string(addr_buf);
-        if (std::find(addresses->begin(), addresses->end(), address) != addresses->end()) {
-            LOG(WARNING) << "Repeated ip addresses has been found for host: " << name
-                         << ", ip address:" << address
-                         << ", please check your network configuration";
-        } else {
-            addresses->push_back(address);
-        }
-        it = it->ai_next;
-    }
-
-    freeaddrinfo(addr_info);
-    return Status::OK();
-}
-
 bool is_valid_ip(const std::string& ip) {
     unsigned char buf[sizeof(struct in6_addr)];
     return (inet_pton(AF_INET6, ip.data(), buf) > 0) || (inet_pton(AF_INET, ip.data(), buf) > 0);
 }
 
 Status hostname_to_ip(const std::string& host, std::string& ip) {
-    std::vector<std::string> addresses;
-    Status status = hostname_to_ip_addrs(host, &addresses);
-    if (!status.ok()) {
-        LOG(WARNING) << "status of hostname_to_ip_addrs was not ok, err is " << status.to_string();
+    Status status = hostname_to_ip(host, ip, AF_INET);
+    if (status.ok()) {
         return status;
     }
-    if (addresses.size() != 1) {
-        std::stringstream ss;
-        std::copy(addresses.begin(), addresses.end(), std::ostream_iterator<std::string>(ss, ","));
-        LOG(WARNING)
-                << "the number of addresses could only be equal to 1, failed to get ip from host:"
-                << host << ", addresses:" << ss.str();
-        return Status::InternalError(
-                "the number of addresses could only be equal to 1, failed to get ip from host: "
-                "{}, addresses:{}",
-                host, ss.str());
+    return hostname_to_ip(host, ip, AF_INET6);
+}
+
+Status hostname_to_ip(const std::string& host, std::string& ip, int __af) {
+    struct hostent* pstHostent = NULL;
+    if (inet_addr(host.c_str()) == INADDR_NONE) {
+        if ((pstHostent = gethostbyname2(host.c_str(), __af)) == NULL) {
+            LOG(WARNING) << "failed to get ip from host: " << host << ",__af:" << __af;
+            return Status::InternalError("failed to get ip from host: {}, __af: {}", host, __af);
+        }
+        auto tmp_addr = (struct in_addr*)pstHostent->h_addr;
+
+        char addr_buf[__af == AF_INET6 ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN];
+        inet_ntop(__af, tmp_addr, addr_buf, sizeof(addr_buf));
+        ip = std::string(addr_buf);
+    } else {
+        ip = host;
     }
-    ip = addresses[0];
     return Status::OK();
 }
 
