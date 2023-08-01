@@ -78,10 +78,10 @@ public class AlterOperations {
         ).map(c -> ((ModifyTablePropertiesClause) c).getStoragePolicy()).findFirst().orElse("");
     }
 
-    public boolean checkIsBeingSynced(List<AlterClause> alterClauses) {
+    public boolean checkCcrEnable(List<AlterClause> alterClauses) {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause
-        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED));
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_CCR_ENABLE));
     }
 
     public boolean checkBinlogConfigChange(List<AlterClause> alterClauses) {
@@ -93,10 +93,10 @@ public class AlterOperations {
             || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
     }
 
-    public boolean isBeingSynced(List<AlterClause> alterClauses) {
+    public boolean isCcrEnable(List<AlterClause> alterClauses) {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause
-        ).map(c -> ((ModifyTablePropertiesClause) c).isBeingSynced()).findFirst().orElse(false);
+        ).map(c -> ((ModifyTablePropertiesClause) c).isCcrEnable()).findFirst().orElse(false);
     }
 
     // MODIFY_TABLE_PROPERTY is also processed by SchemaChangeHandler

@@ -2569,7 +2569,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Map<String, String> properties = request.getProperties();
         RestoreStmt restoreStmt = new RestoreStmt(label, repoName, null, properties, request.getMeta(),
                 request.getJobInfo());
-        restoreStmt.setIsBeingSynced();
+        restoreStmt.disableDynamicPartition();
         LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
             ConnectContext ctx = ConnectContext.get();

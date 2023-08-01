@@ -2832,14 +2832,7 @@ public class Env {
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
                                   long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion, false, false);
-    }
-
-    public static void getSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
-                                  long specificVersion) {
-        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion, false, true);
+                hidePassword, false, specificVersion, false);
     }
 
     /**
@@ -2851,7 +2844,7 @@ public class Env {
                                   List<String> addPartitionStmt, List<String> createRollupStmt,
                                   boolean separatePartition,
                                   boolean hidePassword, boolean getDdlForLike, long specificVersion,
-                                  boolean getBriefDdl, boolean getDdlForSync) {
+                                  boolean getBriefDdl) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3042,15 +3035,6 @@ public class Env {
                     partition = olapTable.getPartition(partitionId.get(0));
                 }
                 sb.append(partition.getVisibleVersion()).append("\"");
-            }
-
-            // mark this table is being synced
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED).append("\" = \"");
-            sb.append(String.valueOf(olapTable.isBeingSynced() || getDdlForSync)).append("\"");
-            // mark this table if it is a auto bucket table
-            if (getDdlForSync && olapTable.isAutoBucket()) {
-                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET).append("\" = \"");
-                sb.append("true").append("\"");
             }
 
             // colocateTable
@@ -4511,7 +4495,7 @@ public class Env {
         }
         tableProperty.buildInMemory()
                 .buildStoragePolicy()
-                .buildIsBeingSynced();
+                .buildCcrEnable();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

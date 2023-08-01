@@ -53,9 +53,7 @@ under the License.
 
 <version since="dev"></version> 创建S3 RESOURCE的时候，会进行S3远端的链接校验，以保证RESOURCE创建的正确。
 
-此外，需要新增fe配置：`enable_storage_policy=true`  
-
-注意：这个属性不会被CCR同步，如果这个表是被CCR复制而来的，即PROPERTIES中包含`is_being_synced = true`时，这个属性将会在这个表中被擦除。
+此外，需要新增fe配置：`enable_storage_policy=true`
 
 例如：
 

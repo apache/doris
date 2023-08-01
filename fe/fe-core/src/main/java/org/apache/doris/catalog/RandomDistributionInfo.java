@@ -53,9 +53,9 @@ public class RandomDistributionInfo extends DistributionInfo {
     }
 
     @Override
-    public String toSql(boolean forSync) {
+    public String toSql() {
         StringBuilder builder = new StringBuilder();
-        if (autoBucket && !forSync) {
+        if (autoBucket) {
             builder.append("DISTRIBUTED BY RANDOM BUCKETS AUTO");
         } else {
             builder.append("DISTRIBUTED BY RANDOM BUCKETS ").append(bucketNum);

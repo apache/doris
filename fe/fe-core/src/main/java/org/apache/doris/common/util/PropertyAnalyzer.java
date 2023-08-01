@@ -129,7 +129,7 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_MUTABLE = "mutable";
 
-    public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
+    public static final String PROPERTIES_CCR_ENABLE = "ccr_enable";
 
     // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
     public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
@@ -458,7 +458,7 @@ public class PropertyAnalyzer {
     }
 
     // analyze the colocation properties of table
-    public static String analyzeColocate(Map<String, String> properties) {
+    public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
         String colocateGroup = null;
         if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
             colocateGroup = properties.get(PROPERTIES_COLOCATE_WITH);
@@ -667,7 +667,7 @@ public class PropertyAnalyzer {
         return estimatePartitionSize;
     }
 
-    public static String analyzeStoragePolicy(Map<String, String> properties) {
+    public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
         String storagePolicy = "";
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
             storagePolicy = properties.get(PROPERTIES_STORAGE_POLICY);
@@ -813,14 +813,6 @@ public class PropertyAnalyzer {
         }
 
         return binlogConfigMap;
-    }
-
-    public static boolean analyzeIsBeingSynced(Map<String, String> properties, boolean defaultValue) {
-        if (properties != null && properties.containsKey(PROPERTIES_IS_BEING_SYNCED)) {
-            String value = properties.remove(PROPERTIES_IS_BEING_SYNCED);
-            return Boolean.valueOf(value);
-        }
-        return defaultValue;
     }
 
     // There are 2 kinds of replication property:
