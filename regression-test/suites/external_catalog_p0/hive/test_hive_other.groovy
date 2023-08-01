@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_other", "p0") {
+suite("test_hive_other", "p0,external,hive") {
 
     def q01 = {
         qt_q24 """ select name, count(1) as c from student group by name order by c desc;"""

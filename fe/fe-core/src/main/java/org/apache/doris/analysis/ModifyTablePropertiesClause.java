@@ -44,14 +44,14 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private String storagePolicy;
 
-    private boolean ccrEnable = false;
+    private boolean isBeingSynced = false;
 
-    public void setCcrEnable(boolean ccrEnable) {
-        this.ccrEnable = ccrEnable;
+    public void setIsBeingSynced(boolean isBeingSynced) {
+        this.isBeingSynced = isBeingSynced;
     }
 
-    public boolean isCcrEnable() {
-        return ccrEnable;
+    public boolean isBeingSynced() {
+        return isBeingSynced;
     }
 
     public ModifyTablePropertiesClause(Map<String, String> properties) {
@@ -133,10 +133,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             throw new AnalysisException("Can not change enable_duplicate_without_keys_by_default");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
             // do nothing, will be alter in SchemaChangeHandler.updateTableProperties
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_CCR_ENABLE)) {
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)) {
             this.needTableStable = false;
-            setCcrEnable(
-                    Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, "false")));
+            setIsBeingSynced(Boolean.parseBoolean(properties.getOrDefault(
+                    PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false")));
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)

@@ -38,6 +38,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -126,7 +127,7 @@ public class StatisticsRepository {
 
     private static final String QUERY_PARTITION_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
             + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
-            + " tbl_id=${tblId} AND idx_id=${idxId} AND col_id='${colId}' "
+            + " ${inPredicate}"
             + " AND part_id IS NOT NULL";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
@@ -440,12 +441,14 @@ public class StatisticsRepository {
                 .replace(QUERY_COLUMN_STATISTICS));
     }
 
-    public static List<ResultRow> loadPartStats(long tableId, long idxId, String colName) {
+    public static List<ResultRow> loadPartStats(Collection<StatisticsCacheKey> keys) {
+        String inPredicate = "CONCAT(tbl_id, '-', idx_id, '-', col_id) in (%s)";
+        StringJoiner sj = new StringJoiner(",");
+        for (StatisticsCacheKey statisticsCacheKey : keys) {
+            sj.add("'" + statisticsCacheKey.toString() + "'");
+        }
         Map<String, String> params = new HashMap<>();
-        params.put("tblId", String.valueOf(tableId));
-        params.put("idxId", String.valueOf(idxId));
-        params.put("colId", colName);
-
+        params.put("inPredicate", String.format(inPredicate, sj.toString()));
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
                 .replace(QUERY_PARTITION_STATISTICS));
     }

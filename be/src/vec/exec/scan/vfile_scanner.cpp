@@ -245,6 +245,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         RETURN_IF_ERROR(_init_src_block(block));
         {
             SCOPED_TIMER(_get_block_timer);
+
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
             RETURN_IF_ERROR(
@@ -279,11 +280,34 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     return Status::OK();
 }
 
+/**
+ * Check whether there are complex types in parquet/orc reader in broker/stream load.
+ * Broker/stream load will cast any type as string type, and complex types will be casted wrong.
+ * This is a temporary method, and will be replaced by tvf.
+ */
+Status VFileScanner::_check_output_block_types() {
+    if (_is_load) {
+        TFileFormatType::type format_type = _params->format_type;
+        if (format_type == TFileFormatType::FORMAT_PARQUET ||
+            format_type == TFileFormatType::FORMAT_ORC) {
+            for (auto slot : _output_tuple_desc->slots()) {
+                if (slot->type().is_complex_type()) {
+                    return Status::InternalError(
+                            "Parquet/orc doesn't support complex types in broker/stream load, "
+                            "please use tvf(table value function) to insert complex types.");
+                }
+            }
+        }
+    }
+    return Status::OK();
+}
+
 Status VFileScanner::_init_src_block(Block* block) {
     if (!_is_load) {
         _src_block_ptr = block;
         return Status::OK();
     }
+    RETURN_IF_ERROR(_check_output_block_types());
 
     // if (_src_block_init) {
     //     _src_block.clear_column_data();
@@ -711,6 +735,7 @@ Status VFileScanner::_get_next_reader() {
         _name_to_col_type.clear();
         _missing_cols.clear();
         _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
+        _cur_reader->set_push_down_agg_type(_parent->get_push_down_agg_type());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;

@@ -119,8 +119,13 @@ suite("test_group_concat") {
     qt_select_group_concat_order_by_desc3 """
                 SELECT b1, group_concat(cast(abs(b3) as varchar) order by abs(b2) desc, b3 desc) FROM table_group_concat  group by b1 order by b1
               """
-    qt_select_group_concat_order_by """
+    qt_select_group_concat_order_by1 """
                 select group_concat(b3,',' order by b3 asc),group_concat(b3,',' order by b3 desc) from table_group_concat;
     """
 
+    sql """create view if not exists test_view as select group_concat(b3,',' order by b3 asc),group_concat(b3,',' order by b3 desc) from table_group_concat;"""
+    qt_select_group_concat_order_by2 """
+                select * from test_view;
+    """
+    sql """drop view if exists test_view"""
 }

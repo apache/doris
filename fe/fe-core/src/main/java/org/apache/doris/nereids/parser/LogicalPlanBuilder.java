@@ -121,6 +121,7 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -312,7 +313,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
-        return withExplain(withOutFile(plan, ctx.outFileClause()), ctx.explain());
+        if (ctx.outFileClause() != null) {
+            plan = withOutFile(plan, ctx.outFileClause());
+        } else {
+            plan = new UnboundResultSink<>(plan);
+        }
+        return withExplain(plan, ctx.explain());
     }
 
     @Override

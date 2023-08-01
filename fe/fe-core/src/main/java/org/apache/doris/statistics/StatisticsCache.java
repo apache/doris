@@ -38,10 +38,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -213,6 +216,7 @@ public class StatisticsCache {
         if (CollectionUtils.isEmpty(recentStatsUpdatedCols)) {
             return;
         }
+        Map<StatisticsCacheKey, ColumnStatistic> keyToColStats = new HashMap<>();
         for (ResultRow r : recentStatsUpdatedCols) {
             try {
                 long tblId = Long.parseLong(r.getColumnValue("tbl_id"));
@@ -221,11 +225,16 @@ public class StatisticsCache {
                 final StatisticsCacheKey k =
                         new StatisticsCacheKey(tblId, idxId, colId);
                 final ColumnStatistic c = ColumnStatistic.fromResultRow(r);
-                c.loadPartitionStats(tblId, idxId, colId);
+                keyToColStats.put(k, c);
                 putCache(k, c);
             } catch (Throwable t) {
                 LOG.warn("Error when preheating stats cache", t);
             }
+        }
+        try {
+            loadPartStats(keyToColStats);
+        } catch (Exception e) {
+            LOG.warn("Fucka", e);
         }
     }
 
@@ -261,32 +270,43 @@ public class StatisticsCache {
     }
 
     public void putCache(StatisticsCacheKey k, ColumnStatistic c) {
-        CompletableFuture<Optional<ColumnStatistic>> f = new CompletableFuture<Optional<ColumnStatistic>>() {
-
-            @Override
-            public Optional<ColumnStatistic> get() throws InterruptedException, ExecutionException {
-                return Optional.of(c);
-            }
-
-            @Override
-            public boolean isDone() {
-                return true;
-            }
-
-            @Override
-            public boolean complete(Optional<ColumnStatistic> value) {
-                return true;
-            }
-
-            @Override
-            public Optional<ColumnStatistic> join() {
-                return Optional.of(c);
-            }
-        };
-        if (c.isUnKnown) {
-            return;
-        }
+        CompletableFuture<Optional<ColumnStatistic>> f = new CompletableFuture<Optional<ColumnStatistic>>();
+        f.obtrudeValue(Optional.of(c));
         columnStatisticsCache.put(k, f);
+    }
+
+    private void loadPartStats(Map<StatisticsCacheKey, ColumnStatistic> keyToColStats) {
+        final int batchSize = Config.expr_children_limit;
+        Set<StatisticsCacheKey> keySet = new HashSet<>();
+        for (StatisticsCacheKey statisticsCacheKey : keyToColStats.keySet()) {
+            if (keySet.size() < batchSize - 1) {
+                keySet.add(statisticsCacheKey);
+            } else {
+                List<ResultRow> partStats = StatisticsRepository.loadPartStats(keySet);
+                addPartStatsToColStats(keyToColStats, partStats);
+                keySet = new HashSet<>();
+            }
+        }
+        if (!keySet.isEmpty()) {
+            List<ResultRow> partStats = StatisticsRepository.loadPartStats(keySet);
+            addPartStatsToColStats(keyToColStats, partStats);
+        }
+    }
+
+    private void addPartStatsToColStats(Map<StatisticsCacheKey, ColumnStatistic> keyToColStats,
+            List<ResultRow> partsStats) {
+        for (ResultRow r : partsStats) {
+            try {
+                long tblId = Long.parseLong(r.getColumnValue("tbl_id"));
+                long idxId = Long.parseLong(r.getColumnValue("idx_id"));
+                long partId = Long.parseLong(r.getColumnValue("part_id"));
+                String colId = r.getColumnValue("col_id");
+                ColumnStatistic partStats = ColumnStatistic.fromResultRow(r);
+                keyToColStats.get(new StatisticsCacheKey(tblId, idxId, colId)).putPartStats(partId, partStats);
+            } catch (Throwable t) {
+                LOG.warn("Failed to deserialized part stats", t);
+            }
+        }
     }
 
 }

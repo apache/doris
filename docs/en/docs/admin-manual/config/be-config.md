@@ -958,6 +958,11 @@ BaseCompaction:546859:
 * Description: Whether to use mmap to allocate memory
 * Default value: false
 
+#### `memtable_mem_tracker_refresh_interval_ms`
+
+* Description: Interval in milliseconds between memtbale flush mgr refresh iterations
+* Default value: 100
+
 #### `download_cache_buffer_size`
 
 * Type: int64

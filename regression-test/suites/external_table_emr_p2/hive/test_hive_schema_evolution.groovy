@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_schema_evolution", "p0") {
+suite("test_hive_schema_evolution", "p0,external,hive") {
     def q_text = {
         qt_q01 """
         select * from schema_evo_test_text order by id;

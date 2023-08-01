@@ -19,25 +19,18 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Optional;
 
 public class PlanOutputTest {
     @Test
@@ -66,30 +59,5 @@ public class PlanOutputTest {
         } catch (UnboundException e) {
             // correct exception
         }
-    }
-
-    @Test
-    public void testPhysicalPlanMustHaveLogicalProperties() {
-        Assertions.assertThrows(NullPointerException.class, () ->
-                new PhysicalRelation(StatementScopeIdGenerator.newRelationId(),
-                        PlanType.PHYSICAL_OLAP_SCAN, Optional.empty(), null) {
-                    @Override
-                    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-                        return null;
-                    }
-
-                    @Override
-                    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
-                            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-                        return null;
-                    }
-
-                    @Override
-                    public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                            Statistics statsDeriveResult) {
-                        return null;
-                    }
-                }
-        );
     }
 }
