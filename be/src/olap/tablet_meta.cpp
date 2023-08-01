@@ -65,7 +65,10 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.__isset.enable_unique_key_merge_on_write
                     ? request.enable_unique_key_merge_on_write
                     : false,
-            std::move(binlog_config));
+            std::move(binlog_config), request.compaction_policy,
+            request.time_series_compaction_goal_size_mbytes,
+            request.time_series_compaction_file_count_threshold,
+            request.time_series_compaction_time_threshold_seconds);
     return Status::OK();
 }
 
@@ -81,7 +84,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TCompressionType::type compression_type, int64_t storage_policy_id,
                        bool enable_unique_key_merge_on_write,
-                       std::optional<TBinlogConfig> binlog_config)
+                       std::optional<TBinlogConfig> binlog_config, std::string compaction_policy,
+                       int64_t time_series_compaction_goal_size_mbytes,
+                       int64_t time_series_compaction_file_count_threshold,
+                       int64_t time_series_compaction_time_threshold_seconds)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -102,6 +108,13 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
     tablet_meta_pb.set_enable_unique_key_merge_on_write(enable_unique_key_merge_on_write);
     tablet_meta_pb.set_storage_policy_id(storage_policy_id);
+    tablet_meta_pb.set_compaction_policy(compaction_policy);
+    tablet_meta_pb.set_time_series_compaction_goal_size_mbytes(
+            time_series_compaction_goal_size_mbytes);
+    tablet_meta_pb.set_time_series_compaction_file_count_threshold(
+            time_series_compaction_file_count_threshold);
+    tablet_meta_pb.set_time_series_compaction_time_threshold_seconds(
+            time_series_compaction_time_threshold_seconds);
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -266,7 +279,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.skip_write_index_on_load) {
         schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
-
     if (binlog_config.has_value()) {
         BinlogConfig tmp_binlog_config;
         tmp_binlog_config = binlog_config.value();
@@ -298,7 +310,13 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap),
-          _binlog_config(b._binlog_config) {};
+          _binlog_config(b._binlog_config),
+          _compaction_policy(b._compaction_policy),
+          _time_series_compaction_goal_size_mbytes(b._time_series_compaction_goal_size_mbytes),
+          _time_series_compaction_file_count_threshold(
+                  b._time_series_compaction_file_count_threshold),
+          _time_series_compaction_time_threshold_seconds(
+                  b._time_series_compaction_time_threshold_seconds) {};
 
 void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                           ColumnPB* column) {
@@ -562,6 +580,13 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     if (tablet_meta_pb.has_binlog_config()) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
+    _compaction_policy = tablet_meta_pb.compaction_policy();
+    _time_series_compaction_goal_size_mbytes =
+            tablet_meta_pb.time_series_compaction_goal_size_mbytes();
+    _time_series_compaction_file_count_threshold =
+            tablet_meta_pb.time_series_compaction_file_count_threshold();
+    _time_series_compaction_time_threshold_seconds =
+            tablet_meta_pb.time_series_compaction_time_threshold_seconds();
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -636,6 +661,13 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         }
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
+    tablet_meta_pb->set_compaction_policy(compaction_policy());
+    tablet_meta_pb->set_time_series_compaction_goal_size_mbytes(
+            time_series_compaction_goal_size_mbytes());
+    tablet_meta_pb->set_time_series_compaction_file_count_threshold(
+            time_series_compaction_file_count_threshold());
+    tablet_meta_pb->set_time_series_compaction_time_threshold_seconds(
+            time_series_compaction_time_threshold_seconds());
 }
 
 uint32_t TabletMeta::mem_size() const {
@@ -860,6 +892,15 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_policy_id != b._storage_policy_id) return false;
+    if (a._compaction_policy != b._compaction_policy) return false;
+    if (a._time_series_compaction_goal_size_mbytes != b._time_series_compaction_goal_size_mbytes)
+        return false;
+    if (a._time_series_compaction_file_count_threshold !=
+        b._time_series_compaction_file_count_threshold)
+        return false;
+    if (a._time_series_compaction_time_threshold_seconds !=
+        b._time_series_compaction_time_threshold_seconds)
+        return false;
     return true;
 }
 
