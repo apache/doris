@@ -49,8 +49,8 @@ public class JobTaskManager implements Writable {
                 .computeIfAbsent(jobTask.getJobId(), k -> new ConcurrentLinkedQueue<>());
         jobTasks.add(jobTask);
         if (jobTasks.size() > TASK_MAX_NUM) {
-            JobTask oldTak = jobTasks.poll();
-            Env.getCurrentEnv().getEditLog().logDeleteJobTask(oldTak);
+            JobTask oldTask = jobTasks.poll();
+            Env.getCurrentEnv().getEditLog().logDeleteJobTask(oldTask);
         }
         Env.getCurrentEnv().getEditLog().logCreateJobTask(jobTask);
     }

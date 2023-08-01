@@ -29,9 +29,7 @@ public interface MemoryTaskExecutor<T> {
     /**
      * Executes the event job and returns the result.
      * Exceptions will be caught internally, so there is no need to define or throw them separately.
-     *
-     * @return The result of the event job execution.
      */
-    T execute() throws JobException;
+    void execute() throws JobException;
 }
 

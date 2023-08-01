@@ -274,7 +274,21 @@ public class GsonUtils {
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
-            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer());
+            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
+                    new ExclusionStrategy() {
+                        @Override
+                        public boolean shouldSkipField(FieldAttributes f) {
+                            return false;
+                        }
+
+                        @Override
+                        public boolean shouldSkipClass(Class<?> clazz) {
+                            /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
+                            <org.apache.doris.scheduler.disruptor.TimerTaskEvent> declares multiple
+                            JSON fields named p1 */
+                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer");
+                        }
+                    });
 
     private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
 
