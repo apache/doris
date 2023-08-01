@@ -58,7 +58,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 public class DiskRebalanceTest {
@@ -145,9 +144,10 @@ public class DiskRebalanceTest {
         statisticMap.put(Tag.DEFAULT_BACKEND_TAG, loadStatistic);
         backendsWorkingSlots.clear();
         for (BackendLoadStatistic beStat : loadStatistic.getSortedBeLoadStats(null)) {
-            List<Long> pathHashes = beStat.getPathStatistics().stream().map(RootPathLoadStatistic::getPathHash)
-                    .collect(Collectors.toList());
-            backendsWorkingSlots.put(beStat.getBeId(), new PathSlot(pathHashes, beStat.getBeId()));
+            Map<Long, TStorageMedium> paths = Maps.newHashMap();
+            beStat.getPathStatistics().stream().forEach(
+                    path -> paths.put(path.getPathHash(), path.getStorageMedium()));
+            backendsWorkingSlots.put(beStat.getBeId(), new PathSlot(paths, beStat.getBeId()));
         }
     }
 
