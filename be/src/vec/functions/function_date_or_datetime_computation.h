@@ -304,7 +304,8 @@ struct TimeDiffImpl {
                                         std::is_same_v<DateType2, DataTypeDateTimeV2> ||
                                         std::is_same_v<DateType1, DataTypeDateV2> ||
                                         std::is_same_v<DateType2, DataTypeDateV2>;
-    using ReturnType = std ::conditional_t<UsingTimev2, DataTypeTimeV2, DataTypeTime>;
+
+    using ReturnType = DataTypeTimeV2;
 
     static constexpr auto name = "timediff";
     static constexpr auto is_nullable = false;
@@ -316,7 +317,7 @@ struct TimeDiffImpl {
         if constexpr (UsingTimev2) {
             return ts0.microsecond_diff(ts1);
         } else {
-            return ts0.second_diff(ts1);
+            return (1000 * 1000) * ts0.second_diff(ts1);
         }
     }
     static DataTypes get_variadic_argument_types() {
@@ -1047,7 +1048,7 @@ struct CurrentDateImpl {
 
 template <typename FunctionName>
 struct CurrentTimeImpl {
-    using ReturnType = DataTypeTime;
+    using ReturnType = DataTypeTimeV2;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
@@ -1056,6 +1057,7 @@ struct CurrentTimeImpl {
         if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                               context->state()->timezone_obj())) {
             double time = dtv.hour() * 3600l + dtv.minute() * 60l + dtv.second();
+            time *= (1000 * 1000);
             col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&time)), 0);
         } else {
             auto invalid_val = 0;
@@ -1087,7 +1089,7 @@ struct TimeToSecImpl {
 };
 
 struct SecToTimeImpl {
-    using ReturnType = DataTypeTime;
+    using ReturnType = DataTypeTimeV2;
     static constexpr auto name = "sec_to_time";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
@@ -1097,7 +1099,7 @@ struct SecToTimeImpl {
         auto res_col = ColumnFloat64::create(input_rows_count);
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = static_cast<double>(column_data.get_element(i));
+            res_data[i] = (1000 * 1000) * static_cast<double>(column_data.get_element(i));
         }
 
         block.replace_by_position(result, std::move(res_col));
