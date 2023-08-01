@@ -309,7 +309,7 @@ struct AggregationMethodKeysFixed {
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes& key_sizes) {
         // In any hash key value, column values to be read start just after the bitmap, if it exists.
-        size_t pos = has_nullable_keys ? std::tuple_size<KeysNullMap<Key>>::value : 0;
+        size_t pos = has_nullable_keys ? get_bitmap_size(key_columns.size()) : 0;
 
         for (size_t i = 0; i < key_columns.size(); ++i) {
             size_t size = key_sizes[i];
