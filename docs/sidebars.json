@@ -4,14 +4,8 @@
             "type": "category",
             "label": "Getting Started",
             "items": [
-                "get-starting/get-starting"
-            ]
-        },
-        {
-            "type": "category",
-            "label": "Doris Introduction",
-            "items": [
-                "summary/basic-summary"
+                "get-starting/quick-start",
+                "get-starting/what-is-doris"
             ]
         },
         {
