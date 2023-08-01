@@ -5,7 +5,7 @@
             "label": "Getting Started",
             "items": [
                 "get-starting/quick-start",
-                "get-starting/what-is-doris"
+                "get-starting/what-is-apache-doris"
             ]
         },
         {
