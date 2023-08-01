@@ -55,22 +55,6 @@ public class DataProperty implements Writable, GsonPostProcessable {
         // for persist
     }
 
-    public String getStorageMediumString() {
-        int val = storageMedium.getValue();
-        switch (val) {
-            case 0:
-                return "hdd";
-            case 1:
-                return "ssd";
-            case 2:
-                return "s3";
-            case 3:
-                return "remote_cache";
-            default:
-                return "unknown";
-        }
-    }
-
     public DataProperty(TStorageMedium medium) {
         this.storageMedium = medium;
         this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
