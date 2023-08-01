@@ -28,11 +28,13 @@
 #include <memory>
 #include <string>
 
+#include "common/status.h"
 #include "exec/exec_node.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/telemetry/telemetry.h"
@@ -182,78 +184,59 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
     DCHECK(probe_exprs.size() >= 1);
+
+    using Type = AggregatedDataVariants::Type;
+    Type t(Type::serialized);
+
     if (probe_exprs.size() == 1) {
         auto is_nullable = probe_exprs[0]->root()->is_nullable();
-        switch (probe_exprs[0]->root()->result_type()) {
+        PrimitiveType type = probe_exprs[0]->root()->result_type();
+        switch (type) {
         case TYPE_TINYINT:
         case TYPE_BOOLEAN:
-            _agg_data->init(AggregatedDataVariants::Type::int8_key, is_nullable);
-            return;
         case TYPE_SMALLINT:
-            _agg_data->init(AggregatedDataVariants::Type::int16_key, is_nullable);
-            return;
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
-            if (_is_first_phase)
-                _agg_data->init(AggregatedDataVariants::Type::int32_key, is_nullable);
-            else
-                _agg_data->init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
-            return;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_DATETIMEV2:
-            if (_is_first_phase)
-                _agg_data->init(AggregatedDataVariants::Type::int64_key, is_nullable);
-            else
-                _agg_data->init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
-            return;
-        case TYPE_LARGEINT: {
-            if (_is_first_phase)
-                _agg_data->init(AggregatedDataVariants::Type::int128_key, is_nullable);
-            else
-                _agg_data->init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
-            return;
-        }
+        case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL32:
         case TYPE_DECIMAL64:
         case TYPE_DECIMAL128I: {
-            DataTypePtr& type_ptr = probe_exprs[0]->root()->data_type();
-            TypeIndex idx = is_nullable ? assert_cast<const DataTypeNullable&>(*type_ptr)
-                                                  .get_nested_type()
-                                                  ->get_type_id()
-                                        : type_ptr->get_type_id();
-            WhichDataType which(idx);
-            if (which.is_decimal32()) {
-                if (_is_first_phase)
-                    _agg_data->init(AggregatedDataVariants::Type::int32_key, is_nullable);
-                else
-                    _agg_data->init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
-            } else if (which.is_decimal64()) {
-                if (_is_first_phase)
-                    _agg_data->init(AggregatedDataVariants::Type::int64_key, is_nullable);
-                else
-                    _agg_data->init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
+            size_t size = get_primitive_type_size(type);
+            if (size == 1) {
+                t = Type::int8_key;
+            } else if (size == 2) {
+                t = Type::int16_key;
+            } else if (size == 4) {
+                t = Type::int32_key;
+            } else if (size == 8) {
+                t = Type::int64_key;
+            } else if (size == 16) {
+                t = Type::int128_key;
             } else {
-                if (_is_first_phase)
-                    _agg_data->init(AggregatedDataVariants::Type::int128_key, is_nullable);
-                else
-                    _agg_data->init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "meet invalid type size, size={}, type={}", size,
+                                type_to_string(type));
             }
-            return;
+            break;
         }
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            _agg_data->init(AggregatedDataVariants::Type::string_key, is_nullable);
+            t = Type::string_key;
             break;
         }
         default:
-            _agg_data->init(AggregatedDataVariants::Type::serialized);
+            t = Type::serialized;
         }
+
+        _agg_data->init(AggregatedDataVariants::get_type(t, !_is_first_phase), is_nullable);
     } else {
         bool use_fixed_key = true;
         bool has_null = false;
@@ -286,33 +269,17 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
 
         if (use_fixed_key) {
             if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                if (_is_first_phase) {
-                    _agg_data->init(AggregatedDataVariants::Type::int64_keys, has_null);
-                } else {
-                    _agg_data->init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                }
+                t = Type::int64_keys;
             } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                if (_is_first_phase) {
-                    _agg_data->init(AggregatedDataVariants::Type::int128_keys, has_null);
-                } else {
-                    _agg_data->init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
-                }
+                t = Type::int128_keys;
             } else if (bitmap_size + key_byte_size <= sizeof(UInt136)) {
-                if (_is_first_phase) {
-                    _agg_data->init(AggregatedDataVariants::Type::int136_keys, has_null);
-                } else {
-                    _agg_data->init(AggregatedDataVariants::Type::int136_keys_phase2, has_null);
-                }
+                t = Type::int136_keys;
             } else {
-                if (_is_first_phase) {
-                    _agg_data->init(AggregatedDataVariants::Type::int256_keys, has_null);
-                } else {
-                    _agg_data->init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
-                }
+                t = Type::int256_keys;
             }
-
+            _agg_data->init(AggregatedDataVariants::get_type(t, !_is_first_phase), has_null);
         } else {
-            _agg_data->init(AggregatedDataVariants::Type::serialized);
+            _agg_data->init(Type::serialized);
         }
     }
 }
@@ -518,7 +485,9 @@ Status AggregationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(_children[0]->open(state));
 
     // Streaming preaggregations do all processing in GetNext().
-    if (_is_streaming_preagg) return Status::OK();
+    if (_is_streaming_preagg) {
+        return Status::OK();
+    }
     bool eos = false;
     Block block;
     while (!eos) {
@@ -603,8 +572,12 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
 }
 
 void AggregationNode::release_resource(RuntimeState* state) {
-    for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
-    if (_executor.close) _executor.close();
+    for (auto* aggregate_evaluator : _aggregate_evaluators) {
+        aggregate_evaluator->close(state);
+    }
+    if (_executor.close) {
+        _executor.close();
+    }
 
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter) {
@@ -619,7 +592,9 @@ void AggregationNode::release_resource(RuntimeState* state) {
 }
 
 Status AggregationNode::close(RuntimeState* state) {
-    if (is_closed()) return Status::OK();
+    if (is_closed()) {
+        return Status::OK();
+    }
     return ExecNode::close(state);
 }
 
@@ -797,7 +772,9 @@ void AggregationNode::_make_nullable_output_key(Block* block) {
 }
 
 bool AggregationNode::_should_expand_preagg_hash_tables() {
-    if (!_should_expand_hash_table) return false;
+    if (!_should_expand_hash_table) {
+        return false;
+    }
 
     return std::visit(
             [&](auto&& agg_method) -> bool {
@@ -806,7 +783,9 @@ bool AggregationNode::_should_expand_preagg_hash_tables() {
                         std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
 
                 // Need some rows in tables to have valid statistics.
-                if (ht_rows == 0) return true;
+                if (ht_rows == 0) {
+                    return true;
+                }
 
                 // Find the appropriate reduction factor in our table for the current hash table sizes.
                 int cache_level = 0;
@@ -826,7 +805,9 @@ bool AggregationNode::_should_expand_preagg_hash_tables() {
 
                 // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
                 // inaccurate, which could lead to a divide by zero below.
-                if (aggregated_input_rows <= 0) return true;
+                if (aggregated_input_rows <= 0) {
+                    return true;
+                }
 
                 // Extrapolate the current reduction factor (r) using the formula
                 // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
@@ -970,6 +951,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                                                 places);
                     }
                 } else {
+                    SCOPED_TIMER(_hash_table_emplace_timer);
                     for (size_t i = 0; i < num_rows; ++i) {
                         AggregateDataPtr mapped = nullptr;
                         if constexpr (ColumnsHashing::IsSingleNullableColumnMethod<
@@ -1001,7 +983,9 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                    if (_hash_values.size() < num_rows) _hash_values.resize(num_rows);
+                    if (_hash_values.size() < num_rows) {
+                        _hash_values.resize(num_rows);
+                    }
                     if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
                                           AggState>::value) {
                         for (size_t i = 0; i < num_rows; ++i) {
@@ -1033,8 +1017,9 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
 
                     if (find_result.is_found()) {
                         places[i] = find_result.get_mapped();
-                    } else
+                    } else {
                         places[i] = nullptr;
+                    }
                 }
             },
             _agg_data->_aggregated_method_variant);
@@ -1464,10 +1449,11 @@ Status AggregationNode::_get_result_with_serialized_key_non_spill(RuntimeState* 
                         if (key_columns[0]->size() < state->batch_size()) {
                             key_columns[0]->insert_data(nullptr, 0);
                             auto mapped = agg_method.data.get_null_key_data();
-                            for (size_t i = 0; i < _aggregate_evaluators.size(); ++i)
+                            for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
                                 _aggregate_evaluators[i]->insert_result_info(
                                         mapped + _offsets_of_aggregate_states[i],
                                         value_columns[i].get());
+                            }
                             *eos = true;
                         }
                     } else {

@@ -482,6 +482,29 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, true>>;
 
+enum class HashKeyType {
+    EMPTY = 0,
+    without_key,
+    serialized,
+    int8_key,
+    int16_key,
+    int32_key,
+    int32_key_phase2,
+    int64_key,
+    int64_key_phase2,
+    int128_key,
+    int128_key_phase2,
+    int64_keys,
+    int64_keys_phase2,
+    int128_keys,
+    int128_keys_phase2,
+    int256_keys,
+    int256_keys_phase2,
+    string_key,
+    int136_keys,
+    int136_keys_phase2,
+};
+
 struct AggregatedDataVariants {
     AggregatedDataVariants() = default;
     AggregatedDataVariants(const AggregatedDataVariants&) = delete;
@@ -489,33 +512,44 @@ struct AggregatedDataVariants {
     AggregatedDataWithoutKey without_key = nullptr;
     AggregatedMethodVariants _aggregated_method_variant;
 
-    // TODO: may we should support uint256 in the future
-    enum class Type {
-        EMPTY = 0,
-        without_key,
-        serialized,
-        int8_key,
-        int16_key,
-        int32_key,
-        int32_key_phase2,
-        int64_key,
-        int64_key_phase2,
-        int128_key,
-        int128_key_phase2,
-        int64_keys,
-        int64_keys_phase2,
-        int128_keys,
-        int128_keys_phase2,
-        int256_keys,
-        int256_keys_phase2,
-        string_key,
-        int136_keys,
-        int136_keys_phase2,
-    };
+    using Type = HashKeyType;
+
+    constexpr static Type get_type(Type t, bool phase2) {
+        if (!phase2) {
+            return t;
+        }
+        if (t == Type::int32_key) {
+            return Type::int32_key_phase2;
+        }
+        if (t == Type::int64_key) {
+            return Type::int64_key_phase2;
+        }
+        if (t == Type::int128_keys) {
+            return Type::int128_keys_phase2;
+        }
+        if (t == Type::int136_keys) {
+            return Type::int136_keys_phase2;
+        }
+        if (t == Type::int256_keys) {
+            return Type::int256_keys_phase2;
+        }
+        return t;
+    }
 
     Type _type = Type::EMPTY;
 
-    void init(Type type, bool is_nullable = false) {
+    template <typename T, typename TT, bool is_nullable>
+    void emplace_single() {
+        if (is_nullable) {
+            _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
+                    AggregationMethodOneNumber<T, AggregationDataWithNullKey<TT>>>>();
+        } else {
+            _aggregated_method_variant.emplace<AggregationMethodOneNumber<T, TT>>();
+        }
+    }
+
+    template <bool is_nullable>
+    void init(Type type) {
         _type = type;
         switch (_type) {
         case Type::without_key:
@@ -525,142 +559,52 @@ struct AggregatedDataVariants {
                     .emplace<AggregationMethodSerialized<AggregatedDataWithStringKey>>();
             break;
         case Type::int8_key:
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
-                        AggregationMethodOneNumber<UInt8, AggregatedDataWithNullableUInt8Key>>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodOneNumber<UInt8, AggregatedDataWithUInt8Key>>();
-            }
+            emplace_single<UInt8, AggregatedDataWithUInt8Key, is_nullable>();
             break;
         case Type::int16_key:
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
-                        AggregationMethodOneNumber<UInt16, AggregatedDataWithNullableUInt16Key>>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodOneNumber<UInt16, AggregatedDataWithUInt16Key>>();
-            }
+            emplace_single<UInt16, AggregatedDataWithUInt16Key, is_nullable>();
             break;
         case Type::int32_key:
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
-                        AggregationMethodOneNumber<UInt32, AggregatedDataWithNullableUInt32Key>>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32Key>>();
-            }
+            emplace_single<UInt32, AggregatedDataWithUInt32Key, is_nullable>();
             break;
         case Type::int32_key_phase2:
-            if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>>();
-            } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>>();
-            }
+            emplace_single<UInt32, AggregatedDataWithUInt32KeyPhase2, is_nullable>();
             break;
         case Type::int64_key:
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
-                        AggregationMethodOneNumber<UInt64, AggregatedDataWithNullableUInt64Key>>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64Key>>();
-            }
+            emplace_single<UInt64, AggregatedDataWithUInt64Key, is_nullable>();
             break;
         case Type::int64_key_phase2:
-            if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>>();
-            } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>>();
-            }
+            emplace_single<UInt64, AggregatedDataWithUInt64KeyPhase2, is_nullable>();
             break;
         case Type::int128_key:
-            if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                UInt128, AggregatedDataWithNullableUInt128Key>>>();
-            } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128Key>>();
-            }
+            emplace_single<UInt128, AggregatedDataWithUInt128Key, is_nullable>();
             break;
         case Type::int128_key_phase2:
-            if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodSingleNullableColumn<AggregationMethodOneNumber<
-                                UInt128, AggregatedDataWithNullableUInt128KeyPhase2>>>();
-            } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodOneNumber<UInt128, AggregatedDataWithUInt128KeyPhase2>>();
-            }
+            emplace_single<UInt128, AggregatedDataWithUInt128KeyPhase2, is_nullable>();
             break;
         case Type::int64_keys:
-            if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, true>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, false>>();
-            }
+            _aggregated_method_variant.emplace<
+                    AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, is_nullable>>();
             break;
         case Type::int64_keys_phase2:
-
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, true>>();
-            } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, false>>();
-            }
-
+            _aggregated_method_variant.emplace<
+                    AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, is_nullable>>();
             break;
         case Type::int128_keys:
-
-            if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, true>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, false>>();
-            }
+            _aggregated_method_variant.emplace<
+                    AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, is_nullable>>();
             break;
         case Type::int128_keys_phase2:
-
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, true>>();
-            } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, false>>();
-            }
-
+            _aggregated_method_variant.emplace<
+                    AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, is_nullable>>();
             break;
         case Type::int256_keys:
-
-            if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, true>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, false>>();
-            }
-
+            _aggregated_method_variant.emplace<
+                    AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, is_nullable>>();
             break;
         case Type::int256_keys_phase2:
-
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>>();
-            } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, false>>();
-            }
+            _aggregated_method_variant.emplace<
+                    AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, is_nullable>>();
             break;
         case Type::string_key:
             if (is_nullable) {
@@ -673,28 +617,22 @@ struct AggregatedDataVariants {
             }
             break;
         case Type::int136_keys:
-
-            if (is_nullable) {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt136Key, true>>();
-            } else {
-                _aggregated_method_variant
-                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt136Key, false>>();
-            }
-
+            _aggregated_method_variant.emplace<
+                    AggregationMethodKeysFixed<AggregatedDataWithUInt136Key, is_nullable>>();
             break;
         case Type::int136_keys_phase2:
-
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, true>>();
-            } else {
-                _aggregated_method_variant.emplace<
-                        AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, false>>();
-            }
+            _aggregated_method_variant.emplace<
+                    AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, is_nullable>>();
             break;
         default:
-            DCHECK(false) << "Do not have a rigth agg data type";
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
+        }
+    }
+    void init(Type type, bool is_nullable = false) {
+        if (is_nullable) {
+            init<true>(type);
+        } else {
+            init<false>(type);
         }
     }
 };
@@ -744,7 +682,7 @@ public:
         IteratorBase(Container* container_, uint32_t index_)
                 : container(container_), index(index_) {
             sub_container_index = index / SUB_CONTAINER_CAPACITY;
-            index_in_sub_container = index % SUB_CONTAINER_CAPACITY;
+            index_in_sub_container = index - sub_container_index * SUB_CONTAINER_CAPACITY;
         }
 
         bool operator==(const IteratorBase& rhs) const { return index == rhs.index; }
@@ -752,8 +690,11 @@ public:
 
         Derived& operator++() {
             index++;
-            sub_container_index = index / SUB_CONTAINER_CAPACITY;
-            index_in_sub_container = index % SUB_CONTAINER_CAPACITY;
+            index_in_sub_container++;
+            if (index_in_sub_container == SUB_CONTAINER_CAPACITY) {
+                index_in_sub_container = 0;
+                sub_container_index++;
+            }
             return static_cast<Derived&>(*this);
         }
 
