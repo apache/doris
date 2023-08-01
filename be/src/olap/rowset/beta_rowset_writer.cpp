@@ -394,14 +394,14 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     return status;
 }
 
-Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
+Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     DCHECK_EQ(_is_doing_segcompaction, false);
     if (!config::enable_segcompaction) {
         return Status::OK();
     }
     if (_segcompaction_status.load() != OK) {
         return Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter::_segcompaction_ramaining_if_necessary meet invalid state");
+                "BetaRowsetWriter::_segcompaction_rename_last_segments meet invalid state");
     }
     if (!_is_segcompacted() || _segcompacted_point == _num_segment) {
         // no need if never segcompact before or all segcompacted
@@ -574,12 +574,12 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         _segcompaction_worker.cancel();
         status = wait_flying_segcompaction();
         if (!status.ok()) {
-            LOG(WARNING) << "segcompaction failed when build new rowset 1st wait, res=" << status;
+            LOG(WARNING) << "segcompaction failed when build new rowset, res=" << status;
             return nullptr;
         }
-        status = _segcompaction_ramaining_if_necessary();
+        status = _segcompaction_rename_last_segments();
         if (!status.ok()) {
-            LOG(WARNING) << "segcompaction failed when build new rowset, res=" << status;
+            LOG(WARNING) << "rename last segments failed when build new rowset, res=" << status;
             return nullptr;
         }
 
