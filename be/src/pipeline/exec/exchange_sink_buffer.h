@@ -170,7 +170,8 @@ public:
     bool can_write() const;
     bool is_pending_finish();
     void close();
-    void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_time,
+                      int64_t callback_start_time, int64_t callback_end_time);
     void update_profile(RuntimeProfile* profile);
 
 private:
@@ -191,6 +192,8 @@ private:
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
+    phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_callback_time;
+    phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_callback_exec_time;
     phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
 
     std::atomic<bool> _is_finishing;
@@ -209,7 +212,9 @@ private:
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
-    void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
+    void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time, int64_t* max_callback_time,
+                              int64_t* min_callback_time, int64_t* max_callback_exec_time,
+                              int64_t* min_callback_exec_time);
     int64_t get_sum_rpc_time();
 };
 

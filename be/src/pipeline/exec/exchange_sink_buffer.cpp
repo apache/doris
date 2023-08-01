@@ -116,6 +116,8 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     _instance_to_rpc_ctx[low_id] = {};
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
+    _instance_to_rpc_callback_time[low_id] = 0;
+    _instance_to_rpc_callback_exec_time[low_id] = 0;
     _construct_request(low_id, finst_id);
 }
 
@@ -205,7 +207,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
                                        const PTransmitDataResult& result,
                                        const int64_t& start_rpc_time) {
-            set_rpc_time(id, start_rpc_time, result.receive_time());
+            auto callback_start_time = GetCurrentTimeNanos();
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
@@ -217,6 +219,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             } else {
                 _send_rpc(id);
             }
+            auto callback_end_time = GetCurrentTimeNanos();
+            set_rpc_time(id, start_rpc_time, result.receive_time(), callback_start_time,
+                         callback_end_time);
         });
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
@@ -258,7 +263,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
                                        const PTransmitDataResult& result,
                                        const int64_t& start_rpc_time) {
-            set_rpc_time(id, start_rpc_time, result.receive_time());
+            auto callback_start_time = GetCurrentTimeNanos();
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
@@ -270,6 +275,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             } else {
                 _send_rpc(id);
             }
+            auto callback_end_time = GetCurrentTimeNanos();
+            set_rpc_time(id, start_rpc_time, result.receive_time(), callback_start_time,
+                         callback_end_time);
         });
         {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
@@ -324,17 +332,41 @@ bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
     return _instance_to_receiver_eof[id];
 }
 
-void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
+void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time,
+                                              int64_t* max_callback_time,
+                                              int64_t* min_callback_time,
+                                              int64_t* max_callback_exec_time,
+                                              int64_t* min_callback_exec_time) {
     int64_t local_max_time = 0;
+    int64_t local_max_callback_time = 0;
+    int64_t local_max_callback_exec_time = 0;
     int64_t local_min_time = INT64_MAX;
+    int64_t local_min_callback_time = INT64_MAX;
+    int64_t local_min_callback_exec_time = INT64_MAX;
     for (auto& [id, time] : _instance_to_rpc_time) {
         if (time != 0) {
             local_max_time = std::max(local_max_time, time);
             local_min_time = std::min(local_min_time, time);
         }
+        auto& callback_time = _instance_to_rpc_callback_time[id];
+        if (callback_time !=0) {
+            local_max_callback_time = std::max(local_max_callback_time, callback_time);
+            local_min_callback_time = std::min(local_min_callback_time, callback_time);
+        }
+        auto& callback_exec_time = _instance_to_rpc_callback_exec_time[id];
+        if (callback_exec_time !=0) {
+            local_max_callback_exec_time =
+                    std::max(local_max_callback_exec_time, callback_exec_time);
+            local_min_callback_exec_time =
+                    std::min(local_min_callback_exec_time, callback_exec_time);
+        }
     }
     *max_time = local_max_time;
+    *max_callback_time = local_max_callback_time;
+    *max_callback_exec_time = local_min_callback_time;
     *min_time = local_min_time;
+    *min_callback_time = local_min_callback_time;
+    *min_callback_exec_time = local_min_callback_exec_time;
 }
 
 int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
@@ -345,27 +377,46 @@ int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
     return sum_time;
 }
 
-void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
-                                      int64_t receive_rpc_time) {
+void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_time,
+                                      int64_t callback_start_time, int64_t callback_end_time) {
     _rpc_count++;
-    int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
     DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
-    if (rpc_spend_time > 0) {
-        _instance_to_rpc_time[id] += rpc_spend_time;
+    int64_t rpc_forward_time = receive_time - start_rpc_time;
+    int64_t rpc_callback_time = receive_time - start_rpc_time;
+    int64_t callback_exec_time = receive_time - start_rpc_time;
+    if (rpc_forward_time > 0) {
+        _instance_to_rpc_time[id] += rpc_forward_time;
+    }
+
+    if (rpc_callback_time > 0) {
+        _instance_to_rpc_callback_time[id] += rpc_callback_time;
+    }
+    if (callback_exec_time > 0) {
+        _instance_to_rpc_callback_exec_time[id] += callback_exec_time;
     }
 }
 
 void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     auto* _max_rpc_timer = ADD_TIMER(profile, "RpcMaxTime");
+    auto* _max_rpc_callback_timer = ADD_TIMER(profile, "RpcMaxCallbackTime");
+    auto* _max_rpc_callback_exec_timer = ADD_TIMER(profile, "RpcMaxCallbackExecTime");
     auto* _min_rpc_timer = ADD_TIMER(profile, "RpcMinTime");
+    auto* _min_rpc_callback_timer = ADD_TIMER(profile, "RpcMinCallbackTime");
+    auto* _min_rpc_callback_exec_timer = ADD_TIMER(profile, "RpcMinCallbackExecTime");
     auto* _sum_rpc_timer = ADD_TIMER(profile, "RpcSumTime");
     auto* _count_rpc = ADD_COUNTER(profile, "RpcCount", TUnit::UNIT);
     auto* _avg_rpc_timer = ADD_TIMER(profile, "RpcAvgTime");
 
-    int64_t max_rpc_time = 0, min_rpc_time = 0;
-    get_max_min_rpc_time(&max_rpc_time, &min_rpc_time);
+    int64_t max_rpc_time = 0, min_rpc_time = 0, max_callback_t = 0, min_callback_t = 0,
+            max_callback_exec_t = 0, min_callback_exec_t = 0;
+    get_max_min_rpc_time(&max_rpc_time, &min_rpc_time, &max_callback_t, &min_callback_t,
+                         &max_callback_exec_t, &min_callback_exec_t);
     _max_rpc_timer->set(max_rpc_time);
     _min_rpc_timer->set(min_rpc_time);
+    _max_rpc_callback_timer->set(max_callback_t);
+    _min_rpc_callback_timer->set(min_callback_t);
+    _max_rpc_callback_exec_timer->set(max_callback_exec_t);
+    _min_rpc_callback_exec_timer->set(min_callback_exec_t);
 
     _count_rpc->set(_rpc_count);
     int64_t sum_time = get_sum_rpc_time();
