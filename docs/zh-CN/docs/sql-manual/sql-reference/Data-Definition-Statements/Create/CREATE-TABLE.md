@@ -393,6 +393,36 @@ UNIQUE KEY(k1, k2)
 
     `"skip_write_index_on_load" = "false"`
 
+* `compaction_policy`
+
+    配置这个表的 compaction 的合并策略，仅支持配置为 time_series 或者 size_based
+
+    time_series: 当 rowset 的磁盘体积积攒到一定大小时进行版本合并。合并后的 rowset 直接晋升到 base compaction 阶段。在时序场景持续导入的情况下有效降低 compact 的写入放大率
+
+    此策略将使用 time_series_compaction 为前缀的参数调整 compaction 的执行
+
+    `"compaction_policy" = ""`
+
+* `time_series_compaction_goal_size_mbytes`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整每次 compaction 输入的文件的大小，输出的文件大小和输入相当
+
+    `"time_series_compaction_goal_size_mbytes" = "1024"`
+
+* `time_series_compaction_file_count_threshold`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整每次 compaction 输入的文件数量的最小值
+
+    一个 tablet 中，文件数超过该配置，就会触发 compaction
+
+    `"time_series_compaction_file_count_threshold" = "2000"`
+
+* `time_series_compaction_time_threshold_seconds`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整 compaction 的最长时间间隔，即长时间未执行过 compaction 时，就会触发一次 compaction，单位为秒
+
+    `"time_series_compaction_time_threshold_seconds" = "3600"`
+
 * 动态分区相关
 
     动态分区相关参数如下：

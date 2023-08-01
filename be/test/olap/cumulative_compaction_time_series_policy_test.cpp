@@ -35,16 +35,16 @@ namespace doris {
 
 class TestTimeSeriesCumulativeCompactionPolicy : public testing::Test {
 public:
-    TestTimeSeriesCumulativeCompactionPolicy() {}
+    TestTimeSeriesCumulativeCompactionPolicy() = default;
     void SetUp() {
-        config::compaction_policy = "time_series";
-        config::time_series_compaction_goal_size_mbytes = 1024;
-        config::time_series_compaction_file_count_threshold = 10;
-        config::time_series_compaction_time_threshold_seconds = 3600;
-
         _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
                 1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                 TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+
+        _tablet_meta->set_compaction_policy(std::string(CUMULATIVE_TIME_SERIES_POLICY));
+        _tablet_meta->set_time_series_compaction_goal_size_mbytes(100);
+        _tablet_meta->set_time_series_compaction_file_count_threshold(10);
+        _tablet_meta->set_time_series_compaction_time_threshold_seconds(3600);
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -106,28 +106,28 @@ public:
     void init_rs_meta_big_rowset(std::vector<RowsetMetaSharedPtr>* rs_metas) {
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 0, 1);
-        ptr1->set_total_disk_size(1024 * 1024 * 1024);
+        ptr1->set_total_disk_size(100 * 1024 * 1024);
         rs_metas->push_back(ptr1);
 
         RowsetMetaSharedPtr ptr2(new RowsetMeta());
         init_rs_meta(ptr2, 2, 3);
-        ptr2->set_total_disk_size(1024 * 1024 * 1024);
+        ptr2->set_total_disk_size(100 * 1024 * 1024);
         rs_metas->push_back(ptr2);
 
         RowsetMetaSharedPtr ptr3(new RowsetMeta());
         init_rs_meta(ptr3, 4, 4);
-        ptr3->set_total_disk_size(512 * 1024 * 1024);
+        ptr3->set_total_disk_size(51 * 1024 * 1024);
         rs_metas->push_back(ptr3);
 
         RowsetMetaSharedPtr ptr4(new RowsetMeta());
         init_rs_meta(ptr4, 5, 5);
         ptr4->set_segments_overlap(OVERLAPPING);
-        ptr4->set_total_disk_size(512 * 1024 * 1024);
+        ptr4->set_total_disk_size(51 * 1024 * 1024);
         rs_metas->push_back(ptr4);
 
         RowsetMetaSharedPtr ptr5(new RowsetMeta());
         init_rs_meta(ptr5, 6, 6);
-        ptr5->set_total_disk_size(512 * 1024 * 1024);
+        ptr5->set_total_disk_size(51 * 1024 * 1024);
         rs_metas->push_back(ptr5);
     }
 
@@ -336,7 +336,8 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_scor
     _tablet->calculate_cumulative_point();
 
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    CUMULATIVE_TIME_SERIES_POLICY);
     const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
                                                           cumulative_compaction_policy);
 
@@ -355,7 +356,8 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_scor
     _tablet->init();
     _tablet->calculate_cumulative_point();
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    CUMULATIVE_TIME_SERIES_POLICY);
     const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
                                                           cumulative_compaction_policy);
 
