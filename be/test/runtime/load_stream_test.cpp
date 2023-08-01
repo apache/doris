@@ -36,12 +36,14 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gtest/gtest_pred_impl.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/tablet_manager.h"
 #include "olap/txn_manager.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_stream_mgr.h"
+#include "util/debug/leakcheck_disabler.h"
 
 using namespace brpc;
 
@@ -334,6 +336,68 @@ public:
         void on_closed(StreamId id) override { std::cerr << "on_closed" << std::endl; }
     };
 
+    class StreamService : public PBackendService {
+    public:
+        StreamService() : _sd(brpc::INVALID_STREAM_ID) {}
+        virtual ~StreamService() { brpc::StreamClose(_sd); };
+        virtual void open_stream_sink(google::protobuf::RpcController* controller,
+                                      const POpenStreamSinkRequest* request,
+                                      POpenStreamSinkResponse* response,
+                                      google::protobuf::Closure* done) {
+            brpc::ClosureGuard done_guard(done);
+            std::unique_ptr<PStatus> status = std::make_unique<PStatus>();
+            brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+            brpc::StreamOptions stream_options;
+
+            for (const auto& req : request->tablets()) {
+                TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+                TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
+                if (tablet == nullptr) {
+                    cntl->SetFailed("Tablet not found");
+                    status->set_status_code(TStatusCode::NOT_FOUND);
+                    response->set_allocated_status(status.get());
+                    response->release_status();
+                    return;
+                }
+                auto resp = response->add_tablet_schemas();
+                resp->set_index_id(req.index_id());
+                resp->set_enable_unique_key_merge_on_write(
+                        tablet->enable_unique_key_merge_on_write());
+                tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+            }
+
+            ExecEnv* env = ExecEnv::GetInstance();
+
+            auto load_stream_mgr = env->get_load_stream_mgr();
+            LoadStreamSharedPtr load_stream;
+            auto st = load_stream_mgr->try_open_load_stream(request, &load_stream);
+
+            stream_options.handler = load_stream.get();
+
+            StreamId streamid;
+            if (brpc::StreamAccept(&streamid, *cntl, &stream_options) != 0) {
+                cntl->SetFailed("Fail to accept stream");
+                status->set_status_code(TStatusCode::CANCELLED);
+                response->set_allocated_status(status.get());
+                response->release_status();
+                return;
+            }
+
+            load_stream->add_rpc_stream();
+            LOG(INFO) << "OOXXOO: get streamid =" << streamid;
+
+            status->set_status_code(TStatusCode::OK);
+            response->set_allocated_status(status.get());
+            response->release_status();
+        }
+
+        brpc::StreamId get_stream() const { return _sd; }
+
+    private:
+        Handler _receiver;
+        brpc::StreamId _sd;
+    };
+
     class MockSinkClient {
     public:
         MockSinkClient() = default;
@@ -494,6 +558,7 @@ public:
     }
 
     void SetUp() override {
+        _server = new brpc::Server();
         srand(time(nullptr));
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -519,11 +584,14 @@ public:
 
         z_engine->start_bg_threads();
 
-        _internal_service = new PInternalServiceImpl(_env);
-        CHECK_EQ(0, _server.AddService(_internal_service, brpc::SERVER_DOESNT_OWN_SERVICE));
+        _stream_service = new StreamService();
+        CHECK_EQ(0, _server->AddService(_stream_service, brpc::SERVER_OWNS_SERVICE));
         brpc::ServerOptions server_options;
         server_options.idle_timeout_sec = 300;
-        CHECK_EQ(0, _server.Start("127.0.0.1:18947", &server_options)); // TODO: make port random
+        {
+            debug::ScopedLeakCheckDisabler disable_lsan;
+            CHECK_EQ(0, _server->Start("127.0.0.1:18947", &server_options));
+        }
 
         for (int i = 0; i < 3; i++) {
             TCreateTabletReq request;
@@ -540,9 +608,9 @@ public:
             z_engine = nullptr;
         }
         delete _env->_load_stream_mgr;
-        _server.Stop(1000);
-        CHECK_EQ(0, _server.Join());
-        delete _internal_service;
+        _server->Stop(1000);
+        CHECK_EQ(0, _server->Join());
+        SAFE_DELETE(_server);
     }
 
     std::string read_data(int64_t txn_id, int64_t partition_id, int64_t tablet_id, uint32_t segid) {
@@ -572,8 +640,8 @@ public:
     }
 
     ExecEnv* _env;
-    brpc::Server _server;
-    PInternalServiceImpl* _internal_service;
+    brpc::Server* _server;
+    StreamService* _stream_service;
 };
 
 // <client, index, bucket>

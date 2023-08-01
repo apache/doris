@@ -22,6 +22,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_common.h"
+#include "util/debug/leakcheck_disabler.h"
 #include "util/faststring.h"
 
 namespace doris {
@@ -59,10 +60,9 @@ class StreamSinkFileWriterTest : public testing::Test {
         virtual void on_closed(brpc::StreamId id) { LOG(INFO) << "Stream=" << id << " is closed"; }
     };
 
-    class StreamingSinkFileService : public PBackendService_Stub {
+    class StreamingSinkFileService : public PBackendService {
     public:
-        StreamingSinkFileService(brpc::Channel* channel)
-                : PBackendService_Stub(channel), _sd(brpc::INVALID_STREAM_ID) {}
+        StreamingSinkFileService() : _sd(brpc::INVALID_STREAM_ID) {}
         virtual ~StreamingSinkFileService() { brpc::StreamClose(_sd); };
         virtual void open_stream_sink(google::protobuf::RpcController* controller,
                                       const POpenStreamSinkRequest*,
@@ -101,20 +101,17 @@ protected:
         options.timeout_ms = FLAGS_timeout_ms;
         options.max_retry = FLAGS_max_retry;
         std::stringstream port;
-        while (true) {
-            port << "0.0.0.0:" << (rand() % 1000 + 8000);
-            if (channel.Init(port.str().c_str(), NULL) == 0) {
-                break;
-            }
-            port.clear();
-        }
+        CHECK_EQ(0, channel.Init("127.0.0.1:18946", nullptr));
 
         // init server
-        _stream_service = new StreamingSinkFileService(&channel);
+        _stream_service = new StreamingSinkFileService();
         CHECK_EQ(0, _server.AddService(_stream_service, brpc::SERVER_DOESNT_OWN_SERVICE));
         brpc::ServerOptions server_options;
         server_options.idle_timeout_sec = FLAGS_idle_timeout_s;
-        CHECK_EQ(0, _server.Start(port.str().c_str(), &server_options));
+        {
+            debug::ScopedLeakCheckDisabler disable_lsan;
+            CHECK_EQ(0, _server.Start("127.0.0.1:18946", &server_options));
+        }
 
         // init stream connect
         PBackendService_Stub stub(&channel);
@@ -176,5 +173,4 @@ TEST_F(StreamSinkFileWriterTest, TestFinalize) {
     writer.init(load_id, 3, 4, 5, 6);
     CHECK_STATUS_OK(writer.finalize());
 }
-
 } // namespace doris
