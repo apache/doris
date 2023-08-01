@@ -223,17 +223,19 @@ int64_t BackendService::get_trash_used_capacity() {
 
     std::vector<DataDirInfo> data_dir_infos;
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+    StorageEngine::instance()->notify_listener(TaskWorkerType::REPORT_DISK_STATE);
 
     for (const auto& root_path_info : data_dir_infos) {
-        auto trash_path = fmt::format("{}/{}", root_path_info.path, TRASH_PREFIX);
-        result += StorageEngine::instance()->get_file_or_directory_size(trash_path);
+        result += root_path_info.trash_used_capacity;
     }
+
     return result;
 }
 
 void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
     std::vector<DataDirInfo> data_dir_infos;
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+    StorageEngine::instance()->notify_listener(TaskWorkerType::REPORT_DISK_STATE);
 
     for (const auto& root_path_info : data_dir_infos) {
         TDiskTrashInfo diskTrashInfo;
@@ -242,9 +244,7 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
 
         diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
 
-        auto trash_path = fmt::format("{}/{}", root_path_info.path, TRASH_PREFIX);
-        diskTrashInfo.__set_trash_used_capacity(
-                StorageEngine::instance()->get_file_or_directory_size(trash_path));
+        diskTrashInfo.__set_trash_used_capacity(root_path_info.trash_used_capacity);
 
         diskTrashInfos.push_back(diskTrashInfo);
     }

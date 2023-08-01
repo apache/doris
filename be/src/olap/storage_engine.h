@@ -137,6 +137,7 @@ public:
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
     void notify_listeners();
+    void notify_listener(TaskWorkerType task_worker_type);
 
     Status execute_task(EngineTask* task);
 
