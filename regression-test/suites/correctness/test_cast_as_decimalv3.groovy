@@ -50,4 +50,27 @@ suite("test_cast_as_decimalv3") {
     qt_select3 """
         select 1.0 / val from divtest order by id
     """
+
+
+    sql """
+        set enable_nereids_planner=true,enable_fold_constant_by_be = false
+    """
+    qt_select4 """
+        select cast(-280.00000000 as decimal(16,4));
+    """
+    qt_select5 """
+        select cast(-280.00005000 as decimal(16,4));
+    """
+
+    sql """
+        set enable_nereids_planner=false
+    """
+
+
+    qt_select6 """
+        select cast(-280.00000000 as decimal(16,4));
+    """
+    qt_select7 """
+        select cast(-280.00005000 as decimal(16,4));
+    """
 }
