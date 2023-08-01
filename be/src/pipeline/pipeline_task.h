@@ -144,11 +144,12 @@ public:
 
         bool sink_ret = _sink->is_pending_finish();
         if (sink_ret) {
+            clear_dst_pending_finish_time();
             return true;
         } else {
             this->set_dst_pending_finish_time();
+            return false;
         }
-        return false;
     }
 
     bool source_can_read() { return _source->can_read(); }
@@ -227,6 +228,13 @@ public:
         }
     }
 
+    void clear_dst_pending_finish_time() {
+        if (_is_dst_pending_finish_over) {
+            _dst_pending_finish_over_time = 0;
+            _is_dst_pending_finish_over = false;
+        }
+    }
+
     void set_dst_pending_finish_time() {
         if (!_is_dst_pending_finish_over) {
             _dst_pending_finish_over_time = _pipeline_task_watcher.elapsed_time();
@@ -296,6 +304,8 @@ private:
     RuntimeProfile::Counter* _sink_timer;
     RuntimeProfile::Counter* _finalize_timer;
     RuntimeProfile::Counter* _close_timer;
+    RuntimeProfile::Counter* _try_close_sink_timer;
+    RuntimeProfile::Counter* _try_close_source_timer;
     RuntimeProfile::Counter* _block_counts;
     RuntimeProfile::Counter* _block_by_source_counts;
     RuntimeProfile::Counter* _block_by_sink_counts;

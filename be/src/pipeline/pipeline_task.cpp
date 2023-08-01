@@ -92,6 +92,8 @@ void PipelineTask::_init_profile() {
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
     _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
+    _try_close_source_timer = ADD_CHILD_TIMER(_task_profile, "TryCloseSourceTime", exec_time);
+    _try_close_sink_timer = ADD_CHILD_TIMER(_task_profile, "TryCloseSinkTime", exec_time);
 
     _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
     _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
@@ -288,8 +290,19 @@ Status PipelineTask::try_close() {
         return Status::OK();
     }
     _try_close_flag = true;
-    Status status1 = _sink->try_close(_state);
-    Status status2 = _source->try_close(_state);
+    if (!_prepared) {
+        return Status::OK();
+    }
+    Status status1;
+    {
+        SCOPED_TIMER(_try_close_sink_timer);
+        status1 = _sink->try_close(_state);
+    }
+    Status status2;
+    {
+        SCOPED_TIMER(_try_close_source_timer);
+        status2 = _source->try_close(_state);
+    }
     return status1.ok() ? status2 : status1;
 }
 
