@@ -78,14 +78,15 @@ bool is_valid_ip(const std::string& ip) {
 }
 
 Status hostname_to_ip(const std::string& host, std::string& ip) {
-    Status status = hostname_to_ip(host, ip, AF_INET);
+    Status status = hostname_to_ip(host, ip, false);
     if (status.ok()) {
         return status;
     }
-    return hostname_to_ip(host, ip, AF_INET6);
+    return hostname_to_ip(host, ip, true);
 }
 
-Status hostname_to_ip(const std::string& host, std::string& ip, int __af) {
+Status hostname_to_ip(const std::string& host, std::string& ip, bool ipv6) {
+    int __af = ipv6 ? AF_INET6 : AF_INET;
     struct hostent* pstHostent = NULL;
     if (inet_addr(host.c_str()) == INADDR_NONE) {
         if ((pstHostent = gethostbyname2(host.c_str(), __af)) == NULL) {
