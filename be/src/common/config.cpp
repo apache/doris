@@ -377,9 +377,6 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
 DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DEFINE_mInt32(seg_compaction_max_threads, "10");
-
 // This config can be set to limit thread number in  multiget thread pool.
 DEFINE_mInt32(multi_get_max_threads, "10");
 
@@ -917,6 +914,9 @@ DEFINE_Int32(segcompaction_threshold_segment_num, "10");
 
 // The segment whose row number above the threshold will be compacted during segcompaction
 DEFINE_Int32(segcompaction_small_threshold, "1048576");
+
+// This config can be set to limit thread number in  segcompaction thread pool.
+DEFINE_mInt32(segcompaction_max_threads, "10");
 
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
