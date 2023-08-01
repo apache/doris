@@ -257,7 +257,8 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
     } else {
         bool use_fixed_key = true;
         bool has_null = false;
-        int key_byte_size = 0;
+        size_t key_byte_size = 0;
+        size_t bitmap_size = get_bitmap_size(_probe_expr_ctxs.size());
 
         _probe_key_sz.resize(_probe_expr_ctxs.size());
         for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
@@ -275,19 +276,19 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
             key_byte_size += _probe_key_sz[i];
         }
 
-        if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size > sizeof(UInt256)) {
+        if (bitmap_size + key_byte_size > sizeof(UInt256)) {
             use_fixed_key = false;
         }
 
         if (use_fixed_key) {
             if (has_null) {
-                if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
-                    if (_is_first_phase)
+                if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
+                    if (_is_first_phase) {
                         _agg_data->init(AggregatedDataVariants::Type::int64_keys, has_null);
-                    else
+                    } else {
                         _agg_data->init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                           sizeof(UInt128)) {
+                    }
+                } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
                     if (_is_first_phase)
                         _agg_data->init(AggregatedDataVariants::Type::int128_keys, has_null);
                     else

@@ -435,25 +435,6 @@ protected:
 
     const ColumnRawPtrs& get_nullmap_columns() const { return null_maps; }
 
-    /// Create a bitmap that indicates whether, for a particular row,
-    /// a key column bears a null value or not.
-    KeysNullMap<Key> create_bitmap(size_t row) const {
-        KeysNullMap<Key> bitmap {};
-
-        for (size_t k = 0; k < null_maps.size(); ++k) {
-            if (null_maps[k] != nullptr) {
-                const auto& null_map = assert_cast<const ColumnUInt8&>(*null_maps[k]).get_data();
-                if (null_map[row] == 1) {
-                    size_t bucket = k / 8;
-                    size_t offset = k % 8;
-                    bitmap[bucket] |= UInt8(1) << offset;
-                }
-            }
-        }
-
-        return bitmap;
-    }
-
 private:
     ColumnRawPtrs actual_columns;
     ColumnRawPtrs null_maps;
@@ -468,10 +449,6 @@ protected:
     const ColumnRawPtrs& get_actual_columns() const { return actual_columns; }
 
     const ColumnRawPtrs& get_nullmap_columns() const { return null_maps; }
-
-    KeysNullMap<Key> create_bitmap(size_t) const {
-        LOG(FATAL) << "Internal error: calling create_bitmap() for non-nullable keys is forbidden";
-    }
 
 private:
     ColumnRawPtrs actual_columns;
