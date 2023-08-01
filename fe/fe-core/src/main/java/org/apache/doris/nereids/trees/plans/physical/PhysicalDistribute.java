@@ -58,14 +58,14 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, child);
         this.distributionSpec = spec;
     }
 
     public PhysicalDistribute(DistributionSpec spec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_DISTRIBUTION, groupExpression, logicalProperties, physicalProperties, statistics,
+        super(PlanType.PHYSICAL_DISTRIBUTE, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.distributionSpec = spec;
     }
@@ -155,5 +155,16 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         boolean pushedDown = childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
                 type, buildSideNdv, exprOrder);
         return pushedDown;
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalDistribute<>(distributionSpec, groupExpression,
+                null, physicalProperties, statistics, child());
     }
 }

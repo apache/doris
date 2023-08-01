@@ -2505,7 +2505,7 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
             } finally {
                 queryScheduleSpan.end();
             }

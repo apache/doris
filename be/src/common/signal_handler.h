@@ -422,6 +422,16 @@ void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucont
 
 } // namespace
 
+inline void set_signal_task_id(PUniqueId tid) {
+    query_id_hi = tid.hi();
+    query_id_lo = tid.lo();
+}
+
+inline void set_signal_task_id(TUniqueId tid) {
+    query_id_hi = tid.hi;
+    query_id_lo = tid.lo;
+}
+
 inline void InstallFailureSignalHandler() {
     // Build the sigaction struct.
     struct sigaction sig_action;

@@ -248,14 +248,13 @@ Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
-    auto real_parent = reinterpret_cast<NewOlapScanNode*>(_parent);
+
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
-        _tablet_reader_params.direct_mode =
-                _aggregation || single_version ||
-                real_parent->_olap_scan_node.__isset.push_down_agg_type_opt;
+        _tablet_reader_params.direct_mode = _aggregation || single_version ||
+                                            (_parent->get_push_down_agg_type() != TPushAggOp::NONE);
     }
 
     RETURN_IF_ERROR(_init_return_columns());
@@ -264,10 +263,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
-    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt) {
-        _tablet_reader_params.push_down_agg_type_opt =
-                real_parent->_olap_scan_node.push_down_agg_type_opt;
-    }
+    _tablet_reader_params.push_down_agg_type_opt = _parent->get_push_down_agg_type();
     _tablet_reader_params.version = Version(0, _version);
 
     // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,

@@ -57,7 +57,7 @@ be_node_role=computation
 
 该配置项默认为`mix`, 即原来的BE节点类型, 设置为`computation`后, 该节点为计算节点.
 
-可以通过`show backend\G`命令看到其中`NodeRole`字段的值, 如果是`mix`, 则为混合节点, 如果是`computation`, 则为计算节点
+可以通过`show backends\G`命令看到其中`NodeRole`字段的值, 如果是`mix`, 则为混合节点, 如果是`computation`, 则为计算节点
 
 ```sql
 *************************** 1. row ***************************

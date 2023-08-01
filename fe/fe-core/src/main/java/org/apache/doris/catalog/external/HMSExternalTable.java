@@ -434,7 +434,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
-        Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(this);
+        Table icebergTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this);
         Schema schema = icebergTable.schema();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
         for (FieldSchema field : hmsSchema) {
@@ -470,7 +470,8 @@ public class HMSExternalTable extends ExternalTable {
             case HIVE:
                 return getHiveColumnStats(colName);
             case ICEBERG:
-                return StatisticsUtil.getIcebergColumnStats(colName, HiveMetaStoreClientHelper.getIcebergTable(this));
+                return StatisticsUtil.getIcebergColumnStats(colName,
+                    Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
             default:
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }

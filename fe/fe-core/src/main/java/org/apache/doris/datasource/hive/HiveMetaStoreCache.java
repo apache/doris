@@ -378,7 +378,7 @@ public class HiveMetaStoreCache {
             RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
             for (RemoteFile remoteFile : locatedFiles.files()) {
                 Path srcPath = remoteFile.getPath();
-                Path convertedPath = S3Util.toScanRangeLocation(srcPath.toString());
+                Path convertedPath = S3Util.toScanRangeLocation(srcPath.toString(), catalog.getProperties());
                 if (!convertedPath.toString().equals(srcPath.toString())) {
                     remoteFile.setPath(convertedPath);
                 }
@@ -403,7 +403,7 @@ public class HiveMetaStoreCache {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
-            String finalLocation = S3Util.convertToS3IfNecessary(key.location);
+            String finalLocation = S3Util.convertToS3IfNecessary(key.location, catalog.getProperties());
             // disable the fs cache in FileSystem, or it will always from new FileSystem
             // and save it in cache when calling FileInputFormat.setInputPaths().
             try {
@@ -437,7 +437,8 @@ public class HiveMetaStoreCache {
                     for (int i = 0; i < splits.length; i++) {
                         org.apache.hadoop.mapred.FileSplit fs = ((org.apache.hadoop.mapred.FileSplit) splits[i]);
                         // todo: get modification time
-                        Path splitFilePath = S3Util.toScanRangeLocation(fs.getPath().toString());
+                        Path splitFilePath = S3Util.toScanRangeLocation(fs.getPath().toString(),
+                                    catalog.getProperties());
                         result.addSplit(new FileSplit(splitFilePath, fs.getStart(), fs.getLength(), -1, null, null));
                     }
                 }

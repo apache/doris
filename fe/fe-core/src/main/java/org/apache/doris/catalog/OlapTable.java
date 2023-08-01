@@ -170,6 +170,8 @@ public class OlapTable extends Table {
 
     private AutoIncrementGenerator autoIncrementGenerator;
 
+    private String storageMedium;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -225,6 +227,15 @@ public class OlapTable extends Table {
 
     public void setBinlogConfig(BinlogConfig binlogConfig) {
         getOrCreatTableProperty().setBinlogConfig(binlogConfig);
+    }
+
+    public void setIsBeingSynced(boolean isBeingSynced) {
+        getOrCreatTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED,
+                String.valueOf(isBeingSynced));
+    }
+
+    public boolean isBeingSynced() {
+        return getOrCreatTableProperty().isBeingSynced();
     }
 
     public void setTableProperty(TableProperty tableProperty) {
@@ -504,9 +515,17 @@ public class OlapTable extends Table {
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
-                                          ReplicaAllocation replicaAlloc) {
+                                          ReplicaAllocation replicaAlloc, boolean isBeingSynced) {
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
+        }
+        if (isBeingSynced) {
+            TableProperty tableProperty = getOrCreatTableProperty();
+            tableProperty.setIsBeingSynced();
+            tableProperty.removeInvalidProperties();
+            if (isAutoBucket()) {
+                markAutoBucket();
+            }
         }
         // remove colocate property.
         setColocateGroup(null);
@@ -756,6 +775,10 @@ public class OlapTable extends Table {
 
     public DistributionInfo getDefaultDistributionInfo() {
         return defaultDistributionInfo;
+    }
+
+    public void markAutoBucket() {
+        defaultDistributionInfo.markAutoBucket();
     }
 
     public Set<String> getDistributionColumnNames() {
@@ -1293,6 +1316,13 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
+
+        if (storageMedium == null || storageMedium.length() == 0) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, storageMedium);
+        }
     }
 
     @Override
@@ -1397,6 +1427,10 @@ public class OlapTable extends Table {
             }
         }
         tempPartitions.unsetPartitionInfo();
+
+        if (in.readBoolean()) {
+            storageMedium = Text.readString(in);
+        }
 
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
@@ -1699,6 +1733,15 @@ public class OlapTable extends Table {
         return hasChanged;
     }
 
+    public void ignoreInvaildPropertiesWhenSynced(Map<String, String> properties) {
+        // ignore colocate table
+        PropertyAnalyzer.analyzeColocate(properties);
+        // ignore storage policy
+        if (!PropertyAnalyzer.analyzeStoragePolicy(properties).isEmpty()) {
+            properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        }
+    }
+
     public void setReplicationAllocation(ReplicaAllocation replicaAlloc) {
         getOrCreatTableProperty().setReplicaAlloc(replicaAlloc);
     }
@@ -1780,17 +1823,6 @@ public class OlapTable extends Table {
         return "";
     }
 
-    public void setCcrEnable(boolean ccrEnable) throws UserException {
-        // TODO(Drogon): Config.enable_ccr
-        TableProperty tableProperty = getOrCreatTableProperty();
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, Boolean.toString(ccrEnable));
-        tableProperty.buildCcrEnable();
-    }
-
-    public boolean isCcrEnable() {
-        return tableProperty != null && tableProperty.isCcrEnable();
-    }
-
     public void setDisableAutoCompaction(boolean disableAutoCompaction) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
@@ -1819,6 +1851,15 @@ public class OlapTable extends Table {
             return tableProperty.enableSingleReplicaCompaction();
         }
         return false;
+    }
+
+
+    public void setStorageMedium(String medium) {
+        storageMedium = medium;
+    }
+
+    public String getStorageMedium() {
+        return storageMedium;
     }
 
     public void setStoreRowColumn(boolean storeRowColumn) {

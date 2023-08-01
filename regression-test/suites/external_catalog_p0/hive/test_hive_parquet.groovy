@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_parquet", "p0") {
+suite("test_hive_parquet", "p0,external,hive") {
     def q01 = {
         qt_q01 """
         select * from partition_table order by l_orderkey, l_partkey, l_suppkey;

@@ -158,6 +158,8 @@ public:
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
 
     ParquetColumnReader::Statistics statistics();
+    void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
+    int64_t get_remaining_rows() { return _remaining_rows; }
 
 private:
     void _merge_read_ranges(std::vector<RowRange>& row_ranges);

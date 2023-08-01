@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_catalog_hive_orc", "p0") {
+suite("test_catalog_hive_orc", "p0,external,hive") {
 
     def q01 = { 
         sql """set exec_mem_limit=8589934592"""

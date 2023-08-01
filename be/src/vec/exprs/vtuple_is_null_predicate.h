@@ -42,25 +42,20 @@ class VTupleIsNullPredicate final : public VExpr {
 public:
     explicit VTupleIsNullPredicate(const TExprNode& node);
     ~VTupleIsNullPredicate() override = default;
-    doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                          int* result_column_id) override;
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override;
-
-    VExprSPtr clone() const override { return VTupleIsNullPredicate::create_shared(*this); }
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override;
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
 
     [[nodiscard]] bool is_constant() const override { return false; }
 
     [[nodiscard]] const std::string& expr_name() const override;
 
-    virtual std::string debug_string() const override;
+    std::string debug_string() const override;
 
 private:
     std::string _expr_name;
     bool _is_left_null_side;
     uint32_t _column_to_check;
 
-private:
     static const constexpr char* function_name = "tuple_is_null";
 };
 } // namespace doris::vectorized
