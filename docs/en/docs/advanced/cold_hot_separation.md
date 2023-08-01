@@ -54,7 +54,9 @@ The storage policy is the entry to use the cold and hot separation function. Use
 
 <version since="dev"></version> When creating an S3 RESOURCE, the S3 remote link verification will be performed to ensure that the RESOURCE is created correctly.
 
-In addition, fe configuration needs to be added: `enable_storage_policy=true`
+In addition, fe configuration needs to be added: `enable_storage_policy=true`  
+
+Note: This property will not be synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, this property will be erased in this table.
 
 For example:
 

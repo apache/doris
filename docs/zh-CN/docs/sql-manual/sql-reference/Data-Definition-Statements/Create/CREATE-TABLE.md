@@ -293,6 +293,16 @@ UNIQUE KEY(k1, k2)
 
     根据 Tag 设置副本分布情况。该属性可以完全覆盖 `replication_num` 属性的功能。
 
+* `is_being_synced`  
+
+    用于标识此表是否是被CCR复制而来并且正在被syncer同步，默认为 `false`。  
+
+    如果设置为 `true`：  
+    `colocate_with`，`storage_policy`属性将被擦除  
+    `dynamic partition`，`auto bucket`功能将会失效，即在`show create table`中显示开启状态，但不会实际生效。当`is_being_synced`被设置为 `false` 时，这些功能将会恢复生效。  
+
+    这个属性仅供CCR外围模块使用，在CCR同步的过程中不要手动设置。
+
 * `storage_medium/storage_cooldown_time`
 
     数据存储介质。`storage_medium` 用于声明表数据的初始存储介质，而 `storage_cooldown_time` 用于设定到期时间。示例：
