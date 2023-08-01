@@ -148,8 +148,10 @@ int64_t Compaction::get_avg_segment_rows() {
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size
     // in disk is config::vertical_compaction_max_segment_size
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
-        return (config::time_series_compaction_goal_size_mbytes * 1024 * 1024 * 2) /
+    const auto& meta = _tablet->tablet_meta();
+    if (meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
+        int64_t compaction_goal_size_mbytes = meta->time_series_compaction_goal_size_mbytes();
+        return (compaction_goal_size_mbytes * 1024 * 1024 * 2) /
                (_input_rowsets_size / (_input_row_num + 1) + 1);
     }
     return config::vertical_compaction_max_segment_size /

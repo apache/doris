@@ -63,13 +63,15 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return 0;
     }
 
-    // Condition 1: the size of input files for compaction meets the requirement of parameter _compaction_goal_size
-    if (total_size >= (config::time_series_compaction_goal_size_mbytes * 1024 * 1024)) {
+    // Condition 1: the size of input files for compaction meets the requirement of parameter compaction_goal_size
+    int64_t compaction_goal_size_mbytes =
+            tablet->tablet_meta()->time_series_compaction_goal_size_mbytes();
+    if (total_size >= compaction_goal_size_mbytes * 1024 * 1024) {
         return score;
     }
 
-    // Condition 2: the number of input files reaches the threshold specified by parameter _compaction_file_count_threshold
-    if (score >= config::time_series_compaction_file_count_threshold) {
+    // Condition 2: the number of input files reaches the threshold specified by parameter compaction_file_count_threshold
+    if (score >= tablet->tablet_meta()->time_series_compaction_file_count_threshold()) {
         return score;
     }
 
@@ -79,7 +81,8 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         int64_t cumu_interval = now - last_cumu;
 
         // Condition 3: the time interval between compactions exceeds the value specified by parameter _compaction_time_threshold_second
-        if (cumu_interval > (config::time_series_compaction_time_threshold_seconds * 1000)) {
+        if (cumu_interval >
+            (tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() * 1000)) {
             return score;
         }
     } else if (score > 0) {
@@ -199,8 +202,9 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         transient_size += 1;
         input_rowsets->push_back(rowset);
 
-        // Condition 1: the size of input files for compaction meets the requirement of parameter _compaction_goal_size
-        if (total_size >= (config::time_series_compaction_goal_size_mbytes * 1024 * 1024)) {
+        // Condition 1: the size of input files for compaction meets the requirement of parameter compaction_goal_size
+        if (total_size >=
+            (tablet->tablet_meta()->time_series_compaction_goal_size_mbytes() * 1024 * 1024)) {
             if (input_rowsets->size() == 1 &&
                 !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
                 // Only 1 non-overlapping rowset, skip it
@@ -225,8 +229,8 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         return transient_size;
     }
 
-    // Condition 2: the number of input files reaches the threshold specified by parameter _compaction_file_count_threshold
-    if (*compaction_score >= config::time_series_compaction_file_count_threshold) {
+    // Condition 2: the number of input files reaches the threshold specified by parameter compaction_file_count_threshold
+    if (*compaction_score >= tablet->tablet_meta()->time_series_compaction_file_count_threshold()) {
         return transient_size;
     }
 
@@ -235,8 +239,9 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     if (last_cumu != 0) {
         int64_t cumu_interval = now - last_cumu;
 
-        // Condition 3: the time interval between compactions exceeds the value specified by parameter _compaction_time_threshold_second
-        if (cumu_interval > (config::time_series_compaction_time_threshold_seconds * 1000)) {
+        // Condition 3: the time interval between compactions exceeds the value specified by parameter compaction_time_threshold_second
+        if (cumu_interval >
+            (tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() * 1000)) {
             return transient_size;
         }
     }
