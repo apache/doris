@@ -47,8 +47,9 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // this suites will not be executed
-excludeSuites = "q67_ignore_temporarily,workload_manager_p1"
-
+excludeSuites = "q67_ignore_temporarily"
+// this dir will not be executed
+excludeDirectories = "workload_manager_p1"
 cacheDataPath="/data/regression/"
 
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
