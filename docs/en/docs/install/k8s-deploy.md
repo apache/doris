@@ -39,14 +39,14 @@ under the License.
     - https://github.com/apache/doris/blob/master/docker/runtime/k8s/doris_be.yml
     - https://github.com/apache/doris/blob/master/docker/runtime/k8s/doris_cn.yml
 
-## Starting a cluster
+## Starting A Cluster
 Start FE (role type is Follower):`kubectl create -f doris_follower.yml` 
 
 Start BE:`kubectl create -f doris_be.yml` 
 
 Start the BE (role type is Compute Node):`kubectl create -f doris_cn.yml`
 
-## Expansion and contraction capacity
+## Expansion and Contraction Capacity
 
 - FE
   - Currently, scaling is not supported. It is recommended to initialize 1 or 3 nodes as needed
@@ -55,11 +55,11 @@ Start the BE (role type is Compute Node):`kubectl create -f doris_cn.yml`
 - BE (role type is Compute Node)
   - Command:`kubectl scale statefulset doris-cn-cluster1 --replicas=4`
 
-## test and verify
+## Test and Verify
 
 Connect to the FE using mysql-client and perform operations such as' show backends' and 'show frontends' to view the status of each node
 
-## K8s simple operation command
+## K8s Simple Operation Command
 
 - Executing the yml file for the first time `kubectl create -f xxx.yml`
 - Execute after modifying the yml file `kubectl apply -f xxx.yml`
@@ -70,7 +70,7 @@ Connect to the FE using mysql-client and perform operations such as' show backen
 - View IP and port information `kubectl get ep`
 - [More knowledge of k8s](https://kubernetes.io)
 
-## common problem
+## Common Problem
 
 - How is data persistent?
 

@@ -1,6 +1,6 @@
 ---
 {
-"title": "Use mysqldump data to export table structure or data",
+"title": "Export Data or Table Structure with MYSQLDUMP ",
 "language": "en"
 }
 ---
@@ -24,10 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Use mysqldump data to export table structure or data
+# Export Data or Table Structure with MYSQLDUMP
 Doris has supported exporting data or table structures through the `mysqldump` tool after version 0.15
 
-## Example
+## Examples
 ### Export
   1. Export the table1 table in the test database: `mysqldump -h127.0.0.1 -P9030 -uroot --no-tablespaces --databases test --tables table1`
   2. Export the table1 table structure in the test database: `mysqldump -h127.0.0.1 -P9030 -uroot --no-tablespaces --databases test --tables table1 --no-data`
