@@ -20,23 +20,30 @@ package org.apache.doris.scheduler.constants;
 import lombok.Getter;
 
 /**
- * System scheduler event job
- * They will start when scheduler starts,don't use this job in other place,it just for system inner scheduler
+ * The job category is used to distinguish different types of jobs.
  */
-public enum SystemJob {
-
-    /**
-     * System cycle scheduler event job, it will start cycle scheduler
-     */
-    SYSTEM_SCHEDULER_JOB("system_scheduler_event_job", 1L);
+public enum JobCategory {
+    COMMON(1, "common"),
+    SQL(2, "sql"),
+    ;
 
     @Getter
-    private final String description;
-    @Getter
-    private final Long id;
+    private int code;
 
-    SystemJob(String description, Long id) {
+    @Getter
+    private String description;
+
+    JobCategory(int code, String description) {
+        this.code = code;
         this.description = description;
-        this.id = id;
+    }
+
+    public static JobCategory getJobCategoryByCode(int code) {
+        for (JobCategory jobCategory : JobCategory.values()) {
+            if (jobCategory.getCode() == code) {
+                return jobCategory;
+            }
+        }
+        return null;
     }
 }
