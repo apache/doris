@@ -21,7 +21,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.MultiLoadMgr;
-import org.apache.doris.thrift.TDiskInfo;
 
 import java.util.ArrayList;
 import java.util.List;
