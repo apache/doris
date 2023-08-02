@@ -319,7 +319,7 @@ class Syncer {
     }
 
     Boolean checkRestoreFinish() {
-        String checkSQL = "SHOW RESTORE FROM " + context.db
+        String checkSQL = "SHOW RESTORE FROM TEST_" + context.db
         List<Object> row = suite.sql(checkSQL)[0]
         logger.info("Now row is ${row}")
 
@@ -415,7 +415,15 @@ class Syncer {
         context.closeBackendClients()
     }
 
-    Boolean restoreSnapshot() {
+    Boolean getMasterToken() {
+        logger.info("Get master token.")
+        FrontendClientImpl clientImpl = context.getSourceFrontClient()
+        TGetMasterTokenResult result = SyncerUtils.getMasterToken(clientImpl, context)
+
+        return checkGetMasterToken(result)
+    }
+
+    Boolean restoreSnapshot(boolean forCCR = false) {
         logger.info("Restore snapshot ${context.labelName}")
         FrontendClientImpl clientImpl = context.getSourceFrontClient()
 
@@ -428,7 +436,7 @@ class Syncer {
         context.getSnapshotResult.setJobInfo(gson.toJson(jsonMap).getBytes())
 
         // step 2: restore
-        TRestoreSnapshotResult result = SyncerUtils.restoreSnapshot(clientImpl, context)
+        TRestoreSnapshotResult result = SyncerUtils.restoreSnapshot(clientImpl, context, forCCR)
         return checkRestoreSnapshot(result)
     }
 
