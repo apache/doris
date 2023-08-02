@@ -95,7 +95,7 @@ class CsvLineReaderContext final : public PlainTexLineReaderCtx {
 public:
     explicit CsvLineReaderContext(const std::string& line_delimiter_,
                                   const size_t line_delimiter_len_, const std::string& column_sep_,
-                                  const size_t column_sep_num, const size_t column_sep_len_,
+                                  const size_t column_sep_len_, const size_t column_sep_num,
                                   const char enclose, const char escape)
             : PlainTexLineReaderCtx(line_delimiter_, line_delimiter_len_),
               _enclose(enclose),
@@ -109,7 +109,6 @@ public:
 
     inline void refresh() override {
         _idx = 0;
-        _delimiter_match_len = 0;
         _left_enclose_pos = 0;
         _state.reset();
         _result = nullptr;
@@ -121,22 +120,24 @@ public:
     }
 
 protected:
-    void on_start(const uint8_t* start, size_t len);
-    void on_normal(const uint8_t* start, size_t len);
-    void on_pre_match_enclose(const uint8_t* start, size_t len);
-    void on_match_enclose(const uint8_t* start, size_t len);
+    void on_start(const uint8_t* start, size_t& len);
+    void on_normal(const uint8_t* start, size_t& len);
+    void on_pre_match_enclose(const uint8_t* start, size_t& len);
+    void on_match_enclose(const uint8_t* start, size_t& len);
 
 private:
     bool _look_for_column_sep(const uint8_t* curr_start, size_t curr_len);
     bool _look_for_line_delim(const uint8_t* curr_start, size_t curr_len);
+    size_t _extend_reading_range(const uint8_t* start);
 
     const char _enclose;
     const char _escape;
     const std::string _column_sep;
     const size_t _column_sep_len;
 
+    size_t _total_len;
+
     size_t _idx = 0;
-    size_t _delimiter_match_len = 0;
     size_t _left_enclose_pos = 0;
     ReaderStateWrapper _state;
     const uint8_t* _result = nullptr;

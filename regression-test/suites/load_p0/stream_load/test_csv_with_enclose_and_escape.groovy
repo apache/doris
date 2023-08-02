@@ -78,7 +78,6 @@ suite("test_csv_with_enclose_and_escape", "p0") {
         set 'trim_double_quotes', 'true'
         set 'enclose', "\""
         set 'escape', '\\'
-        set 'max_filter_ratio', '0.5'
 
         file "enclose_without_escape.csv"
 
@@ -86,10 +85,7 @@ suite("test_csv_with_enclose_and_escape", "p0") {
             result, exception, startTime, endTime ->
                 assertTrue(exception == null)
                 def json = parseJson(result)
-                assertEquals("Success", json.Status)
-                assertEquals(2, json.NumberTotalRows)
-                assertEquals(1, json.NumberLoadedRows)
-                assertEquals(1, json.NumberFilteredRows)
+                assertEquals("Fail", json.Status)
         }
     }
 
