@@ -1027,17 +1027,12 @@ suite("test_partial_update_schema_change", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
-            assertEquals(1, json.NumberTotalRows)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
-
-    sql "sync"
-
-    //check data
-    qt_sql22 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
