@@ -224,7 +224,9 @@ Status Channel::close_wait(RuntimeState* state) {
         _need_close = false;
         return st;
     }
-    _serializer->reset_block();
+    if (_serializer) {
+        _serializer->reset_block();
+    }
     return Status::OK();
 }
 
