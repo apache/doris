@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.math.BigInteger;
-import java.util.Random;
 
 /**
  * functions that can be executed in FE.
