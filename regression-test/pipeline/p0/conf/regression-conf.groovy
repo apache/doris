@@ -56,7 +56,7 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "test_profile,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter"
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "workload_manager_p1"
 
 customConf1 = "test_custom_conf_value"
 
