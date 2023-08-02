@@ -45,7 +45,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
@@ -1145,7 +1144,7 @@ void StorageEngine::notify_listeners() {
     }
 }
 
-void StorageEngine::notify_listener(TaskWorkerType task_worker_type) {
+void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
         if (listener->task_worker_type() == task_worker_type) {

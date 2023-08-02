@@ -35,6 +35,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "agent/task_worker_pool.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -54,7 +55,6 @@ namespace doris {
 class DataDir;
 class EngineTask;
 class MemTableFlushExecutor;
-class TaskWorkerPool;
 class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
@@ -137,7 +137,7 @@ public:
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
     void notify_listeners();
-    void notify_listener(TaskWorkerType task_worker_type);
+    void notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
 
     Status execute_task(EngineTask* task);
 
