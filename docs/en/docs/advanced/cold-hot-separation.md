@@ -1,6 +1,6 @@
 ---
 {
-"title": "Cold hot separation",
+"title": "Cold Hot Separation",
 "language": "en"
 }
 ---
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# [Experimental] Cold hot separation
+# [Experimental] Cold Hot Separation
 
-## Demand scenario
+## Demand Scenarios 
 
 A big usage scenario in the future is similar to the es log storage. In the log scenario, the data will be cut by date. Many data are cold data, with few queries. Therefore, the storage cost of such data needs to be reduced. From the perspective of saving storage costs
 1. The price of ordinary cloud disks of cloud manufacturers is higher than that of object storage

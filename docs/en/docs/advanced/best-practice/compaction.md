@@ -32,7 +32,7 @@ Doris writes data through a structure similar to LSM-Tree, and continuously merg
 Appropriately adjusting the compaction strategy can greatly improve load and query efficiency. Doris provides the following two compaction strategies for tuning:
 
 
-## Vertical compaction
+## Vertical Compaction
 
 <version since="1.2.2">
 </version>
@@ -47,7 +47,7 @@ BE configuration：
 - `vertical_compaction_max_segment_size` is used to configure the size of the disk file after vertical compaction, the default value is 268435456 (bytes)
 
 
-## Segment compaction
+## Segment Compaction
 
 Segment compaction mainly deals with the large-scale data load. Segment compaction operates during the load process and compact segments inside the job, which is different from normal compaction and vertical compaction. This mechanism can effectively reduce the number of generated segments and avoid the -238 (OLAP_ERR_TOO_MANY_SEGMENTS) errors.
 
