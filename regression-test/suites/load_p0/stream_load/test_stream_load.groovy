@@ -966,7 +966,6 @@ suite("test_stream_load", "p0") {
     streamLoad {
         table "${tableName15}"
 
-        set 'line_delimiter', 'weizuo'
         set 'column_separator', '|'
         set 'columns', 'id, value'
         set 'invalid_request_field', 'this_is_an_invalid_request_field'
