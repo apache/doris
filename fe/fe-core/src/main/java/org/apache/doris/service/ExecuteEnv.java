@@ -33,54 +33,17 @@ public class ExecuteEnv {
     private ConnectScheduler scheduler;
     private long startupTime;
 
-    public static class DiskInfo {
-        private String dirType;
-        private String dir;
-
-        public String getDirType() {
-            return dirType;
-        }
-
-        public void setDirType(String dirType) {
-            this.dirType = dirType;
-        }
-
-        public String getDir() {
-            return dir;
-        }
-
-        public void setDir(String dir) {
-            this.dir = dir;
-        }
-
-        public DiskUtils.Df getSpaceInfo() {
-            return spaceInfo;
-        }
-
-        public void setSpaceInfo(DiskUtils.Df spaceInfo) {
-            this.spaceInfo = spaceInfo;
-        }
-
-        private DiskUtils.Df spaceInfo;
-
-        public DiskInfo(String dirType, String dir, DiskUtils.Df spaceInfo) {
-            this.dirType = dirType;
-            this.dir = dir;
-            this.spaceInfo = spaceInfo;
-        }
-    }
-
-    private List<DiskInfo> diskInfos;
+    private List<FeDiskInfo> diskInfos;
 
     private ExecuteEnv() {
         multiLoadMgr = new MultiLoadMgr();
         scheduler = new ConnectScheduler(Config.qe_max_connection);
         startupTime = System.currentTimeMillis();
-        diskInfos = new ArrayList<DiskInfo>() {{
-                add(new DiskInfo("meta", Config.meta_dir, DiskUtils.df(Config.meta_dir)));
-                add(new DiskInfo("log", Config.sys_log_dir, DiskUtils.df(Config.sys_log_dir)));
-                add(new DiskInfo("audit-log", Config.audit_log_dir, DiskUtils.df(Config.audit_log_dir)));
-                add(new DiskInfo("temp", Config.tmp_dir, DiskUtils.df(Config.tmp_dir)));
+        diskInfos = new ArrayList<FeDiskInfo>() {{
+                add(new FeDiskInfo("meta", Config.meta_dir, DiskUtils.df(Config.meta_dir)));
+                add(new FeDiskInfo("log", Config.sys_log_dir, DiskUtils.df(Config.sys_log_dir)));
+                add(new FeDiskInfo("audit-log", Config.audit_log_dir, DiskUtils.df(Config.audit_log_dir)));
+                add(new FeDiskInfo("temp", Config.tmp_dir, DiskUtils.df(Config.tmp_dir)));
             }};
     }
 
@@ -107,13 +70,13 @@ public class ExecuteEnv {
         return startupTime;
     }
 
-    public List<DiskInfo> getDiskInfos() {
+    public List<FeDiskInfo> getDiskInfos() {
         return this.diskInfos;
     }
 
-    public List<DiskInfo> refreshAndGetDiskInfo(boolean refresh) {
-        for (DiskInfo disk : diskInfos) {
-            DiskUtils.Df df = DiskUtils.df(disk.dir);
+    public List<FeDiskInfo> refreshAndGetDiskInfo(boolean refresh) {
+        for (FeDiskInfo disk : diskInfos) {
+            DiskUtils.Df df = DiskUtils.df(disk.getDir());
             if (df != null) {
                 disk.setSpaceInfo(df);
             }
@@ -121,38 +84,25 @@ public class ExecuteEnv {
         return diskInfos;
     }
 
-    public static List<TDiskInfo> toThrift(List<DiskInfo> diskInfos) {
+    public static List<TDiskInfo> toThrift(List<FeDiskInfo> diskInfos) {
         if (diskInfos == null) {
             return null;
         }
         List<TDiskInfo> r = new ArrayList<TDiskInfo>(diskInfos.size());
-        for (DiskInfo d : diskInfos) {
-            r.add(new TDiskInfo(d.getDirType(),
-                        d.getDir(),
-                        d.getSpaceInfo().fileSystem,
-                        d.getSpaceInfo().blocks,
-                        d.getSpaceInfo().used,
-                        d.getSpaceInfo().available,
-                        d.getSpaceInfo().useRate,
-                        d.getSpaceInfo().mountedOn));
+        for (FeDiskInfo d : diskInfos) {
+            r.add(d.toThrift());
         }
         return r;
     }
 
-    public static List<DiskInfo> fromThrift(List<TDiskInfo> diskInfos) {
+    public static List<FeDiskInfo> fromThrift(List<TDiskInfo> diskInfos) {
         if (diskInfos == null) {
             return null;
         }
-        List<DiskInfo> r = new ArrayList<DiskInfo>(diskInfos.size());
+        List<FeDiskInfo> r = new ArrayList<FeDiskInfo>(diskInfos.size());
         for (TDiskInfo d : diskInfos) {
-            DiskUtils.Df df = new DiskUtils.Df();
-            df.fileSystem = d.getFilesystem();
-            df.blocks = d.getBlocks();
-            df.used = d.getUsed();
-            df.available = d.getAvailable();
-            df.useRate = d.getUseRate();
-            df.mountedOn = d.getMountedOn();
-            DiskInfo disk = new DiskInfo(d.getDirType(), d.getDir(), df);
+            FeDiskInfo disk = new FeDiskInfo();
+            disk.fromThrift(d);
             r.add(disk);
         }
         return r;

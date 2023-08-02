@@ -19,7 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FeDiskInfo;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -42,7 +42,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private long replayedJournalId;
     private String version;
     private long feStartTime;
-    private List<ExecuteEnv.DiskInfo> diskInfos;
+    private List<FeDiskInfo> diskInfos;
 
     public FrontendHbResponse() {
         super(HeartbeatResponse.Type.FRONTEND);
@@ -50,7 +50,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public FrontendHbResponse(String name, int queryPort, int rpcPort,
             long replayedJournalId, long hbTime, String version,
-            long feStartTime, List<ExecuteEnv.DiskInfo> diskInfos) {
+            long feStartTime, List<FeDiskInfo> diskInfos) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;
@@ -94,7 +94,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         return feStartTime;
     }
 
-    public List<ExecuteEnv.DiskInfo> getDiskInfos() {
+    public List<FeDiskInfo> getDiskInfos() {
         return diskInfos;
     }
 

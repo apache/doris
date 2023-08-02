@@ -22,7 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -155,7 +155,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static void getFrontendsDiskInfo(Env env, List<List<String>> infos) {
         for (Frontend fe : env.getFrontends(null /* all */)) {
             if (fe.getDiskInfos() != null) {
-                for (ExecuteEnv.DiskInfo disk : fe.getDiskInfos()) {
+                for (FeDiskInfo disk : fe.getDiskInfos()) {
                     List<String> info = new ArrayList<String>();
                     info.add(fe.getNodeName());
                     info.add(fe.getHost());

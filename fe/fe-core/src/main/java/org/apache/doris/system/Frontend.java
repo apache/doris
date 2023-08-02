@@ -25,7 +25,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -56,7 +56,7 @@ public class Frontend implements Writable {
     private long lastStartupTime;
     private long lastUpdateTime;
     private String heartbeatErrMsg = "";
-    private List<ExecuteEnv.DiskInfo> diskInfos;
+    private List<FeDiskInfo> diskInfos;
 
     private boolean isAlive = false;
 
@@ -126,7 +126,7 @@ public class Frontend implements Writable {
         return lastUpdateTime;
     }
 
-    public List<ExecuteEnv.DiskInfo> getDiskInfos() {
+    public List<FeDiskInfo> getDiskInfos() {
         return diskInfos;
     }
 
