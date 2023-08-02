@@ -199,32 +199,39 @@ def test_concurrency = {
     print_test_result(test_label, c, i, timecost, concurrency_succ_num, concurrency_failed_num)
 }
 
+def show_global_config = {
+    println "========== show global config info"
+    def show_sql_con = Sql.newInstance(url, username, password, 'com.mysql.jdbc.Driver')
+    def show_sql1 = "show variables like '%experimental_enable_pipeline_engine%'"
+    def show_sql2 = "ADMIN SHOW FRONTEND CONFIG like '%enable_workload_group%';"
+    def show_sql3 = "show variables like '%parallel_fragment_exec_instance_num%';"
+    def show_sql4 = "show variables like '%parallel_pipeline_task_num%';"
+    show_sql_con.eachRow(show_sql1,) { row ->
+        println row[0] + " = " + row[1]
+    }
+
+    show_sql_con.eachRow(show_sql2,) { row ->
+        println row[0] + " = " + row[1]
+    }
+
+    show_sql_con.eachRow(show_sql3,) { row ->
+        println row[0] + " = " + row[1]
+    }
+
+    show_sql_con.eachRow(show_sql4,) { row ->
+        println row[0] + " = " + row[1]
+    }
+}
+
+// note(wb) you can close the comment to test
+
 // test 1, test two group runs at same time
-test_two_group_query()
+//test_two_group_query()
 
 // test2, just run one group to test concurrency
 //test_concurrency()
 
-println "========== show global config info"
-def show_sql_con = Sql.newInstance(url, username, password, 'com.mysql.jdbc.Driver')
-def show_sql1 = "show variables like '%experimental_enable_pipeline_engine%'"
-def show_sql2 = "ADMIN SHOW FRONTEND CONFIG like '%enable_workload_group%';"
-def show_sql3 = "show variables like '%parallel_fragment_exec_instance_num%';"
-def show_sql4 = "show variables like '%parallel_pipeline_task_num%';"
-show_sql_con.eachRow(show_sql1, ) {row->
-    println row[0] + " = " + row[1]
-}
+// show config
+//show_global_config()
 
-show_sql_con.eachRow(show_sql2, ) {row->
-    println row[0] + " = " + row[1]
-}
-
-show_sql_con.eachRow(show_sql3, ) {row->
-    println row[0] + " = " + row[1]
-}
-
-show_sql_con.eachRow(show_sql4, ) {row->
-    println row[0] + " = " + row[1]
-}
-
-println "==========Test finish, time cost=" + (System.currentTimeMillis() - begin_time) / 1000
+//println "==========Test finish, time cost=" + (System.currentTimeMillis() - begin_time) / 1000
