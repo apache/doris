@@ -313,6 +313,8 @@ private:
     Status get_result(IColumn& to, const DataTypePtr& result_type, int64_t place, JNIEnv* env,
                       IColumn& data_col) const {
         if (data_col.is_column_string()) {
+            jobject res = env->CallNonvirtualObjectMethod(executor_obj, executor_cl,
+                                                          executor_get_value_id, place);
             const ColumnString* str_col = check_and_get_column<ColumnString>(data_col);
             ColumnString::Chars& chars = const_cast<ColumnString::Chars&>(str_col->get_chars());
             ColumnString::Offsets& offsets =
@@ -322,30 +324,19 @@ private:
             chars.resize(buffer_size);
             *output_value_buffer = reinterpret_cast<int64_t>(chars.data());
             *output_offsets_ptr = reinterpret_cast<int64_t>(offsets.data());
-            *output_intermediate_state_ptr = chars.size();
-            jboolean res = env->CallNonvirtualBooleanMethod(
-                    executor_obj, executor_cl, executor_result_id, to.size() - 1, place);
-            while (res != JNI_TRUE) {
-                RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-                increase_buffer_size++;
-                buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);
-                try {
-                    chars.resize(buffer_size);
-                } catch (std::bad_alloc const& e) {
-                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                           "memory allocate failed in column string, "
-                                           "buffer:{},size:{},reason:{}",
-                                           increase_buffer_size, buffer_size, e.what());
-                }
-                *output_value_buffer = reinterpret_cast<int64_t>(chars.data());
-                *output_intermediate_state_ptr = chars.size();
-                res = env->CallNonvirtualBooleanMethod(executor_obj, executor_cl,
-                                                       executor_result_id, to.size() - 1, place);
-            }
+            *output_intermediate_state_ptr = reinterpret_cast<int64_t>(&chars);
+            env->CallNonvirtualVoidMethod(
+                    executor_obj, executor_cl, executor_copy_basic_result_id, res, to.size() - 1,
+                    *output_null_value, reinterpret_cast<int64_t>(chars.data()),
+                    reinterpret_cast<int64_t>(&chars), reinterpret_cast<int64_t>(offsets.data()));
         } else if (data_col.is_numeric() || data_col.is_column_decimal()) {
+            jobject res = env->CallNonvirtualObjectMethod(executor_obj, executor_cl,
+                                                          executor_get_value_id, place);
             *output_value_buffer = reinterpret_cast<int64_t>(data_col.get_raw_data().data);
-            env->CallNonvirtualBooleanMethod(executor_obj, executor_cl, executor_result_id,
-                                             to.size() - 1, place);
+            env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_copy_basic_result_id,
+                                          res, to.size() - 1, *output_null_value,
+                                          reinterpret_cast<int64_t>(data_col.get_raw_data().data),
+                                          0, 0);
         } else if (data_col.is_column_array()) {
             ColumnArray& array_col = assert_cast<ColumnArray&>(data_col);
             ColumnNullable& array_nested_nullable =
@@ -446,6 +437,7 @@ private:
                 register_id("serialize", UDAF_EXECUTOR_SERIALIZE_SIGNATURE, executor_serialize_id));
         RETURN_IF_ERROR(
                 register_id("getValue", UDAF_EXECUTOR_RESULT_SIGNATURE, executor_result_id));
+        RETURN_IF_ERROR(register_id("getValue", "(J)Ljava/lang/Object;", executor_get_value_id));
         RETURN_IF_ERROR(
                 register_id("destroy", UDAF_EXECUTOR_DESTROY_SIGNATURE, executor_destroy_id));
         RETURN_IF_ERROR(register_id("convertBasicArguments", "(IZIIJJJ)[Ljava/lang/Object;",
@@ -453,7 +445,10 @@ private:
         RETURN_IF_ERROR(register_id("convertArrayArguments", "(IZIIJJJJJ)[Ljava/lang/Object;",
                                     executor_convert_array_argument_id));
         RETURN_IF_ERROR(register_id("convertMapArguments", "(IZIIJJJJJJJJ)[Ljava/lang/Object;",
-                                    executor_convert_map_argument_id));
+                                    executor_convert_map_argument_id)); 
+
+        RETURN_IF_ERROR(register_id("copyTupleBasicResult", "(Ljava/lang/Object;IJJJJ)V",
+                                    executor_copy_basic_result_id));
         RETURN_IF_ERROR(
                 register_id("addBatch", "(ZIIJI[Ljava/lang/Object;)V", executor_add_batch_id));
         return Status::OK();
@@ -471,12 +466,14 @@ private:
     jmethodID executor_merge_id;
     jmethodID executor_serialize_id;
     jmethodID executor_result_id;
+    jmethodID executor_get_value_id;
     jmethodID executor_reset_id;
     jmethodID executor_close_id;
     jmethodID executor_destroy_id;
     jmethodID executor_convert_basic_argument_id;
     jmethodID executor_convert_array_argument_id;
     jmethodID executor_convert_map_argument_id;
+    jmethodID executor_copy_basic_result_id;
     std::unique_ptr<int64_t> output_value_buffer;
     std::unique_ptr<int64_t> output_null_value;
     std::unique_ptr<int64_t> output_offsets_ptr;

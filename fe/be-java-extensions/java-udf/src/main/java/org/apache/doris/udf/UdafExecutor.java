@@ -305,6 +305,56 @@ public class UdafExecutor extends BaseExecutor {
         }
     }
 
+    public Object getValue(long place) throws UdfRuntimeException {
+        try {
+            if (stateObjMap.get(place) == null) {
+                stateObjMap.put(place, createAggState());
+            }
+            return allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place));
+        } catch (Exception e) {
+            LOG.warn("invoke getValue function meet some error: " + e.getCause().toString());
+            throw new UdfRuntimeException("UDAF failed to result", e);
+        }
+    }
+
+    // public Object getValueArray(long row, long place) throws UdfRuntimeException {
+    //     try {
+    //         if (stateObjMap.get(place) == null) {
+    //             stateObjMap.put(place, createAggState());
+    //         }
+    //         return allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place));
+    //     } catch (Exception e) {
+    //         LOG.warn("invoke getValue function meet some error: " + e.getCause().toString());
+    //         throw new UdfRuntimeException("UDAF failed to result", e);
+    //     }
+    // }
+    public void copyTupleBasicResult(Object result, int row, long outputNullMapPtr, long outputBufferBase,
+            long charsAddress,
+            long offsetsAddr) throws UdfRuntimeException {
+        if (result == null) {
+            // put null obj
+            if (outputNullMapPtr == -1) {
+                throw new UdfRuntimeException("UDAF failed to store null data to not null column");
+            } else {
+                UdfUtils.UNSAFE.putByte(outputNullMapPtr + row, (byte) 1);
+            }
+            return;
+        }
+        try {
+            if (outputNullMapPtr != -1) {
+                UdfUtils.UNSAFE.putByte(outputNullMapPtr + row, (byte) 0);
+            }
+            copyTupleBasicResult(result, row, retClass, outputBufferBase, charsAddress,
+                    offsetsAddr, retType);
+        } catch (UdfRuntimeException e) {
+            LOG.info(e.toString());
+        }
+    }
+
+    public void copyTupleArrayResult(Object result, int row) throws UdfRuntimeException {
+        storeUdfResult(result, row, retClass);
+    }
+
     @Override
     protected boolean storeUdfResult(Object obj, long row, Class retClass) throws UdfRuntimeException {
         if (obj == null) {
@@ -314,7 +364,7 @@ public class UdafExecutor extends BaseExecutor {
             }
             return true;
         }
-        return super.storeUdfResult(obj, row, retClass);
+        return super.storeUdfResultTest(obj, row, retClass);
     }
 
     @Override
