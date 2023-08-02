@@ -31,6 +31,7 @@ jdbcPassword = ""
 
 feSourceThriftAddress = "127.0.0.1:9020"
 feTargetThriftAddress = "127.0.0.1:9020"
+syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
