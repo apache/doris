@@ -53,23 +53,23 @@ Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
     }
 
     int rows = in_block->rows();
-    IColumn::Selector distinct_row;
-    distinct_row.reserve(rows);
+    _distinct_row.clear();
+    _distinct_row.reserve(rows);
 
     RETURN_IF_CATCH_EXCEPTION(
-            _emplace_into_hash_table_to_distinct(distinct_row, key_columns, rows));
+            _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
 
     bool mem_reuse = _make_nullable_keys.empty() && out_block->mem_reuse();
     if (mem_reuse) {
         for (int i = 0; i < key_size; ++i) {
             auto dst = out_block->get_by_position(i).column->assume_mutable();
-            key_columns[i]->append_data_by_selector(dst, distinct_row);
+            key_columns[i]->append_data_by_selector(dst, _distinct_row);
         }
     } else {
         ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             auto distinct_column = key_columns[i]->clone_empty();
-            key_columns[i]->append_data_by_selector(distinct_column, distinct_row);
+            key_columns[i]->append_data_by_selector(distinct_column, _distinct_row);
             columns_with_schema.emplace_back(std::move(distinct_column),
                                              _probe_expr_ctxs[i]->root()->data_type(),
                                              _probe_expr_ctxs[i]->root()->expr_name());
@@ -92,43 +92,38 @@ void DistinctAggregationNode::_emplace_into_hash_table_to_distinct(IColumn::Sele
                 _pre_serialize_key_if_need(state, agg_method, key_columns, num_rows);
 
                 if constexpr (HashTableTraits<HashTableType>::is_phmap) {
+                    auto keys = state.get_keys(num_rows);
                     if (_hash_values.size() < num_rows) {
                         _hash_values.resize(num_rows);
                     }
-                    if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                                          AggState>::value) {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] = agg_method.data.hash(agg_method.keys[i]);
+
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        _hash_values[i] = agg_method.data.hash(keys[i]);
+                    }
+                    SCOPED_TIMER(_hash_table_emplace_timer);
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
+                            agg_method.data.prefetch_by_hash(
+                                    _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                         }
-                    } else {
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            _hash_values[i] =
-                                    agg_method.data.hash(state.get_key_holder(i, *_agg_arena_pool));
+                        auto result = state.emplace_with_key(
+                                agg_method.data, state.pack_key_holder(keys[i], *_agg_arena_pool),
+                                _hash_values[i], i);
+                        if (result.is_inserted()) {
+                            distinct_row.push_back(i);
+                        }
+                    }
+                } else {
+                    SCOPED_TIMER(_hash_table_emplace_timer);
+                    for (size_t i = 0; i < num_rows; ++i) {
+                        auto result = state.emplace_key(agg_method.data, i, *_agg_arena_pool);
+                        if (result.is_inserted()) {
+                            result.set_mapped(dummy_mapped_data);
+                            distinct_row.push_back(i);
                         }
                     }
                 }
-
-                /// For all rows.
                 COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-                for (size_t i = 0; i < num_rows; ++i) {
-                    auto emplace_result = [&]() {
-                        if constexpr (HashTableTraits<HashTableType>::is_phmap) {
-                            if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                                agg_method.data.prefetch_by_hash(
-                                        _hash_values[i + HASH_MAP_PREFETCH_DIST]);
-                            }
-                            return state.emplace_key(agg_method.data, _hash_values[i], i,
-                                                     *_agg_arena_pool);
-                        } else {
-                            return state.emplace_key(agg_method.data, i, *_agg_arena_pool);
-                        }
-                    }();
-
-                    if (emplace_result.is_inserted()) {
-                        emplace_result.set_mapped(dummy_mapped_data);
-                        distinct_row.push_back(i);
-                    }
-                }
             },
             _agg_data->_aggregated_method_variant);
 }
