@@ -43,6 +43,7 @@ import java.sql.Statement;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -103,11 +104,12 @@ public abstract class JdbcClient {
         String jdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.dbType = parseDbType(jdbcUrl);
         initializeDataSource(jdbcClientConfig.getPassword(), jdbcUrl, jdbcClientConfig.getDriverUrl(),
-                jdbcClientConfig.getDriverClass());
+                jdbcClientConfig.getDriverClass(), dbType);
     }
 
     // Initialize DruidDataSource
-    private void initializeDataSource(String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private void initializeDataSource(String password, String jdbcUrl, String driverUrl, String driverClass,
+            String tableType) {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
@@ -136,10 +138,24 @@ public abstract class JdbcClient {
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
             dataSource.setMaxWait(5000);
+            dataSource.setTestWhileIdle(true);
+            dataSource.setTestOnBorrow(false);
+            setValidationQuery(dataSource, tableType);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
+        }
+    }
+
+    private void setValidationQuery(DruidDataSource ds, String tableType) {
+        if (Objects.equals(tableType, JdbcResource.ORACLE)
+                || Objects.equals(tableType, JdbcResource.OCEANBASE_ORACLE)) {
+            ds.setValidationQuery("SELECT 1 FROM dual");
+        } else if (Objects.equals(tableType, JdbcResource.SAP_HANA)) {
+            ds.setValidationQuery("SELECT 1 FROM DUMMY");
+        } else {
+            ds.setValidationQuery("SELECT 1");
         }
     }
 
@@ -160,7 +176,7 @@ public abstract class JdbcClient {
         try {
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            throw new JdbcClientException("Can not connect to jdbc", e);
+            throw new JdbcClientException("Can not connect to jdbc due to error: %s", e, e.getMessage());
         }
         return conn;
     }
