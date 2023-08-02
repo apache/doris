@@ -39,13 +39,8 @@ class Status;
 enum class ReaderState {
     START,
     NORMAL,
-    MATCH_COLUMN_SEP,
     PRE_MATCH_ENCLOSE,
-    MATCH_ENCLOSE,
-    POST_ENCLOSE_LINE_DELIMITER,
-    POST_ENCLOSE_COLUMN_SEP,
-    MATCH_ESCAPE,
-    FOUND_LINE
+    MATCH_ENCLOSE
 };
 struct ReaderStateWrapper {
     inline void forward_to(ReaderState state) {
@@ -134,17 +129,12 @@ public:
 protected:
     void on_start(const uint8_t* start, size_t len);
     void on_normal(const uint8_t* start, size_t len);
-    void on_match_column_sep(const uint8_t* start, size_t len);
     void on_pre_match_enclose(const uint8_t* start, size_t len);
     void on_match_enclose(const uint8_t* start, size_t len);
-    void on_post_match_enclose_column_sep(const uint8_t* start, size_t len);
-    void on_post_match_enclose_line_delimiter(const uint8_t* start, size_t len);
-    void on_match_escape(const uint8_t* start, size_t len);
-    void on_found_line(const uint8_t* start, size_t len);
 
 private:
-    bool _look_for_column_sep(const uint8_t* curr_start, size_t len);
-    bool _look_for_line_delim(const uint8_t* curr_start, size_t len);
+    bool _look_for_column_sep(const uint8_t* curr_start, size_t curr_len);
+    bool _look_for_line_delim(const uint8_t* curr_start, size_t curr_len);
 
     const char _enclose;
     const char _escape;
