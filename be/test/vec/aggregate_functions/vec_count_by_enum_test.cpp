@@ -295,4 +295,5 @@ TEST_F(VCountByEnumTest, testSerialize) {
     agg_function->destroy(place2);
     agg_function->destroy(place3);
 }
+
 } // namespace doris::vectorized
