@@ -107,7 +107,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
 
     // 3. remote scan thread pool
     ThreadPoolBuilder("RemoteScanThreadPool")
-            .set_min_threads(scanner_thread_pool_thread_num()) // 48 default
+            .set_min_threads(scanner_thread_pool_thread_num()) // 48 default per disk
             .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num != -1
                                      ? config::doris_max_remote_scanner_thread_pool_thread_num
                                      : std::max(512, CpuInfo::num_cores() * 10))
