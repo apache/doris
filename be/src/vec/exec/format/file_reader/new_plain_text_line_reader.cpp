@@ -43,8 +43,24 @@
 
 namespace doris {
 
-const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_t len) {
-    while (!(_idx == len || _result != nullptr)) {
+size_t CsvLineReaderContext::_extend_reading_range(const uint8_t* start) {
+    _result = (uint8_t*)memmem(start + _idx, _total_len - _idx, line_delimiter.c_str(),
+                               line_delimiter_len);
+    size_t len;
+    if (_result == nullptr) {
+        len = _total_len;
+    } else {
+        len = _result - start + line_delimiter_len;
+    }
+    return len;
+}
+
+const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_t total_len) {
+    _total_len = total_len;
+
+    size_t len = _extend_reading_range(start);
+
+    while (_idx != len) {
         switch (_state.curr_state) {
         case ReaderState::START: {
             on_start(start, len);
@@ -64,12 +80,13 @@ const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_
         }
         }
     }
+    LOG(INFO) << "col sep size:" << _column_sep_positions.size();
     return _result;
 }
 
-void CsvLineReaderContext::on_start(const uint8_t* start, size_t len) {
+void CsvLineReaderContext::on_start(const uint8_t* start, size_t& len) {
     if (UNLIKELY(start[_idx] == _enclose)) {
-        _left_enclose_pos = _idx - 1;
+        _left_enclose_pos = _idx;
         _state.forward_to(ReaderState::PRE_MATCH_ENCLOSE);
         ++_idx;
     } else {
@@ -77,14 +94,11 @@ void CsvLineReaderContext::on_start(const uint8_t* start, size_t len) {
     }
 }
 
-void CsvLineReaderContext::on_normal(const uint8_t* start, size_t len) {
+void CsvLineReaderContext::on_normal(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
-    const size_t curr_len = len - _idx;
+    size_t curr_len = len - _idx;
     if (LIKELY(_look_for_column_sep(curr_start, curr_len))) {
-        return;
-    }
-    if (_look_for_line_delim(curr_start, curr_len)) {
-        _idx = _result - start + line_delimiter_len;
+        _state.forward_to(ReaderState::START);
         return;
     }
     _idx = len;
@@ -98,51 +112,42 @@ bool CsvLineReaderContext::_look_for_column_sep(const uint8_t* curr_start, size_
         _idx += forward_distance;
         _column_sep_positions.push_back(_idx);
         _idx += _column_sep_len;
-        _state.forward_to(ReaderState::START);
         return true;
     }
     return false;
 }
 
-bool CsvLineReaderContext::_look_for_line_delim(const uint8_t* curr_start, size_t curr_len) {
-    const uint8_t* line_delimiter_pos =
-            (uint8_t*)memmem(curr_start, curr_len, line_delimiter.c_str(), line_delimiter_len);
-    if (line_delimiter_pos == nullptr) {
-        return false;
-    }
-    _result = line_delimiter_pos;
-    return true;
-}
-
-void CsvLineReaderContext::on_pre_match_enclose(const uint8_t* start, size_t len) {
+void CsvLineReaderContext::on_pre_match_enclose(const uint8_t* start, size_t& len) {
     bool should_escape = false;
     do {
-        if (UNLIKELY(start[_idx] == _escape)) {
-            should_escape = !should_escape;
-        } else if (UNLIKELY(should_escape)) {
-            should_escape = false;
-        } else if (UNLIKELY(start[_idx] == _enclose)) {
-            _state.forward_to(ReaderState::MATCH_ENCLOSE);
+        do {
+            if (start[_idx] == _escape) [[unlikely]] {
+                should_escape = !should_escape;
+            } else if (UNLIKELY(should_escape)) {
+                should_escape = false;
+            } else if (UNLIKELY(start[_idx] == _enclose)) {
+                _state.forward_to(ReaderState::MATCH_ENCLOSE);
+                ++_idx;
+                return;
+            }
             ++_idx;
-            return;
+        } while (_idx != len);
+
+        if (_idx != _total_len) {
+            len = _extend_reading_range(start);
+            continue;
         }
-        ++_idx;
-    } while (_idx != len);
+    } while (false);
 }
 
-void CsvLineReaderContext::on_match_enclose(const uint8_t* start, size_t len) {
+void CsvLineReaderContext::on_match_enclose(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
-    if (_look_for_column_sep(curr_start, _column_sep_len)) {
+    if (LIKELY(_look_for_column_sep(curr_start, _column_sep_len))) {
+        _state.forward_to(ReaderState::START);
         return;
     }
-    if (_look_for_line_delim(curr_start, line_delimiter_len)) {
-        _idx = _result - start + line_delimiter_len;
-        return;
-    }
-    // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
-    // will reset to left enclose idx to do parse in nornal state
-    _idx = _left_enclose_pos;
-    _state.forward_to(ReaderState::NORMAL);
+    // corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2 will be treated as incompleted enclose
+    _idx = len;
 }
 
 NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
