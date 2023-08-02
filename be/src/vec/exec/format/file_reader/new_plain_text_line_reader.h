@@ -16,17 +16,20 @@
 // under the License.
 
 #pragma once
-
 #include <stdint.h>
 
 #include <cstddef>
+#include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "exec/line_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
@@ -35,24 +38,6 @@ class IOContext;
 
 class Decompressor;
 class Status;
-
-enum class ReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
-struct ReaderStateWrapper {
-    inline void forward_to(ReaderState state) {
-        this->prev_state = this->curr_state;
-        this->curr_state = state;
-    }
-
-    inline void reset() {
-        this->curr_state = ReaderState::START;
-        this->prev_state = ReaderState::START;
-    }
-
-    inline bool operator==(const ReaderState& state) const { return curr_state == state; }
-
-    ReaderState curr_state = ReaderState::START;
-    ReaderState prev_state = ReaderState::START;
-};
 
 class TextLineReaderContextIf {
 public:
@@ -76,8 +61,8 @@ public:
                                    const size_t line_delimiter_len_)
             : line_delimiter(line_delimiter_), line_delimiter_len(line_delimiter_len_) {}
 
-    inline const uint8_t* read_line(const uint8_t* start, const size_t len) override {
-        return (uint8_t*)memmem(start, len, line_delimiter.c_str(), line_delimiter_len);
+    inline const uint8_t* read_line(const uint8_t* start, const size_t length) override {
+        return (uint8_t*)memmem(start, length, line_delimiter.c_str(), line_delimiter_len);
     }
 
     [[nodiscard]] inline size_t line_delimiter_length() const override {
@@ -91,58 +76,175 @@ protected:
     const size_t line_delimiter_len;
 };
 
-class CsvLineReaderContext final : public PlainTexLineReaderCtx {
+class CsvFieldSplitter {
+    // using a function ptr to decrease the overhead (found very effective during test).
+    using ProcessValueFunc = void (*)(const uint8_t*, size_t*, size_t*, char);
+
+public:
+    explicit CsvFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                              std::vector<Slice>* split_values, char trimming_char = 0)
+            : _trimming_char(trimming_char), _split_values(split_values) {
+        if (trim_tailing_space) {
+            if (trim_ends) {
+                _process_value_func = &CsvFieldSplitter::_process_value<true, true>;
+            } else {
+                _process_value_func = &CsvFieldSplitter::_process_value<true, false>;
+            }
+        } else {
+            if (trim_ends) {
+                _process_value_func = &CsvFieldSplitter::_process_value<false, true>;
+            } else {
+                _process_value_func = &CsvFieldSplitter::_process_value<false, false>;
+            }
+        }
+    }
+
+    inline void split_field(const uint8_t* data, size_t start_offset, size_t value_len) {
+        _process_value_func(data, &start_offset, &value_len, _trimming_char);
+        _split_values->emplace_back(data + start_offset, value_len);
+    }
+
+    inline void refresh() { _split_values->clear(); }
+
+private:
+    template <bool TrimTailingSpace, bool TrimEnds>
+    inline static void _process_value(const uint8_t* data, size_t* start_offset, size_t* value_len,
+                                      char trimming_char) {
+        if constexpr (TrimTailingSpace) {
+            while (*value_len > 0 && *(data + *start_offset + *value_len - 1) == ' ') {
+                --*value_len;
+            }
+        }
+        if constexpr (TrimEnds) {
+            const bool trim_cond = *value_len > 1 && *(data + *start_offset) == trimming_char &&
+                                   *(data + *start_offset + *value_len - 1) == trimming_char;
+            if (trim_cond) {
+                ++(*start_offset);
+                *value_len -= 2;
+            }
+        }
+    }
+
+    const char _trimming_char;
+    ProcessValueFunc _process_value_func;
+    std::vector<Slice>* _split_values;
+};
+
+class CsvLineReaderContext : public PlainTexLineReaderCtx {
+    // using a function ptr to decrease the overhead (found very effective during test).
+    using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
+
 public:
     explicit CsvLineReaderContext(const std::string& line_delimiter_,
                                   const size_t line_delimiter_len_, const std::string& column_sep_,
-                                  const size_t column_sep_len_, const size_t column_sep_num,
-                                  const char enclose, const char escape)
+                                  const size_t column_sep_len_,
+                                  std::unique_ptr<CsvFieldSplitter> field_splitter)
             : PlainTexLineReaderCtx(line_delimiter_, line_delimiter_len_),
-              _enclose(enclose),
-              _escape(escape),
               _column_sep(column_sep_),
-              _column_sep_len(column_sep_len_) {
-        _column_sep_positions.reserve(column_sep_num);
+              _column_sep_len(column_sep_len_),
+              _field_splitter(std::move(field_splitter)) {
+        if (column_sep_len_ == 1) {
+            find_col_sep_func = &CsvLineReaderContext::look_for_column_sep_pos<true>;
+        } else {
+            find_col_sep_func = &CsvLineReaderContext::look_for_column_sep_pos<false>;
+        }
+        if (line_delimiter_len == 1) {
+            find_line_delim_func = &CsvLineReaderContext::look_for_line_delimiter<true>;
+        } else {
+            find_line_delim_func = &CsvLineReaderContext::look_for_line_delimiter<false>;
+        }
     }
 
-    const uint8_t* read_line(const uint8_t* start, const size_t len) override;
+    const uint8_t* read_line(const uint8_t* start, const size_t length) override;
 
     inline void refresh() override {
         _idx = 0;
-        _left_enclose_pos = 0;
-        _state.reset();
         _result = nullptr;
-        _column_sep_positions.clear();
-    }
-
-    [[nodiscard]] inline const std::vector<size_t>& column_sep_positions() const {
-        return _column_sep_positions;
+        _field_splitter->refresh();
     }
 
 protected:
-    void on_start(const uint8_t* start, size_t& len);
-    void on_normal(const uint8_t* start, size_t& len);
-    void on_pre_match_enclose(const uint8_t* start, size_t& len);
-    void on_match_enclose(const uint8_t* start, size_t& len);
+    virtual void read_line_impl(const uint8_t* start, size_t& bound);
 
-private:
-    bool _look_for_column_sep(const uint8_t* curr_start, size_t curr_len);
-    bool _look_for_line_delim(const uint8_t* curr_start, size_t curr_len);
-    size_t _extend_reading_range(const uint8_t* start);
+    size_t update_reading_bound(const uint8_t* start);
 
-    const char _enclose;
-    const char _escape;
+    void on_col_sep_found(const uint8_t* curr_start, const uint8_t* col_sep_pos);
+
+    FindDelimiterFunc find_col_sep_func;
+    FindDelimiterFunc find_line_delim_func;
+
+    template <bool SingleChar>
+    static const uint8_t* look_for_column_sep_pos(const uint8_t* curr_start, size_t curr_len,
+                                                  const char* column_sep, size_t column_sep_len);
+    template <bool SingleChar>
+    inline static const uint8_t* look_for_line_delimiter(const uint8_t* curr_start, size_t curr_len,
+                                                         const char* line_delim,
+                                                         size_t line_delim_len) {
+        if constexpr (SingleChar) {
+            return (uint8_t*)memchr(curr_start, line_delim[0], curr_len);
+        } else {
+            return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
+        }
+    }
+
     const std::string _column_sep;
     const size_t _column_sep_len;
 
     size_t _total_len;
 
     size_t _idx = 0;
-    size_t _left_enclose_pos = 0;
-    ReaderStateWrapper _state;
     const uint8_t* _result = nullptr;
-    // record the start pos of each column sep
-    std::vector<size_t> _column_sep_positions;
+    std::unique_ptr<CsvFieldSplitter> _field_splitter;
+};
+
+enum class ReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
+struct ReaderStateWrapper {
+    inline void forward_to(ReaderState state) {
+        this->prev_state = this->curr_state;
+        this->curr_state = state;
+    }
+
+    inline void reset() {
+        this->curr_state = ReaderState::START;
+        this->prev_state = ReaderState::START;
+    }
+
+    inline bool operator==(const ReaderState& state) const { return curr_state == state; }
+
+    ReaderState curr_state = ReaderState::START;
+    ReaderState prev_state = ReaderState::START;
+};
+
+class EncloseCsvLineReaderContext final : public CsvLineReaderContext {
+public:
+    explicit EncloseCsvLineReaderContext(const std::string& line_delimiter_,
+                                         const size_t line_delimiter_len_,
+                                         const std::string& column_sep_,
+                                         const size_t column_sep_len_,
+                                         std::unique_ptr<CsvFieldSplitter> field_splitter,
+                                         const char enclose, const char escape)
+            : CsvLineReaderContext(line_delimiter_, line_delimiter_len_, column_sep_,
+                                   column_sep_len_, std::move(field_splitter)),
+              _enclose(enclose),
+              _escape(escape) {}
+
+    inline void refresh() override {
+        CsvLineReaderContext::refresh();
+        _state.reset();
+    }
+
+protected:
+    void read_line_impl(const uint8_t* start, size_t& bound) override;
+
+private:
+    void _on_start(const uint8_t* start, size_t& len);
+    void _on_normal(const uint8_t* start, size_t& len);
+    void _on_pre_match_enclose(const uint8_t* start, size_t& len);
+    void _on_match_enclose(const uint8_t* start, size_t& len);
+
+    ReaderStateWrapper _state;
+    const char _enclose;
+    const char _escape;
 };
 
 using TextLineReaderCtxPtr = std::shared_ptr<TextLineReaderContextIf>;
