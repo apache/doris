@@ -112,19 +112,4 @@ public class ExecutableFunctions {
     public static Expression pi() {
         return new DoubleLiteral(Math.PI);
     }
-
-    @ExecFunction(name = "uuid", argTypes = {}, returnType = "VARCHAR")
-    public static Expression uuid() {
-        return new VarcharLiteral(UUID.randomUUID().toString());
-    }
-
-    @ExecFunction(name = "rand", argTypes = {}, returnType = "DOUBLE")
-    public static Expression rand() {
-        return new DoubleLiteral(RANDOM.nextDouble());
-    }
-
-    @ExecFunction(name = "random", argTypes = {}, returnType = "DOUBLE")
-    public static Expression random() {
-        return new DoubleLiteral(RANDOM.nextDouble());
-    }
 }
