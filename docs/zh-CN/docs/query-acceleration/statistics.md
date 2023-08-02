@@ -79,7 +79,7 @@ Doris 查询优化器使用统计信息来确定查询最有效的执行计划�
 列统计信息收集语法：
 
 ```SQL
-ANALYZE TABLE | DATABASE table_name | db_name
+ANALYZE < TABLE | DATABASE table_name | db_name > 
     [ PARTITIONS (partition_name [, ...]) ]
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
@@ -490,7 +490,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("automatic" = "true");
 语法如下：
 
 ```SQL
-SHOW ANALYZE [ table_name | job_id ]
+SHOW ANALYZE < table_name | job_id >
     [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
