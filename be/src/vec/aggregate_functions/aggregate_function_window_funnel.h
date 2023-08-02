@@ -212,8 +212,10 @@ struct WindowFunnelState {
     void write(BufferWritable& out) const {
         write_var_int(max_event_level, out);
         write_var_int(window, out);
-        write_var_int(static_cast<std::underlying_type_t<WindowFunnelMode>>(window_funnel_mode),
-                      out);
+        if (config::enable_window_funnel_function_v2) {
+            write_var_int(static_cast<std::underlying_type_t<WindowFunnelMode>>(window_funnel_mode),
+                          out);
+        }
         write_var_int(events.size(), out);
 
         for (int64_t i = 0; i < events.size(); i++) {
@@ -229,9 +231,12 @@ struct WindowFunnelState {
         read_var_int(event_level, in);
         max_event_level = (int)event_level;
         read_var_int(window, in);
-        int64_t mode;
-        read_var_int(mode, in);
-        window_funnel_mode = static_cast<WindowFunnelMode>(mode);
+        window_funnel_mode = WindowFunnelMode::DEFAULT;
+        if (config::enable_window_funnel_function_v2) {
+            int64_t mode;
+            read_var_int(mode, in);
+            window_funnel_mode = static_cast<WindowFunnelMode>(mode);
+        }
         int64_t size = 0;
         read_var_int(size, in);
         for (int64_t i = 0; i < size; i++) {

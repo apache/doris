@@ -170,8 +170,6 @@ public class OlapTable extends Table {
 
     private AutoIncrementGenerator autoIncrementGenerator;
 
-    private String storageMedium;
-
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -1316,13 +1314,6 @@ public class OlapTable extends Table {
         }
 
         tempPartitions.write(out);
-
-        if (storageMedium == null || storageMedium.length() == 0) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, storageMedium);
-        }
     }
 
     @Override
@@ -1427,10 +1418,6 @@ public class OlapTable extends Table {
             }
         }
         tempPartitions.unsetPartitionInfo();
-
-        if (in.readBoolean()) {
-            storageMedium = Text.readString(in);
-        }
 
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
         // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
@@ -1853,15 +1840,6 @@ public class OlapTable extends Table {
         return false;
     }
 
-
-    public void setStorageMedium(String medium) {
-        storageMedium = medium;
-    }
-
-    public String getStorageMedium() {
-        return storageMedium;
-    }
-
     public void setStoreRowColumn(boolean storeRowColumn) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
@@ -1888,6 +1866,62 @@ public class OlapTable extends Table {
             return tableProperty.skipWriteIndexOnLoad();
         }
         return false;
+    }
+
+    public void setCompactionPolicy(String compactionPolicy) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, compactionPolicy);
+        tableProperty.buildCompactionPolicy();
+    }
+
+    public String getCompactionPolicy() {
+        if (tableProperty != null) {
+            return tableProperty.compactionPolicy();
+        }
+        return "";
+    }
+
+    public void setTimeSeriesCompactionGoalSizeMbytes(long timeSeriesCompactionGoalSizeMbytes) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+                                                        Long.valueOf(timeSeriesCompactionGoalSizeMbytes).toString());
+        tableProperty.buildTimeSeriesCompactionGoalSizeMbytes();
+    }
+
+    public Long getTimeSeriesCompactionGoalSizeMbytes() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionGoalSizeMbytes();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionFileCountThreshold(long timeSeriesCompactionFileCountThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+                                                    Long.valueOf(timeSeriesCompactionFileCountThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionFileCountThreshold();
+    }
+
+    public Long getTimeSeriesCompactionFileCountThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionFileCountThreshold();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionTimeThresholdSeconds(long timeSeriesCompactionTimeThresholdSeconds) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer
+                                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                                                    Long.valueOf(timeSeriesCompactionTimeThresholdSeconds).toString());
+        tableProperty.buildTimeSeriesCompactionTimeThresholdSeconds();
+    }
+
+    public Long getTimeSeriesCompactionTimeThresholdSeconds() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionTimeThresholdSeconds();
+        }
+        return null;
     }
 
     public Boolean isDynamicSchema() {

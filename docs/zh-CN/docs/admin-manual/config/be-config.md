@@ -337,7 +337,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `fragment_pool_queue_size`
 
 * 描述：单节点上能够处理的查询请求上限
-* 默认值：2048
+* 默认值：4096
 
 #### `fragment_pool_thread_num_min`
 
@@ -347,7 +347,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `fragment_pool_thread_num_max`
 
 * 描述：后续查询请求动态创建线程，最大创建512个线程。
-* 默认值：512
+* 默认值：2048
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -610,13 +610,13 @@ BaseCompaction:546859:
 
 * 类型：int32
 * 描述：每个磁盘（HDD）可以并发执行的compaction任务数量。
-* 默认值：2
+* 默认值：4
 
 #### `compaction_task_num_per_fast_disk`
 
 * 类型：int32
 * 描述：每个高速磁盘（SSD）可以并发执行的compaction任务数量。
-* 默认值：4
+* 默认值：8
 
 #### `cumulative_compaction_rounds_for_each_base_compaction_round`
 
@@ -678,33 +678,6 @@ BaseCompaction:546859:
 
 * 描述：更新 peer replica infos 的最小间隔时间
 * 默认值：60（s）
-
-#### `compaction_policy`
-
-* 类型：string
-* 描述：配置 compaction 的合并策略，目前实现了两种合并策略，size_based 和 time_series
-  - size_based: 仅当 rowset 的磁盘体积在相同数量级时才进行版本合并。合并之后满足条件的 rowset 进行晋升到 base compaction阶段。能够做到在大量小批量导入的情况下：降低base compact的写入放大率，并在读取放大率和空间放大率之间进行权衡，同时减少了文件版本的数据。
-  - time_series: 当 rowset 的磁盘体积积攒到一定大小时进行版本合并。合并后的 rowset 直接晋升到 base compaction 阶段。在时序场景持续导入的情况下有效降低 compact 的写入放大率。
-* 默认值：size_based
-
-#### `time_series_compaction_goal_size_mbytes`
-
-* 类型：int64
-* 描述：开启 time series compaction 时，将使用此参数来调整每次 compaction 输入的文件的大小，输出的文件大小和输入相当
-* 默认值：512
-
-#### `time_series_compaction_file_count_threshold`
-
-* 类型：int64
-* 描述：开启 time series compaction 时，将使用此参数来调整每次 compaction 输入的文件数量的最小值，只有当 time_series_compaction_goal_size_mbytes 条件不满足时，该参数才会发挥作用
-  - 一个 tablet 中文件数超过该配置，会触发 compaction
-* 默认值：2000
-
-#### `time_series_compaction_time_threshold_seconds`
-
-* 类型：int64
-* 描述：开启 time series compaction 时，将使用此参数来调整 compaction 的最长时间间隔，即长时间未执行过 compaction 时，就会触发一次 compaction，单位为秒
-* 默认值：3600
 
 
 ### 导入

@@ -311,6 +311,10 @@ message TabletMetaPB {
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
     optional BinlogConfigPB binlog_config = 27;
+    optional string compaction_policy = 28 [default = "size_based"];
+    optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
+    optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
+    optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
 }
 
 message OLAPRawDeltaHeaderMessage {

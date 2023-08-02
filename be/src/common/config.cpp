@@ -62,7 +62,7 @@ DEFINE_Int32(brpc_port, "8060");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
-DEFINE_Int32(brpc_num_threads, "-1");
+DEFINE_Int32(brpc_num_threads, "256");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -231,8 +231,7 @@ DEFINE_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "48");
-// max number of remote scanner thread pool size
-DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "512");
+DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
@@ -394,9 +393,9 @@ DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
-DEFINE_mInt32(compaction_task_num_per_disk, "2");
+DEFINE_mInt32(compaction_task_num_per_disk, "4");
 // compaction thread num for fast disk(typically .SSD), must be greater than 2.
-DEFINE_mInt32(compaction_task_num_per_fast_disk, "4");
+DEFINE_mInt32(compaction_task_num_per_fast_disk, "8");
 DEFINE_Validator(compaction_task_num_per_disk,
                  [](const int config) -> bool { return config >= 2; });
 DEFINE_Validator(compaction_task_num_per_fast_disk,
@@ -492,8 +491,8 @@ DEFINE_mInt32(olap_table_sink_send_interval_ms, "1");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_pool_thread_num_min, "64");
-DEFINE_Int32(fragment_pool_thread_num_max, "512");
-DEFINE_Int32(fragment_pool_queue_size, "2048");
+DEFINE_Int32(fragment_pool_thread_num_max, "2048");
+DEFINE_Int32(fragment_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
@@ -977,20 +976,6 @@ DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
-// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
-// In the case of time series compaction, the execution of compaction is adjusted
-// using parameters that have the prefix time_series_compaction.
-DEFINE_mString(compaction_policy, "size_based");
-DEFINE_Validator(compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "time_series";
-});
-// the size of input files for each compaction
-DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "512");
-// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
-DEFINE_mInt64(time_series_compaction_file_count_threshold, "2000");
-// if compaction has not been performed within 3600 seconds, a compaction will be triggered
-DEFINE_mInt64(time_series_compaction_time_threshold_seconds, "3600");
-
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");
 
@@ -1046,6 +1031,9 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
+
+// enable window_funnel_function with different modes
+DEFINE_mBool(enable_window_funnel_function_v2, "false");
 
 #ifdef BE_TEST
 // test s3
