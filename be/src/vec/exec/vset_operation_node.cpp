@@ -410,7 +410,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, 
                         *_hash_table_variants);
             }
             _build_finished = true;
-            _finalize_probe(0);
+            _can_read = _children.size() == 1;
         }
     }
     return Status::OK();
