@@ -21,7 +21,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -155,6 +154,8 @@ private:
     int _line_delimiter_length;
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;
+    // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
+    bool _not_trim_enclose = true;
 
     io::IOContext* _io_ctx;
 
