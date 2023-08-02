@@ -44,7 +44,7 @@ In the Aggregate, Unique and Duplicate data models. The underlying data storage 
 
 The prefix index, which is based on sorting, is an indexing method to query data quickly based on a given prefix column.
 
-## Example
+## Examples
 
 We use the first 36 bytes of a row of data as the prefix index of this row of data. Prefix indexes are simply truncated when a VARCHAR type is encountered. We give an example:
 
@@ -82,6 +82,6 @@ SELECT * FROM table WHERE age=20；
 
 Therefore, when building a table, choosing the correct column order can greatly improve query efficiency.
 
-## Adjust prefix index by ROLLUP
+## Adjust Prefix Index by ROLLUP
 
 Because the column order has been specified when the table is created, there is only one prefix index for a table. This may not be efficient for queries that use other columns that cannot hit the prefix index as conditions. Therefore, we can artificially adjust the column order by creating a ROLLUP. For details, please refer to [ROLLUP](../hit-the-rollup.md).
