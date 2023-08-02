@@ -629,13 +629,13 @@ BaseCompaction:546859:
 * Description: Enable to use segment compaction during loading to avoid -238 error
 * Default value: true
 
-#### `segcompaction_threshold_segment_num`
+#### `segcompaction_batch_size`
 
 * Type: int32
 * Description: Trigger segcompaction if the num of segments in a rowset exceeds this threshold
 * Default value: 10
 
-#### `segcompaction_small_threshold`
+#### `segcompaction_candidate_max_rows`
 
 * Type: int32
 * Description: The segment whose row number above the threshold will be compacted during segcompaction

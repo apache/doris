@@ -643,13 +643,13 @@ BaseCompaction:546859:
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
 * 默认值：true
 
-#### `segcompaction_threshold_segment_num`
+#### `segcompaction_batch_size`
 
 * 类型：int32
 * 描述：当 segment 数量超过此阈值时触发 segment compaction
 * 默认值：10
 
-#### `segcompaction_small_threshold`
+#### `segcompaction_candidate_max_rows`
 
 * 类型：int32
 * 描述：当 segment 的行数超过此大小时则会在 segment compaction 时被 compact，否则跳过
