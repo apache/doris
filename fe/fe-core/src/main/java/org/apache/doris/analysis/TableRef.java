@@ -247,13 +247,6 @@ public class TableRef implements ParseNode, Writable {
             output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
         }
         output.append(tableRefToSql()).append(" ");
-        if (partitionNames != null) {
-            StringJoiner sj = new StringJoiner(",", "", " ");
-            for (String partName : partitionNames.getPartitionNames()) {
-                sj.add(partName);
-            }
-            output.append(sj.toString());
-        }
         if (usingColNames != null) {
             output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
         } else if (onClause != null) {
@@ -753,6 +746,13 @@ public class TableRef implements ParseNode, Writable {
             for (LateralViewRef viewRef : lateralViewRefs) {
                 tblName += " " + viewRef.toSql();
             }
+        }
+        if (partitionNames != null) {
+            StringJoiner sj = new StringJoiner(",", "", " ");
+            for (String partName : partitionNames.getPartitionNames()) {
+                sj.add(partName);
+            }
+            return tblName + " PARTITION(" + sj.toString() + ")";
         }
         return tblName;
     }
