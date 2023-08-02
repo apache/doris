@@ -47,7 +47,8 @@ public class RevokeStmt extends DdlStmt {
     // Indicates that these roles are revoked from a user
     private List<String> roles;
 
-    public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilegeWithCols> privileges) {
+    public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern,
+            List<AccessPrivilegeWithCols> privileges) {
         this(userIdent, role, tblPattern, null, null, privileges);
     }
 

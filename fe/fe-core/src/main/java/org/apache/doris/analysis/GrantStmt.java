@@ -52,7 +52,8 @@ public class GrantStmt extends DdlStmt {
     // Indicates that these roles are granted to a user
     private List<String> roles;
 
-    public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilegeWithCols> privileges) {
+    public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern,
+            List<AccessPrivilegeWithCols> privileges) {
         this(userIdent, role, tblPattern, null, null, privileges);
     }
 
