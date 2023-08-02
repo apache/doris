@@ -99,7 +99,7 @@ feHttpPassword = ""
 
 /* ============ Configurations that usually do not require modifications ============ */
 
-// DORIS_HOME is loaded by run-regression-test.sh传入的
+// DORIS_HOME is loaded by run-regression-test.sh
 // which is java -DDORIS_HOME=./
 
 // Set the path for the test cases
