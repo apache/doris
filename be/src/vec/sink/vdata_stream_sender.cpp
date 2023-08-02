@@ -803,6 +803,7 @@ Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** hol
 
 void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer* buffer) {
     for (auto channel : _channels) {
+        // TODO local channel no need to register??
         ((PipChannel*)channel)->registe(buffer);
     }
 }

@@ -114,6 +114,8 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     finst_id.set_lo(fragment_instance_id.lo);
     _instance_to_sending_by_pipeline[low_id] = true;
     _instance_to_rpc_ctx[low_id] = {};
+    _instance_watcher[low_id] = {};
+    _instance_watcher[low_id].start();
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
     _instance_to_rpc_callback_time[low_id] = 0;
@@ -313,6 +315,7 @@ void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id)
 void ExchangeSinkBuffer::_ended(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_sending_by_pipeline[id] = true;
+    _instance_watcher[id].stop();
 }
 
 void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
@@ -349,12 +352,12 @@ void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_ti
             local_min_time = std::min(local_min_time, time);
         }
         auto& callback_time = _instance_to_rpc_callback_time[id];
-        if (callback_time !=0) {
+        if (callback_time != 0) {
             local_max_callback_time = std::max(local_max_callback_time, callback_time);
             local_min_callback_time = std::min(local_min_callback_time, callback_time);
         }
         auto& callback_exec_time = _instance_to_rpc_callback_exec_time[id];
-        if (callback_exec_time !=0) {
+        if (callback_exec_time != 0) {
             local_max_callback_exec_time =
                     std::max(local_max_callback_exec_time, callback_exec_time);
             local_min_callback_exec_time =
@@ -422,5 +425,12 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     int64_t sum_time = get_sum_rpc_time();
     _sum_rpc_timer->set(sum_time);
     _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
+
+    int64_t max_end_time = 0;
+    for (auto& [id, timer] : _instance_watcher) {
+        max_end_time = std::max(timer.elapsed_time(), max_end_time);
+    }
+    auto* _max_end_timer = ADD_TIMER(profile, "MaxRpcEndTime");
+    _max_end_timer->set(max_end_time);
 }
 } // namespace doris::pipeline

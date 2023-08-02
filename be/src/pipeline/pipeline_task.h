@@ -135,16 +135,25 @@ public:
     void set_state(PipelineTaskState state);
 
     bool is_pending_finish() {
-        bool source_ret = _source->is_pending_finish();
+        bool source_ret;
+        {
+            SCOPED_TIMER(_src_pending_finish_check_timer)
+            source_ret = _source->is_pending_finish();
+        }
         if (source_ret) {
+            this->clear_src_pending_finish_time();
             return true;
         } else {
             this->set_src_pending_finish_time();
         }
 
-        bool sink_ret = _sink->is_pending_finish();
+        bool sink_ret;
+        {
+            SCOPED_TIMER(_dst_pending_finish_check_timer);
+            sink_ret = _sink->is_pending_finish();
+        }
         if (sink_ret) {
-            clear_dst_pending_finish_time();
+            this->clear_dst_pending_finish_time();
             return true;
         } else {
             this->set_dst_pending_finish_time();
@@ -221,7 +230,18 @@ public:
         }
     }
 
+    void clear_src_pending_finish_time() {
+        if (!_is_src_pending_finish_over) {
+            _src_pending_finish_over_time = 0;
+            _is_src_pending_finish_over = false;
+        }
+    }
+
     void set_src_pending_finish_time() {
+        if (!_is_src_pending_finish_over1) {
+            _src_pending_finish_over_time1 = _pipeline_task_watcher.elapsed_time();
+            _is_src_pending_finish_over1 = true;
+        }
         if (!_is_src_pending_finish_over) {
             _src_pending_finish_over_time = _pipeline_task_watcher.elapsed_time();
             _is_src_pending_finish_over = true;
@@ -236,6 +256,11 @@ public:
     }
 
     void set_dst_pending_finish_time() {
+        if (!_is_dst_pending_finish_over1) {
+            _dst_pending_finish_over_time1 = _pipeline_task_watcher.elapsed_time();
+            _is_dst_pending_finish_over1 = true;
+        }
+
         if (!_is_dst_pending_finish_over) {
             _dst_pending_finish_over_time = _pipeline_task_watcher.elapsed_time();
             _is_dst_pending_finish_over = true;
@@ -342,12 +367,20 @@ private:
     int64_t _eos_time = 0;
     //time 3
     bool _is_src_pending_finish_over = false;
+    bool _is_src_pending_finish_over1 = false;
+    RuntimeProfile::Counter* _src_pending_finish_check_timer;
     RuntimeProfile::Counter* _src_pending_finish_over_timer;
+    RuntimeProfile::Counter* _src_pending_finish_over_timer1;
     int64_t _src_pending_finish_over_time = 0;
+    int64_t _src_pending_finish_over_time1 = 0;
     // time 4
     bool _is_dst_pending_finish_over = false;
+    bool _is_dst_pending_finish_over1 = false;
+    RuntimeProfile::Counter* _dst_pending_finish_check_timer;
     RuntimeProfile::Counter* _dst_pending_finish_over_timer;
+    RuntimeProfile::Counter* _dst_pending_finish_over_timer1;
     int64_t _dst_pending_finish_over_time = 0;
+    int64_t _dst_pending_finish_over_time1 = 0;
     // time 5
     bool _is_close_pipeline = false;
     RuntimeProfile::Counter* _close_pipeline_timer;

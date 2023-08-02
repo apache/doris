@@ -70,7 +70,9 @@ void PipelineTask::_fresh_profile_counter() {
     COUNTER_SET(_begin_execute_timer, _begin_execute_time);
     COUNTER_SET(_eos_timer, _eos_time);
     COUNTER_SET(_src_pending_finish_over_timer, _src_pending_finish_over_time);
+    COUNTER_SET(_src_pending_finish_over_timer1, _src_pending_finish_over_time1);
     COUNTER_SET(_dst_pending_finish_over_timer, _dst_pending_finish_over_time);
+    COUNTER_SET(_dst_pending_finish_over_timer1, _dst_pending_finish_over_time1);
     COUNTER_SET(_pip_task_total_timer, (int64_t)_pipeline_task_watcher.elapsed_time());
 }
 
@@ -109,8 +111,13 @@ void PipelineTask::_init_profile() {
 
     _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
     _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
+    _src_pending_finish_check_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishCheckTime");
     _src_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime");
+    _src_pending_finish_over_timer1 = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime1");
+
+    _dst_pending_finish_check_timer = ADD_TIMER(_task_profile, "Task4DstPendingFinishCheckTime");
     _dst_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task4DstPendingFinishOverTime");
+    _dst_pending_finish_over_timer1 = ADD_TIMER(_task_profile, "Task4DstPendingFinishOverTime1");
     _pip_task_total_timer = ADD_TIMER(_task_profile, "Task5TotalTime");
     _close_pipeline_timer = ADD_TIMER(_task_profile, "Task6ClosePipelineTime");
 }

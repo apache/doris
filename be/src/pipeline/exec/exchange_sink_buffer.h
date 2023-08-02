@@ -190,6 +190,7 @@ private:
     phmap::flat_hash_map<InstanceLoId, PackageSeq> _instance_to_seq;
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<PTransmitDataParams>> _instance_to_request;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
+    phmap::flat_hash_map<InstanceLoId, MonotonicStopWatch> _instance_watcher;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_callback_time;
