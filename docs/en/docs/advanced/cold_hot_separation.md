@@ -54,7 +54,9 @@ The storage policy is the entry to use the cold and hot separation function. Use
 
 <version since="dev"></version> When creating an S3 RESOURCE, the S3 remote link verification will be performed to ensure that the RESOURCE is created correctly.
 
-In addition, fe configuration needs to be added: `enable_storage_policy=true`
+In addition, fe configuration needs to be added: `enable_storage_policy=true`  
+
+Note: This property will not be synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, this property will be erased in this table.
 
 For example:
 
@@ -107,6 +109,7 @@ For details, please refer to the [resource](../sql-manual/sql-reference/Data-Def
 - A single table or a single partition can only be associated with one storage policy. After association, the storage policy cannot be dropped，need to solve the relationship between the two.
 - The object information associated with the storage policy does not support modifying the data storage path information, such as bucket, endpoint, and root_ Path and other information
 - Currently, the storage policy only supports creation,modification and deletion. before deleting, you need to ensure that no table uses this storage policy.
+- The Unique model does not support storage policy setting when the Merge-On-Write feature is enabled.
 
 ## Show size of objects occupied by cold data
 1. Through show proc '/backends', you can view the size of each object being uploaded to, and the RemoteUsedCapacity item.There is a slight delay in this method

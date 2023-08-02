@@ -29,13 +29,13 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "runtime/runtime_state.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_set.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-// Here is an empirical value.
-static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
+
 VPartitionSortNode::VPartitionSortNode(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs), _hash_table_size_counter(nullptr) {

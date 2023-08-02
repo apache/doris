@@ -79,6 +79,12 @@ public class StatisticConstants {
 
     public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
 
+    public static final int RETRY_LOAD_QUEUE_SIZE = 1000;
+
+    public static final int RETRY_LOAD_THREAD_POOL_SIZE = 1;
+
+    public static final int LOAD_RETRY_TIMES = 3;
+
     static {
         STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);

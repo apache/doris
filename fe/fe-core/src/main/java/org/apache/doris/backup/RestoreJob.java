@@ -60,6 +60,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DynamicPartitionUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
@@ -104,6 +105,7 @@ import java.util.stream.Collectors;
 public class RestoreJob extends AbstractJob {
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
     private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
+    private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
 
@@ -165,6 +167,9 @@ public class RestoreJob extends AbstractJob {
     // NOTICE: because we do not persist it, this info may be lost if Frontend restart,
     // and if you don't want to losing it, backup your data again by using latest Doris version.
     private int metaVersion = -1;
+
+    private boolean isBeingSynced = false;
+
     // restore properties
     private Map<String, String> properties = Maps.newHashMap();
 
@@ -174,7 +179,7 @@ public class RestoreJob extends AbstractJob {
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveDynamicPartitionEnable, Env env, long repoId) {
+            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -184,15 +189,17 @@ public class RestoreJob extends AbstractJob {
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
         this.reserveDynamicPartitionEnable = reserveDynamicPartitionEnable;
+        this.isBeingSynced = isBeingSynced;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
+        properties.put(PROP_IS_BEING_SYNCED, String.valueOf(isBeingSynced));
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveDynamicPartitionEnable, Env env, long repoId, BackupMeta backupMeta) {
+            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, Env env, long repoId, BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
-                reserveDynamicPartitionEnable, env, repoId);
+                reserveDynamicPartitionEnable, isBeingSynced, env, repoId);
         this.backupMeta = backupMeta;
     }
 
@@ -210,6 +217,10 @@ public class RestoreJob extends AbstractJob {
 
     public int getMetaVersion() {
         return metaVersion;
+    }
+
+    public boolean isBeingSynced() {
+        return isBeingSynced;
     }
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
@@ -688,7 +699,7 @@ public class RestoreJob extends AbstractJob {
 
                     // Reset properties to correct values.
                     remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
-                                                            replicaAlloc);
+                                                            replicaAlloc, isBeingSynced);
 
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
@@ -1032,6 +1043,10 @@ public class RestoreJob extends AbstractJob {
                             localTbl.disableAutoCompaction(),
                             localTbl.enableSingleReplicaCompaction(),
                             localTbl.skipWriteIndexOnLoad(),
+                            localTbl.getCompactionPolicy(),
+                            localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
+                            localTbl.getTimeSeriesCompactionFileCountThreshold(),
+                            localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                             localTbl.storeRowColumn(),
                             localTbl.isDynamicSchema(),
                             binlogConfig);
@@ -2135,6 +2150,7 @@ public class RestoreJob extends AbstractJob {
         }
         reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
         reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
+        isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
     }
 
     @Override

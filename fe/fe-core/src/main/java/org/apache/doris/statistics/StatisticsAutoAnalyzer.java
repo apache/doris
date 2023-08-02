@@ -50,8 +50,11 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsAutoAnalyzer.class);
 
+    private AnalysisTaskExecutor analysisTaskExecutor;
+
     public StatisticsAutoAnalyzer() {
         super("Automatic Analyzer", TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes));
+        analysisTaskExecutor = new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num);
     }
 
     @Override
@@ -66,12 +69,16 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return;
         }
 
-        // if (!Config.enable_full_auto_analyze) {
-        //     analyzePeriodically();
-        //     analyzeAutomatically();
-        // } else {
-        //     analyzeAll();
-        // }
+        if (!analysisTaskExecutor.idle()) {
+            return;
+        }
+
+        if (!Config.enable_full_auto_analyze) {
+            analyzePeriodically();
+            analyzeAutomatically();
+        } else {
+            analyzeAll();
+        }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -92,7 +99,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                         if (analysisInfo == null) {
                             continue;
                         }
-                        analysisManager.createSystemAnalysisJob(analysisInfo);
+                        analysisManager.createSystemAnalysisJob(analysisInfo, analysisTaskExecutor);
                     }
                 }
             } catch (Throwable t) {
@@ -109,7 +116,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             List<AnalysisInfo> jobInfos = analysisManager.findPeriodicJobs();
             for (AnalysisInfo jobInfo : jobInfos) {
                 jobInfo = new AnalysisInfoBuilder(jobInfo).setJobType(JobType.SYSTEM).build();
-                analysisManager.createSystemAnalysisJob(jobInfo);
+                analysisManager.createSystemAnalysisJob(jobInfo, analysisTaskExecutor);
             }
         } catch (DdlException e) {
             LOG.warn("Failed to periodically analyze the statistics." + e);
@@ -124,7 +131,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             try {
                 checkedJobInfo = getReAnalyzeRequiredPart(jobInfo);
                 if (checkedJobInfo != null) {
-                    analysisManager.createSystemAnalysisJob(checkedJobInfo);
+                    analysisManager.createSystemAnalysisJob(checkedJobInfo, analysisTaskExecutor);
                 }
             } catch (Throwable t) {
                 LOG.warn("Failed to create analyze job: {}", checkedJobInfo, t);

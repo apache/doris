@@ -19,9 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -206,9 +204,6 @@ public class ColumnStatistic {
                 columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
             columnStatisticBuilder.setSelectivity(1.0);
-            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName)
-                    .orElse(null);
-            columnStatisticBuilder.setHistogram(histogram);
             columnStatisticBuilder.setUpdatedTime(resultRow.getColumnValue("update_time"));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
@@ -316,8 +311,8 @@ public class ColumnStatistic {
 
     @Override
     public String toString() {
-        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f",
-                ndv, minValue, minExpr, maxValue, maxExpr, count);
+        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, avgSizeByte=%f",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, avgSizeByte);
     }
 
     public JSONObject toJson() {
@@ -428,12 +423,7 @@ public class ColumnStatistic {
         return isUnKnown;
     }
 
-    public void loadPartitionStats(long tableId, long idxId, String colName) throws DdlException {
-        List<ResultRow> resultRows = StatisticsRepository.loadPartStats(tableId, idxId, colName);
-        for (ResultRow resultRow : resultRows) {
-            String partId = resultRow.getColumnValue("part_id");
-            ColumnStatistic columnStatistic = ColumnStatistic.fromResultRow(resultRow);
-            partitionIdToColStats.put(Long.parseLong(partId), columnStatistic);
-        }
+    public void putPartStats(long partId, ColumnStatistic columnStatistic) {
+        this.partitionIdToColStats.put(partId, columnStatistic);
     }
 }

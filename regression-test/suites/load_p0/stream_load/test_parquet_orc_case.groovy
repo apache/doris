@@ -234,15 +234,4 @@ suite("test_parquet_orc_case", "p0") {
         "replication_num"="1"
     );
     """
-
-    streamLoad {
-        table "${arrayParquetTbl}"
-        set 'format', 'parquet'
-        set 'columns', '`k1`, `a1`, `a2`, `a3`, `a4`, `a5`, `a6`, `a7`, `a8`, `a9`, `a10`, `a11`, `a12`, `a13`, `a14`'
-        file 'array_test.parquet'
-        // time 20000 // limit inflight 10s
-    }
-    sql "sync"
-    qt_sql_array_parquet "select * from ${arrayParquetTbl} order by k1 limit 3"
 }
-

@@ -227,6 +227,15 @@ public class OlapTable extends Table {
         getOrCreatTableProperty().setBinlogConfig(binlogConfig);
     }
 
+    public void setIsBeingSynced(boolean isBeingSynced) {
+        getOrCreatTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED,
+                String.valueOf(isBeingSynced));
+    }
+
+    public boolean isBeingSynced() {
+        return getOrCreatTableProperty().isBeingSynced();
+    }
+
     public void setTableProperty(TableProperty tableProperty) {
         this.tableProperty = tableProperty;
     }
@@ -504,9 +513,17 @@ public class OlapTable extends Table {
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
-                                          ReplicaAllocation replicaAlloc) {
+                                          ReplicaAllocation replicaAlloc, boolean isBeingSynced) {
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
+        }
+        if (isBeingSynced) {
+            TableProperty tableProperty = getOrCreatTableProperty();
+            tableProperty.setIsBeingSynced();
+            tableProperty.removeInvalidProperties();
+            if (isAutoBucket()) {
+                markAutoBucket();
+            }
         }
         // remove colocate property.
         setColocateGroup(null);
@@ -756,6 +773,10 @@ public class OlapTable extends Table {
 
     public DistributionInfo getDefaultDistributionInfo() {
         return defaultDistributionInfo;
+    }
+
+    public void markAutoBucket() {
+        defaultDistributionInfo.markAutoBucket();
     }
 
     public Set<String> getDistributionColumnNames() {
@@ -1699,6 +1720,15 @@ public class OlapTable extends Table {
         return hasChanged;
     }
 
+    public void ignoreInvaildPropertiesWhenSynced(Map<String, String> properties) {
+        // ignore colocate table
+        PropertyAnalyzer.analyzeColocate(properties);
+        // ignore storage policy
+        if (!PropertyAnalyzer.analyzeStoragePolicy(properties).isEmpty()) {
+            properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        }
+    }
+
     public void setReplicationAllocation(ReplicaAllocation replicaAlloc) {
         getOrCreatTableProperty().setReplicaAlloc(replicaAlloc);
     }
@@ -1780,17 +1810,6 @@ public class OlapTable extends Table {
         return "";
     }
 
-    public void setCcrEnable(boolean ccrEnable) throws UserException {
-        // TODO(Drogon): Config.enable_ccr
-        TableProperty tableProperty = getOrCreatTableProperty();
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, Boolean.toString(ccrEnable));
-        tableProperty.buildCcrEnable();
-    }
-
-    public boolean isCcrEnable() {
-        return tableProperty != null && tableProperty.isCcrEnable();
-    }
-
     public void setDisableAutoCompaction(boolean disableAutoCompaction) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
@@ -1847,6 +1866,62 @@ public class OlapTable extends Table {
             return tableProperty.skipWriteIndexOnLoad();
         }
         return false;
+    }
+
+    public void setCompactionPolicy(String compactionPolicy) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, compactionPolicy);
+        tableProperty.buildCompactionPolicy();
+    }
+
+    public String getCompactionPolicy() {
+        if (tableProperty != null) {
+            return tableProperty.compactionPolicy();
+        }
+        return "";
+    }
+
+    public void setTimeSeriesCompactionGoalSizeMbytes(long timeSeriesCompactionGoalSizeMbytes) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+                                                        Long.valueOf(timeSeriesCompactionGoalSizeMbytes).toString());
+        tableProperty.buildTimeSeriesCompactionGoalSizeMbytes();
+    }
+
+    public Long getTimeSeriesCompactionGoalSizeMbytes() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionGoalSizeMbytes();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionFileCountThreshold(long timeSeriesCompactionFileCountThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+                                                    Long.valueOf(timeSeriesCompactionFileCountThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionFileCountThreshold();
+    }
+
+    public Long getTimeSeriesCompactionFileCountThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionFileCountThreshold();
+        }
+        return null;
+    }
+
+    public void setTimeSeriesCompactionTimeThresholdSeconds(long timeSeriesCompactionTimeThresholdSeconds) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer
+                                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                                                    Long.valueOf(timeSeriesCompactionTimeThresholdSeconds).toString());
+        tableProperty.buildTimeSeriesCompactionTimeThresholdSeconds();
+    }
+
+    public Long getTimeSeriesCompactionTimeThresholdSeconds() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionTimeThresholdSeconds();
+        }
+        return null;
     }
 
     public Boolean isDynamicSchema() {

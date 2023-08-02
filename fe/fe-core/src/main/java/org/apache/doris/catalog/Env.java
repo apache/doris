@@ -2833,7 +2833,14 @@ public class Env {
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
                                   long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion, false);
+                hidePassword, false, specificVersion, false, false);
+    }
+
+    public static void getSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+                                  long specificVersion) {
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
+                hidePassword, false, specificVersion, false, true);
     }
 
     /**
@@ -2845,7 +2852,7 @@ public class Env {
                                   List<String> addPartitionStmt, List<String> createRollupStmt,
                                   boolean separatePartition,
                                   boolean hidePassword, boolean getDdlForLike, long specificVersion,
-                                  boolean getBriefDdl) {
+                                  boolean getBriefDdl, boolean getDdlForSync) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3038,6 +3045,15 @@ public class Env {
                 sb.append(partition.getVisibleVersion()).append("\"");
             }
 
+            // mark this table is being synced
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED).append("\" = \"");
+            sb.append(String.valueOf(olapTable.isBeingSynced() || getDdlForSync)).append("\"");
+            // mark this table if it is a auto bucket table
+            if (getDdlForSync && olapTable.isAutoBucket()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET).append("\" = \"");
+                sb.append("true").append("\"");
+            }
+
             // colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
@@ -3118,6 +3134,37 @@ public class Env {
             if (olapTable.skipWriteIndexOnLoad()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
                 sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
+            }
+
+            // compaction policy
+            if (olapTable.getCompactionPolicy() != null && !olapTable.getCompactionPolicy().equals("")
+                    && !olapTable.getCompactionPolicy().equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY).append("\" = \"");
+                sb.append(olapTable.getCompactionPolicy()).append("\"");
+            }
+
+            // time series compaction goal size
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
+            }
+
+            // time series compaction file count threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
+            }
+
+            // time series compaction time threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
             // dynamic schema
@@ -4493,7 +4540,7 @@ public class Env {
         }
         tableProperty.buildInMemory()
                 .buildStoragePolicy()
-                .buildCcrEnable();
+                .buildIsBeingSynced();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {

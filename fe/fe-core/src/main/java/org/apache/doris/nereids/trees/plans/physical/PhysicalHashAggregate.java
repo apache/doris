@@ -318,4 +318,19 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 src, probeExpr, type, buildSideNdv, exprOrder);
         return pushedDown;
     }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return outputExpressions.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public PhysicalHashAggregate<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
+                aggregateParam, maybeUsingStream, groupExpression, null,
+                requireProperties, physicalProperties, statistics,
+                child());
+    }
 }
