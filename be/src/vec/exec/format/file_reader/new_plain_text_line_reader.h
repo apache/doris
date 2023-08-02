@@ -36,12 +36,7 @@ class IOContext;
 class Decompressor;
 class Status;
 
-enum class ReaderState {
-    START,
-    NORMAL,
-    PRE_MATCH_ENCLOSE,
-    MATCH_ENCLOSE
-};
+enum class ReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
 struct ReaderStateWrapper {
     inline void forward_to(ReaderState state) {
         this->prev_state = this->curr_state;
@@ -106,8 +101,7 @@ public:
               _enclose(enclose),
               _escape(escape),
               _column_sep(column_sep_),
-              _column_sep_len(column_sep_len_),
-              _column_sep_num(column_sep_num) {
+              _column_sep_len(column_sep_len_) {
         _column_sep_positions.reserve(column_sep_num);
     }
 
@@ -140,7 +134,6 @@ private:
     const char _escape;
     const std::string _column_sep;
     const size_t _column_sep_len;
-    const size_t _column_sep_num;
 
     size_t _idx = 0;
     size_t _delimiter_match_len = 0;
