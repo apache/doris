@@ -32,14 +32,12 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import java.math.BigInteger;
 import java.util.Random;
-import java.util.UUID;
 
 /**
  * functions that can be executed in FE.
  */
 public class ExecutableFunctions {
     public static final ExecutableFunctions INSTANCE = new ExecutableFunctions();
-    private static final Random RANDOM = new Random();
 
     /**
      * other scalar function
