@@ -126,6 +126,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     _is_partial_update = pschema.partial_update();
     _is_strict_mode = pschema.is_strict_mode();
+    _is_unique_key_replace_if_not_null = pschema.is_unique_key_replace_if_not_null();
 
     for (auto& col : pschema.partial_update_input_columns()) {
         _partial_update_input_columns.insert(col);
@@ -181,9 +182,9 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _table_id = tschema.table_id;
     _version = tschema.version;
     _is_partial_update = tschema.is_partial_update;
-    if (tschema.__isset.is_strict_mode) {
-        _is_strict_mode = tschema.is_strict_mode;
-    }
+    _is_strict_mode = tschema.__isset.is_strict_mode && tschema.is_strict_mode;
+    _is_unique_key_replace_if_not_null = tschema.__isset.is_unique_key_replace_if_not_null &&
+                                         tschema.is_unique_key_replace_if_not_null;
 
     for (auto& tcolumn : tschema.partial_update_input_columns) {
         _partial_update_input_columns.insert(tcolumn);
@@ -253,6 +254,7 @@ void OlapTableSchemaParam::to_protobuf(POlapTableSchemaParam* pschema) const {
     pschema->set_version(_version);
     pschema->set_partial_update(_is_partial_update);
     pschema->set_is_strict_mode(_is_strict_mode);
+    pschema->set_is_unique_key_replace_if_not_null(_is_unique_key_replace_if_not_null);
     for (auto col : _partial_update_input_columns) {
         *pschema->add_partial_update_input_columns() = col;
     }

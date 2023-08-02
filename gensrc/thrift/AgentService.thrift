@@ -149,6 +149,7 @@ struct TCreateTabletReq {
     23: optional i64 time_series_compaction_goal_size_mbytes = 1024
     24: optional i64 time_series_compaction_file_count_threshold = 2000
     25: optional i64 time_series_compaction_time_threshold_seconds = 3600
+    26: optional bool enable_unique_key_replace_if_not_null = false
 }
 
 struct TDropTabletReq {

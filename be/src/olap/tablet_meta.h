@@ -108,7 +108,8 @@ public:
                std::string compaction_policy = "size_based",
                int64_t time_series_compaction_goal_size_mbytes = 1024,
                int64_t time_series_compaction_file_count_threshold = 2000,
-               int64_t time_series_compaction_time_threshold_seconds = 3600);
+               int64_t time_series_compaction_time_threshold_seconds = 3600,
+               bool enable_unique_key_if_not_null = false);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -218,6 +219,10 @@ public:
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
+    bool enable_unique_key_replace_if_not_null() const {
+        return _enable_unique_key_replace_if_not_null;
+    }
+
     // TODO(Drogon): thread safety
     const BinlogConfig& binlog_config() const { return _binlog_config; }
     void set_binlog_config(BinlogConfig binlog_config) {
@@ -288,6 +293,7 @@ private:
     // which can avoid the merging cost in read stage, and accelerate the aggregation
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
+    bool _enable_unique_key_replace_if_not_null = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
 
     // binlog config

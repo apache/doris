@@ -122,6 +122,11 @@ public:
         return Status::OK();
     }
 
+    // currently, a rowset cantains at most one segment, so we just return the segment's indicator maps
+    std::shared_ptr<IndicatorMaps> get_indicator_maps() const override {
+        return _segment_creator.get_indicator_maps();
+    }
+
     Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) override;
 
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };

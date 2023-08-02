@@ -102,6 +102,11 @@ public:
 
     int64_t num_rows_filtered() const override { return _segment_creator.num_rows_filtered(); }
 
+    // currently, a rowset cantains at most one segment, so we just return the segment's indicator maps
+    std::shared_ptr<IndicatorMaps> get_indicator_maps() const override {
+        return _segment_creator.get_indicator_maps();
+    }
+
     RowsetId rowset_id() override { return _context.rowset_id; }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }

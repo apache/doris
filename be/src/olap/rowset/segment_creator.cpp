@@ -145,6 +145,14 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.index_size = index_size + writer->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
 
+    if (!_indicator_maps) {
+        _indicator_maps.reset(new IndicatorMaps);
+    }
+    auto indicator_maps = writer->get_indicator_maps();
+    if (indicator_maps) {
+        _indicator_maps->merge(*indicator_maps);
+    }
+
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat));

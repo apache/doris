@@ -134,6 +134,7 @@ public:
     Version max_version() const;
     Version max_version_unlocked() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
+    bool enable_unique_key_replace_if_not_null() const;
 
     // properties encapsulated in TabletSchema
     SortType sort_type() const;
@@ -436,10 +437,11 @@ public:
                                  const TabletColumn& tablet_column,
                                  vectorized::MutableColumnPtr& dst);
 
-    Status fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
-                                          const std::vector<uint32_t>& rowids,
-                                          const std::vector<uint32_t>& cids,
-                                          vectorized::Block& block);
+    Status fetch_value_through_row_column(
+            RowsetSharedPtr input_rowset, uint32_t segid, const std::vector<uint32_t>& rids,
+            const std::vector<ReadRowsInfo>& rows_info, const std::vector<uint32_t>* cids_full_read,
+            const std::vector<uint32_t>* cids_point_read, vectorized::Block* block_full_read,
+            vectorized::Block* block_point_read, bool with_point_read = true);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -447,36 +449,48 @@ public:
     // for rowset 6-7. Also, if a compaction happens between commit_txn and
     // publish_txn, we should remove compaction input rowsets' delete_bitmap
     // and build newly generated rowset's delete_bitmap
-    Status calc_delete_bitmap(RowsetSharedPtr rowset,
-                              const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                              const std::vector<RowsetSharedPtr>& specified_rowsets,
-                              DeleteBitmapPtr delete_bitmap, int64_t version,
-                              CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr);
+    Status calc_delete_bitmap(
+            RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+            std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
+            int64_t version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr);
 
     std::vector<RowsetSharedPtr> get_rowset_by_ids(
             const RowsetIdUnorderedSet* specified_rowset_ids);
 
-    Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
-                                      const segment_v2::SegmentSharedPtr& seg,
-                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                      RowsetWriter* rowset_writer);
+    Status calc_segment_delete_bitmap(
+            RowsetSharedPtr rowset, const segment_v2::SegmentSharedPtr& seg,
+            const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+            int64_t end_version,
+            std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
+            RowsetWriter* rowset_writer);
 
     Status calc_delete_bitmap_between_segments(
             RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
     Status read_columns_by_plan(TabletSchemaSPtr tablet_schema,
-                                const std::vector<uint32_t> cids_to_read,
-                                const PartialUpdateReadPlan& read_plan,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                vectorized::Block& block, std::map<uint32_t, uint32_t>* read_index);
-    void prepare_to_read(const RowLocation& row_location, size_t pos,
-                         PartialUpdateReadPlan* read_plan);
+                                const PartialUpdateReadPlan& read_plan,
+                                const std::vector<uint32_t>* cids_full_read,
+                                vectorized::Block* block_full_read,
+                                std::map<uint32_t, uint32_t>* missing_cols_read_index);
+    // with point read
+    Status read_columns_by_plan(
+            TabletSchemaSPtr tablet_schema,
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            const PartialUpdateReadPlan& read_plan, const std::vector<uint32_t>* cids_full_read,
+            const std::vector<uint32_t>* cids_point_read, vectorized::Block* block_full_read,
+            vectorized::Block* block_point_read,
+            std::map<uint32_t, uint32_t>* missing_cols_read_index,
+            std::map<uint32_t, std::map<uint32_t, uint32_t>>* parital_update_cols_read_index);
+    void prepare_to_read(PartialUpdateReadPlan& read_plan, const RowLocation& row_location,
+                         uint32_t pos, const std::vector<uint32_t>& partial_update_cids);
     Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const std::vector<uint32>& missing_cids,
             const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
             const PartialUpdateReadPlan& read_plan_update,
             const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+            std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
             vectorized::Block* output_block);
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
@@ -487,10 +501,11 @@ public:
             const std::vector<segment_v2::SegmentSharedPtr>& segments, int64_t txn_id,
             CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr);
 
-    Status update_delete_bitmap(const RowsetSharedPtr& rowset,
-                                const RowsetIdUnorderedSet& pre_rowset_ids,
-                                DeleteBitmapPtr delete_bitmap, int64_t txn_id,
-                                RowsetWriter* rowset_writer = nullptr);
+    Status update_delete_bitmap(
+            const RowsetSharedPtr& rowset, const RowsetIdUnorderedSet& pre_rowset_ids,
+            DeleteBitmapPtr delete_bitmap,
+            std::shared_ptr<std::map<std::uint32_t, std::vector<uint32_t>>> indicator_maps,
+            int64_t txn_id, RowsetWriter* rowset_writer = nullptr);
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
@@ -751,6 +766,10 @@ inline void Tablet::set_cumulative_promotion_size(int64_t new_size) {
     _cumulative_promotion_size = new_size;
 }
 
+inline bool Tablet::enable_unique_key_replace_if_not_null() const {
+    return _tablet_meta->enable_unique_key_replace_if_not_null();
+}
+
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
 inline size_t Tablet::tablet_footprint() {
@@ -837,5 +856,4 @@ inline size_t Tablet::next_unique_id() const {
 inline size_t Tablet::row_size() const {
     return _tablet_meta->tablet_schema()->row_size();
 }
-
 } // namespace doris

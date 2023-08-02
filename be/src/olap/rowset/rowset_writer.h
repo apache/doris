@@ -131,6 +131,8 @@ public:
 
     virtual int64_t num_rows_filtered() const = 0;
 
+    virtual std::shared_ptr<IndicatorMaps> get_indicator_maps() const = 0;
+
     virtual RowsetId rowset_id() = 0;
 
     virtual RowsetTypePB type() const = 0;

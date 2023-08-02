@@ -97,6 +97,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean enableUniqueKeyMergeOnWrite;
 
+    private boolean enableUniqueKeyReplaceIfNotNull;
+
     private boolean disableAutoCompaction;
 
     private boolean enableSingleReplicaCompaction;
@@ -126,6 +128,7 @@ public class CreateReplicaTask extends AgentTask {
                              DataSortInfo dataSortInfo,
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
+                             boolean enableUniqueKeyReplaceIfNotNull,
                              String storagePolicy, boolean disableAutoCompaction,
                              boolean enableSingleReplicaCompaction,
                              boolean skipWriteIndexOnLoad,
@@ -160,6 +163,7 @@ public class CreateReplicaTask extends AgentTask {
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
+        this.enableUniqueKeyReplaceIfNotNull = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyReplaceIfNotNull);
         if (storagePolicy != null && !storagePolicy.isEmpty()) {
             Optional<Policy> policy = Env.getCurrentEnv().getPolicyMgr()
                     .findPolicy(storagePolicy, PolicyTypeEnum.STORAGE);
@@ -310,6 +314,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTabletType(tabletType);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+        createTabletReq.setEnableUniqueKeyReplaceIfNotNull(enableUniqueKeyReplaceIfNotNull);
         createTabletReq.setCompactionPolicy(compactionPolicy);
         createTabletReq.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
         createTabletReq.setTimeSeriesCompactionFileCountThreshold(timeSeriesCompactionFileCountThreshold);

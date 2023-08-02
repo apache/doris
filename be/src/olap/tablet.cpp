@@ -128,6 +128,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/jsonb/serialize.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris {
 class TupleDescriptor;
@@ -2719,15 +2720,16 @@ Status Tablet::_get_segment_column_iterator(
 }
 
 // fetch value by row column
-Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint32_t segid,
-                                              const std::vector<uint32_t>& rowids,
-                                              const std::vector<uint32_t>& cids,
-                                              vectorized::Block& block) {
+Status Tablet::fetch_value_through_row_column(
+        RowsetSharedPtr input_rowset, uint32_t segid, const std::vector<uint32_t>& rids,
+        const std::vector<ReadRowsInfo>& rows_info, const std::vector<uint32_t>* cids_full_read,
+        const std::vector<uint32_t>* cids_point_read, vectorized::Block* block_full_read,
+        vectorized::Block* block_point_read, bool with_point_read) {
     MonotonicStopWatch watch;
     watch.start();
     Defer _defer([&]() {
         LOG_EVERY_N(INFO, 500) << "fetch_value_by_rowids, cost(us):" << watch.elapsed_time() / 1000
-                               << ", row_batch_size:" << rowids.size();
+                               << ", row_batch_size:" << rids.size();
     });
 
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
@@ -2741,24 +2743,51 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
                                                  &column_iterator, &stats));
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
-    RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
-    assert(column_ptr->size() == rowids.size());
+    RETURN_IF_ERROR(column_iterator->read_by_rowids(rids.data(), rids.size(), column_ptr));
+    assert(column_ptr->size() == rids.size());
     auto string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
-    vectorized::DataTypeSerDeSPtrs serdes;
-    serdes.resize(cids.size());
-    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
-    std::vector<std::string> default_values;
-    default_values.resize(cids.size());
-    for (int i = 0; i < cids.size(); ++i) {
-        const TabletColumn& column = tablet_schema->column(cids[i]);
+    vectorized::DataTypeSerDeSPtrs serdes_full_read;
+    serdes_full_read.resize(cids_full_read->size());
+
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx_full_read;
+
+    for (int i = 0; i < cids_full_read->size(); ++i) {
+        const TabletColumn& column = tablet_schema->column(cids_full_read->at(i));
         vectorized::DataTypePtr type =
                 vectorized::DataTypeFactory::instance().create_data_type(column);
-        col_uid_to_idx[column.unique_id()] = i;
-        default_values[i] = column.default_value();
-        serdes[i] = type->get_serde();
+        col_uid_to_idx_full_read[column.unique_id()] = i;
+        serdes_full_read[i] = type->get_serde();
     }
-    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block,
-                                                   default_values);
+
+    if (with_point_read) {
+        vectorized::DataTypeSerDeSPtrs serdes_point_read;
+        serdes_point_read.resize(cids_point_read->size());
+        std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> col_uid_to_idx_cid_point_read;
+        for (int i = 0; i < cids_point_read->size(); ++i) {
+            const TabletColumn& column = tablet_schema->column(cids_point_read->at(i));
+            vectorized::DataTypePtr type =
+                    vectorized::DataTypeFactory::instance().create_data_type(column);
+            col_uid_to_idx_cid_point_read[column.unique_id()] = {i, cids_point_read->at(i)};
+            serdes_point_read[i] = type->get_serde();
+        }
+        vectorized::JsonbSerializeUtil::jsonb_to_block(
+                serdes_full_read, serdes_point_read, *string_column, col_uid_to_idx_full_read,
+                col_uid_to_idx_cid_point_read, rows_info, *block_full_read, *block_point_read);
+    } else {
+        std::vector<std::string> default_values;
+        default_values.resize(cids_full_read->size());
+        for (int i = 0; i < cids_full_read->size(); ++i) {
+            const TabletColumn& column = tablet_schema->column(cids_full_read->at(i));
+            vectorized::DataTypePtr type =
+                    vectorized::DataTypeFactory::instance().create_data_type(column);
+            col_uid_to_idx_full_read[column.unique_id()] = i;
+            default_values[i] = column.default_value();
+            serdes_full_read[i] = type->get_serde();
+        }
+        vectorized::JsonbSerializeUtil::jsonb_to_block(serdes_full_read, *string_column,
+                                                       col_uid_to_idx_full_read, *block_full_read,
+                                                       default_values);
+    }
     return Status::OK();
 }
 
@@ -2937,17 +2966,19 @@ void Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_b
                                   row_pos_vec.data() + in_block.rows());
 }
 
-Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
-                                          const segment_v2::SegmentSharedPtr& seg,
-                                          const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                          DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                          RowsetWriter* rowset_writer) {
+Status Tablet::calc_segment_delete_bitmap(
+        RowsetSharedPtr rowset, const segment_v2::SegmentSharedPtr& seg,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+        int64_t end_version,
+        std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
+        RowsetWriter* rowset_writer) {
     OlapStopWatch watch;
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
     auto rowset_schema = rowset->tablet_schema();
     bool is_partial_update = rowset_writer && rowset_writer->is_partial_update();
     bool have_input_seq_column = false;
+    bool has_row_column = rowset_schema->store_row_column();
     if (is_partial_update && rowset_schema->has_sequence_col()) {
         std::vector<uint32_t> including_cids =
                 rowset_writer->get_partial_update_info()->update_cids;
@@ -2959,6 +2990,10 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     // use for partial update
     PartialUpdateReadPlan read_plan_ori;
     PartialUpdateReadPlan read_plan_update;
+    if (has_row_column) {
+        read_plan_ori = RowStoreReadPlan {};
+        read_plan_update = RowStoreReadPlan {};
+    }
 
     std::map<RowsetId, RowsetSharedPtr> rsid_to_rowset;
     rsid_to_rowset[rowset_id] = rowset;
@@ -3057,8 +3092,15 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 // So here we should read version 5's columns and build a new row, which is
                 // consists of version 6's update columns and version 5's origin columns
                 // here we build 2 read plan for ori values and update values
-                prepare_to_read(loc, pos, &read_plan_ori);
-                prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos, &read_plan_update);
+                if (indicator_maps) {
+                    prepare_to_read(read_plan_ori, loc, pos, indicator_maps->at(row_id));
+                    prepare_to_read(read_plan_update, RowLocation {rowset_id, seg->id(), row_id},
+                                    pos, {});
+                } else {
+                    prepare_to_read(read_plan_ori, loc, pos, {});
+                    prepare_to_read(read_plan_update, RowLocation {rowset_id, seg->id(), row_id},
+                                    pos, {});
+                }
                 rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
                 ++pos;
                 // delete bitmap will be calculate when memtable flush and
@@ -3100,7 +3142,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         DCHECK(partial_update_info);
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
                 rowset_schema, partial_update_info->missing_cids, partial_update_info->update_cids,
-                read_plan_ori, read_plan_update, rsid_to_rowset, &block));
+                read_plan_ori, read_plan_update, rsid_to_rowset, indicator_maps, &block));
         sort_block(block, ordered_block);
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
     }
@@ -3116,11 +3158,11 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 // user can get all delete bitmaps from that token.
 // if `token` is nullptr, the calculation will run in local, and user can get the result
 // delete bitmap from `delete_bitmap` directly.
-Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
-                                  const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                                  const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                  DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                  CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
+Status Tablet::calc_delete_bitmap(
+        RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+        std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
+        int64_t end_version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
     auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
         LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet_id()
@@ -3139,10 +3181,11 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
         auto& seg = segments[i];
         if (token != nullptr) {
             RETURN_IF_ERROR(token->submit(tablet_ptr, rowset, seg, specified_rowsets, end_version,
-                                          delete_bitmap, rowset_writer));
+                                          delete_bitmap, indicator_maps, rowset_writer));
         } else {
             RETURN_IF_ERROR(calc_segment_delete_bitmap(rowset, segments[i], specified_rowsets,
-                                                       delete_bitmap, end_version, rowset_writer));
+                                                       delete_bitmap, end_version, indicator_maps,
+                                                       rowset_writer));
         }
     }
 
@@ -3169,6 +3212,7 @@ Status Tablet::generate_new_block_for_partial_update(
         const std::vector<uint32>& update_cids, const PartialUpdateReadPlan& read_plan_ori,
         const PartialUpdateReadPlan& read_plan_update,
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+        std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
         vectorized::Block* output_block) {
     // do partial update related works
     // 1. read columns by read plan
@@ -3176,101 +3220,281 @@ Status Tablet::generate_new_block_for_partial_update(
     // 3. write a new segment and modify rowset meta
     // 4. mark current keys deleted
     CHECK(output_block);
-    auto full_mutable_columns = output_block->mutate_columns();
-    auto old_block = rowset_schema->create_block_by_cids(missing_cids);
-    auto update_block = rowset_schema->create_block_by_cids(update_cids);
+    if (!indicator_maps) {
+        auto full_mutable_columns = output_block->mutate_columns();
+        auto old_block = rowset_schema->create_block_by_cids(missing_cids);
+        auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
-    std::map<uint32_t, uint32_t> read_index_old;
-    RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
-                                         old_block, &read_index_old));
+        std::map<uint32_t, uint32_t> read_index_old;
+        RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, rsid_to_rowset, read_plan_ori,
+                                             &missing_cids, &old_block, &read_index_old));
 
-    std::map<uint32_t, uint32_t> read_index_update;
-    RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, update_cids, read_plan_update,
-                                         rsid_to_rowset, update_block, &read_index_update));
+        std::map<uint32_t, uint32_t> read_index_update;
+        RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, rsid_to_rowset, read_plan_update,
+                                             &update_cids, &update_block, &read_index_update));
 
-    // build full block
-    CHECK(read_index_old.size() == read_index_update.size());
-    for (auto i = 0; i < missing_cids.size(); ++i) {
-        for (auto idx = 0; idx < read_index_old.size(); ++idx) {
-            full_mutable_columns[missing_cids[i]]->insert_from(
-                    *old_block.get_columns_with_type_and_name()[i].column.get(),
-                    read_index_old[idx]);
+        // build full block
+        CHECK(read_index_old.size() == read_index_update.size());
+        for (auto i = 0; i < missing_cids.size(); ++i) {
+            for (auto idx = 0; idx < read_index_old.size(); ++idx) {
+                full_mutable_columns[missing_cids[i]]->insert_from(
+                        *old_block.get_columns_with_type_and_name()[i].column.get(),
+                        read_index_old[idx]);
+            }
+        }
+        for (auto i = 0; i < update_cids.size(); ++i) {
+            for (auto idx = 0; idx < read_index_update.size(); ++idx) {
+                full_mutable_columns[update_cids[i]]->insert_from(
+                        *update_block.get_columns_with_type_and_name()[i].column.get(),
+                        read_index_update[idx]);
+            }
+        }
+        VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
+    } else {
+        std::unordered_set<uint32_t> cids_point_read;
+        for (const auto& [_, cids] : *indicator_maps) {
+            for (uint32_t cid : cids) {
+                cids_point_read.insert(cid);
+            }
+        }
+        std::vector<uint32_t> point_read_cids;
+        point_read_cids.reserve(cids_point_read.size());
+        for (uint32_t cid : cids_point_read) {
+            point_read_cids.emplace_back(cid);
+        }
+        auto full_mutable_columns = output_block->mutate_columns();
+        auto old_full_read_block = rowset_schema->create_block_by_cids(missing_cids);
+        auto point_read_block = rowset_schema->create_block_by_cids(point_read_cids);
+
+        std::map<uint32_t, uint32_t> full_read_index_old;
+        std::map<uint32_t, std::map<uint32_t, uint32_t>> point_read_index_old;
+        RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, rsid_to_rowset, read_plan_ori,
+                                             &missing_cids, &point_read_cids, &old_full_read_block,
+                                             &point_read_block, &full_read_index_old,
+                                             &point_read_index_old));
+
+        auto update_block = rowset_schema->create_block_by_cids(update_cids);
+        std::map<uint32_t, uint32_t> read_index_update;
+        RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, rsid_to_rowset, read_plan_update,
+                                             &update_cids, &update_block, &read_index_update));
+        // construct the full block
+        CHECK(full_read_index_old.size() == read_index_update.size());
+
+        for (size_t i = 0; i < missing_cids.size(); ++i) {
+            for (auto idx = 0; idx < full_read_index_old.size(); ++idx) {
+                full_mutable_columns[missing_cids[i]]->insert_from(
+                        *old_full_read_block.get_by_position(i).column.get(),
+                        full_read_index_old[idx]);
+            }
+        }
+
+        for (size_t i = 0; i < update_cids.size(); i++) {
+            uint32_t cid = update_cids[i];
+            if (!cids_point_read.contains(cid)) {
+                for (auto idx = 0; idx < full_read_index_old.size(); ++idx) {
+                    full_mutable_columns[cid]->insert_from(
+                            *update_block.get_by_position(i).column.get(), read_index_update[idx]);
+                }
+            }
+        }
+
+        for (size_t i = 0; i < point_read_cids.size(); i++) {
+            uint32_t cid = point_read_cids[i];
+            for (uint32_t idx = 0; i < full_read_index_old.size(); i++) {
+                if (point_read_index_old[cid].contains(idx)) {
+                    full_mutable_columns[cid]->insert_from(
+                            *point_read_block.get_by_position(i).column.get(),
+                            point_read_index_old[cid][idx]);
+                } else {
+                    full_mutable_columns[cid]->insert_from(
+                            *update_block.get_by_position(i).column.get(), idx);
+                }
+            }
         }
     }
-    for (auto i = 0; i < update_cids.size(); ++i) {
-        for (auto idx = 0; idx < read_index_update.size(); ++idx) {
-            full_mutable_columns[update_cids[i]]->insert_from(
-                    *update_block.get_columns_with_type_and_name()[i].column.get(),
-                    read_index_update[idx]);
-        }
-    }
-    VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
-
-// read columns by read plan
-// read_index: ori_pos-> block_idx
 Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
-                                    const std::vector<uint32_t> cids_to_read,
-                                    const PartialUpdateReadPlan& read_plan,
                                     const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                    vectorized::Block& block,
-                                    std::map<uint32_t, uint32_t>* read_index) {
-    bool has_row_column = tablet_schema->store_row_column();
-    auto mutable_columns = block.mutate_columns();
-    size_t read_idx = 0;
-    for (auto rs_it : read_plan) {
-        for (auto seg_it : rs_it.second) {
-            auto rowset_iter = rsid_to_rowset.find(rs_it.first);
-            CHECK(rowset_iter != rsid_to_rowset.end());
-            std::vector<uint32_t> rids;
-            for (auto id_and_pos : seg_it.second) {
-                rids.emplace_back(id_and_pos.rid);
-                (*read_index)[id_and_pos.pos] = read_idx++;
-            }
-            if (has_row_column) {
-                auto st = fetch_value_through_row_column(rowset_iter->second, seg_it.first, rids,
-                                                         cids_to_read, block);
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value through row column";
-                    return st;
-                }
-                continue;
-            }
-            for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
-                TabletColumn tablet_column = tablet_schema->column(cids_to_read[cid]);
-                auto st = fetch_value_by_rowids(rowset_iter->second, seg_it.first, rids,
-                                                tablet_column, mutable_columns[cid]);
-                // set read value to output block
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value";
-                    return st;
-                }
-            }
-        }
-    }
-    return Status::OK();
+                                    const PartialUpdateReadPlan& read_plan,
+                                    const std::vector<uint32_t>* cids_full_read,
+                                    vectorized::Block* block_full_read,
+                                    std::map<uint32_t, uint32_t>* full_read_index) {
+    auto full_read_columns = block_full_read->mutate_columns();
+    uint32_t read_idx1 = 0;
+    return std::visit(
+            vectorized::Overload {
+                    [&](const RowStoreReadPlan& row_store_read_plan) -> Status {
+                        for (const auto& [rowset_id, segment_read_infos] : row_store_read_plan) {
+                            auto rowset = rsid_to_rowset.at(rowset_id);
+                            CHECK(rowset);
+                            for (const auto& [segment_id, rows_info] : segment_read_infos) {
+                                std::vector<uint32_t> rids;
+                                for (const auto& [id_and_pos, cids] : rows_info) {
+                                    // set read index for missing columns
+                                    rids.emplace_back(id_and_pos.rid);
+                                    (*full_read_index)[id_and_pos.pos] = read_idx1++;
+                                }
+
+                                auto st = fetch_value_through_row_column(
+                                        rowset, segment_id, rids, rows_info, cids_full_read,
+                                        nullptr, block_full_read, nullptr, false);
+                                if (!st.ok()) {
+                                    LOG(WARNING) << "failed to fetch value through row column";
+                                    return st;
+                                }
+                            }
+                        }
+                        return Status::OK();
+                    },
+                    [&](const ColumnStoreReadPlan& column_store_read_plan) -> Status {
+                        for (const auto& [rowset_id, segment_read_infos] : column_store_read_plan) {
+                            auto rowset = rsid_to_rowset.at(rowset_id);
+                            CHECK(rowset);
+
+                            for (const auto& [segment_id, columns_info] : segment_read_infos) {
+                                std::vector<uint32_t> rids;
+                                for (auto [rid, pos] : columns_info.missing_column_rows) {
+                                    rids.emplace_back(rid);
+                                    // set read index for missing columns
+                                    (*full_read_index)[pos] = read_idx1++;
+                                }
+
+                                // read values for missing columns
+                                for (size_t i = 0; i < cids_full_read->size(); ++i) {
+                                    TabletColumn tablet_column =
+                                            tablet_schema->column(cids_full_read->at(i));
+                                    auto st = fetch_value_by_rowids(rowset, segment_id, rids,
+                                                                    tablet_column,
+                                                                    full_read_columns[i]);
+                                    if (!st.ok()) {
+                                        LOG(WARNING) << "failed to fetch value by rowids";
+                                        return st;
+                                    }
+                                }
+                            }
+                        }
+                        return Status::OK();
+                    }},
+            read_plan);
 }
 
-void Tablet::prepare_to_read(const RowLocation& row_location, size_t pos,
-                             PartialUpdateReadPlan* read_plan) {
-    auto rs_it = read_plan->find(row_location.rowset_id);
-    if (rs_it == read_plan->end()) {
-        std::map<uint32_t, std::vector<RidAndPos>> segid_to_rid;
-        std::vector<RidAndPos> rid_pos;
-        rid_pos.emplace_back(RidAndPos {row_location.row_id, pos});
-        segid_to_rid.emplace(row_location.segment_id, rid_pos);
-        read_plan->emplace(row_location.rowset_id, segid_to_rid);
-        return;
+Status Tablet::read_columns_by_plan(
+        TabletSchemaSPtr tablet_schema, const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
+        const PartialUpdateReadPlan& read_plan, const std::vector<uint32_t>* cids_full_read,
+        const std::vector<uint32_t>* cids_point_read, vectorized::Block* block_full_read,
+        vectorized::Block* block_point_read, std::map<uint32_t, uint32_t>* full_read_index,
+        std::map<uint32_t, std::map<uint32_t, uint32_t>>* point_read_index) {
+    auto full_read_columns = block_full_read->mutate_columns();
+    auto point_read_columns = block_point_read->mutate_columns();
+
+    uint32_t read_idx1 = 0;
+    std::map<uint32_t, uint32_t> read_idx2;
+    for (uint32_t cid : *cids_point_read) {
+        read_idx2[cid] = 0;
     }
-    auto seg_it = rs_it->second.find(row_location.segment_id);
-    if (seg_it == rs_it->second.end()) {
-        std::vector<RidAndPos> rid_pos;
-        rid_pos.emplace_back(RidAndPos {row_location.row_id, pos});
-        rs_it->second.emplace(row_location.segment_id, rid_pos);
-        return;
-    }
-    seg_it->second.emplace_back(RidAndPos {row_location.row_id, pos});
+
+    return std::visit(
+            vectorized::Overload {
+                    [&](const RowStoreReadPlan& row_store_read_plan) -> Status {
+                        for (const auto& [rowset_id, segment_read_infos] : row_store_read_plan) {
+                            auto rowset = rsid_to_rowset.at(rowset_id);
+                            CHECK(rowset);
+                            for (const auto& [segment_id, rows_info] : segment_read_infos) {
+                                std::vector<uint32_t> rids;
+                                for (const auto& [id_and_pos, cids] : rows_info) {
+                                    // set read index for missing columns
+                                    rids.emplace_back(id_and_pos.rid);
+                                    (*full_read_index)[id_and_pos.pos] = read_idx1++;
+                                    for (const auto cid : cids) {
+                                        // set read index for partial update columns
+                                        (*point_read_index)[cid][id_and_pos.pos] = read_idx2[cid]++;
+                                    }
+                                }
+
+                                auto st = fetch_value_through_row_column(
+                                        rowset, segment_id, rids, rows_info, cids_full_read,
+                                        cids_point_read, block_full_read, block_point_read, true);
+                                if (!st.ok()) {
+                                    LOG(WARNING) << "failed to fetch value through row column";
+                                    return st;
+                                }
+                            }
+                        }
+                        return Status::OK();
+                    },
+                    [&](const ColumnStoreReadPlan& column_store_read_plan) -> Status {
+                        for (const auto& [rowset_id, segment_read_infos] : column_store_read_plan) {
+                            auto rowset = rsid_to_rowset.at(rowset_id);
+                            CHECK(rowset);
+
+                            for (const auto& [segment_id, columns_info] : segment_read_infos) {
+                                std::vector<uint32_t> rids;
+                                for (auto [rid, pos] : columns_info.missing_column_rows) {
+                                    rids.emplace_back(rid);
+                                    // set read index for missing columns
+                                    (*full_read_index)[pos] = read_idx1++;
+                                }
+
+                                // read values for missing columns
+                                for (size_t i = 0; i < cids_full_read->size(); ++i) {
+                                    TabletColumn tablet_column =
+                                            tablet_schema->column(cids_full_read->at(i));
+                                    auto st = fetch_value_by_rowids(rowset, segment_id, rids,
+                                                                    tablet_column,
+                                                                    full_read_columns[i]);
+                                    if (!st.ok()) {
+                                        LOG(WARNING) << "failed to fetch value by rowids";
+                                        return st;
+                                    }
+                                }
+                                // read values for cells with indicator values in including columns
+                                for (size_t i = 0; i < cids_point_read->size(); i++) {
+                                    const auto& rows_info = columns_info.partial_update_rows;
+                                    uint32_t cid = cids_point_read->at(i);
+                                    if (!rows_info.empty() && rows_info.contains(cid)) {
+                                        std::vector<uint32_t> rids;
+                                        for (auto [rid, pos] : rows_info.at(cid)) {
+                                            rids.emplace_back(rid);
+                                            // set read index for partial update columns
+                                            (*point_read_index)[cid][pos] = read_idx2[cid]++;
+                                        }
+
+                                        TabletColumn tablet_column = tablet_schema->column(cid);
+                                        auto st = fetch_value_by_rowids(rowset, segment_id, rids,
+                                                                        tablet_column,
+                                                                        point_read_columns[i]);
+                                        if (!st.ok()) {
+                                            LOG(WARNING) << "failed to fetch value by rowids";
+                                            return st;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        return Status::OK();
+                    }},
+            read_plan);
+}
+
+void Tablet::prepare_to_read(PartialUpdateReadPlan& read_plan, const RowLocation& row_location,
+                             uint32_t pos, const std::vector<uint32_t>& partial_update_cids) {
+    std::visit(vectorized::Overload {
+                       [&](RowStoreReadPlan& plan) {
+                           plan[row_location.rowset_id][row_location.segment_id].emplace_back(
+                                   RidAndPos {row_location.row_id, pos}, partial_update_cids);
+                       },
+                       [&](ColumnStoreReadPlan& plan) {
+                           auto& read_columns_info =
+                                   plan[row_location.rowset_id][row_location.segment_id];
+                           read_columns_info.missing_column_rows.emplace_back(row_location.row_id,
+                                                                              pos);
+                           for (uint32_t cid : partial_update_cids) {
+                               read_columns_info.partial_update_rows[cid].emplace_back(
+                                       row_location.row_id, pos);
+                           }
+                       }},
+               read_plan);
 }
 
 void Tablet::_rowset_ids_difference(const RowsetIdUnorderedSet& cur,
@@ -3307,7 +3531,7 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     std::vector<RowsetSharedPtr> specified_rowsets = get_rowset_by_ids(&cur_rowset_ids);
     OlapStopWatch watch;
     auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
-    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap, nullptr,
                                        cur_version - 1, token.get()));
     RETURN_IF_ERROR(token->wait());
     size_t total_rows = std::accumulate(
@@ -3358,7 +3582,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
         delete_bitmap->remove({to_del, 0, 0}, {to_del, UINT32_MAX, INT64_MAX});
     }
 
-    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap, nullptr,
                                        cur_version, token, rowset_writer));
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
@@ -3372,10 +3596,11 @@ Status Tablet::commit_phase_update_delete_bitmap(
     return Status::OK();
 }
 
-Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
-                                    const RowsetIdUnorderedSet& pre_rowset_ids,
-                                    DeleteBitmapPtr delete_bitmap, int64_t txn_id,
-                                    RowsetWriter* rowset_writer) {
+Status Tablet::update_delete_bitmap(
+        const RowsetSharedPtr& rowset, const RowsetIdUnorderedSet& pre_rowset_ids,
+        DeleteBitmapPtr delete_bitmap,
+        std::shared_ptr<std::map<std::uint32_t, std::vector<uint32_t>>> indicator_maps,
+        int64_t txn_id, RowsetWriter* rowset_writer) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
@@ -3414,7 +3639,8 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
 
     auto token = StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version - 1, token.get(), rowset_writer));
+                                       indicator_maps, cur_version - 1, token.get(),
+                                       rowset_writer));
     RETURN_IF_ERROR(token->wait());
 
     std::stringstream ss;

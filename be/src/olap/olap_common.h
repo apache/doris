@@ -31,6 +31,7 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <variant>
 
 #include "io/io_common.h"
 #include "olap/olap_define.h"
@@ -471,10 +472,21 @@ struct MowContext {
 // used in mow partial update
 struct RidAndPos {
     uint32_t rid;
-    // pos in block
-    size_t pos;
+    uint32_t pos; // pos in block
 };
 
-using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
+struct ReadRowsInfo {
+    RidAndPos id_and_pos;
+    std::vector<uint32_t> cids; // cids for partial update columns
+};
+struct ReadColumnsInfo {
+    std::vector<RidAndPos> missing_column_rows;
+    std::map<uint32_t, std::vector<RidAndPos>> partial_update_rows;
+};
+
+using RowStoreReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<ReadRowsInfo>>>;
+using ColumnStoreReadPlan = std::map<RowsetId, std::map<uint32_t, ReadColumnsInfo>>;
+using PartialUpdateReadPlan = std::variant<ColumnStoreReadPlan, RowStoreReadPlan>;
+using IndicatorMaps = std::map<uint32_t, std::vector<uint32_t>>;
 
 } // namespace doris

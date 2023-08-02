@@ -52,7 +52,9 @@ public:
     Status submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
-                  DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer);
+                  DeleteBitmapPtr delete_bitmap,
+                  std::shared_ptr<std::map<uint32_t, std::vector<uint32_t>>> indicator_maps,
+                  RowsetWriter* rowset_writer);
 
     // wait all tasks in token to be completed.
     Status wait();
