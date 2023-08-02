@@ -305,4 +305,10 @@ public class PhysicalHashJoin<
         });
         return builder.toString();
     }
+
+    @Override
+    public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
+                groupExpression, null, physicalProperties, statistics, left(), right());
+    }
 }

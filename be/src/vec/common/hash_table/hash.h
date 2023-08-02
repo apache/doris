@@ -27,6 +27,9 @@
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 
+// Here is an empirical value.
+static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
+
 /** Hash functions that are better than the trivial function std::hash.
   *
   * Example: when we do aggregation by the visitor ID, the performance increase is more than 5 times.

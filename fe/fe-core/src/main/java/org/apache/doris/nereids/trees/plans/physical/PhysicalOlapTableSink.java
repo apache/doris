@@ -222,4 +222,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
             return PhysicalProperties.GATHER;
         }
     }
+
+    @Override
+    public PhysicalOlapTableSink<Plan> resetLogicalProperties() {
+        return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols, singleReplicaLoad,
+                isPartialUpdate, groupExpression, null, physicalProperties, statistics, child());
+    }
 }
