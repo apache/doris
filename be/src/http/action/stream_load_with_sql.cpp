@@ -188,15 +188,15 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
                 [&request, &result](FrontendServiceConnection& client) {
                     client->streamLoadWithLoadStatus(result, request);
                 });
-//        Status stream_load_status(result.status);
-//        if (stream_load_status.ok()) {
-//            ctx->txn_id = result.txn_id;
-//            ctx->number_total_rows = result.total_rows;
-//            ctx->number_loaded_rows = result.loaded_rows;
-//            ctx->number_filtered_rows = result.filtered_rows;
-//            ctx->number_unselected_rows = result.unselected_rows;
-//            break;
-//        }
+        //        Status stream_load_status(result.status);
+        //        if (stream_load_status.ok()) {
+        //            ctx->txn_id = result.txn_id;
+        //            ctx->number_total_rows = result.total_rows;
+        //            ctx->number_loaded_rows = result.loaded_rows;
+        //            ctx->number_filtered_rows = result.filtered_rows;
+        //            ctx->number_unselected_rows = result.unselected_rows;
+        //            break;
+        //        }
     }
 
     auto str = std::string(ctx->to_json());

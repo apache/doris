@@ -20,6 +20,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
+
 #include <mutex>
 #include <utility>
 
