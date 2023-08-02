@@ -122,6 +122,8 @@ public:
         join();
     }
 
+    std::string get_name() const { return _name; }
+
 protected:
     virtual bool is_shutdown() { return _shutdown; }
 
