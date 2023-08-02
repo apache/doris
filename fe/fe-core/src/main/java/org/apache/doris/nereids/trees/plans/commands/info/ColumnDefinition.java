@@ -55,6 +55,10 @@ public class ColumnDefinition {
         this.comment = comment;
     }
 
+    public ColumnDefinition(String name, DataType type, boolean isNull) {
+        this(name, type, false, null, isNull, Optional.empty(), "");
+    }
+
     public String getName() {
         return name;
     }

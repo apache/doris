@@ -27,9 +27,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -72,16 +74,30 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         }
         LogicalPlan query = ctasQuery.get();
         List<String> ctasCols = createTableInfo.getCtasColumns();
-        if (ctasCols != null) {
-            query = new UnboundOlapTableSink<>(createTableInfo.getTableNameParts(), ctasCols,
-                    ImmutableList.of(), ImmutableList.of(), query);
-        } else {
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        Plan plan = planner.plan(query, PhysicalProperties.ANY, ExplainLevel.NONE);
+        if (ctasCols == null) {
             // we should analyze the plan firstly to get the columns' name.
-            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-            Plan plan = planner.plan(query, PhysicalProperties.ANY, ExplainLevel.NONE);
             ctasCols = plan.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());
         }
-        createTableInfo.validateCreateTableAsSelect();
+        List<Slot> slots = plan.getOutput();
+        if (slots.size() != ctasCols.size()) {
+            throw new AnalysisException("ctas column size is not equal to the query's");
+        }
+        List<ColumnDefinition> columnsOfQuery = slots.stream()
+                .map(s -> new ColumnDefinition(s.getName(), s.getDataType(), s.nullable()))
+                .collect(Collectors.toList());
+        createTableInfo.validateCreateTableAsSelect(columnsOfQuery, ctx);
+
+        CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
+        try {
+            Env.getCurrentEnv().createTable(createTableStmt);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+
+        query = new UnboundOlapTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), query);
         new InsertIntoTableCommand(query, Optional.empty()).run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             Env.getCurrentEnv().dropTable(new DropTableStmt(false,
