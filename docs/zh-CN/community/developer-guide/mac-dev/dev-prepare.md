@@ -28,7 +28,7 @@ under the License.
 
 ```shell
 brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
+python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
 ```
 
 *使用 brew 安装的 jdk 版本为 11，因为在 macOS上，arm64 版本的 brew 默认没有 8 版本的 jdk*
