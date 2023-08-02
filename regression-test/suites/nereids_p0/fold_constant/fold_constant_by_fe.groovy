@@ -144,4 +144,7 @@ suite("test_fold_constant_by_fe") {
         res = res.split('VUNION')[1]
         assertFalse(res.contains("unix"))
     }
+    
+    res = sql 'select uuid(), uuid()'
+    assertFalse(Objects.equals(res[0][0], res[0][1]))
 }
