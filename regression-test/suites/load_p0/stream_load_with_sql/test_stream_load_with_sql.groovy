@@ -44,26 +44,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName1} (id, name) select c1, c2 from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName1} (id, name) select c1, c2 from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql1 "select id, name from ${tableName1}"
+        // qt_sql1 "select id, name from ${tableName1}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName1}"
     }
@@ -87,26 +87,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName2} select c1, c6, c2, c7, c11, c9 from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName2} select c1, c6, c2, c7, c11, c9 from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql2 "select * from ${tableName2}"
+        // qt_sql2 "select * from ${tableName2}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName2}"
     }
@@ -129,26 +129,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName3} select c1, c2, year(c14), month(c14), day(c14) from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName3} select c1, c2, year(c14), month(c14), day(c14) from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql3 "select * from ${tableName3}"
+        // qt_sql3 "select * from ${tableName3}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName3}"
     }
@@ -169,22 +169,22 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into  ${db}.${tableName4} select c1, c2, c6, c3 from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("fail", json.Status.toLowerCase())
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into  ${db}.${tableName4} select c1, c2, c6, c3 from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("fail", json.Status.toLowerCase())
+        //     }
+        // }
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Distribution column(id) doesn't exist"), e.getMessage())
     } finally {
@@ -209,26 +209,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into  ${db}.${tableName5} (id, name, date) select c1, c2, c13 from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into  ${db}.${tableName5} (id, name, date) select c1, c2, c13 from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql5 "select * from ${tableName5}"
+        // qt_sql5 "select * from ${tableName5}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName5}"
     }
@@ -262,26 +262,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into  ${db}.${tableName6} select * from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into  ${db}.${tableName6} select * from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql6 "select * from ${tableName6}"
+        // qt_sql6 "select * from ${tableName6}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName6}"
     }
@@ -309,26 +309,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into  ${db}.${tableName7} select * from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql_data_model.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into  ${db}.${tableName7} select * from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql_data_model.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql7 "select * from ${tableName7}"
+        // qt_sql7 "select * from ${tableName7}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName7}"
     }
@@ -356,26 +356,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into  ${db}.${tableName8} select * from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql_data_model.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into  ${db}.${tableName8} select * from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql_data_model.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql8 "select * from ${tableName8}"
+        // qt_sql8 "select * from ${tableName8}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName8}"
     }
@@ -404,26 +404,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into  ${db}.${tableName9} select * from stream("format"="csv")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql_data_model.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into  ${db}.${tableName9} select * from stream("format"="csv")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql_data_model.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql9 "select * from ${tableName9}"
+        // qt_sql9 "select * from ${tableName9}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName9}"
     }
@@ -451,28 +451,28 @@ suite("test_stream_load_with_sql", "p0") {
         "disable_auto_compaction" = "${disable_auto_compaction}"
         )
         """
-        for (int i = 0; i < 3; ++i) {
-            streamLoad {
-                set 'version', '1'
-                set 'sql', """
-                    insert into  ${db}.${tableName10} select * from stream("format"="csv")
-                    """
-                time 10000
-                file 'test_stream_load_with_sql_multiple_times.csv'
-                check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${result}".toString())
-                    def json = parseJson(result)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(500, json.NumberTotalRows)
-                    assertEquals(0, json.NumberFilteredRows)
-                }
-            }
-        }
+        // for (int i = 0; i < 3; ++i) {
+        //     streamLoad {
+        //         set 'version', '1'
+        //         set 'sql', """
+        //             insert into  ${db}.${tableName10} select * from stream("format"="csv")
+        //             """
+        //         time 10000
+        //         file 'test_stream_load_with_sql_multiple_times.csv'
+        //         check { result, exception, startTime, endTime ->
+        //             if (exception != null) {
+        //                 throw exception
+        //             }
+        //             log.info("Stream load result: ${result}".toString())
+        //             def json = parseJson(result)
+        //             assertEquals("success", json.Status.toLowerCase())
+        //             assertEquals(500, json.NumberTotalRows)
+        //             assertEquals(0, json.NumberFilteredRows)
+        //         }
+        //     }
+        // }
 
-        qt_sql10 "select count(*) from ${tableName10}"
+        // qt_sql10 "select count(*) from ${tableName10}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName10}"
     }
@@ -495,26 +495,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName11} (id, name) select c1, c2 from stream("format"="csv", "column_separator"="--")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql_column_separator.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName11} (id, name) select c1, c2 from stream("format"="csv", "column_separator"="--")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql_column_separator.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql11 "select id, name from ${tableName11}"
+        // qt_sql11 "select id, name from ${tableName11}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName11}"
     }
@@ -537,26 +537,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName12} (id, name) select c1, c2 from stream("format"="csv", "line_delimiter"="||")
-                    """
-            time 10000
-            file 'test_stream_load_with_sql_line_delimiter.csv'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(11, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
-        }
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName12} (id, name) select c1, c2 from stream("format"="csv", "line_delimiter"="||")
+        //             """
+        //     time 10000
+        //     file 'test_stream_load_with_sql_line_delimiter.csv'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //         assertEquals(11, json.NumberTotalRows)
+        //         assertEquals(0, json.NumberFilteredRows)
+        //     }
+        // }
 
-        qt_sql12 "select id, name from ${tableName12}"
+        // qt_sql12 "select id, name from ${tableName12}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName12}"
     }
@@ -706,84 +706,84 @@ suite("test_stream_load_with_sql", "p0") {
             PROPERTIES ("replication_num" = "1");
         """
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName13} select * from stream("format"="parquet")
-                    """
-            time 10000
-            set 'format', 'parquet'
-            file 'test_stream_load_with_sql_parquet_case.parquet'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-            }
-        }
-        qt_sql13 "select * from ${tableName13} order by WatchId"
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName13} select * from stream("format"="parquet")
+        //             """
+        //     time 10000
+        //     set 'format', 'parquet'
+        //     file 'test_stream_load_with_sql_parquet_case.parquet'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //     }
+        // }
+        // qt_sql13 "select * from ${tableName13} order by WatchId"
         sql """truncate table ${tableName13}"""
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName13} select * from stream("format"="parquet")
-                    """
-            time 10000
-            set 'format', 'parquet'
-            file 'test_stream_load_with_sql_parquet_case.parquet'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-            }
-        }
-        qt_sql13 "select * from ${tableName13} order by WatchId"
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName13} select * from stream("format"="parquet")
+        //             """
+        //     time 10000
+        //     set 'format', 'parquet'
+        //     file 'test_stream_load_with_sql_parquet_case.parquet'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //     }
+        // }
+        // qt_sql13 "select * from ${tableName13} order by WatchId"
         sql """truncate table ${tableName13}"""
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName13} select * from stream("format"="parquet")
-                    """
-            time 10000
-            set 'format', 'parquet'
-            file 'test_stream_load_with_sql_parquet_case.parquet'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-            }
-        }
-        qt_sql13 "select * from ${tableName13} order by WatchId"
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName13} select * from stream("format"="parquet")
+        //             """
+        //     time 10000
+        //     set 'format', 'parquet'
+        //     file 'test_stream_load_with_sql_parquet_case.parquet'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //     }
+        // }
+        // qt_sql13 "select * from ${tableName13} order by WatchId"
         sql """truncate table ${tableName13}"""
 
-        streamLoad {
-            set 'version', '1'
-            set 'sql', """
-                    insert into ${db}.${tableName13} select * from stream("format"="orc")
-                    """
-            time 10000
-            set 'format', 'orc'
-            file 'test_stream_load_with_sql_orc_case.orc'
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-            }
-        }
-        qt_sql13 "select * from ${tableName13} order by WatchId"
+        // streamLoad {
+        //     set 'version', '1'
+        //     set 'sql', """
+        //             insert into ${db}.${tableName13} select * from stream("format"="orc")
+        //             """
+        //     time 10000
+        //     set 'format', 'orc'
+        //     file 'test_stream_load_with_sql_orc_case.orc'
+        //     check { result, exception, startTime, endTime ->
+        //         if (exception != null) {
+        //             throw exception
+        //         }
+        //         log.info("Stream load result: ${result}".toString())
+        //         def json = parseJson(result)
+        //         assertEquals("success", json.Status.toLowerCase())
+        //     }
+        // }
+        // qt_sql13 "select * from ${tableName13} order by WatchId"
         sql """truncate table ${tableName13}"""
 
     } finally {

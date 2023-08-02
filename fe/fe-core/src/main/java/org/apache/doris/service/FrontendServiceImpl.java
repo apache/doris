@@ -2087,7 +2087,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             try {
                 context.getEnv().getLoadManager()
-                        .recordFinishedLoadJob(label, txnId, insertStmt.getDbName(), insertStmt.getTargetTable().getId(),
+                        .recordFinishedLoadJob(label, txnId, insertStmt.getDbName(),
+                                insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, System.currentTimeMillis(),
                                 throwable == null ? "" : throwable.getMessage(),
                                 coord.getTrackingUrl(), insertStmt.getUserInfo());
