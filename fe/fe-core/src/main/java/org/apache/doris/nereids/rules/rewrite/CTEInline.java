@@ -102,7 +102,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                 Slot producerSlot = cteConsumer.getProducerSlot(consumerSlot);
                 ExprId inlineExprId = deepCopierContext.exprIdReplaceMap.get(producerSlot.getExprId());
                 Alias alias = new Alias(consumerSlot.getExprId(), producerSlot.withExprId(inlineExprId),
-                        consumerSlot.getName());
+                        consumerSlot.getName(), producerSlot.getQualifier());
                 projects.add(alias);
             }
             return new LogicalProject<>(projects, inlinedPlan);

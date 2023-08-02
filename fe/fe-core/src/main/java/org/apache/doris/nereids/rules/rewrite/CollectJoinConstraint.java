@@ -26,10 +26,9 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -179,15 +178,13 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             if (getNotNullable && slot.nullable()) {
                 continue;
             }
-            LogicalPlan scan = null;
             String tableName = leading.getExprIdToTableNameMap().get(slot.getExprId());
-            if (tableName != null) {
-                scan = leading.getLogicalPlanByName(tableName);
-            } else {
-                scan = leading.getLogicalPlanByName(slot.getQualifier().get(1));
-                leading.getExprIdToTableNameMap().put(slot.getExprId(), slot.getQualifier().get(1));
+            if (tableName == null) {
+                tableName = slot.getQualifier().get(slot.getQualifier().size() - 1);
+                leading.getExprIdToTableNameMap().put(slot.getExprId(), tableName);
             }
-            long currBitmap = LongBitmap.set(bitmap, ((LogicalRelation) scan).getRelationId().asInt());
+            RelationId id = leading.findRelationIdAndTableName(tableName);
+            long currBitmap = LongBitmap.set(bitmap, id.asInt());
             bitmap = LongBitmap.or(bitmap, currBitmap);
         }
         return bitmap;

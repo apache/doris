@@ -20,7 +20,6 @@ package org.apache.doris.nereids.jobs.executor;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
-import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
@@ -160,8 +159,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new ApplyToJoin()
                     )
             ),
-            // we should eliminate hint after "Subquery unnesting" because some hint maybe exist in the CTE or subquery.
-            custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
             topic("Eliminate optimization",
                     bottomUp(
                             new EliminateLimit(),
@@ -326,7 +323,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 bottomUp(
                     new CollectJoinConstraint()
                 ),
-                custom(RuleType.LEADING_JOIN, LeadingJoin::new)
+                custom(RuleType.LEADING_JOIN, LeadingJoin::new),
+                bottomUp(
+                    new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE)
+                )
             )
     );
 

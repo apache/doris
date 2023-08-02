@@ -52,13 +52,13 @@ public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements 
     @Override
     public Plan visit(Plan plan, LeadingContext context) {
         Long currentBitMap = context.leading.computeTableBitmap(plan.getInputRelations());
-        if (LongBitmap.isSubset(context.totalBitmap, currentBitMap)
+        if (LongBitmap.isSubset(currentBitMap, context.totalBitmap)
                 && plan instanceof LogicalJoin) {
             Plan leadingJoin = context.leading.generateLeadingJoinPlan();
             if (context.leading.isSuccess() && leadingJoin != null) {
                 return leadingJoin;
             }
-        } else if (!(plan instanceof LogicalJoin)) {
+        } else {
             return (LogicalPlan) super.visit(plan, context);
         }
         return plan;
