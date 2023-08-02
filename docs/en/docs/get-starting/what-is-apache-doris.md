@@ -1,5 +1,5 @@
 ---
-{ 'title': 'Introduction to Apache Doris', 'language': 'en' }
+{ 'title': 'What is Apache Doris', 'language': 'en' }
 ---
 
 <!--
@@ -21,7 +21,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Introduction to Apache Doris
+# What is Apache Doris ?
 
 Apache Doris is a high-performance, real-time analytical database based on MPP architecture, known for its extreme speed and ease of use. It only requires a sub-second response time to return query results under massive data and can support not only high-concurrent point query scenarios but also high-throughput complex analysis scenarios. All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
 
