@@ -102,7 +102,7 @@
                     "items": [
                         "data-operate/export/export-manual",
                         "data-operate/export/outfile",
-                        "data-operate/export/export_with_mysql_dump"
+                        "data-operate/export/export-with-mysql-dump"
                     ]
                 },
                 {
