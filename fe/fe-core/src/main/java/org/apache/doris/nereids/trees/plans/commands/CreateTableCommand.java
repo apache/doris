@@ -18,17 +18,32 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * create table command
@@ -45,15 +60,33 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        createTableInfo.validate(ctx);
-        CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
-        try {
-            Env.getCurrentEnv().createTable(createTableStmt);
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
-        if (ctasQuery.isPresent()) {
+        if (!ctasQuery.isPresent()) {
+            createTableInfo.validate(ctx);
+            CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
+            try {
+                Env.getCurrentEnv().createTable(createTableStmt);
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
             return;
+        }
+        LogicalPlan query = ctasQuery.get();
+        List<String> ctasCols = createTableInfo.getCtasColumns();
+        if (ctasCols != null) {
+            query = new UnboundOlapTableSink<>(createTableInfo.getTableNameParts(), ctasCols,
+                    ImmutableList.of(), ImmutableList.of(), query);
+        } else {
+            // we should analyze the plan firstly to get the columns' name.
+            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+            Plan plan = planner.plan(query, PhysicalProperties.ANY, ExplainLevel.NONE);
+            ctasCols = plan.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList());
+        }
+        createTableInfo.validateCreateTableAsSelect();
+        new InsertIntoTableCommand(query, Optional.empty()).run(ctx, executor);
+        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+            Env.getCurrentEnv().dropTable(new DropTableStmt(false,
+                    new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(),
+                            createTableInfo.getDbName(), createTableInfo.getTableName()), true));
         }
     }
 

@@ -42,14 +42,15 @@ statement
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
     | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
     | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
-        LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN
+        ((LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN) | (ctasCols=identifierList)?)
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
         (COMMENT constant)?
         (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
         DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (number | AUTO)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
-        PROPERTIES LEFT_PAREN propertySeq RIGHT_PAREN                   #createTable
+        PROPERTIES LEFT_PAREN propertySeq RIGHT_PAREN
+        (AS query)?                                                    #createTable
     | explain? INSERT INTO tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define

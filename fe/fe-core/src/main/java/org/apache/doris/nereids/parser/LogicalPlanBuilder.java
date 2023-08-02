@@ -1769,7 +1769,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.UNIQUE() != null) {
             keysType = KeysType.UNIQUE_KEYS;
         }
-        List<ColumnDefinition> cols = visitColumnDefs(ctx.columnDefs());
         String engineName = ctx.engine != null ? ctx.engine.getText().toLowerCase() : "olap";
         DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4,
                 ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
@@ -1779,22 +1778,45 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             partitionType = ctx.RANGE() != null ? "RANGE" : "LIST";
         }
 
-        return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
-                ctx.EXISTS() != null,
-                dbName,
-                tableName,
-                cols,
-                ImmutableList.of(),
-                engineName,
-                keysType,
-                ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
-                "",
-                partitionType,
-                ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
-                ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
-                desc,
-                ImmutableList.of(),
-                properties));
+        if (ctx.columnDefs() != null) {
+            if (ctx.AS() != null) {
+                throw new AnalysisException("Should not define the entire column in CTAS");
+            }
+            return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
+                    ctx.EXISTS() != null,
+                    dbName,
+                    tableName,
+                    visitColumnDefs(ctx.columnDefs()),
+                    ImmutableList.of(),
+                    engineName,
+                    keysType,
+                    ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
+                    "",
+                    partitionType,
+                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
+                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    desc,
+                    ImmutableList.of(),
+                    properties));
+        } else if (ctx.AS() != null) {
+            return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
+                    ctx.EXISTS() != null,
+                    dbName,
+                    tableName,
+                    ctx.ctasCols != null ? visitIdentifierList(ctx.ctasCols) : null,
+                    engineName,
+                    keysType,
+                    ctx.keys != null ? visitIdentifierList(ctx.keys) : ImmutableList.of(),
+                    "",
+                    partitionType,
+                    ctx.partitionKeys != null ? visitIdentifierList(ctx.partitionKeys) : null,
+                    ctx.partitions != null ? visitPartitionsDef(ctx.partitions) : null,
+                    desc,
+                    ImmutableList.of(),
+                    properties));
+        } else {
+            throw new AnalysisException("Should contain at least one column in a table");
+        }
     }
 
     @Override

@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeConstants;
@@ -55,8 +54,9 @@ public class CreateTableInfo {
     private final boolean ifNotExists;
     private String dbName;
     private final String tableName;
-    private final List<ColumnDefinition> columns;
+    private List<ColumnDefinition> columns;
     private final List<IndexDefinition> indexes;
+    private final List<String> ctasColumns;
     private final String engineName;
     private final KeysType keysType;
     private List<String> keys;
@@ -69,7 +69,7 @@ public class CreateTableInfo {
     private final Map<String, String> properties;
 
     /**
-     * constructor
+     * constructor for create table
      */
     public CreateTableInfo(boolean ifNotExists, String dbName, String tableName, List<ColumnDefinition> columns,
             List<IndexDefinition> indexes, String engineName, KeysType keysType, List<String> keys, String comment,
@@ -78,6 +78,7 @@ public class CreateTableInfo {
         this.ifNotExists = ifNotExists;
         this.dbName = dbName;
         this.tableName = tableName;
+        this.ctasColumns = null;
         this.columns = Utils.copyRequiredList(columns);
         this.indexes = Utils.copyRequiredList(indexes);
         this.engineName = engineName;
@@ -90,6 +91,50 @@ public class CreateTableInfo {
         this.distribution = distribution;
         this.rollups = Utils.copyRequiredList(rollups);
         this.properties = properties;
+    }
+
+    /**
+     * constructor for create table as select
+     */
+    public CreateTableInfo(boolean ifNotExists, String dbName, String tableName, List<String> cols,
+            String engineName, KeysType keysType, List<String> keys, String comment,
+            String partitionType, List<String> partitionColumns, List<PartitionDefinition> partitions,
+            DistributionDescriptor distribution, List<RollupDefinition> rollups, Map<String, String> properties) {
+        this.ifNotExists = ifNotExists;
+        this.dbName = dbName;
+        this.tableName = tableName;
+        this.ctasColumns = cols;
+        this.columns = ImmutableList.of();
+        this.indexes = ImmutableList.of();
+        this.engineName = engineName;
+        this.keysType = keysType;
+        this.keys = Utils.copyRequiredList(keys);
+        this.comment = comment;
+        this.partitionType = partitionType;
+        this.partitionColumns = partitionColumns;
+        this.partitions = partitions;
+        this.distribution = distribution;
+        this.rollups = Utils.copyRequiredList(rollups);
+        this.properties = properties;
+    }
+
+    public List<String> getCtasColumns() {
+        return ctasColumns;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public List<String> getTableNameParts() {
+        if (dbName != null) {
+            return ImmutableList.of(dbName, tableName);
+        }
+        return ImmutableList.of(tableName);
     }
 
     /**
@@ -170,7 +215,7 @@ public class CreateTableInfo {
                     break;
                 }
                 keys.add(column.getName());
-                if (catalogType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+                if (type.isVarcharType()) {
                     break;
                 }
             }
@@ -187,6 +232,11 @@ public class CreateTableInfo {
         }
         Set<String> keysSet = Sets.newHashSet(keys);
         columns.forEach(c -> c.validate(keysSet));
+    }
+
+    public void validateCreateTableAsSelect(List<ColumnDefinition> columns, ConnectContext ctx) {
+        this.columns = columns;
+        validate(ctx);
     }
 
     /**
