@@ -77,6 +77,8 @@ import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.executor.SqlJobExecutor;
 import org.apache.doris.system.BackendHbResponse;
 import org.apache.doris.system.BrokerHbResponse;
 import org.apache.doris.system.FrontendHbResponse;
@@ -208,6 +210,10 @@ public class GsonUtils {
             RuntimeTypeAdapterFactory.of(
                             AbstractDataSourceProperties.class, "clazz")
                     .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<JobExecutor> jobExecutorRuntimeTypeAdapterFactory =
+            RuntimeTypeAdapterFactory.of(
+                            JobExecutor.class, "clazz")
+                    .registerSubtype(SqlJobExecutor.class, SqlJobExecutor.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
@@ -252,10 +258,25 @@ public class GsonUtils {
             .registerTypeAdapterFactory(dbTypeAdapterFactory).registerTypeAdapterFactory(tblTypeAdapterFactory)
             .registerTypeAdapterFactory(hbResponseTypeAdapterFactory)
             .registerTypeAdapterFactory(rdsTypeAdapterFactory)
+            .registerTypeAdapterFactory(jobExecutorRuntimeTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
-            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer());
+            .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
+                    new ExclusionStrategy() {
+                        @Override
+                        public boolean shouldSkipField(FieldAttributes f) {
+                            return false;
+                        }
+
+                        @Override
+                        public boolean shouldSkipClass(Class<?> clazz) {
+                            /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
+                            <org.apache.doris.scheduler.disruptor.TimerTaskEvent> declares multiple
+                            JSON fields named p1 */
+                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer");
+                        }
+                    });
 
     private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
 

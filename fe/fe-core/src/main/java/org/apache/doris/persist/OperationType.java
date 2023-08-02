@@ -319,6 +319,17 @@ public class OperationType {
     public static final short OP_BARRIER = 436;
 
 
+    // scheduler job
+    public static final short OP_CREATE_SCHEDULER_JOB = 450;
+
+    public static final short OP_UPDATE_SCHEDULER_JOB = 451;
+
+    public static final short OP_DELETE_SCHEDULER_JOB = 452;
+
+    public static final short OP_CREATE_SCHEDULER_TASK = 453;
+    public static final short OP_DELETE_SCHEDULER_TASK = 454;
+
+
     /**
      * Get opcode name by op code.
      **/

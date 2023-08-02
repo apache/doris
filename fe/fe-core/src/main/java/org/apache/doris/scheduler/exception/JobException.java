@@ -15,28 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
-
-import lombok.Getter;
+package org.apache.doris.scheduler.exception;
 
 /**
- * System scheduler event job
- * They will start when scheduler starts,don't use this job in other place,it just for system inner scheduler
+ * This class represents a job exception that can be thrown when a job is executed.
  */
-public enum SystemJob {
+public class JobException extends Exception {
+    public JobException(String message) {
+        super(message);
+    }
 
-    /**
-     * System cycle scheduler event job, it will start cycle scheduler
-     */
-    SYSTEM_SCHEDULER_JOB("system_scheduler_event_job", 1L);
+    public JobException(String message, Throwable cause) {
+        super(message, cause);
+    }
 
-    @Getter
-    private final String description;
-    @Getter
-    private final Long id;
-
-    SystemJob(String description, Long id) {
-        this.description = description;
-        this.id = id;
+    public JobException(Throwable cause) {
+        super(cause);
     }
 }
