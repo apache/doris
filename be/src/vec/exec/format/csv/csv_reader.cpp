@@ -209,9 +209,15 @@ Status CsvReader::init_reader(bool is_load) {
     }
     _text_converter->set_escape_char(_escape);
 
-    _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
-            _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-            _file_slot_descs.size() - 1, _enclose, _escape);
+    if (_enclose == 0) {
+        _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
+                _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
+                _file_slot_descs.size() - 1);
+    } else {
+        _text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
+                _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
+                _file_slot_descs.size() - 1, _enclose, _escape);
+    }
 
     //get array delimiter
     _array_delimiter = _params.file_attributes.text_params.array_delimiter;
@@ -651,9 +657,15 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
 
-    _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
-            _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-            _file_slot_descs.size() - 1, _enclose, _escape);
+    if (_enclose == 0) {
+        _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
+                _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
+                _file_slot_descs.size() - 1);
+    } else {
+        _text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
+                _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
+                _file_slot_descs.size() - 1, _enclose, _escape);
+    }
 
     _line_reader =
             NewPlainTextLineReader::create_unique(_profile, _file_reader, _decompressor.get(),

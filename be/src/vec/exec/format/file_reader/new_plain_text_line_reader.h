@@ -76,8 +76,8 @@ public:
                                    const size_t line_delimiter_len_)
             : line_delimiter(line_delimiter_), line_delimiter_len(line_delimiter_len_) {}
 
-    inline const uint8_t* read_line(const uint8_t* start, const size_t len) override {
-        return (uint8_t*)memmem(start, len, line_delimiter.c_str(), line_delimiter_len);
+    inline const uint8_t* read_line(const uint8_t* start, const size_t length) override {
+        return (uint8_t*)memmem(start, length, line_delimiter.c_str(), line_delimiter_len);
     }
 
     [[nodiscard]] inline size_t line_delimiter_length() const override {
@@ -91,25 +91,21 @@ protected:
     const size_t line_delimiter_len;
 };
 
-class CsvLineReaderContext final : public PlainTexLineReaderCtx {
+class CsvLineReaderContext : public PlainTexLineReaderCtx {
 public:
     explicit CsvLineReaderContext(const std::string& line_delimiter_,
                                   const size_t line_delimiter_len_, const std::string& column_sep_,
-                                  const size_t column_sep_len_, const size_t column_sep_num,
-                                  const char enclose, const char escape)
+                                  const size_t column_sep_len_, const size_t column_sep_num_)
             : PlainTexLineReaderCtx(line_delimiter_, line_delimiter_len_),
-              _enclose(enclose),
-              _escape(escape),
               _column_sep(column_sep_),
               _column_sep_len(column_sep_len_) {
-        _column_sep_positions.reserve(column_sep_num);
+        _column_sep_positions.reserve(column_sep_num_);
     }
 
-    const uint8_t* read_line(const uint8_t* start, const size_t len) override;
+    const uint8_t* read_line(const uint8_t* start, const size_t length) override;
 
     inline void refresh() override {
         _idx = 0;
-        _left_enclose_pos = 0;
         _state.reset();
         _result = nullptr;
         _column_sep_positions.clear();
@@ -120,29 +116,49 @@ public:
     }
 
 protected:
-    void on_start(const uint8_t* start, size_t& len);
-    void on_normal(const uint8_t* start, size_t& len);
-    void on_pre_match_enclose(const uint8_t* start, size_t& len);
-    void on_match_enclose(const uint8_t* start, size_t& len);
+    virtual void read_line_impl(const uint8_t* start, size_t& bound);
 
-private:
-    bool _look_for_column_sep(const uint8_t* curr_start, size_t curr_len);
-    bool _look_for_line_delim(const uint8_t* curr_start, size_t curr_len);
-    size_t _extend_reading_range(const uint8_t* start);
+    size_t update_reading_bound(const uint8_t* start);
 
-    const char _enclose;
-    const char _escape;
+    bool look_for_column_sep(const uint8_t* curr_start, size_t curr_len);
+
     const std::string _column_sep;
     const size_t _column_sep_len;
 
     size_t _total_len;
 
     size_t _idx = 0;
-    size_t _left_enclose_pos = 0;
     ReaderStateWrapper _state;
     const uint8_t* _result = nullptr;
     // record the start pos of each column sep
     std::vector<size_t> _column_sep_positions;
+};
+
+class EncloseCsvLineReaderContext final : public CsvLineReaderContext {
+public:
+    explicit EncloseCsvLineReaderContext(const std::string& line_delimiter_,
+                                         const size_t line_delimiter_len_,
+                                         const std::string& column_sep_,
+                                         const size_t column_sep_len_, const size_t column_sep_num_,
+                                         const char enclose, const char escape)
+            : CsvLineReaderContext(line_delimiter_, line_delimiter_len_, column_sep_,
+                                   column_sep_len_, column_sep_num_),
+              _enclose(enclose),
+              _escape(escape) {
+        _column_sep_positions.reserve(column_sep_num_);
+    }
+
+protected:
+    void read_line_impl(const uint8_t* start, size_t& bound) override;
+
+private:
+    void _on_start(const uint8_t* start, size_t& len);
+    void _on_normal(const uint8_t* start, size_t& len);
+    void _on_pre_match_enclose(const uint8_t* start, size_t& len);
+    void _on_match_enclose(const uint8_t* start, size_t& len);
+
+    const char _enclose;
+    const char _escape;
 };
 
 using TextLineReaderCtxPtr = std::shared_ptr<TextLineReaderContextIf>;
