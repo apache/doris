@@ -223,7 +223,9 @@ int64_t BackendService::get_trash_used_capacity() {
 
     std::vector<DataDirInfo> data_dir_infos;
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
-    StorageEngine::instance()->notify_listener(TaskWorkerType::REPORT_DISK_STATE);
+
+    // uses excute sql `show trash`, then update backend trash capacity too.
+    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
 
     for (const auto& root_path_info : data_dir_infos) {
         result += root_path_info.trash_used_capacity;
@@ -235,7 +237,9 @@ int64_t BackendService::get_trash_used_capacity() {
 void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
     std::vector<DataDirInfo> data_dir_infos;
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
-    StorageEngine::instance()->notify_listener(TaskWorkerType::REPORT_DISK_STATE);
+
+    // uses excute sql `show trash on <be>`, then update backend trash capacity too.
+    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
 
     for (const auto& root_path_info : data_dir_infos) {
         TDiskTrashInfo diskTrashInfo;
@@ -381,6 +385,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 
 void BackendService::clean_trash() {
     StorageEngine::instance()->start_trash_sweep(nullptr, true);
+    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
