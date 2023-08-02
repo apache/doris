@@ -54,14 +54,6 @@ const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_
             on_normal(start, len);
             break;
         }
-        case ReaderState::MATCH_COLUMN_SEP: {
-            on_match_column_sep(start, len);
-            break;
-        }
-        case ReaderState::FOUND_LINE: {
-            on_found_line(start, len);
-            break;
-        }
         case ReaderState::PRE_MATCH_ENCLOSE: {
             on_pre_match_enclose(start, len);
             break;
@@ -70,23 +62,7 @@ const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_
             on_match_enclose(start, len);
             break;
         }
-        case ReaderState::POST_ENCLOSE_LINE_DELIMITER: {
-            on_post_match_enclose_line_delimiter(start, len);
-            break;
         }
-        case ReaderState::POST_ENCLOSE_COLUMN_SEP: {
-            on_post_match_enclose_column_sep(start, len);
-            break;
-        }
-        case ReaderState::MATCH_ESCAPE: {
-            on_match_escape(start, len);
-            break;
-        }
-        }
-    }
-    if (UNLIKELY(_state == ReaderState::FOUND_LINE && _delimiter_match_len == line_delimiter_len)) {
-        // means it happens to be a complete line
-        _result = start + (_idx - line_delimiter_len);
     }
     return _result;
 }
@@ -109,9 +85,9 @@ void CsvLineReaderContext::on_normal(const uint8_t* start, size_t len) {
     }
     if (_look_for_line_delim(curr_start, curr_len)) {
         _idx = _result - start + line_delimiter_len;
-    } else {
-        _idx = len;
+        return;
     }
+    _idx = len;
 }
 
 bool CsvLineReaderContext::_look_for_column_sep(const uint8_t* curr_start, size_t curr_len) {
