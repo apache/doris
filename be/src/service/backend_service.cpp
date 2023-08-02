@@ -243,13 +243,9 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
 
     for (const auto& root_path_info : data_dir_infos) {
         TDiskTrashInfo diskTrashInfo;
-
         diskTrashInfo.__set_root_path(root_path_info.path);
-
         diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
-
         diskTrashInfo.__set_trash_used_capacity(root_path_info.trash_used_capacity);
-
         diskTrashInfos.push_back(diskTrashInfo);
     }
 }
