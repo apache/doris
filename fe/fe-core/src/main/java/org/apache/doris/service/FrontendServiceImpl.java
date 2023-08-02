@@ -1929,7 +1929,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 result.setLastStartupTime(exeEnv.getStartupTime());
                 if (exeEnv.getDiskInfos() != null) {
-                    result.setDiskInfos(exeEnv.toThrift(exeEnv.getDiskInfos()));
+                    result.setDiskInfos(FeDiskInfo.toThrifts(exeEnv.getDiskInfos()));
                 }
             }
         } else {

@@ -20,6 +20,9 @@ package org.apache.doris.service;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.thrift.TDiskInfo;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class FeDiskInfo {
     private String dirType;
     private String dir;
@@ -79,9 +82,7 @@ public class FeDiskInfo {
                 getSpaceInfo().mountedOn);
     }
 
-    public void fromThrift(TDiskInfo diskInfo) {
-        this.dirType = diskInfo.getDirType();
-        this.dir = diskInfo.getDir();
+    public static FeDiskInfo fromThrift(TDiskInfo diskInfo) {
         DiskUtils.Df df = new DiskUtils.Df();
         df.fileSystem = diskInfo.getFilesystem();
         df.blocks = diskInfo.getBlocks();
@@ -89,6 +90,28 @@ public class FeDiskInfo {
         df.available = diskInfo.getAvailable();
         df.useRate = diskInfo.getUseRate();
         df.mountedOn = diskInfo.getMountedOn();
-        this.spaceInfo = df;
+        return new FeDiskInfo(diskInfo.getDirType(), diskInfo.getDir(), df);
+    }
+
+    public static List<TDiskInfo> toThrifts(List<FeDiskInfo> diskInfos) {
+        if (diskInfos == null) {
+            return null;
+        }
+        List<TDiskInfo> r = new ArrayList<TDiskInfo>(diskInfos.size());
+        for (FeDiskInfo d : diskInfos) {
+            r.add(d.toThrift());
+        }
+        return r;
+    }
+
+    public static List<FeDiskInfo> fromThrifts(List<TDiskInfo> diskInfos) {
+        if (diskInfos == null) {
+            return null;
+        }
+        List<FeDiskInfo> r = new ArrayList<FeDiskInfo>(diskInfos.size());
+        for (TDiskInfo d : diskInfos) {
+            r.add(FeDiskInfo.fromThrift(d));
+        }
+        return r;
     }
 }

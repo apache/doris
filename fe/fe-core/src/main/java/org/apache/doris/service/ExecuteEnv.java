@@ -83,28 +83,4 @@ public class ExecuteEnv {
         }
         return diskInfos;
     }
-
-    public static List<TDiskInfo> toThrift(List<FeDiskInfo> diskInfos) {
-        if (diskInfos == null) {
-            return null;
-        }
-        List<TDiskInfo> r = new ArrayList<TDiskInfo>(diskInfos.size());
-        for (FeDiskInfo d : diskInfos) {
-            r.add(d.toThrift());
-        }
-        return r;
-    }
-
-    public static List<FeDiskInfo> fromThrift(List<TDiskInfo> diskInfos) {
-        if (diskInfos == null) {
-            return null;
-        }
-        List<FeDiskInfo> r = new ArrayList<FeDiskInfo>(diskInfos.size());
-        for (TDiskInfo d : diskInfos) {
-            FeDiskInfo disk = new FeDiskInfo();
-            disk.fromThrift(d);
-            r.add(disk);
-        }
-        return r;
-    }
 }
