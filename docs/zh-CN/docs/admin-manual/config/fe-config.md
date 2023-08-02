@@ -2728,9 +2728,9 @@ show data （其他用法：HELP SHOW DATA）
 
 <version since="dev"></version>
 
-默认值：128
+默认值：64
 
-用于限制parallel_fragment_exec_instance_num的设置，set parallel_fragment_exec_instance_num不能超过max_instance_num
+用于限制自动设置的并发量(parallel_pipeline_task_num = 0)
 
 #### `enable_query_hit_stats`
 

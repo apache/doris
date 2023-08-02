@@ -2736,10 +2736,9 @@ Controls whether to enable query hit statistics. The default is false.
 
 <version since="dev"></version>
 
-Default: 128
+Default: 64
 
-This is used to limit the setting of "parallel_fragment_exec_instance_num".
-"parallel_fragment_exec_instance_num" cannot be set higher than "max_instance_num".
+"max_instance_num" is used to limit the automatically configured concurrency when "parallel_pipeline_task_num" is set to 0.
 
 #### `div_precision_increment`
 <version since="dev"></version>

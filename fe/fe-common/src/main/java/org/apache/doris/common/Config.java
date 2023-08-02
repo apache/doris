@@ -1959,12 +1959,11 @@ public class Config extends ConfigBase {
                     + "when we create table, only support array type nested array"})
     public static boolean disable_nested_complex_type  = true;
     /*
-     * "max_instance_num" is used to set the maximum concurrency. When the value set
-     * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",
-     * an error will be reported.
+     * "max_instance_num" is used to limit the automatically configured concurrency
+     * when "parallel_pipeline_task_num" is set to 0.
      */
     @ConfField(mutable = true)
-    public static int max_instance_num = 128;
+    public static int max_instance_num = 64;
 
     /*
      * This variable indicates the number of digits by which to increase the scale
