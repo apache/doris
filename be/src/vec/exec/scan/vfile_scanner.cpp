@@ -558,6 +558,9 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
 
 Status VFileScanner::_get_next_reader() {
     while (true) {
+        if (_cur_reader) {
+            _cur_reader->close();
+        }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
         if (_next_range >= _ranges.size()) {
@@ -934,6 +937,10 @@ Status VFileScanner::close(RuntimeState* state) {
     if (config::enable_file_cache && _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());
+    }
+
+    if (_cur_reader) {
+        _cur_reader->close();
     }
 
     RETURN_IF_ERROR(VScanner::close(state));
