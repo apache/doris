@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Mysqldump导出表结构或数据",
+    "title": "MYSQLDUMP 导出表结构或数据",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 使用mysqldump数据导出表结构或者数据
+# 使用 MYSQLDUMP 数据导出表结构或者数据
 Doris 在0.15 之后的版本已经支持通过`mysqldump` 工具导出数据或者表结构
 
 ## 使用示例
