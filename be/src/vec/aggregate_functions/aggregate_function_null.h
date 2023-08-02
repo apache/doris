@@ -143,15 +143,17 @@ public:
         }
     }
 
-    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
-                               Arena* arena) const override {
+    void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
+                               BufferReadable& buf, Arena* arena) const override {
         bool flag = true;
         if (result_is_nullable) {
             read_binary(flag, buf);
         }
         if (flag) {
+            set_flag(rhs);
             set_flag(place);
-            nested_function->deserialize_and_merge(nested_place(place), buf, arena);
+            nested_function->deserialize_and_merge(nested_place(place), nested_place(rhs), buf,
+                                                   arena);
         }
     }
 
