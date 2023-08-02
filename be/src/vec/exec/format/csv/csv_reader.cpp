@@ -753,4 +753,14 @@ Status CsvReader::_parse_col_types(size_t col_nums, std::vector<TypeDescriptor>*
     return Status::OK();
 }
 
+void CsvReader::close() {
+    if (_line_reader) {
+        _line_reader->close();
+    }
+
+    if (_file_reader) {
+        _file_reader->close();
+    }
+}
+
 } // namespace doris::vectorized

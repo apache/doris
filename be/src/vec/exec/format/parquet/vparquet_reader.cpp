@@ -100,7 +100,7 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
 }
 
 ParquetReader::~ParquetReader() {
-    close();
+    _close_internal();
 }
 
 void ParquetReader::_init_profile() {
@@ -162,6 +162,10 @@ void ParquetReader::_init_profile() {
 }
 
 void ParquetReader::close() {
+    _close_internal();
+}
+
+void ParquetReader::_close_internal() {
     if (!_closed) {
         if (_profile != nullptr) {
             COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _statistics.filtered_row_groups);
