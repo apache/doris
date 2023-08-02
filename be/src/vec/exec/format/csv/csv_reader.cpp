@@ -98,7 +98,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     }
     _size = _range.size;
 
-    _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
+    _split_values.reserve(_file_slot_descs.size());
     _init_system_properties();
     _init_file_description();
 }
@@ -211,7 +211,7 @@ Status CsvReader::init_reader(bool is_load) {
 
     _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
             _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-            _enclose, _escape);
+            _file_slot_descs.size() - 1, _enclose, _escape);
 
     //get array delimiter
     _array_delimiter = _params.file_attributes.text_params.array_delimiter;
@@ -220,6 +220,8 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
     }
+    _trim_tailing_spaces =
+            (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
@@ -424,8 +426,8 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                     col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
             // For load task, we always read "string" from file, so use "write_string_column"
             // TODO(tsy): use escape = true
-            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
-                                                 value.size, true);
+            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data, value.size,
+                                                 _escape != 0);
         }
     } else {
         // if _split_values.size > _file_slot_descs.size()
@@ -528,9 +530,7 @@ void CsvReader::_split_line(const Slice& line) {
 }
 
 void CsvReader::_process_value_field(const char* data, size_t start_offset, size_t value_len) {
-    const bool should_trim_tailing_spaces =
-            (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
-    if (should_trim_tailing_spaces) {
+    if (_trim_tailing_spaces) {
         while (value_len > 0 && *(data + start_offset + value_len - 1) == ' ') {
             --value_len;
         }
@@ -653,7 +653,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
 
     _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
             _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-            _enclose, _escape);
+            _file_slot_descs.size() - 1, _enclose, _escape);
 
     _line_reader =
             NewPlainTextLineReader::create_unique(_profile, _file_reader, _decompressor.get(),
