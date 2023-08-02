@@ -64,8 +64,8 @@ public class DistributionDescriptor {
             if (keysType.equals(KeysType.UNIQUE_KEYS)) {
                 throw new AnalysisException("Create unique keys table should not contain random distribution desc");
             } else if (keysType.equals(KeysType.AGG_KEYS) && columnMap.values().stream()
-                    .anyMatch(c -> c.getAggType().equals(AggregateType.REPLACE)
-                            || c.getAggType().equals(AggregateType.REPLACE_IF_NOT_NULL))) {
+                    .anyMatch(c -> AggregateType.REPLACE.equals(c.getAggType())
+                            || AggregateType.REPLACE_IF_NOT_NULL.equals(c.getAggType()))) {
                 throw new AnalysisException("Create aggregate keys table with value columns of which aggregate type is "
                         + "REPLACE or REPLACE_IF_NOT_NULL should not contain random distribution desc");
             }

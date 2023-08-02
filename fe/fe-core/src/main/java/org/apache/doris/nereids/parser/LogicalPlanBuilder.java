@@ -1839,11 +1839,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(new Now());
             }
         }
-        AggregateType aggType;
-        try {
-            aggType = AggregateType.valueOf(aggTypeString.toUpperCase());
-        } catch (Exception e) {
-            throw new AnalysisException(String.format("Aggregate type %s is unsupported", aggTypeString), e.getCause());
+        AggregateType aggType = null;
+        if (aggTypeString != null) {
+            try {
+                aggType = AggregateType.valueOf(aggTypeString.toUpperCase());
+            } catch (Exception e) {
+                throw new AnalysisException(String.format("Aggregate type %s is unsupported", aggTypeString),
+                        e.getCause());
+            }
         }
         String comment = ctx.comment != null ? ((Literal) visit(ctx.comment)).getStringValue() : "";
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
