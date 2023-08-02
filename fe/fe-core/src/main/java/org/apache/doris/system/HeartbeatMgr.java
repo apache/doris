@@ -75,10 +75,6 @@ public class HeartbeatMgr extends MasterDaemon {
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
-    private void updateFeDiskInfo() {
-        ExecuteEnv.getInstance().refreshAndGetDiskInfo(true);
-    }
-
     public HeartbeatMgr(SystemInfoService nodeMgr, boolean needRegisterMetric) {
         super("heartbeat mgr", FeConstants.heartbeat_interval_second * 1000);
         this.nodeMgr = nodeMgr;
@@ -105,8 +101,6 @@ public class HeartbeatMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
-
-        updateFeDiskInfo();
 
         // send backend heartbeat
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
