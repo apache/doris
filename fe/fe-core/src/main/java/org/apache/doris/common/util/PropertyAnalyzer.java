@@ -188,7 +188,8 @@ public class PropertyAnalyzer {
 
         TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
         long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
-        String newStoragePolicy = oldDataProperty.getStoragePolicy();
+        String newStoragePolicy;
+        final String oldStoragePolicy = oldDataProperty.getStoragePolicy();
         boolean hasStoragePolicy = false;
         boolean storageMediumSpecified = false;
 
@@ -250,6 +251,19 @@ public class PropertyAnalyzer {
             }
 
             StoragePolicy storagePolicy = (StoragePolicy) policy;
+            if (null != oldStoragePolicy && !oldStoragePolicy.equals(newStoragePolicy)) {
+                // check remote storage policy
+                StoragePolicy oldPolicy = StoragePolicy.ofCheck(oldStoragePolicy);
+                Policy p = Env.getCurrentEnv().getPolicyMgr().getPolicy(oldPolicy);
+                if ((p instanceof StoragePolicy)) {
+                    String newResource = storagePolicy.getStorageResource();
+                    String oldResource = ((StoragePolicy) p).getStorageResource();
+                    if (!newResource.equals(oldResource)) {
+                        throw new AnalysisException("currently do not support change origin "
+                                + "storage policy to another one with different resource: ");
+                    }
+                }
+            }
             // check remote storage cool down timestamp
             if (storagePolicy.getCooldownTimestampMs() != -1) {
                 if (storagePolicy.getCooldownTimestampMs() <= currentTimeMs) {
