@@ -25,11 +25,9 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
-#include <algorithm>
 #include <chrono> // IWYU pragma: keep
 #include <initializer_list>
 #include <set>
-#include <sstream>
 #include <thread>
 #include <utility>
 
@@ -331,31 +329,13 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         Status::InternalError("unknown index id, key={}", _key.to_string());
     }
 
-    {
-        std::vector<int64_t> tablet_ids;
-        for (const auto& tablet : request.tablets()) {
-            tablet_ids.push_back(tablet.tablet_id());
-        }
-        std::sort(tablet_ids.begin(), tablet_ids.end());
-        int64_t last_tablet_id = -1;
-        std::stringstream logstring;
-        logstring << "tablet ids:";
-        for (int64_t tablet_id : tablet_ids) {
-            if (tablet_id == last_tablet_id) {
-                LOG(WARNING) << "found duplicate tablet id: " << tablet_id;
-            }
-            last_tablet_id = tablet_id;
-            logstring << " " << tablet_id;
-        }
-        LOG(INFO) << logstring.str();
-    }
-
 #ifdef DEBUG
     // check: tablet ids should be unique
     {
         std::unordered_set<int64_t> tablet_ids;
         for (const auto& tablet : request.tablets()) {
-            CHECK(tablet_ids.count(tablet.tablet_id()) == 0);
+            CHECK(tablet_ids.count(tablet.tablet_id()) == 0)
+                    << "found duplicate tablet id: " << tablet.tablet_id();
             tablet_ids.insert(tablet.tablet_id());
         }
     }
