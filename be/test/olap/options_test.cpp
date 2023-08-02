@@ -19,10 +19,12 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <stdlib.h>
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "gtest/gtest_pred_impl.h"
 #include "olap/olap_define.h"
@@ -113,6 +115,19 @@ TEST_F(OptionsTest, parse_root_path) {
         EXPECT_STREQ(path2.c_str(), path.path.c_str());
         EXPECT_EQ(10 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::HDD, path.storage_medium);
+    }
+    {
+        // test tail `;`
+        std::string path = "/home/disk1/doris;/home/disk2/doris;/home/disk2/doris;";
+        std::string p1 = "/home/disk1/doris";
+        std::string p2 = "/home/disk2/doris";
+        std::string p3 = "/home/disk2/doris";
+        std::vector<StorePath> paths;
+        EXPECT_EQ(Status::OK(), parse_conf_store_paths(path, &paths));
+        EXPECT_EQ(paths.size(), 3);
+        EXPECT_STREQ(p1.c_str(), paths[0].path.c_str());
+        EXPECT_STREQ(p2.c_str(), paths[1].path.c_str());
+        EXPECT_STREQ(p3.c_str(), paths[2].path.c_str());
     }
 }
 

@@ -18,14 +18,12 @@
 #include "olap/options.h"
 
 #include <ctype.h>
-#include <gen_cpp/Types_types.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/rapidjson.h>
 #include <stdlib.h>
 
 #include <algorithm>
-#include <cstddef>
 #include <memory>
 #include <ostream>
 
@@ -34,7 +32,6 @@
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
@@ -159,7 +156,6 @@ Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>*
         // deal with the case that user add `;` to the tail
         path_vec.pop_back();
     }
-    size_t hdd_cnt = 0;
     for (auto& item : path_vec) {
         StorePath path;
         auto res = parse_root_path(item, &path);
@@ -168,16 +164,10 @@ Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>*
         } else {
             LOG(WARNING) << "failed to parse store path " << item << ", res=" << res;
         }
-        if (path.storage_medium == TStorageMedium::HDD) {
-            ++hdd_cnt;
-        }
     }
     if ((path_vec.size() != paths->size() && !config::ignore_broken_disk)) {
         return Status::Error<INVALID_ARGUMENT>("fail to parse storage_root_path config. value={}",
                                                config_path);
-    }
-    if (hdd_cnt == 0) {
-        return Status::Error<INVALID_ARGUMENT>("should a least have one hdd path");
     }
     return Status::OK();
 }
