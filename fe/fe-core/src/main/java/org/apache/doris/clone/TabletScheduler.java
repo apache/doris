@@ -72,6 +72,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
@@ -1205,21 +1206,23 @@ public class TabletScheduler extends MasterDaemon {
             return;
         }
 
-        // no need to prefetch too many balance task to pending queue.
-        if (getPendingNum() >= Config.schedule_batch_size) {
-            return;
-        }
-
-        long numOfBalancingTablets = getBalanceTabletsNumber();
-        if (numOfBalancingTablets > Config.max_balancing_tablets) {
-            LOG.info("number of balancing tablets {} exceed limit: {}, skip selecting tablets for balance",
-                    numOfBalancingTablets, Config.max_balancing_tablets);
+        // No need to prefetch too many balance task to pending queue.
+        // Because for every sched, it will re select the balance task.
+        int needAddBalanceNum = Math.min(Config.schedule_batch_size - getPendingNum(),
+                    Config.max_balancing_tablets - getBalanceTabletsNumber());
+        if (needAddBalanceNum <= 0) {
             return;
         }
 
         List<TabletSchedCtx> alternativeTablets = rebalancer.selectAlternativeTablets();
+        Collections.shuffle(alternativeTablets);
         for (TabletSchedCtx tabletCtx : alternativeTablets) {
-            addTablet(tabletCtx, false);
+            if (addTablet(tabletCtx, false) == AddResult.ADDED) {
+                needAddBalanceNum--;
+                if (needAddBalanceNum <= 0) {
+                    return;
+                }
+            }
         }
         if (Config.disable_disk_balance) {
             LOG.info("disk balance is disabled. skip selecting tablets for disk balance");
@@ -1233,7 +1236,12 @@ public class TabletScheduler extends MasterDaemon {
         for (TabletSchedCtx tabletCtx : diskBalanceTablets) {
             // add if task from prio backend or cluster is balanced
             if (alternativeTablets.isEmpty() || tabletCtx.getPriority() == TabletSchedCtx.Priority.NORMAL) {
-                addTablet(tabletCtx, false);
+                if (addTablet(tabletCtx, false) == AddResult.ADDED) {
+                    needAddBalanceNum--;
+                    if (needAddBalanceNum <= 0) {
+                        break;
+                    }
+                }
             }
         }
     }
@@ -1763,9 +1771,9 @@ public class TabletScheduler extends MasterDaemon {
         return allTabletTypes.size();
     }
 
-    public synchronized long getBalanceTabletsNumber() {
-        return pendingTablets.stream().filter(t -> t.getType() == Type.BALANCE).count()
-                + runningTablets.values().stream().filter(t -> t.getType() == Type.BALANCE).count();
+    public synchronized int getBalanceTabletsNumber() {
+        return (int) (pendingTablets.stream().filter(t -> t.getType() == Type.BALANCE).count()
+                + runningTablets.values().stream().filter(t -> t.getType() == Type.BALANCE).count());
     }
 
     /**
