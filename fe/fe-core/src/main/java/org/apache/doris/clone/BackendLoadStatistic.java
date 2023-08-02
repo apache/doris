@@ -77,6 +77,10 @@ public class BackendLoadStatistic {
             this.pathLoadStatistic = pathLoadStatistic;
         }
 
+        BackendLoadStatistic getBackendLoadStatistic() {
+            return beLoadStatistic;
+        }
+
         RootPathLoadStatistic getPathLoadStatistic() {
             return pathLoadStatistic;
         }
@@ -473,6 +477,27 @@ public class BackendLoadStatistic {
                 high.add(pathStat.getPathHash());
             } else {
                 mid.add(pathStat.getPathHash());
+            }
+        }
+
+        LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
+                beId, low.size(), mid.size(), high.size());
+    }
+
+    public void getPathStatisticByClass(List<RootPathLoadStatistic> low,
+            List<RootPathLoadStatistic> mid, List<RootPathLoadStatistic> high, TStorageMedium storageMedium) {
+        for (RootPathLoadStatistic pathStat : pathStatistics) {
+            if (pathStat.getDiskState() == DiskState.OFFLINE
+                    || (storageMedium != null && pathStat.getStorageMedium() != storageMedium)) {
+                continue;
+            }
+
+            if (pathStat.getClazz() == Classification.LOW) {
+                low.add(pathStat);
+            } else if (pathStat.getClazz() == Classification.HIGH) {
+                high.add(pathStat);
+            } else {
+                mid.add(pathStat);
             }
         }
 

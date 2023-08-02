@@ -69,8 +69,7 @@ public class DecommissionTest {
         FeConstants.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         Config.enable_round_robin_create_tablet = true;
-        Config.schedule_slot_num_per_path = 10000;
-        Config.schedule_decommission_slot_num_per_path = 10000;
+        Config.schedule_slot_num_per_hdd_path = 10000;
         Config.max_scheduling_tablets = 10000;
         Config.disable_balance = true;
         // 4 backends:

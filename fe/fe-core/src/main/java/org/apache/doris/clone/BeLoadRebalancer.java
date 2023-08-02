@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPair;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
@@ -319,6 +320,7 @@ public class BeLoadRebalancer extends Rebalancer {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find low backend");
         }
 
+        List<BePathLoadStatPair> candFitPaths = Lists.newArrayList();
         for (BackendLoadStatistic beStat : candidates) {
             PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
             if (slot == null) {
@@ -327,15 +329,25 @@ public class BeLoadRebalancer extends Rebalancer {
 
             // classify the paths.
             // And we only select path from 'low' and 'mid' paths
-            Set<Long> pathLow = Sets.newHashSet();
-            Set<Long> pathMid = Sets.newHashSet();
-            Set<Long> pathHigh = Sets.newHashSet();
+            List<RootPathLoadStatistic> pathLow = Lists.newArrayList();
+            List<RootPathLoadStatistic> pathMid = Lists.newArrayList();
+            List<RootPathLoadStatistic> pathHigh = Lists.newArrayList();
             beStat.getPathStatisticByClass(pathLow, pathMid, pathHigh, tabletCtx.getStorageMedium());
-            pathLow.addAll(pathMid);
 
-            long pathHash = slot.takeAnAvailBalanceSlotFrom(pathLow);
-            if (pathHash != -1) {
-                tabletCtx.setDest(beStat.getBeId(), pathHash);
+            pathLow.addAll(pathMid);
+            pathLow.stream().forEach(path -> candFitPaths.add(new BePathLoadStatPair(beStat, path)));
+        }
+
+        Collections.sort(candFitPaths);
+        for (BePathLoadStatPair bePathLoadStat : candFitPaths) {
+            BackendLoadStatistic beStat = bePathLoadStat.getBackendLoadStatistic();
+            RootPathLoadStatistic pathStat = bePathLoadStat.getPathLoadStatistic();
+            PathSlot slot = backendsWorkingSlots.get(beStat.getBeId());
+            if (slot == null) {
+                continue;
+            }
+            if (slot.takeBalanceSlot(pathStat.getPathHash()) != -1) {
+                tabletCtx.setDest(beStat.getBeId(), pathStat.getPathHash());
                 return;
             }
         }
