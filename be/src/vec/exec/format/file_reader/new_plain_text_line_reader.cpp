@@ -21,11 +21,13 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <ostream>
 
 #include "common/compiler_util.h"
 #include "exec/decompressor.h"
+#include "gutil/strings/memutil.h"
 #include "io/fs/file_reader.h"
 #include "util/slice.h"
 
@@ -56,6 +58,10 @@ const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_
             on_match_column_sep(start, len);
             break;
         }
+        case ReaderState::FOUND_LINE: {
+            on_found_line(start, len);
+            break;
+        }
         case ReaderState::PRE_MATCH_ENCLOSE: {
             on_pre_match_enclose(start, len);
             break;
@@ -76,10 +82,6 @@ const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_
             on_match_escape(start, len);
             break;
         }
-        case ReaderState::FOUND_LINE: {
-            on_found_line(start, len);
-            break;
-        }
         }
     }
     if (UNLIKELY(_state == ReaderState::FOUND_LINE && _delimiter_match_len == line_delimiter_len)) {
@@ -90,139 +92,81 @@ const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_
 }
 
 void CsvLineReaderContext::on_start(const uint8_t* start, size_t len) {
-    DCHECK_EQ(_delimiter_match_len, 0);
-    if (start[_idx] == _enclose) {
+    if (UNLIKELY(start[_idx] == _enclose)) {
+        _left_enclose_pos = _idx - 1;
         _state.forward_to(ReaderState::PRE_MATCH_ENCLOSE);
-    } else if (UNLIKELY(start[_idx] == _column_sep[0])) {
-        ++_delimiter_match_len;
-        _state.forward_to(ReaderState::MATCH_COLUMN_SEP);
-    } else if (UNLIKELY(start[_idx] == line_delimiter[0])) {
-        ++_delimiter_match_len;
-        _state.forward_to(ReaderState::FOUND_LINE);
+        ++_idx;
     } else {
         _state.forward_to(ReaderState::NORMAL);
     }
-    ++_idx;
 }
 
 void CsvLineReaderContext::on_normal(const uint8_t* start, size_t len) {
-    DCHECK_EQ(_delimiter_match_len, 0);
-    if (UNLIKELY(start[_idx] == _column_sep[0])) {
-        ++_delimiter_match_len;
-        _state.forward_to(ReaderState::MATCH_COLUMN_SEP);
-    } else if (UNLIKELY(start[_idx] == line_delimiter[0])) {
-        ++_delimiter_match_len;
-        _state.forward_to(ReaderState::FOUND_LINE);
+    const uint8_t* curr_start = start + _idx;
+    const size_t curr_len = len - _idx;
+    if (LIKELY(_look_for_column_sep(curr_start, curr_len))) {
+        return;
     }
-    ++_idx;
+    if (_look_for_line_delim(curr_start, curr_len)) {
+        _idx = _result - start + line_delimiter_len;
+    } else {
+        _idx = len;
+    }
 }
 
-void CsvLineReaderContext::on_match_column_sep(const uint8_t* start, size_t len) {
-    DCHECK_NE(_delimiter_match_len, 0);
-    if (_delimiter_match_len == _column_sep_len) {
-        // found colum sep
-        _column_sep_positions.push_back(_idx - _column_sep_len);
-        _delimiter_match_len = 0;
+bool CsvLineReaderContext::_look_for_column_sep(const uint8_t* curr_start, size_t curr_len) {
+    const uint8_t* col_sep_pos =
+            (uint8_t*)memmem(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
+    if (LIKELY(col_sep_pos != nullptr)) {
+        const size_t forward_distance = col_sep_pos - curr_start;
+        _idx += forward_distance;
+        _column_sep_positions.push_back(_idx);
+        _idx += _column_sep_len;
         _state.forward_to(ReaderState::START);
-    } else if (start[_idx] == _column_sep[_delimiter_match_len]) {
-        // matching multi-char col sep
-        DCHECK_GT(_column_sep_len, 1);
-        ++_delimiter_match_len;
-        ++_idx;
-    } else {
-        // not found
-        _delimiter_match_len = 0;
-        _state.forward_to(ReaderState::NORMAL);
+        return true;
     }
+    return false;
+}
+
+bool CsvLineReaderContext::_look_for_line_delim(const uint8_t* curr_start, size_t curr_len) {
+    const uint8_t* line_delimiter_pos =
+            (uint8_t*)memmem(curr_start, curr_len, line_delimiter.c_str(), line_delimiter_len);
+    if (line_delimiter_pos == nullptr) {
+        return false;
+    }
+    _result = line_delimiter_pos;
+    return true;
 }
 
 void CsvLineReaderContext::on_pre_match_enclose(const uint8_t* start, size_t len) {
-    if (_state.prev_state == ReaderState::START) {
-        DCHECK_GT(_idx, 0);
-        _left_enclose_pos = _idx - 1;
-        _state.forward_to(_state.curr_state);
-        return;
-    }
-    if (start[_idx] == _escape) {
-        _state.forward_to(ReaderState::MATCH_ESCAPE);
-    } else if (start[_idx] == _enclose) {
-        _state.forward_to(ReaderState::MATCH_ENCLOSE);
-    }
-    ++_idx;
+    bool should_escape = false;
+    do {
+        if (UNLIKELY(start[_idx] == _escape)) {
+            should_escape = !should_escape;
+        } else if (UNLIKELY(should_escape)) {
+            should_escape = false;
+        } else if (UNLIKELY(start[_idx] == _enclose)) {
+            _state.forward_to(ReaderState::MATCH_ENCLOSE);
+            ++_idx;
+            return;
+        }
+        ++_idx;
+    } while (_idx != len);
 }
 
 void CsvLineReaderContext::on_match_enclose(const uint8_t* start, size_t len) {
-    if (LIKELY(start[_idx] == _column_sep[0])) {
-        _state.forward_to(ReaderState::POST_ENCLOSE_COLUMN_SEP);
-        ++_delimiter_match_len;
-    } else if (start[_idx] == line_delimiter[0]) {
-        _state.forward_to(ReaderState::POST_ENCLOSE_LINE_DELIMITER);
-        ++_delimiter_match_len;
-    } else {
-        // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
-        // will reset to left enclose idx to do parse in nornal state
-        _delimiter_match_len = 0;
-        _state.forward_to(ReaderState::NORMAL);
-        _idx = _left_enclose_pos;
+    const uint8_t* curr_start = start + _idx;
+    if (_look_for_column_sep(curr_start, _column_sep_len)) {
         return;
     }
-    ++_idx;
-}
-
-void CsvLineReaderContext::on_match_escape(const uint8_t* start, size_t len) {
-    _state.forward_to(_state.prev_state);
-    ++_idx;
-}
-
-void CsvLineReaderContext::on_post_match_enclose_column_sep(const uint8_t* start, size_t len) {
-    if (_delimiter_match_len == _column_sep_len) {
-        _column_sep_positions.push_back(_idx - _column_sep_len);
-        _delimiter_match_len = 0;
-        _state.forward_to(ReaderState::START);
-    } else if (start[_idx] == _column_sep[_delimiter_match_len]) {
-        DCHECK_GT(_column_sep_len, 1);
-        ++_delimiter_match_len;
-        ++_idx;
-    } else {
-        // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
-        // will reset to left enclose idx to do parse in nornal state
-        _delimiter_match_len = 0;
-        _state.forward_to(ReaderState::NORMAL);
-        _idx = _left_enclose_pos;
+    if (_look_for_line_delim(curr_start, line_delimiter_len)) {
+        _idx = _result - start + line_delimiter_len;
+        return;
     }
-}
-
-void CsvLineReaderContext::on_post_match_enclose_line_delimiter(const uint8_t* start, size_t len) {
-    if (_delimiter_match_len == line_delimiter_len) {
-        _result = start + _idx - line_delimiter_len;
-    } else if (start[_idx] == line_delimiter[_delimiter_match_len]) {
-        DCHECK_GT(line_delimiter_len, 1);
-        ++_delimiter_match_len;
-        ++_idx;
-    } else {
-        // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
-        // will reset to left enclose idx to do parse in nornal state
-        _delimiter_match_len = 0;
-        _state.forward_to(ReaderState::NORMAL);
-        _idx = _left_enclose_pos;
-    }
-}
-
-void CsvLineReaderContext::on_found_line(const uint8_t* start, size_t len) {
-    DCHECK_NE(_delimiter_match_len, 0);
-    if (_delimiter_match_len == line_delimiter_len) {
-        // found line delimiter
-        _result = start + _idx - line_delimiter_len;
-        _delimiter_match_len = 0;
-    } else if (start[_idx] == line_delimiter[_delimiter_match_len]) {
-        // matching multi-char line delimiter
-        DCHECK_GT(line_delimiter_len, 1);
-        ++_delimiter_match_len;
-        ++_idx;
-    } else {
-        _delimiter_match_len = 0;
-        _state.forward_to(ReaderState::NORMAL);
-    }
+    // unfortunately, meet corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2,
+    // will reset to left enclose idx to do parse in nornal state
+    _idx = _left_enclose_pos;
+    _state.forward_to(ReaderState::NORMAL);
 }
 
 NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
