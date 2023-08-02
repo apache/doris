@@ -38,9 +38,14 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
+
+#ifdef DEBUG
+#include <unordered_set>
+#endif
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -1014,8 +1019,25 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     _num_node_channels = ADD_COUNTER(_profile, "NumberNodeChannels", TUnit::UNIT);
     _load_mem_limit = state->get_load_mem_limit();
 
+#ifdef DEBUG
+    // check: tablet ids should be unique
+    {
+        std::unordered_set<int64_t> tablet_ids;
+        const auto& partitions = _vpartition->get_partitions();
+        for (int i = 0; i < _schema->indexes().size(); ++i) {
+            for (const auto& partition : partitions) {
+                for (const auto& tablet : partition->indexes[i].tablets) {
+                    CHECK(tablet_ids.count(tablet) == 0);
+                    tablet_ids.insert(tablet);
+                }
+            }
+        }
+    }
+#endif
+
     // open all channels
     const auto& partitions = _vpartition->get_partitions();
+    std::vector<int64_t> all_tablet_ids;
     for (int i = 0; i < _schema->indexes().size(); ++i) {
         // collect all tablets belong to this rollup
         std::vector<TTabletWithPartition> tablets;
@@ -1026,6 +1048,7 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
                 tablet_with_partition.partition_id = part->id;
                 tablet_with_partition.tablet_id = tablet;
                 tablets.emplace_back(std::move(tablet_with_partition));
+                all_tablet_ids.push_back(tablet);
             }
         }
         if (UNLIKELY(tablets.empty())) {
@@ -1038,6 +1061,22 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc));
     _prepare = true;
+
+    {
+        std::sort(all_tablet_ids.begin(), all_tablet_ids.end());
+        int64_t last_tablet_id = -1;
+        std::stringstream logstring;
+        logstring << "all tablet ids:";
+        for (int64_t tablet_id : all_tablet_ids) {
+            if (tablet_id == last_tablet_id) {
+                LOG(WARNING) << "found duplicate tablet id: " << tablet_id;
+            }
+            last_tablet_id = tablet_id;
+            logstring << " " << tablet_id;
+        }
+        LOG(INFO) << logstring.str();
+    }
+
     return Status::OK();
 }
 
