@@ -15,27 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler;
+package org.apache.doris.scheduler.constants;
 
-import org.apache.doris.scheduler.registry.JobRegister;
-
-import java.util.concurrent.atomic.AtomicReference;
-
-/**
- * This class provides a factory for creating instances of {@link JobRegister}.
- * The factory ensures that only one instance of the client is created in a lazy manner.
- */
-public class JobRegisterFactory {
-    private static final AtomicReference<JobRegister> INSTANCE = new AtomicReference<>();
-
-    public static JobRegister getInstance() {
-        JobRegister instance = INSTANCE.get();
-        if (instance == null) {
-            instance = new AsyncJobRegister();
-            if (!INSTANCE.compareAndSet(null, instance)) {
-                instance = INSTANCE.get();
-            }
-        }
-        return instance;
-    }
+public enum JobType {
+    /**
+     * The job will be executed only once.
+     */
+    ONE_TIME,
+    /**
+     * The job will be executed periodically.
+     */
+    RECURRING,
+    /**
+     * JOB_TYPE_STREAMING is used to identify the streaming job.
+     */
+    STREAMING
 }

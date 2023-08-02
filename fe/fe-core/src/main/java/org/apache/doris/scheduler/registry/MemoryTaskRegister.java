@@ -15,28 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
+package org.apache.doris.scheduler.registry;
 
-import lombok.Getter;
+import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
 
 /**
- * System scheduler event job
- * They will start when scheduler starts,don't use this job in other place,it just for system inner scheduler
+ * todo
+ * Support in-memory job registration in the future
  */
-public enum SystemJob {
+public interface MemoryTaskRegister {
 
-    /**
-     * System cycle scheduler event job, it will start cycle scheduler
-     */
-    SYSTEM_SCHEDULER_JOB("system_scheduler_event_job", 1L);
+    Long registerTask(MemoryTaskExecutor executor);
 
-    @Getter
-    private final String description;
-    @Getter
-    private final Long id;
-
-    SystemJob(String description, Long id) {
-        this.description = description;
-        this.id = id;
-    }
+    void cancelTask(Long taskId);
 }

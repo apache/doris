@@ -15,28 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
+package org.apache.doris.scheduler.executor;
 
-import lombok.Getter;
+import org.apache.doris.scheduler.exception.JobException;
 
 /**
- * System scheduler event job
- * They will start when scheduler starts,don't use this job in other place,it just for system inner scheduler
+ * A functional interface for executing a job.
+ * todo
  */
-public enum SystemJob {
+@FunctionalInterface
+public interface MemoryTaskExecutor<T> {
 
     /**
-     * System cycle scheduler event job, it will start cycle scheduler
+     * Executes the event job and returns the result.
+     * Exceptions will be caught internally, so there is no need to define or throw them separately.
      */
-    SYSTEM_SCHEDULER_JOB("system_scheduler_event_job", 1L);
-
-    @Getter
-    private final String description;
-    @Getter
-    private final Long id;
-
-    SystemJob(String description, Long id) {
-        this.description = description;
-        this.id = id;
-    }
+    void execute() throws JobException;
 }
+
