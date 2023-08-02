@@ -2724,14 +2724,6 @@ show data （其他用法：HELP SHOW DATA）
 
 这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
 
-#### `max_instance_num`
-
-<version since="dev"></version>
-
-默认值：64
-
-用于限制自动设置的并发量(parallel_pipeline_task_num = 0)
-
 #### `enable_query_hit_stats`
 
 <version since="dev"></version>

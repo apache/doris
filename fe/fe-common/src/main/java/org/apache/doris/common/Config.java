@@ -1958,12 +1958,6 @@ public class Config extends ConfigBase {
             "Now default set to true, not support create complex type(array/struct/map) nested complex type "
                     + "when we create table, only support array type nested array"})
     public static boolean disable_nested_complex_type  = true;
-    /*
-     * "max_instance_num" is used to limit the automatically configured concurrency
-     * when "parallel_pipeline_task_num" is set to 0.
-     */
-    @ConfField(mutable = true)
-    public static int max_instance_num = 64;
 
     /*
      * This variable indicates the number of digits by which to increase the scale
