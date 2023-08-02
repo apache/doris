@@ -384,7 +384,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
         block->insert(column_with_type_and_name);
-        Block::filter_block(block, target_columns.size(), target_columns.size());
+        RETURN_IF_ERROR(Block::filter_block(block, target_columns.size(), target_columns.size()));
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
     }

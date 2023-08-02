@@ -346,7 +346,12 @@ public class PlanChecker {
     }
 
     private PlanChecker applyExploration(Group group, Rule rule) {
+        // copy children expression, because group may be changed after apply rule.
         List<GroupExpression> logicalExpressions = Lists.newArrayList(group.getLogicalExpressions());
+        // due to mergeGroup, the children Group of groupExpression may be replaced, so we need to use lambda to
+        // get the child to make we can get child at the time we use child.
+        // If we use for child: groupExpression.children(), it means that we take it in advance. It may cause NPE,
+        // work flow: get children() to get left, right -> copyIn left() -> mergeGroup -> right is merged -> NPE
         for (int i = 0; i < logicalExpressions.size(); i++) {
             final int childIdx = i;
             applyExploration(() -> logicalExpressions.get(childIdx), rule);

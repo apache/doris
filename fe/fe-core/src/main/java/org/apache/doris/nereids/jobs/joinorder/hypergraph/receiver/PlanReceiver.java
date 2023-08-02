@@ -319,6 +319,10 @@ public class PlanReceiver implements AbstractReceiver {
             hasGenerated.add(groupExpression);
 
             // process child first, plan's child may be changed due to mergeGroup
+            // due to mergeGroup, the children Group of groupExpression may be replaced, so we need to use lambda to
+            // get the child to make we can get child at the time we use child.
+            // If we use for child: groupExpression.children(), it means that we take it in advance. It may cause NPE,
+            // work flow: get children() to get left, right -> copyIn left() -> mergeGroup -> right is merged -> NPE
             Plan physicalPlan = groupExpression.getPlan();
             for (int i = 0; i < groupExpression.children().size(); i++) {
                 int childIdx = i;
