@@ -69,7 +69,7 @@ under the License.
         <maven.compiler.target>1.8</maven.compiler.target>
         <log4j2.version>2.18.0</log4j2.version>
         <project.scm.id>github</project.scm.id>
-        <doris.shade.version>1.0.1-SNAPSHOT</doris.shade.version>
+        <doris.shade.version>1.0.1</doris.shade.version>
 
         <netty.version>4.1.89.Final</netty.version>
         <owasp-dependency-check-maven.version>8.1.1</owasp-dependency-check-maven.version>
