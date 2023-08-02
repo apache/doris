@@ -80,7 +80,6 @@ const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_
         }
         }
     }
-    LOG(INFO) << "col sep size:" << _column_sep_positions.size();
     return _result;
 }
 
