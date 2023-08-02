@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -96,11 +97,23 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
 
         query = new UnboundOlapTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), query);
-        new InsertIntoTableCommand(query, Optional.empty()).run(ctx, executor);
-        if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+        try {
+            new InsertIntoTableCommand(query, Optional.empty()).run(ctx, executor);
+            if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+                handleFallbackFailedCtas(ctx);
+            }
+        } catch (Exception e) {
+            handleFallbackFailedCtas(ctx);
+        }
+    }
+
+    void handleFallbackFailedCtas(ConnectContext ctx) {
+        try {
             Env.getCurrentEnv().dropTable(new DropTableStmt(false,
                     new TableName(Env.getCurrentEnv().getCurrentCatalog().getName(),
                             createTableInfo.getDbName(), createTableInfo.getTableName()), true));
+        } catch (Exception e) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
     }
 
