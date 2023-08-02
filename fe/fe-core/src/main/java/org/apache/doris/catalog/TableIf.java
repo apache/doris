@@ -145,7 +145,7 @@ public interface TableIf {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, DELTALAKE_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -182,6 +182,8 @@ public interface TableIf {
                     return "iceberg";
                 case HUDI_EXTERNAL_TABLE:
                     return "hudi";
+                case DELTALAKE_EXTERNAL_TABLE:
+                    return "deltalake";
                 default:
                     return null;
             }
@@ -210,6 +212,7 @@ public interface TableIf {
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
+                case DELTALAKE_EXTERNAL_TABLE:
                     return "EXTERNAL TABLE";
                 default:
                     return null;

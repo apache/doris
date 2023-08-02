@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.external.DeltaLakeExternalDataBase;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -483,6 +484,8 @@ public abstract class ExternalCatalog
                 return new TestExternalDatabase(this, dbId, dbName);
             case PAIMON:
                 return new PaimonExternalDatabase(this, dbId, dbName);
+            case DELTALAKE:
+                return new DeltaLakeExternalDataBase(this, dbId, dbName);
             default:
                 break;
         }

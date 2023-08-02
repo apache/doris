@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.deltalake.DeltaLakeExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalogFactory;
@@ -129,6 +130,9 @@ public class CatalogFactory {
                 break;
             case "max_compute":
                 catalog = new MaxComputeExternalCatalog(catalogId, name, resource, props, comment);
+                break;
+            case "deltalake":
+                catalog = new DeltaLakeExternalCatalog(catalogId, name, resource, props, comment);
                 break;
             case "test":
                 if (!FeConstants.runningUnitTest) {
