@@ -17,7 +17,7 @@
                     "type": "category",
                     "label": "Docker Deployment",
                     "items": [
-                        "install/construct-docker/construct-docker-image",
+                        "install/construct-docker/build-docker-image",
                         "install/construct-docker/run-docker-cluster"
                     ]
                 },
