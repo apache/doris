@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
@@ -47,17 +47,17 @@ public class RevokeStmt extends DdlStmt {
     // Indicates that these roles are revoked from a user
     private List<String> roles;
 
-    public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
+    public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilegeWithCols> privileges) {
         this(userIdent, role, tblPattern, null, null, privileges);
     }
 
     public RevokeStmt(UserIdentity userIdent, String role,
-            ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
+            ResourcePattern resourcePattern, List<AccessPrivilegeWithCols> privileges) {
         this(userIdent, role, null, resourcePattern, null, privileges);
     }
 
     public RevokeStmt(UserIdentity userIdent, String role,
-            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilege> privileges) {
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> privileges) {
         this(userIdent, role, null, null, workloadGroupPattern, privileges);
     }
 
@@ -67,15 +67,15 @@ public class RevokeStmt extends DdlStmt {
     }
 
     private RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, ResourcePattern resourcePattern,
-            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilege> privileges) {
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> privileges) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = tblPattern;
         this.resourcePattern = resourcePattern;
         this.workloadGroupPattern = workloadGroupPattern;
         PrivBitSet privs = PrivBitSet.of();
-        for (AccessPrivilege accessPrivilege : privileges) {
-            privs.or(accessPrivilege.toPaloPrivilege());
+        for (AccessPrivilegeWithCols accessPrivilege : privileges) {
+            privs.or(accessPrivilege.getAccessPrivilege().toPaloPrivilege());
         }
         this.privileges = privs.toPrivilegeList();
     }

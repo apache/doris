@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -69,7 +70,7 @@ public class CooldownConfHandlerTest extends TestWithFeService {
         user.analyze(SystemInfoService.DEFAULT_CLUSTER);
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
-        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ADMIN_PRIV);
+        List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
