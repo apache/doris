@@ -693,6 +693,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
 
+    // clean unused binlog metas in OlapMeta
+    _clean_unused_binlog_metas();
+
     // cleand unused delete bitmap for deleted tablet
     _clean_unused_delete_bitmap();
 
@@ -771,6 +774,39 @@ void StorageEngine::_clean_unused_rowset_metas() {
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
         invalid_rowset_metas.clear();
+    }
+}
+
+void StorageEngine::_clean_unused_binlog_metas() {
+    std::vector<std::string> unused_binlog_key_suffixes;
+    auto unused_binlog_collector = [this, &unused_binlog_key_suffixes](const std::string& key,
+                                                                       const std::string& value,
+                                                                       bool need_check) -> bool {
+        if (need_check) {
+            BinlogMetaEntryPB binlog_meta_pb;
+            if (UNLIKELY(!binlog_meta_pb.ParseFromString(value))) {
+                LOG(WARNING) << "parse rowset meta string failed for binlog meta key: " << key;
+            } else if (_tablet_manager->get_tablet(binlog_meta_pb.tablet_id()) == nullptr) {
+                LOG(INFO) << "failed to find tablet " << binlog_meta_pb.tablet_id()
+                          << " for binlog rowset: " << binlog_meta_pb.rowset_id()
+                          << ", tablet may be dropped";
+            } else {
+                return false;
+            }
+        }
+
+        unused_binlog_key_suffixes.emplace_back(key.substr(kBinlogMetaPrefix.size()));
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto data_dir : data_dirs) {
+        RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(), unused_binlog_collector);
+        for (const auto& suffix : unused_binlog_key_suffixes) {
+            RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix);
+        }
+        LOG(INFO) << "remove " << unused_binlog_key_suffixes.size()
+                  << " invalid binlog meta from dir: " << data_dir->path();
+        unused_binlog_key_suffixes.clear();
     }
 }
 
