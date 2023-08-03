@@ -1755,7 +1755,9 @@ public class StmtExecutor {
 
             try {
                 coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-                coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
+                Boolean enableInsertStrict =
+                                insertStmt.getIsIgnore() ? false : context.getSessionVariable().getEnableInsertStrict();
+                coord.setLoadZeroTolerance(enableInsertStrict);
                 coord.setQueryType(TQueryType.LOAD);
                 profile.addExecutionProfile(coord.getExecutionProfile());
 
@@ -1792,7 +1794,7 @@ public class StmtExecutor {
                 }
 
                 // if in strict mode, insert will fail if there are filtered rows
-                if (context.getSessionVariable().getEnableInsertStrict()) {
+                if (enableInsertStrict) {
                     if (filteredRows > 0) {
                         context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
                                 "Insert has filtered data in strict mode, tracking_url=" + coord.getTrackingUrl());

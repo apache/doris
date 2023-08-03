@@ -191,6 +191,10 @@ public abstract class InsertStmt extends DdlStmt {
         throw new UnsupportedOperationException("only invoked in NativeInsertStmt");
     }
 
+    public Boolean getIsIgnore() {
+        throw new UnsupportedOperationException("only invoked in NativeInsertStmt");
+    }
+
     // ---------------------------------------------------------------------------
 
     // ------------------------- for unified insert stmt -------------------------

@@ -136,6 +136,8 @@ public class NativeInsertStmt extends InsertStmt {
 
     private boolean isPartialUpdate = false;
 
+    private Boolean isIgnore = false;
+
     private HashSet<String> partialUpdateCols = new HashSet<String>();
 
     public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
@@ -149,6 +151,12 @@ public class NativeInsertStmt extends InsertStmt {
         this.targetColumnNames = cols;
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
+    }
+
+    public NativeInsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
+                            List<String> hints, Boolean isIgnore) {
+        this(target, label, cols, source, hints);
+        this.isIgnore = isIgnore;
     }
 
     // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
@@ -252,6 +260,10 @@ public class NativeInsertStmt extends InsertStmt {
 
     public boolean isTransactionBegin() {
         return isTransactionBegin;
+    }
+
+    public Boolean getIsIgnore() {
+        return isIgnore;
     }
 
     protected void preCheckAnalyze(Analyzer analyzer) throws UserException {
