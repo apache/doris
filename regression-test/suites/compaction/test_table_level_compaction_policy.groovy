@@ -38,7 +38,7 @@ suite("test_table_level_compaction_policy") {
                     "time_series_compaction_time_threshold_seconds" = "86400"
              );
         """
-    result = sql """show create table ${tableName}"""
+    def result = sql """show create table ${tableName}"""
     logger.info("${result}")
     assertTrue(result.toString().containsIgnoreCase('"compaction_policy" = "time_series"'))
     assertTrue(result.toString().containsIgnoreCase('"time_series_compaction_goal_size_mbytes" = "2048"'))
