@@ -73,8 +73,8 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return;
         }
 
+        analyzePeriodically();
         if (!Config.enable_full_auto_analyze) {
-            analyzePeriodically();
             analyzeAutomatically();
         } else {
             analyzeAll();
@@ -85,26 +85,28 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     private void analyzeAll() {
         Set<CatalogIf> catalogs = Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog();
         for (CatalogIf ctl : catalogs) {
-            try {
-                Collection<DatabaseIf> dbs = ctl.getAllDbs();
-                for (DatabaseIf<TableIf> databaseIf : dbs) {
-                    if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
+
+            Collection<DatabaseIf> dbs = ctl.getAllDbs();
+            for (DatabaseIf<TableIf> databaseIf : dbs) {
+                if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
+                    continue;
+                }
+                AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+                List<AnalysisInfo> analysisInfos = analysisManager.buildAnalysisInfosForDB(databaseIf,
+                        AnalyzeProperties.DEFAULT_PROP);
+                for (AnalysisInfo analysisInfo : analysisInfos) {
+                    analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
+                    if (analysisInfo == null) {
                         continue;
                     }
-                    AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-                    List<AnalysisInfo> analysisInfos = analysisManager.buildAnalysisInfosForDB(databaseIf,
-                            AnalyzeProperties.DEFAULT_PROP);
-                    for (AnalysisInfo analysisInfo : analysisInfos) {
-                        analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
-                        if (analysisInfo == null) {
-                            continue;
-                        }
+                    try {
                         analysisManager.createSystemAnalysisJob(analysisInfo, analysisTaskExecutor);
+                    } catch (Exception e) {
+                        LOG.warn("Failed to create analysis job", e);
                     }
                 }
-            } catch (Throwable t) {
-                LOG.warn("Failed to analyze all statistics.", t);
             }
+
         }
 
         analyzePeriodically();
@@ -160,16 +162,20 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
      * @return new job info after check
      * @throws Throwable failed to check
      */
-    private AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) throws Throwable {
+    private AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         long lastExecTimeInMs = jobInfo.lastExecTimeInMs;
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
-        TableStatistic tblStats = StatisticsRepository.fetchTableLevelStats(table.getId());
+        TableStatistic tblStats = null;
+        try {
+            tblStats = StatisticsRepository.fetchTableLevelStats(table.getId());
+        } catch (Throwable t) {
+            LOG.warn("Failed to fetch table stats", t);
+            return null;
+        }
 
         if (tblStats == TableStatistic.UNKNOWN) {
-            LOG.warn("Failed to automatically analyze statistics, "
-                    + "no corresponding table statistics for job: {}", jobInfo.toString());
-            throw new DdlException("No corresponding table statistics for automatic job.");
+            return jobInfo;
         }
 
         if (!needReanalyzeTable(table, tblStats)) {
@@ -200,7 +206,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     }
 
     private void checkAnalyzedPartitions(TableIf table, Set<String> statsPartitions,
-            Set<String> needRunPartitions, long lastExecTimeInMs) throws DdlException {
+            Set<String> needRunPartitions, long lastExecTimeInMs) {
         for (String statsPartition : statsPartitions) {
             Partition partition = table.getPartition(statsPartition);
             if (partition == null) {
@@ -209,12 +215,17 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                 needRunPartitions.add(statsPartition);
                 continue;
             }
-            TableStatistic partitionStats = StatisticsRepository
+            TableStatistic partitionStats = null;
+            try {
+                partitionStats = StatisticsRepository
                     .fetchTableLevelOfPartStats(partition.getId());
-            if (partitionStats == TableStatistic.UNKNOWN) {
+            } catch (DdlException e) {
+                LOG.warn("Failed to fetch part stats", e);
                 continue;
             }
-            if (needReanalyzePartition(lastExecTimeInMs, partition, partitionStats)) {
+
+            if (needReanalyzePartition(lastExecTimeInMs, partition, partitionStats)
+                    || partitionStats == TableStatistic.UNKNOWN) {
                 needRunPartitions.add(partition.getName());
             }
         }
