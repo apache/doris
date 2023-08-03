@@ -264,7 +264,7 @@ DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648"
 DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 // the clean interval of file descriptor cache and segment cache
-DEFINE_mInt32(cache_clean_interval, "60");
+DEFINE_mInt32(cache_clean_interval, "10");
 // the clean interval of tablet lookup cache
 DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
