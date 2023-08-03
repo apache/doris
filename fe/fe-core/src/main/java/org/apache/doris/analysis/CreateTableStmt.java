@@ -703,6 +703,9 @@ public class CreateTableStmt extends DdlStmt {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
+        if (ifNotExists) {
+            sb.append("IF NOT EXISTS ");
+        }
         sb.append(tableName.toSql()).append(" (\n");
         int idx = 0;
         for (ColumnDef columnDef : columnDefs) {

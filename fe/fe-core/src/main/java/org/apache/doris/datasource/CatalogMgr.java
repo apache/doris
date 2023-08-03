@@ -49,7 +49,9 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -293,6 +295,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
+            if (ConnectContext.get().getSessionVariable().enableCacheShowTables()) {
+                String sql = "delete from internal.__internal_schema.cache_show_tables where catalog_id = "
+                        + catalog.getId() + ";";
+                try {
+                    new StmtExecutor(ConnectContext.get(), new OriginStatement(sql, 0), false).execute();
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
             CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
             replayDropCatalog(log);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_DROP_CATALOG, log);
@@ -477,6 +488,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
         if (catalog == null) {
             throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+        }
+        if (ConnectContext.get().getSessionVariable().enableCacheShowTables()) {
+            String sql = "delete from internal.__internal_schema.cache_show_tables where catalog_id = "
+                    + catalog.getId() + ";";
+            try {
+                new StmtExecutor(ConnectContext.get(), new OriginStatement(sql, 0), false).execute();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
         }
         CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
         refreshCatalog(log);

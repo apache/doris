@@ -25,12 +25,15 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
+import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExecuteStmt;
@@ -38,8 +41,10 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.InsertOverwriteTableStmt;
 import org.apache.doris.analysis.InsertStmt;
+import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
@@ -62,6 +67,7 @@ import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -73,14 +79,17 @@ import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
 import org.apache.doris.analysis.TransactionStmt;
+import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -145,6 +154,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.task.LoadEtlTask;
@@ -182,6 +192,7 @@ import org.apache.thrift.TException;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -2096,6 +2107,63 @@ public class StmtExecutor {
             return;
         }
 
+        if (context.getSessionVariable().enableCacheShowTables()  && parsedStmt instanceof ShowTableStmt) {
+
+            List<ColumnDef> columnDefs = new ArrayList<>();
+            columnDefs.add(new ColumnDef("catalog_id", TypeDef.create(PrimitiveType.BIGINT), false));
+            columnDefs.add(new ColumnDef("catalog_name",
+                    TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN), false));
+            columnDefs.add(new ColumnDef("database_name",
+                    TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN), false));
+            columnDefs.add(new ColumnDef("table_name", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN), false));
+            columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME), false));
+            columnDefs.get(columnDefs.size() - 1).setAggregateType(AggregateType.REPLACE);
+
+            String engineName = "olap";
+            ArrayList<String> aggKeys = Lists.newArrayList("catalog_id", "catalog_name", "database_name", "table_name");
+            KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
+            DistributionDesc distributionDesc = new HashDistributionDesc(
+                    StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, Lists.newArrayList("catalog_id"));
+            Map<String, String> properties = new HashMap<String, String>() {
+                {
+                    put("replication_num", String.valueOf(Math.max(1,
+                            Config.min_replication_num_per_tablet)));
+                }
+            };
+            TableName tableName = new TableName("internal", "__internal_schema", "cache_show_tables");
+            CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                    tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
+                    properties, null, "", null);
+
+            try {
+                createTableStmt.analyze(analyzer);
+                context.env.getInternalCatalog().createTable(createTableStmt);
+            }  catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            StringBuilder sql = new StringBuilder("insert into internal.__internal_schema.cache_show_tables values");
+
+            java.util.Date date = new java.util.Date((long) System.currentTimeMillis());
+            SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
+
+            String dbName = context.getDatabase().substring(context.clusterName.length() + 1);
+            for (List<String> row : resultSet.getResultRows()) {
+                for (String item : row) {
+                    sql.append("(").append(context.getCurrentCatalog().getId()).append(",\"")
+                            .append(context.getCurrentCatalog().getName()).append("\",\"")
+                            .append(dbName).append("\",\"")
+                            .append(item).append("\",\"")
+                            .append(fmt.format(date))
+                            .append("\"),");
+                }
+            }
+            sql.setCharAt(sql.length() - 1, ';');
+            try {
+                new StmtExecutor(ConnectContext.get(), new OriginStatement(sql.toString(), 0), false).execute();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
         sendResultSet(resultSet);
     }
 

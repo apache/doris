@@ -370,6 +370,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
 
+    public static final String ENABLE_CACHE_SHOW_TABLES = "enable_cache_show_tables";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -900,6 +902,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INTERNAL_SESSION)
     public boolean internalSession = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_CACHE_SHOW_TABLES, needForward = true)
+    public boolean enableCacheShowTables = false;
     // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
     @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD, fuzzy = true)
     public int partitionedHashJoinRowsThreshold = 0;
@@ -1255,6 +1259,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean enableProfile() {
         return enableProfile;
+    }
+
+    public boolean enableCacheShowTables() {
+        return enableCacheShowTables;
     }
 
     public boolean enableSingleDistinctColumnOpt() {
