@@ -152,6 +152,8 @@ under the License.
 
 15. 在Catalog中配置Kerberos时，如果报错`SIMPLE authentication is not enabled. Available:[TOKEN, KERBEROS]`，那么需要将`core-site.xml`文件放到`"${DORIS_HOME}/be/conf"`目录下。
     
+    如果访问HDFS报错`No common protection layer between client and server`，检查客户端和服务端的`hadoop.rpc.protection`属性，使他们保持一致。
+    
     ```
         <?xml version="1.0" encoding="UTF-8"?>
         <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
@@ -162,13 +164,14 @@ under the License.
                 <name>hadoop.security.authentication</name>
                 <value>kerberos</value>
             </property>
-        
+            
         </configuration>
     ```
 
 16. 在Catalog中配置Kerberos时，报错`Unable to obtain password from user`的解决方法：
     - 用到的principal必须在klist中存在，使用`klist -kt your.keytab`检查。
     - 检查catalog配置是否正确，比如漏配`yarn.resourcemanager.principal`。
+    - 若上述检查没问题，则当前系统yum或者其他包管理软件安装的JDK版本存在不支持的加密算法，建议自行安装JDK并设置`JAVA_HOME`环境变量。
 
 17. 查询配置了Kerberos的外表，遇到该报错：`GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos Ticket)`，一般重启FE和BE能够解决该问题。
     - 重启所有节点前可在`"${DORIS_HOME}/be/conf/be.conf"`中的JAVA_OPTS参数里配置`-Djavax.security.auth.useSubjectCredsOnly=false`，通过底层机制去获取JAAS credentials信息，而不是应用程序。
