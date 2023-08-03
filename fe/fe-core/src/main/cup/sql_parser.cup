@@ -4102,6 +4102,10 @@ show_param ::=
     {:
         RESULT = new ShowFrontendsStmt();
     :}
+    | KW_FRONTENDS ident:name
+    {:
+        RESULT = new ShowFrontendsStmt(name);
+    :}
     | KW_REPOSITORIES
     {:
        RESULT = new ShowRepositoriesStmt();

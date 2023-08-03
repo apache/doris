@@ -1943,8 +1943,9 @@ public class ShowExecutor {
 
     private void handleShowFrontends() {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
+
         List<List<String>> infos = Lists.newArrayList();
-        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
+        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), showStmt.getDetailType(), infos);
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
