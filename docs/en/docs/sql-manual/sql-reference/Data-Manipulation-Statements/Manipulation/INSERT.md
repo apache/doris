@@ -45,6 +45,8 @@ INSERT INTO table_name
 
  Parameters
 
+> IGNORE: When set `ignore`, will filter the data that does not conform to the target table format
+>
 > tablet_name: The destination table for importing data. Can be of the form `db_name.table_name`
 >
 > partitions: Specify the partitions to be imported, which must be partitions that exist in `table_name`. Multiple partition names are separated by commas
@@ -66,7 +68,7 @@ INSERT INTO table_name
 
 Notice:
 
-When executing the `INSERT` statement, the default behavior is to filter the data that does not conform to the target table format, such as the string is too long. However, for business scenarios that require data not to be filtered, you can set the session variable `enable_insert_strict` to `true` to ensure that `INSERT` will not be executed successfully when data is filtered out.
+When executing the `INSERT` statement, the default behavior is to filter the data that does not conform to the target table format, such as the string is too long. However, for business scenarios that require data not to be filtered, you can set the session variable `enable_insert_strict` to `true` to ensure that `INSERT` will not be executed successfully when data is filtered out. When executing the `IGNORE` statement, will omit the session variable `enable_insert_strict` and filter the data that does not conform to the target table format.
 
 ### Example
 

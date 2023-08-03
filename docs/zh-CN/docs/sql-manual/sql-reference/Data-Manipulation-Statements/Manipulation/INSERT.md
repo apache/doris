@@ -35,7 +35,7 @@ INSERT
 该语句是完成数据插入操作。
 
 ```sql
-INSERT INTO table_name
+INSERT [ IGNORE ] INTO table_name
     [ PARTITION (p1, ...) ]
     [ WITH LABEL label]
     [ (column [, ...]) ]
@@ -45,6 +45,8 @@ INSERT INTO table_name
 
  Parameters
 
+> IGNORE: 当设置`ignore`时，会过滤掉不符合目标表格式的数据
+>
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 >
 > partitions: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
@@ -66,7 +68,8 @@ INSERT INTO table_name
 
 注意：
 
-当前执行 `INSERT` 语句时，对于有不符合目标表格式的数据，默认的行为是过滤，比如字符串超长等。但是对于有要求数据不能够被过滤的业务场景，可以通过设置会话变量 `enable_insert_strict` 为 `true` 来确保当有数据被过滤掉的时候，`INSERT` 不会被执行成功。
+当前执行 `INSERT` 语句时，对于有不符合目标表格式的数据，默认的行为是过滤，比如字符串超长等。但是对于有要求数据不能够被过滤的业务场景，可以通过设置会话变量 `enable_insert_strict` 为 `true` 来确保当有数据被过滤掉的时候，`INSERT` 不会被执行成功。当语句包含`IGNORE`的时候，会忽略`enable_insert_strict`
+变量值，会过滤掉不符合目标表格式的数据。
 
 ### Example
 
