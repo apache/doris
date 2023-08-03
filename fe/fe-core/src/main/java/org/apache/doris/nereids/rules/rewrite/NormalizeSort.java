@@ -17,33 +17,52 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
-import java.util.stream.Collectors;
+import java.util.List;
+import java.util.stream.Stream;
 
 /**
- * the sort node will create new slots for order by keys if the order by keys is not in the output
- * so need create a project above sort node to prune the unnecessary order by keys. This means the
- * Tuple slots size is difference to PhysicalSort.output.size. If not prune and hide the order key,
- * the upper plan node will see the temporary slots and treat as output, and then translate failed.
- * This is trick, we should add sort output tuple to ensure the tuple slot size is equals, but it
- * has large workload. I think we should refactor the PhysicalPlanTranslator in the future, and
- * process PhysicalProject(output)/PhysicalDistribute more general.
+ * SortNode on BE always output order keys because BE needs them to do merge sort. So we normalize LogicalSort as BE
+ * expected to materialize order key before sort by bottom project and then prune the useless column after sort by
+ * top project.
  */
 public class NormalizeSort extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalSort()
-                .when(sort -> !sort.isNormalized() && !sort.getOutputSet()
-                        .containsAll(sort.getOrderKeys().stream()
-                                .map(orderKey -> orderKey.getExpr()).collect(Collectors.toSet())))
+        return logicalSort().whenNot(sort -> sort.getOrderKeys().stream()
+                        .map(OrderKey::getExpr).allMatch(Slot.class::isInstance))
                 .then(sort -> {
-                    return new LogicalProject(sort.getOutput(), ImmutableList.of(), false,
-                            sort.withNormalize(true));
+                    List<NamedExpression> newProjects = Lists.newArrayList();
+                    List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
+                            .map(orderKey -> {
+                                Expression expr = orderKey.getExpr();
+                                if (!(expr instanceof Slot)) {
+                                    Alias alias = new Alias(expr, expr.toSql());
+                                    newProjects.add(alias);
+                                    expr = alias.toSlot();
+                                }
+                                return orderKey.withExpression(expr);
+                            }).collect(ImmutableList.toImmutableList());
+                    List<NamedExpression> bottomProjections = Stream.concat(
+                            sort.child().getOutput().stream(),
+                            newProjects.stream()
+                    ).collect(ImmutableList.toImmutableList());
+                    List<NamedExpression> topProjections = sort.getOutput().stream()
+                            .map(NamedExpression.class::cast)
+                            .collect(ImmutableList.toImmutableList());
+                    return new LogicalProject<>(topProjections, sort.withOrderKeysAndChild(newOrderKeys,
+                            new LogicalProject<>(bottomProjections, sort.child())));
                 }).toRule(RuleType.NORMALIZE_SORT);
     }
 }

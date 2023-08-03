@@ -15,25 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 
 /**
- * Push filter through CTE.
+ * Implementation rule that convert logical CTE producer to physical CTE producer.
  */
-public class PushdownFilterThroughCTE extends OneRewriteRuleFactory {
-
+public class LogicalCTEProducerToPhysicalCTEProducer extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalCTE()).thenApply(ctx -> {
-            LogicalFilter<LogicalCTE<Plan>> filter = ctx.root;
-            LogicalCTE<Plan> anchor = filter.child();
-            return anchor.withChildren(filter.withChildren(anchor.child()));
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_CTE);
+        return logicalCTEProducer().then(cte -> new PhysicalCTEProducer<>(
+            cte.getCteId(),
+            cte.getLogicalProperties(),
+            cte.child())
+        ).toRule(RuleType.LOGICAL_CTE_PRODUCER_TO_PHYSICAL_CTE_PRODUCER_RULE);
     }
 }

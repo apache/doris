@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.PlanType;
 
-/**
- * Push project through CTE.
- */
-public class PushdownProjectThroughCTE extends OneRewriteRuleFactory {
+import java.util.Optional;
 
-    @Override
-    public Rule build() {
-        return logicalProject(logicalCTE()).thenApply(ctx -> {
-            LogicalProject<LogicalCTE<Plan>> project = ctx.root;
-            LogicalCTE<Plan> anchor = project.child();
-            return anchor.withChildren(project.withChildren(anchor.child()));
-        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_CTE);
+/** abstract logical sink */
+public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+
+    public LogicalSink(PlanType type, CHILD_TYPE child) {
+        super(type, child);
+    }
+
+    public LogicalSink(PlanType type,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(type, groupExpression, logicalProperties, child);
     }
 }

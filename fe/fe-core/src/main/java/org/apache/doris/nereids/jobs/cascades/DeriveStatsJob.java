@@ -105,7 +105,8 @@ public class DeriveStatsJob extends Job {
                     context.getCascadesContext().getConnectContext().getSessionVariable().getForbidUnknownColStats(),
                     context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap(),
                     context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump(),
-                    cteIdToStats);
+                    cteIdToStats,
+                    context.getCascadesContext());
             STATS_STATE_TRACER.log(StatsStateEvent.of(groupExpression,
                     groupExpression.getOwnerGroup().getStatistics()));
             if (ConnectContext.get().getSessionVariable().isEnableMinidump()

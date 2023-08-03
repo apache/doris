@@ -45,6 +45,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
@@ -58,6 +59,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -82,6 +84,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -101,6 +104,7 @@ import java.util.Comparator;
 import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -130,6 +134,7 @@ public abstract class TestWithFeService {
         connectContext = createDefaultCtx();
         beforeCluster();
         createDorisCluster();
+        new InternalSchemaInitializer().start();
         runBeforeAll();
     }
 
@@ -191,8 +196,13 @@ public abstract class TestWithFeService {
     }
 
     public LogicalPlan analyze(String sql) {
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
         cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }

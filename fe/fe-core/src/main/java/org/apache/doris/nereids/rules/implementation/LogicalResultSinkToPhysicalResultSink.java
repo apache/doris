@@ -19,20 +19,25 @@ package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
+
+import java.util.Optional;
 
 /**
- * Implementation rule that convert logical CTE consumer to physical CTE consumer.
+ * implement result sink.
  */
-public class LogicalCTEConsumeToPhysicalCTEConsume extends OneImplementationRuleFactory {
+public class LogicalResultSinkToPhysicalResultSink extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalCTEConsumer().then(cte -> new PhysicalCTEConsumer(
-            cte.getCteId(),
-            cte.getConsumerToProducerOutputMap(),
-            cte.getProducerToConsumerOutputMap(),
-            cte.getLogicalProperties()
-            )
-        ).toRule(RuleType.LOGICAL_CTE_CONSUME_TO_PHYSICAL_CTE_CONSUMER_RULE);
+        return logicalResultSink().thenApply(ctx -> {
+            LogicalResultSink<? extends Plan> sink = ctx.root;
+            return new PhysicalResultSink<>(
+                    sink.getOutputExprs(),
+                    Optional.empty(),
+                    sink.getLogicalProperties(),
+                    sink.child());
+        }).toRule(RuleType.LOGICAL_RESULT_SINK_TO_PHYSICAL_RESULT_SINK_RULE);
     }
 }

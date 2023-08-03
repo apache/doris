@@ -75,7 +75,7 @@ public interface Plan extends TreeNode<Plan> {
     /**
      * Get extra plans.
      */
-    default List<Plan> extraPlans() {
+    default List<? extends Plan> extraPlans() {
         return ImmutableList.of();
     }
 

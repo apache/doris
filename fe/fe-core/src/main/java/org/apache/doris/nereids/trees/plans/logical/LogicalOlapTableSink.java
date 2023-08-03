@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -39,7 +40,7 @@ import java.util.Optional;
 /**
  * logical olap table sink for insert command
  */
-public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> implements Sink {
     // bound data sink
     private Database database;
     private OlapTable targetTable;
@@ -71,7 +72,7 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalOlapTableSink only accepts one child");
         return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, isPartialUpdate,
-                groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+                Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public Database getDatabase() {

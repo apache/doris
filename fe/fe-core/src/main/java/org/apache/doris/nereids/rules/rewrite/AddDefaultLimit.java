@@ -15,16 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -53,27 +52,27 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
         return plan;
     }
 
+    // should add limit under anchor to keep optimize opportunity
     @Override
-    public LogicalPlan visitLogicalLimit(LogicalLimit<? extends Plan> limit, StatementContext context) {
-        return limit;
-    }
-
-    @Override
-    public LogicalPlan visitLogicalCTE(LogicalCTE<? extends Plan> cte, StatementContext context) {
-        Plan child = cte.child().accept(this, context);
-        return ((LogicalPlan) cte.withChildren(child));
+    public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+            StatementContext context) {
+        return cteAnchor.withChildren(cteAnchor.child(0), cteAnchor.child(1));
     }
 
     // we should keep that sink node is the top node of the plan tree.
     // currently, it's one of the olap table sink and file sink.
     @Override
-    public LogicalPlan visitUnboundOlapTableSink(UnboundOlapTableSink<? extends Plan> sink, StatementContext context) {
-        Plan child = sink.child().accept(this, context);
-        return ((LogicalPlan) sink.withChildren(child));
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, StatementContext context) {
+        return super.visit(logicalSink, context);
     }
 
     @Override
-    public LogicalPlan visitLogicalSort(LogicalSort<? extends Plan> sort, StatementContext context) {
+    public Plan visitLogicalLimit(LogicalLimit<? extends Plan> limit, StatementContext context) {
+        return limit;
+    }
+
+    @Override
+    public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, StatementContext context) {
         ConnectContext ctx = context.getConnectContext();
         if (ctx != null) {
             long defaultLimit = ctx.getSessionVariable().getDefaultOrderByLimit();

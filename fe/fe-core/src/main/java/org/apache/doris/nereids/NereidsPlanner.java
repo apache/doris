@@ -268,7 +268,7 @@ public class NereidsPlanner extends Planner {
     }
 
     private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {
-        cascadesContext = CascadesContext.newRewriteContext(statementContext, plan, requireProperties);
+        cascadesContext = CascadesContext.initContext(statementContext, plan, requireProperties);
         if (statementContext.getConnectContext().getTables() != null) {
             cascadesContext.setTables(statementContext.getConnectContext().getTables());
         }
@@ -283,7 +283,7 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        new Rewriter(cascadesContext).execute();
+        Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndRewritePlan");
     }
 

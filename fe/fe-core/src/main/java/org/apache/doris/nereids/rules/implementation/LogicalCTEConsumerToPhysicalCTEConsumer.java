@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 
 /**
- * Push filter through CTEAnchor.
+ * Implementation rule that convert logical CTE consumer to physical CTE consumer.
  */
-public class PushdownFilterThroughCTEAnchor extends OneRewriteRuleFactory {
-
+public class LogicalCTEConsumerToPhysicalCTEConsumer extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalCTEAnchor()).thenApply(ctx -> {
-            LogicalFilter<LogicalCTEAnchor<Plan, Plan>> filter = ctx.root;
-            LogicalCTEAnchor<Plan, Plan> anchor = filter.child();
-            return anchor.withChildren(anchor.left(), filter.withChildren((Plan) anchor.right()));
-        }).toRule(RuleType.PUSHDOWN_FILTER_THROUGH_CTE_ANCHOR);
+        return logicalCTEConsumer().then(cte -> new PhysicalCTEConsumer(
+                        cte.getRelationId(),
+                        cte.getCteId(),
+                        cte.getConsumerToProducerOutputMap(),
+                        cte.getProducerToConsumerOutputMap(),
+                        cte.getLogicalProperties()
+                )
+        ).toRule(RuleType.LOGICAL_CTE_CONSUMER_TO_PHYSICAL_CTE_CONSUMER_RULE);
     }
 }

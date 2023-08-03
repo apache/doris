@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -24,7 +25,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
+import org.apache.doris.nereids.trees.plans.algebra.Sink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -37,7 +39,8 @@ import java.util.Optional;
 /**
  * Represent an olap table sink plan node that has not been bound.
  */
-public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Unbound {
+public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> implements Unbound, Sink {
+
     private final List<String> nameParts;
     private final List<String> colNames;
     private final List<String> hints;
@@ -141,6 +144,6 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Slot> computeOutput() {
-        return child().getOutput();
+        throw new UnboundException("output");
     }
 }

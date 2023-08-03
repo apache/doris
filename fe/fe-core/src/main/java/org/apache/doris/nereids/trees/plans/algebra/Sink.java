@@ -17,11 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.catalog.TableIf;
-
 /**
- * Common interface for logical/physical scan.
+ * traits for all sink
  */
-public interface Scan extends Relation {
-    TableIf getTable();
+public interface Sink {
 }

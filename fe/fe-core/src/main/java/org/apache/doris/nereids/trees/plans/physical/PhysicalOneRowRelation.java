@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -39,20 +40,21 @@ import java.util.Optional;
  * A physical relation that contains only one row consist of some constant expressions.
  * e.g. select 100, 'value'
  */
-public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelation {
+public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRelation {
 
     private final List<NamedExpression> projects;
 
-    public PhysicalOneRowRelation(List<NamedExpression> projects, LogicalProperties logicalProperties) {
-        this(projects, Optional.empty(), logicalProperties, null, null);
+    public PhysicalOneRowRelation(RelationId relationId, List<NamedExpression> projects,
+            LogicalProperties logicalProperties) {
+        this(relationId, projects, Optional.empty(), logicalProperties, null, null);
     }
 
-    private PhysicalOneRowRelation(List<NamedExpression> projects,
+    private PhysicalOneRowRelation(RelationId relationId, List<NamedExpression> projects,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics) {
-        super(PlanType.PHYSICAL_ONE_ROW_RELATION, groupExpression, logicalProperties, physicalProperties,
-                statistics);
+        super(relationId, PlanType.PHYSICAL_ONE_ROW_RELATION, groupExpression,
+                logicalProperties, physicalProperties, statistics);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
@@ -73,22 +75,15 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOneRowRelation(projects, groupExpression,
+        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
                 logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalOneRowRelation(projects, groupExpression,
+        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
                 logicalProperties.get(), physicalProperties, statistics);
-    }
-
-    @Override
-    public String toString() {
-        return Utils.toSqlString("PhysicalOneRowRelation[" + id.asInt() + "]" + getGroupIdAsString(),
-                "expressions", projects
-        );
     }
 
     @Override
@@ -99,19 +94,29 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
+        if (!super.equals(o)) {
+            return false;
+        }
         PhysicalOneRowRelation that = (PhysicalOneRowRelation) o;
         return Objects.equals(projects, that.projects);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects);
+        return Objects.hash(super.hashCode(), projects);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("PhysicalOneRowRelation[" + id.asInt() + "]" + getGroupIdAsString(),
+                "expressions", projects
+        );
     }
 
     @Override
     public PhysicalOneRowRelation withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalOneRowRelation(projects, groupExpression,
+        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
                 logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 }
