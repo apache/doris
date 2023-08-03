@@ -1868,9 +1868,18 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!ok || !countDownLatch.getStatus().ok()) {
-                errMsg = "Failed to create partition[" + partitionName + "].";
                 // clear tasks
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
+
+                int quorumReplicaNum = totalReplicaNum / 2 + 1;
+                Map<Long, Integer> failedTabletCounter = Maps.newHashMap();
+                countDownLatch.getLeftMarks().stream().forEach(
+                        item -> failedTabletCounter.put(item.getValue(),
+                                failedTabletCounter.getOrDefault(item.getValue(), 0) + 1));
+                boolean createFailed = failedTabletCounter.values().stream().anyMatch(
+                        failedNum -> (totalReplicaNum - failedNum) < quorumReplicaNum);
+                errMsg = createFailed ? "Failed to create partition[" + partitionName + "]."
+                        : "Failed to create some tablets when create partition[" + partitionName + "].";
 
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
@@ -1895,8 +1904,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                         errMsg += " Unfinished mark: " + Joiner.on(", ").join(subList);
                     }
                 }
+
                 LOG.warn(errMsg);
-                throw new DdlException(errMsg);
+                if (createFailed) {
+                    throw new DdlException(errMsg);
+                }
             }
 
             if (index.getId() != baseIndexId) {
