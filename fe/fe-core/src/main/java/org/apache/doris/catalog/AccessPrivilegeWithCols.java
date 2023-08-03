@@ -17,7 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.mysql.privilege.ColPrivilegeKey;
+import org.apache.doris.mysql.privilege.Privilege;
+
+import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
+
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class AccessPrivilegeWithCols {
     private AccessPrivilege accessPrivilege;
@@ -54,5 +63,25 @@ public class AccessPrivilegeWithCols {
                 + "accessPrivilege=" + accessPrivilege
                 + ", cols=" + cols
                 + '}';
+    }
+
+    public void transferAccessPrivilegeToDoris(Set<Privilege> privileges,
+            Map<ColPrivilegeKey, Set<String>> colPrivileges, TablePattern tblPattern) {
+        List<Privilege> dorisPrivileges = accessPrivilege.toDorisPrivilege();
+        // if has no cols,represents the permissions assigned to the entire table
+        if (CollectionUtils.isEmpty(cols)) {
+            privileges.addAll(dorisPrivileges);
+        } else {
+            // if has cols, represents the permissions assigned to the cols
+            for (Privilege privilege : dorisPrivileges) {
+                ColPrivilegeKey colPrivilegeKey = new ColPrivilegeKey(privilege, tblPattern.getQualifiedCtl(),
+                        tblPattern.getQualifiedDb(), tblPattern.getTbl());
+                if (colPrivileges.containsKey(colPrivilegeKey)) {
+                    colPrivileges.get(colPrivilegeKey).addAll(cols);
+                } else {
+                    colPrivileges.put(colPrivilegeKey, Sets.newHashSet(cols));
+                }
+            }
+        }
     }
 }

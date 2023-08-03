@@ -26,21 +26,28 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
-import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 // GRANT STMT
 // GRANT privilege [, privilege] ON db.tbl TO user_identity [ROLE 'role'];
 // GRANT privilege [, privilege] ON RESOURCE 'resource' TO user_identity [ROLE 'role'];
 // GRANT role [, role] TO user_identity
+// TODO: 2023/8/3 tosql analyze desc
 public class GrantStmt extends DdlStmt {
     private UserIdentity userIdent;
     // Indicates which permissions are granted to this role
@@ -48,9 +55,11 @@ public class GrantStmt extends DdlStmt {
     private TablePattern tblPattern;
     private ResourcePattern resourcePattern;
     private WorkloadGroupPattern workloadGroupPattern;
-    private List<Privilege> privileges;
+    private Set<Privilege> privileges = Sets.newHashSet();
+    private Map<ColPrivilegeKey, Set<String>> colPrivileges = Maps.newHashMap();
     // Indicates that these roles are granted to a user
     private List<String> roles;
+    List<AccessPrivilegeWithCols> accessPrivileges;
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern,
             List<AccessPrivilegeWithCols> privileges) {
@@ -73,18 +82,13 @@ public class GrantStmt extends DdlStmt {
     }
 
     private GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, ResourcePattern resourcePattern,
-            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> privileges) {
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilegeWithCols> accessPrivileges) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = tblPattern;
         this.resourcePattern = resourcePattern;
         this.workloadGroupPattern = workloadGroupPattern;
-        PrivBitSet privs = PrivBitSet.of();
-        for (AccessPrivilegeWithCols accessPrivilege : privileges) {
-            privs.or(accessPrivilege.getAccessPrivilege().toPaloPrivilege());
-            System.out.println(accessPrivilege.getCols());
-        }
-        this.privileges = privs.toPrivilegeList();
+        this.accessPrivileges = accessPrivileges;
     }
 
     public UserIdentity getUserIdent() {
@@ -111,12 +115,16 @@ public class GrantStmt extends DdlStmt {
         return role;
     }
 
-    public List<Privilege> getPrivileges() {
+    public Set<Privilege> getPrivileges() {
         return privileges;
     }
 
     public List<String> getRoles() {
         return roles;
+    }
+
+    public Map<ColPrivilegeKey, Set<String>> getColPrivileges() {
+        return colPrivileges;
     }
 
     @Override
@@ -143,7 +151,11 @@ public class GrantStmt extends DdlStmt {
             }
         }
 
-        if (CollectionUtils.isEmpty(privileges) && CollectionUtils.isEmpty(roles)) {
+        for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
+            accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tblPattern);
+        }
+
+        if (CollectionUtils.isEmpty(privileges) && CollectionUtils.isEmpty(roles) && MapUtils.isEmpty(colPrivileges)) {
             throw new AnalysisException("No privileges or roles in grant statement.");
         }
 
@@ -175,7 +187,7 @@ public class GrantStmt extends DdlStmt {
      * @param tblPattern
      * @throws AnalysisException
      */
-    public static void checkTablePrivileges(List<Privilege> privileges, String role, TablePattern tblPattern)
+    public static void checkTablePrivileges(Collection<Privilege> privileges, String role, TablePattern tblPattern)
             throws AnalysisException {
         // Rule 1
         if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(Privilege.ADMIN_PRIV)
@@ -227,7 +239,7 @@ public class GrantStmt extends DdlStmt {
         }
     }
 
-    public static void checkResourcePrivileges(List<Privilege> privileges, String role,
+    public static void checkResourcePrivileges(Collection<Privilege> privileges, String role,
             ResourcePattern resourcePattern) throws AnalysisException {
         for (int i = 0; i < Privilege.notBelongToResourcePrivileges.length; i++) {
             if (privileges.contains(Privilege.notBelongToResourcePrivileges[i])) {
@@ -258,7 +270,7 @@ public class GrantStmt extends DdlStmt {
         }
     }
 
-    public static void checkWorkloadGroupPrivileges(List<Privilege> privileges, String role,
+    public static void checkWorkloadGroupPrivileges(Collection<Privilege> privileges, String role,
             WorkloadGroupPattern workloadGroupPattern) throws AnalysisException {
         for (int i = 0; i < Privilege.notBelongToWorkloadGroupPrivileges.length; i++) {
             if (privileges.contains(Privilege.notBelongToWorkloadGroupPrivileges[i])) {
