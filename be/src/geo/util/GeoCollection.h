@@ -52,6 +52,11 @@ namespace doris {
 
         bool is_closed() const override;
 
+        void encode_to(std::string* buf) {
+            GeoShape::encode_to(buf);
+        };
+
+
         [[nodiscard]] int get_dimension() const override {
             if (get_num_geometries() == 0) {
                 return -1;

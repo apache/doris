@@ -60,7 +60,7 @@ public class AggregateFunction extends Function {
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx");
 
     public static ImmutableSet<String> CUSTOM_AGGREGATE_FUNCTION_NAME_SET =
-            ImmutableSet.of("group_concat");
+            ImmutableSet.of("group_concat", "st_collect");
 
     public static ImmutableSet<String> SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET = ImmutableSet.of("group_concat");
 
