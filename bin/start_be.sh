@@ -308,7 +308,7 @@ if [[ -z ${JEMALLOC_CONF} ]]; then
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
-    export JEMALLOC_CONF="${JEMALLOC_CONF}"
+    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
 else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
