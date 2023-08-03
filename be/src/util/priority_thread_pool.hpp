@@ -122,7 +122,14 @@ public:
         join();
     }
 
-    std::string get_name() const { return _name; }
+    std::string get_info() const {
+        return fmt::format(
+                "PriorityThreadPool(name={}, queue_size={}/{}, active_thread={}/{}, "
+                "total_get_wait_time={}, total_put_wait_time={})",
+                _name, get_queue_size(), _work_queue.get_size(), _work_queue.get_max_size(),
+                _active_threads, _threads.size(), _work_queue.total_get_wait_time(),
+                _work_queue.total_put_wait_time());
+    }
 
 protected:
     virtual bool is_shutdown() { return _shutdown; }
