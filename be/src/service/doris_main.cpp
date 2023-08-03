@@ -417,7 +417,8 @@ int main(int argc, char** argv) {
 
     // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
     // will work only after additional call of this function.
-    updatePHDRCache();
+    // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
+    // updatePHDRCache();
 
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     doris::Daemon daemon;
