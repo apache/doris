@@ -129,17 +129,11 @@ public class HiveScanNode extends FileQueryScanNode {
                         }
                         break;
                     }
-                }
-
-                //support map<primitive_type,primitive_type>
-                if (slot.getType().isMapType()) {
+                } else if (slot.getType().isMapType()) { //support map<primitive_type,primitive_type>
                     if (!((MapType) slot.getType()).getValueType().isScalarType()) {
                         supported = false;
                     }
-                }
-
-                //support Struct< primitive_type,primitive_type ... >
-                if (slot.getType().isStructType()) {
+                } else if (slot.getType().isStructType()) { //support Struct< primitive_type,primitive_type ... >
                     StructType structSubType = (StructType) slot.getType();
                     structSubType.getColumnSize();
                     for (StructField f : structSubType.getFields()) {

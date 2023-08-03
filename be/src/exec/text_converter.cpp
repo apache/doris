@@ -66,7 +66,7 @@ void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
     }
 }
 
-bool TextConverter::write_date(const TypeDescriptor& type_desc,
+bool TextConverter::write_data(const TypeDescriptor& type_desc,
                                vectorized::IColumn* nullable_col_ptr, const char* data, size_t len,
                                bool copy_string, bool need_escape, size_t rows,
                                char array_delimiter) {
