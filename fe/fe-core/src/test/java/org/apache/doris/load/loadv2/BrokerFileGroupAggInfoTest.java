@@ -51,22 +51,27 @@ public class BrokerFileGroupAggInfoTest {
         BrokerFileGroup group1 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group1, "tableId", 1L);
         Deencapsulation.setField(group1, "partitionIds", Lists.newArrayList(10L));
+        Deencapsulation.setField(group1, "filePaths", Lists.newArrayList("/tmp/test1"));
 
         BrokerFileGroup group2 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group2, "tableId", 1L);
         Deencapsulation.setField(group2, "partitionIds", Lists.newArrayList(10L));
+        Deencapsulation.setField(group2, "filePaths", Lists.newArrayList("/tmp/test2"));
 
         BrokerFileGroup group3 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group3, "tableId", 2L);
         Deencapsulation.setField(group3, "partitionIds", Lists.newArrayList());
+        Deencapsulation.setField(group3, "filePaths", Lists.newArrayList("/tmp/test3"));
 
         BrokerFileGroup group4 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group4, "tableId", 3L);
         Deencapsulation.setField(group4, "partitionIds", Lists.newArrayList(11L, 12L));
+        Deencapsulation.setField(group4, "filePaths", Lists.newArrayList("/tmp/test4"));
 
         BrokerFileGroup group5 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group5, "tableId", 4L);
         Deencapsulation.setField(group5, "partitionIds", null);
+        Deencapsulation.setField(group5, "filePaths", Lists.newArrayList("/tmp/test5"));
 
         brokerFileGroupAggInfo.addFileGroup(group1);
         brokerFileGroupAggInfo.addFileGroup(group2);
@@ -77,7 +82,8 @@ public class BrokerFileGroupAggInfoTest {
         Map<FileGroupAggKey, List<BrokerFileGroup>> map = brokerFileGroupAggInfo.getAggKeyToFileGroups();
         Assert.assertEquals(4, map.keySet().size());
         FileGroupAggKey aggKey = new FileGroupAggKey(1L, Lists.newArrayList(10L));
-        Assert.assertEquals(2, map.get(aggKey).size());
+        Assert.assertEquals(1, map.get(aggKey).size());
+        Assert.assertEquals(2, map.get(aggKey).get(0).getFilePaths().size());
         aggKey = new FileGroupAggKey(2L, Lists.newArrayList());
         Assert.assertEquals(1, map.get(aggKey).size());
         aggKey = new FileGroupAggKey(3L, Lists.newArrayList(11L, 12L));
