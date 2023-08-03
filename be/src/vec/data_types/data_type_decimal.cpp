@@ -158,19 +158,8 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
 template <typename T>
 bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
-        *res = StringParser::string_to_decimal<TYPE_DECIMAL32, __int128>(str.c_str(), str.size(),
-                                                                         precision, scale, &result);
-    } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
-        *res = StringParser::string_to_decimal<TYPE_DECIMAL64, __int128>(str.c_str(), str.size(),
-                                                                         precision, scale, &result);
-    } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
-        *res = StringParser::string_to_decimal<TYPE_DECIMAL128I, __int128>(
-                str.c_str(), str.size(), precision, scale, &result);
-    } else {
-        *res = StringParser::string_to_decimal<TYPE_DECIMALV2, __int128>(str.c_str(), str.size(),
-                                                                         precision, scale, &result);
-    }
+    *res = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type(), __int128>(
+            str.c_str(), str.size(), precision, scale, &result);
     return result == StringParser::PARSE_SUCCESS;
 }
 
