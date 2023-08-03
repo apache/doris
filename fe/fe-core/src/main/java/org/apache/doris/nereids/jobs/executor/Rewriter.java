@@ -40,6 +40,7 @@ import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
+import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -74,6 +75,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
+import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
@@ -82,6 +84,7 @@ import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.ReplaceLimitNode;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -246,8 +249,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
             //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
             // ),
 
-            topic("Window optimization",
+            topic("Limit optimization",
                     topDown(
+                            // TODO: the logical plan should not contains any phase information,
+                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
+                            //       generate one PhysicalLimit if current distribution is gather or two
+                            //       PhysicalLimits with gather exchange
+                            new ReplaceLimitNode(),
+                            new SplitLimit(),
                             new PushdownLimit(),
                             new PushdownTopNThroughWindow(),
                             new PushdownFilterThroughWindow()
@@ -256,13 +265,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // TODO: these rules should be implementation rules, and generate alternative physical plans.
             topic("Table/Physical optimization",
                     topDown(
-                            // TODO: the logical plan should not contains any phase information,
-                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
-                            //       generate one PhysicalLimit if current distribution is gather or two
-                            //       PhysicalLimits with gather exchange
-                            new SplitLimit(),
                             new PruneOlapScanPartition(),
-                            new PruneFileScanPartition()
+                            new PruneFileScanPartition(),
+                            new PushConjunctsIntoJdbcScan()
                     )
             ),
             topic("MV optimization",
@@ -289,6 +294,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                             new CheckMatchExpression(),
+                            new CheckMultiDistinct(),
                             new CheckAfterRewrite()
                     )
             ),

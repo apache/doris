@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
@@ -94,7 +96,7 @@ public class CascadesContext implements ScheduleContext {
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
     private Optional<Scope> outerScope = Optional.empty();
-    private List<Table> tables = null;
+    private List<TableIf> tables = null;
 
     private boolean isRewriteRoot;
     private volatile boolean isTimeout = false;
@@ -210,7 +212,7 @@ public class CascadesContext implements ScheduleContext {
         return memo;
     }
 
-    public void setTables(List<Table> tables) {
+    public void setTables(List<TableIf> tables) {
         this.tables = tables;
     }
 
@@ -340,17 +342,20 @@ public class CascadesContext implements ScheduleContext {
     }
 
     /** get table by table name, try to get from information from dumpfile first */
-    public Table getTableByName(String tableName) {
+    public TableIf getTableInMinidumpCache(String tableName) {
         Preconditions.checkState(tables != null);
-        for (Table table : tables) {
+        for (TableIf table : tables) {
             if (table.getName().equals(tableName)) {
                 return table;
             }
         }
+        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+            throw new AnalysisException("Minidump cache can not find table:" + tableName);
+        }
         return null;
     }
 
-    public List<Table> getTables() {
+    public List<TableIf> getTables() {
         return tables;
     }
 
@@ -388,19 +393,24 @@ public class CascadesContext implements ScheduleContext {
         return relations;
     }
 
-    private Table getTable(UnboundRelation unboundRelation) {
+    private TableIf getTable(UnboundRelation unboundRelation) {
         List<String> nameParts = unboundRelation.getNameParts();
         switch (nameParts.size()) {
             case 1: { // table
+                String ctlName = getConnectContext().getEnv().getCurrentCatalog().getName();
                 String dbName = getConnectContext().getDatabase();
-                return getTable(dbName, nameParts.get(0), getConnectContext().getEnv());
+                return getTable(ctlName, dbName, nameParts.get(0), getConnectContext().getEnv());
             }
             case 2: { // db.table
+                String ctlName = getConnectContext().getEnv().getCurrentCatalog().getName();
                 String dbName = nameParts.get(0);
                 if (!dbName.equals(getConnectContext().getDatabase())) {
                     dbName = getConnectContext().getClusterName() + ":" + dbName;
                 }
-                return getTable(dbName, nameParts.get(1), getConnectContext().getEnv());
+                return getTable(ctlName, dbName, nameParts.get(1), getConnectContext().getEnv());
+            }
+            case 3: { // catalog.db.table
+                return getTable(nameParts.get(0), nameParts.get(1), nameParts.get(2), getConnectContext().getEnv());
             }
             default:
                 throw new IllegalStateException("Table name [" + unboundRelation.getTableName() + "] is invalid.");
@@ -410,13 +420,22 @@ public class CascadesContext implements ScheduleContext {
     /**
      * Find table from catalog.
      */
-    public Table getTable(String dbName, String tableName, Env env) {
-        Database db = env.getInternalCatalog().getDb(dbName)
-                .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
+    public TableIf getTable(String ctlName, String dbName, String tableName, Env env) {
+        CatalogIf catalog = env.getCatalogMgr().getCatalog(ctlName);
+        if (catalog == null) {
+            throw new RuntimeException("Catalog [" + ctlName + "] does not exist.");
+        }
+        DatabaseIf db = catalog.getDbNullable(dbName);
+        if (db == null) {
+            throw new RuntimeException("Database [" + dbName + "] does not exist in catalog [" + ctlName + "].");
+        }
         db.readLock();
         try {
-            return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
-                    "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+            TableIf table = db.getTableNullable(tableName);
+            if (table == null) {
+                throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
+            }
+            return table;
         } finally {
             db.readUnlock();
         }
@@ -428,8 +447,7 @@ public class CascadesContext implements ScheduleContext {
     public static class Lock implements AutoCloseable {
 
         CascadesContext cascadesContext;
-
-        private final Stack<Table> locked = new Stack<>();
+        private final Stack<TableIf> locked = new Stack<>();
 
         /**
          * Try to acquire read locks on tables, throw runtime exception once the acquiring for read lock failed.
@@ -440,7 +458,7 @@ public class CascadesContext implements ScheduleContext {
             if (cascadesContext.getTables() == null) {
                 cascadesContext.extractTables(plan);
             }
-            for (Table table : cascadesContext.tables) {
+            for (TableIf table : cascadesContext.tables) {
                 if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
                     close();
                     throw new RuntimeException(String.format("Failed to get read lock on table: %s", table.getName()));

@@ -42,6 +42,7 @@ Usage: $0 <options>
      --fe                   build Frontend and Spark DPP application. Default ON.
      --be                   build Backend. Default ON.
      --meta-tool            build Backend meta tool. Default OFF.
+     --index-tool           build Backend inverted index tool. Default OFF.
      --broker               build Broker. Default ON.
      --audit                build audit loader. Default ON.
      --spark-dpp            build Spark DPP application. Default ON.
@@ -60,6 +61,7 @@ Usage: $0 <options>
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
+    $0 --index-tool                         build Backend inverted index tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
@@ -117,6 +119,7 @@ if ! OPTS="$(getopt \
     -l 'broker' \
     -l 'audit' \
     -l 'meta-tool' \
+    -l 'index-tool' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
@@ -137,6 +140,7 @@ BUILD_BE=0
 BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
+BUILD_INDEX_TOOL='OFF'
 BUILD_SPARK_DPP=0
 BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
@@ -152,6 +156,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BROKER=1
     BUILD_AUDIT=1
     BUILD_META_TOOL='OFF'
+    BUILD_INDEX_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
@@ -181,6 +186,10 @@ else
             ;;
         --meta-tool)
             BUILD_META_TOOL='ON'
+            shift
+            ;;
+        --index-tool)
+            BUILD_INDEX_TOOL='ON'
             shift
             ;;
         --spark-dpp)
@@ -237,6 +246,7 @@ else
         BUILD_BROKER=1
         BUILD_AUDIT=1
         BUILD_META_TOOL='ON'
+        BUILD_INDEX_TOOL='ON'
         BUILD_SPARK_DPP=1
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
@@ -382,7 +392,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "$(uname -s)" == 'Darwin' ]]; then
     if [[ -n "${CAUSE}" ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mSkip building with BE Java extensions due to ${CAUSE}.\033[0m"
         BUILD_BE_JAVA_EXTENSIONS=0
-        BUILD_BE_JAVA_EXTENSIONS_IN_CONF=1
+        BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF=1
     fi
 fi
 
@@ -392,6 +402,7 @@ echo "Get params:
     BUILD_BROKER                -- ${BUILD_BROKER}
     BUILD_AUDIT                 -- ${BUILD_AUDIT}
     BUILD_META_TOOL             -- ${BUILD_META_TOOL}
+    BUILD_INDEX_TOOL            -- ${BUILD_INDEX_TOOL}
     BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
     BUILD_BE_JAVA_EXTENSIONS    -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
@@ -487,6 +498,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DWITH_LZO="${WITH_LZO}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
+        -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_UNWIND="${USE_UNWIND}" \
@@ -585,6 +597,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
+    cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/fe/webroot/static"/
@@ -614,7 +627,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
     fi
 
-    if [[ "${BUILD_BE_JAVA_EXTENSIONS_IN_CONF}" -eq 1 ]]; then
+    if [[ "${BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
 
@@ -639,6 +652,10 @@ EOF
 
     if [[ "${BUILD_META_TOOL}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/meta_tool" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
+    if [[ "${BUILD_INDEX_TOOL}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/index_tool" "${DORIS_OUTPUT}/be/lib"/
     fi
 
     cp -r -p "${DORIS_HOME}/webroot/be"/* "${DORIS_OUTPUT}/be/www"/

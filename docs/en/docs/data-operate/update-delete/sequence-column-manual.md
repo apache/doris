@@ -29,7 +29,7 @@ The sequence column currently only supports the Uniq model. The Uniq model is ma
 
 In order to solve this problem, Doris supports the sequence column. The user specifies the sequence column when importing. Under the same key column, the REPLACE aggregation type column will be replaced according to the value of the sequence column. The larger value can replace the smaller value, and vice versa. Cannot be replaced. This method leaves the determination of the order to the user, who controls the replacement order.
 
-## Applicable scene
+## Applicable Scene
 
 Sequence columns can only be used under the Uniq data model.
 
@@ -60,7 +60,7 @@ The principle is the same as the reading process during Base Compaction.
 
 There are two ways to create a table with sequence column. One is to set the `sequence_col` attribute when creating a table, and the other is to set the `sequence_type` attribute when creating a table.
 
-#### Set `sequence_col`(recommend)
+#### Set `sequence_col`(Recommend)
 When you create the Uniq table, you can specify the mapping of sequence column to other columns
 
 ```text
@@ -145,12 +145,12 @@ The mapping method is the same as above, as shown below
     );
 ```
 
-## Enable sequence column support
+## Enable Sequence Column Support
 If `function_column.sequence_col`  or  `function_column.sequence_type` is set when creating a new table, the new table will support sequence column. For a table that does not support sequence column, if you want to use this function, you can use the following statement: `ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")` to enable.
 
  If you are not sure whether a table supports sequence column, you can display hidden columns by setting a session variable `SET show_hidden_columns=true`, then use `desc tablename`, if there is a `__DORIS_SEQUENCE_COL__` column in the output, it is supported, if not, it is not supported .
 
-## Usage example
+## Usage Examples
 Let's take the stream Load as an example to show how to use it
 1. Create a table that supports sequence column. 
 
@@ -248,3 +248,9 @@ MySQL [test]> select * from test_table;
 ```
 At this point, you can replace the original data in the table. To sum up, the sequence column will be compared among all the batches, the largest value of the same key will be imported into Doris table.
 
+## Note
+1. To prevent misuse, in load tasks like StreamLoad/BrokerLoad, user must specify the sequence column; otherwise, user will receive the following error message:
+```
+Table test_tbl has a sequence column, need to specify the sequence column
+```
+2 Starting from version 2.0, Doris supports partial column updates for Merge-on-Write implementation on Unique Key tables. In load tasks with partial column update, users can update only a subset of columns at a time, so it is not mandatory to include the sequence column. If the import task submitted by the user includes the sequence column, it will have no effect on the behavior. However, if the import task does not include the sequence column, Doris will use the matching historical data's sequence column as the value for the updated row's sequence column. If there is no existing column with the same key in the historical data, it will be automatically filled with null or the default value.

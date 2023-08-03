@@ -161,6 +161,23 @@
 22	3
 24	4
 
+-- !scalar_subquery1 --
+
+-- !scalar_subquery2 --
+
+-- !in_subquery --
+1	abc	2	3	4
+1	abcd	3	3	4
+
+-- !exist_subquery --
+2	uvw	3	4	2
+2	uvw	3	4	2
+2	xyz	2	4	2
+
+-- !in_subquery --
+
+-- !exist_subquery --
+
 -- !scalar_subquery_with_order --
 20	2
 22	3

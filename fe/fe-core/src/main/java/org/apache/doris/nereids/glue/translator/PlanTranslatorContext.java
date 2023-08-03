@@ -32,8 +32,10 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -87,6 +89,10 @@ public class PlanTranslatorContext {
 
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
 
+    private final Map<CTEId, PhysicalCTEConsumer> cteConsumerMap = Maps.newHashMap();
+
+    private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
     }
@@ -106,6 +112,14 @@ public class PlanTranslatorContext {
 
     public Map<CTEId, PhysicalCTEProducer> getCteProduceMap() {
         return cteProducerMap;
+    }
+
+    public Map<CTEId, PhysicalCTEConsumer> getCteConsumerMap() {
+        return cteConsumerMap;
+    }
+
+    public Map<PlanFragmentId, CTEScanNode> getCteScanNodeMap() {
+        return cteScanNodeMap;
     }
 
     public TupleDescriptor generateTupleDesc() {

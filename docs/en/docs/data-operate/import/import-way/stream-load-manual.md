@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Stream load",
+    "title": "Stream Load",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Stream load
+# Stream Load
 
 Stream load is a synchronous way of importing. Users import local files or data streams into Doris by sending HTTP protocol requests. Stream load synchronously executes the import and returns the import result. Users can directly determine whether the import is successful by the return body of the request.
 
@@ -182,7 +182,7 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
 + enable_profile
-  <version since="1.2.4">
+  <version since="1.2.7">
   </version>
 
   When `enable_profile` is true, the Stream Load profile will be printed to the log. Otherwise it won't print.

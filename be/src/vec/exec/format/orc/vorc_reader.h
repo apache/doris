@@ -482,8 +482,11 @@ private:
                                                            const NullMap* null_map,
                                                            orc::ColumnVectorBatch* cvb,
                                                            const orc::Type* orc_column_typ);
+    int64_t get_remaining_rows() { return _remaining_rows; }
+    void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
 private:
+    int64_t _remaining_rows = 0;
     RuntimeProfile* _profile = nullptr;
     RuntimeState* _state = nullptr;
     const TFileScanRangeParams& _scan_params;
@@ -539,6 +542,7 @@ private:
 
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
+    VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;

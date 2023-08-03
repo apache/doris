@@ -71,7 +71,6 @@ public class JsonMetricVisitor extends MetricVisitor {
         } else {
             sb.append("\n]");
         }
-        return;
     }
 
     @Override

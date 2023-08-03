@@ -39,6 +39,7 @@
 #include "scan_task_queue.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/blocking_queue.hpp"
+#include "util/cpu_info.h"
 #include "util/defer_op.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
@@ -48,6 +49,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_olap_scanner.h" // IWYU pragma: keep
 #include "vec/exec/scan/scanner_context.h"
+#include "vec/exec/scan/vscan_node.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vfile_scanner.h"
 
@@ -105,8 +107,10 @@ Status ScannerScheduler::init(ExecEnv* env) {
 
     // 3. remote scan thread pool
     ThreadPoolBuilder("RemoteScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num)            // 48 default
-            .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num) // 512 default
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
+            .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                                     ? config::doris_max_remote_scanner_thread_pool_thread_num
+                                     : std::max(512, CpuInfo::num_cores() * 10))
             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
             .build(&_remote_scan_thread_pool);
 

@@ -51,10 +51,6 @@ bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     return lhs == rhs;
 }
 
-TExprOpcode::type to_in_opcode(PrimitiveType t) {
-    return TExprOpcode::FILTER_IN;
-}
-
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     switch (ttype) {
     case TPrimitiveType::INVALID_TYPE:

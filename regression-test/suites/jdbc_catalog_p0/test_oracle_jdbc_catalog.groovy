@@ -137,5 +137,18 @@ suite("test_oracle_jdbc_catalog", "p0") {
 
         sql """drop catalog if exists ${catalog_name} """
 
+        // test for clob type
+        sql """create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
+                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_table_names" = "true"
+        );"""
+        sql """ switch ${catalog_name} """
+        qt_query_clob """ select * from doris_test.test_clob order by id; """
+
     }
 }

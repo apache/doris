@@ -23,11 +23,11 @@ suite("test_external_pg_nereids", "p2") {
         String extPgPort = context.config.otherConfigs.get("extPgPort")
         String extPgUser = context.config.otherConfigs.get("extPgUser")
         String extPgPassword = context.config.otherConfigs.get("extPgPassword")
-        String jdbcResourcePg14 = "jdbc_resource_pg_14"
-        String jdbcPg14Database1 = "jdbc_pg_14_database1"
-        String pgTableNameLineOrder = "jdbc_pg_14_table1"
-        String pgTableNameCustomer = "jdbc_pg_14_customer"
-        String pgTableNameSupplier = "jdbc_pg_14_supplier"
+        String jdbcResourcePg14 = "jdbc_resource_pg_14_n"
+        String jdbcPg14Database1 = "jdbc_pg_14_database1_n"
+        String pgTableNameLineOrder = "jdbc_pg_14_table1_n"
+        String pgTableNameCustomer = "jdbc_pg_14_customer_n"
+        String pgTableNameSupplier = "jdbc_pg_14_supplier_n"
 
         sql """set enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""

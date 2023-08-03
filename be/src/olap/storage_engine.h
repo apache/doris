@@ -37,6 +37,7 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
+#include "olap/calc_delete_bitmap_executor.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -54,7 +55,7 @@ class DataDir;
 class EngineTask;
 class MemTableFlushExecutor;
 class TaskWorkerPool;
-class BetaRowsetWriter;
+class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
@@ -143,6 +144,9 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
+        return _calc_delete_bitmap_executor.get();
+    }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -204,14 +208,11 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                   bool force);
-    Status submit_seg_compaction_task(BetaRowsetWriter* writer,
+    Status submit_seg_compaction_task(SegcompactionWorker* worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
-    }
-    std::unique_ptr<ThreadPool>& calc_delete_bitmap_thread_pool() {
-        return _calc_delete_bitmap_thread_pool;
     }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
@@ -287,8 +288,6 @@ private:
 
     void _start_clean_cache();
 
-    void _start_clean_lookup_cache();
-
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
     // When the disk status is unusable, but the unused logo is not _push_tablet_into_submitted_compactiondetected, you need to download it from root_path
@@ -325,7 +324,7 @@ private:
 
     void _cache_file_cleaner_tasks_producer_callback();
 
-    Status _handle_seg_compaction(BetaRowsetWriter* writer,
+    Status _handle_seg_compaction(SegcompactionWorker* worker,
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
@@ -423,6 +422,7 @@ private:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
@@ -437,7 +437,6 @@ private:
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
-    std::unique_ptr<ThreadPool> _calc_delete_bitmap_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
     std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
@@ -461,7 +460,9 @@ private:
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    // we use unordered_map to store all cumulative compaction policy sharded ptr
+    std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
+            _cumulative_compaction_policies;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;

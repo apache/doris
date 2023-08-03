@@ -26,7 +26,7 @@ suite("q13") {
 
     sql 'set exec_mem_limit=21G'
     sql 'SET enable_pipeline_engine = true'
-
+    sql 'set parallel_pipeline_task_num=8'
 
 
 

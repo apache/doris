@@ -69,6 +69,7 @@ message PTabletInfo {
     repeated string invalid_dict_cols = 3; 
     // total rows num received by DeltaWriter
     optional int64 received_rows = 4;
+    optional int64 num_rows_filtered = 5 [default = 0];
 }
 
 // open a tablet writer
@@ -500,6 +501,7 @@ message PPublishFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
+    optional int64 merge_time = 9;
 };
 
 message PPublishFilterRequestV2 {

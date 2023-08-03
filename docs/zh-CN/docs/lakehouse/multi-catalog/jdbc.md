@@ -56,7 +56,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
 
-3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
+3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 :::
 
 :::tip
@@ -167,7 +167,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 | MYSQL Type                                | Doris Type     | Comment                                         |
 |-------------------------------------------|----------------|-------------------------------------------------|
-| BOOLEAN                                   | BOOLEAN        |                                                 |
+| BOOLEAN                                   | TINYINT        |                                                 |
 | TINYINT                                   | TINYINT        |                                                 |
 | SMALLINT                                  | SMALLINT       |                                                 |
 | MEDIUMINT                                 | INT            |                                                 |
@@ -695,3 +695,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 12. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
     
     下载 [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) 并放到 Doris FE 的 lib 目录以及 BE 的 lib/java_extensions 目录 (Doris 2.0 之前的版本需放到 BE 的 lib 目录下) 下即可。
+
+13. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
+    
+    可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。

@@ -36,6 +36,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -105,6 +106,8 @@ public:
 
     int64_t num_rows() const override { return _raw_num_rows_written; }
 
+    int64_t num_rows_filtered() const override { return _num_rows_filtered; }
+
     RowsetId rowset_id() override { return _context.rowset_id; }
 
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
@@ -116,8 +119,6 @@ public:
     }
 
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
-
-    SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
 
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
@@ -222,6 +223,8 @@ protected:
 
     // written rows by add_block/add_row (not effected by segcompaction)
     std::atomic<int64_t> _raw_num_rows_written;
+
+    std::atomic<int64_t> _num_rows_filtered;
 
     std::map<uint32_t, SegmentStatistics> _segid_statistics_map;
     std::mutex _segid_statistics_map_mutex;

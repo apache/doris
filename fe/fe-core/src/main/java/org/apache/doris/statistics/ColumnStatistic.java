@@ -19,9 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -50,7 +48,7 @@ public class ColumnStatistic {
 
     public static ColumnStatistic UNKNOWN = new ColumnStatisticBuilder().setAvgSizeByte(1).setNdv(1)
             .setNumNulls(1).setCount(1).setMaxValue(Double.POSITIVE_INFINITY).setMinValue(Double.NEGATIVE_INFINITY)
-            .setSelectivity(1.0).setIsUnknown(true)
+            .setSelectivity(1.0).setIsUnknown(true).setUpdatedTime("")
             .build();
 
     public static ColumnStatistic ZERO = new ColumnStatisticBuilder().setAvgSizeByte(0).setNdv(0)
@@ -121,9 +119,12 @@ public class ColumnStatistic {
 
     public final Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
 
+    public final String updatedTime;
+
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
-            double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram) {
+            double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram,
+            String updatedTime) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -137,6 +138,7 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.histogram = histogram;
+        this.updatedTime = updatedTime;
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
@@ -152,7 +154,7 @@ public class ColumnStatistic {
                 }
             }
         } catch (Throwable t) {
-            LOG.warn("Failed to deserialize column stats", t);
+            LOG.debug("Failed to deserialize column stats", t);
             return ColumnStatistic.UNKNOWN;
         }
         Preconditions.checkState(columnStatistic != null, "Column stats is null");
@@ -202,9 +204,7 @@ public class ColumnStatistic {
                 columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
             }
             columnStatisticBuilder.setSelectivity(1.0);
-            Histogram histogram = Env.getCurrentEnv().getStatisticsCache().getHistogram(tblId, idxId, colName)
-                    .orElse(null);
-            columnStatisticBuilder.setHistogram(histogram);
+            columnStatisticBuilder.setUpdatedTime(resultRow.getColumnValue("update_time"));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to deserialize column statistics, column not exists", e);
@@ -311,8 +311,8 @@ public class ColumnStatistic {
 
     @Override
     public String toString() {
-        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f",
-                ndv, minValue, minExpr, maxValue, maxExpr, count);
+        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, avgSizeByte=%f",
+                ndv, minValue, minExpr, maxValue, maxExpr, count, avgSizeByte);
     }
 
     public JSONObject toJson() {
@@ -345,6 +345,7 @@ public class ColumnStatistic {
         statistic.put("IsUnKnown", isUnKnown);
         statistic.put("Histogram", Histogram.serializeToJson(histogram));
         statistic.put("Original", original);
+        statistic.put("LastUpdatedTime", updatedTime);
         return statistic;
     }
 
@@ -393,7 +394,8 @@ public class ColumnStatistic {
             null,
             null,
             stat.getBoolean("IsUnKnown"),
-            Histogram.deserializeFromJson(stat.getString("Histogram"))
+            Histogram.deserializeFromJson(stat.getString("Histogram")),
+            stat.getString("LastUpdatedTime")
         );
     }
 
@@ -421,12 +423,7 @@ public class ColumnStatistic {
         return isUnKnown;
     }
 
-    public void loadPartitionStats(long tableId, long idxId, String colName) throws DdlException {
-        List<ResultRow> resultRows = StatisticsRepository.loadPartStats(tableId, idxId, colName);
-        for (ResultRow resultRow : resultRows) {
-            String partId = resultRow.getColumnValue("part_id");
-            ColumnStatistic columnStatistic = ColumnStatistic.fromResultRow(resultRow);
-            partitionIdToColStats.put(Long.parseLong(partId), columnStatistic);
-        }
+    public void putPartStats(long partId, ColumnStatistic columnStatistic) {
+        this.partitionIdToColStats.put(partId, columnStatistic);
     }
 }

@@ -72,6 +72,7 @@ set enable_pipeline_engine = true;
 #### parallel_pipeline_task_num
 
 `parallel_pipeline_task_num` represents the concurrency of pipeline tasks of a query. Default value is `0` (e.g. half number of CPU cores). Users can adjust this value according to their own workloads.
+If the user upgrades from a lower version, the default value will be the parallel_fragment_exec_instance_num before the upgrade.
 
 ```
 set parallel_pipeline_task_num = 0;

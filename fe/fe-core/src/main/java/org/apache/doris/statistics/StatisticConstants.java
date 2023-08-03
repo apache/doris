@@ -32,13 +32,9 @@ public class StatisticConstants {
 
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
 
-    public static final String ANALYSIS_JOB_TABLE = "analysis_jobs";
-
     public static final int MAX_NAME_LEN = 64;
 
     public static final int ID_LEN = 4096;
-
-    public static final int STATISTIC_PARALLEL_EXEC_INSTANCE_NUM = 1;
 
     public static final int STATISTICS_CACHE_VALID_DURATION_IN_HOURS = 24 * 2;
 
@@ -51,17 +47,10 @@ public class StatisticConstants {
      */
     public static final int STATISTIC_TABLE_BUCKET_COUNT = 7;
 
-    public static final long STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES = 2L * 1024 * 1024 * 1024;
-
     /**
      * Determine the execution interval for 'Statistics Table Cleaner' thread.
      */
     public static final int STATISTIC_CLEAN_INTERVAL_IN_HOURS = 24 * 2;
-
-    /**
-     * If analysis job execution time exceeds this time, it would be cancelled.
-     */
-    public static final long STATISTICS_TASKS_TIMEOUT_IN_MS = TimeUnit.MINUTES.toMillis(10);
 
     public static final long PRELOAD_RETRY_TIMES = 5;
 
@@ -83,6 +72,18 @@ public class StatisticConstants {
     public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
 
     public static List<String> STATISTICS_DB_BLACK_LIST = new ArrayList<>();
+
+    public static int ANALYZE_TASK_RETRY_TIMES = 5;
+
+    public static final String DB_NAME = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+
+    public static final int STATISTIC_INTERNAL_TABLE_REPLICA_NUM = 3;
+
+    public static final int RETRY_LOAD_QUEUE_SIZE = 1000;
+
+    public static final int RETRY_LOAD_THREAD_POOL_SIZE = 1;
+
+    public static final int LOAD_RETRY_TIMES = 3;
 
     static {
         STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER

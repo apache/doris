@@ -169,6 +169,11 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
+// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// will print a warning containing the stacktrace, but not prevent memory alloc.
+// large memory alloc looking forward to using Allocator.
+DECLARE_mInt64(large_memory_check_bytes);
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
 
@@ -201,8 +206,8 @@ DECLARE_Int32(clear_transaction_task_worker_count);
 DECLARE_Int32(delete_worker_count);
 // the count of thread to alter table
 DECLARE_Int32(alter_tablet_worker_count);
-// the count of thread to alter inverted index
-DECLARE_Int32(alter_inverted_index_worker_count);
+// the count of thread to alter index
+DECLARE_Int32(alter_index_worker_count);
 // the count of thread to clone
 DECLARE_Int32(clone_worker_count);
 // the count of thread to clone
@@ -270,6 +275,7 @@ DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // and the min thread num of remote scanner thread pool
 DECLARE_Int32(doris_scanner_thread_pool_thread_num);
 // max number of remote scanner thread pool size
+// if equal to -1, value is std::max(512, CpuInfo::num_cores() * 10)
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
 // number of olap scanner thread pool queue size
 DECLARE_Int32(doris_scanner_thread_pool_queue_size);
@@ -418,9 +424,6 @@ DECLARE_mInt64(compaction_min_size_mbytes);
 DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DECLARE_mInt32(seg_compaction_max_threads);
-
 // This config can be set to limit thread number in  multiget thread pool.
 DECLARE_mInt32(multi_get_max_threads);
 
@@ -493,6 +496,8 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
+// Default, if less than or equal 32 core, the following are 128, 128, 10240, 10240 in turn.
+//          if greater than 32 core, the following are core num * 4, core num * 4, core num * 320, core num * 320 in turn
 DECLARE_Int32(brpc_heavy_work_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
@@ -512,11 +517,9 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
-// The configuration is used to enable lazy open feature, and the default value is false.
-// When there is mixed deployment in the upgraded version, it needs to be set to false.
-DECLARE_mBool(enable_lazy_open_partition);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
+DECLARE_mBool(exchange_sink_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -590,8 +593,8 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
-// Sleep time in milliseconds between load channel memory refresh iterations
-DECLARE_mInt64(load_channel_memory_refresh_sleep_time_ms);
+// Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
+DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
 // Alignment
 DECLARE_Int32(memory_max_alignment);
@@ -688,6 +691,8 @@ DECLARE_String(default_rowset_type);
 // Maximum size of a single message body in all protocols
 DECLARE_Int64(brpc_max_body_size);
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
+// Default, if the physical memory is less than or equal to 64G, the value is 1G
+//          if the physical memory is greater than 64G, the value is physical memory * mem_limit(0.8) / 1024 * 20
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
@@ -950,6 +955,9 @@ DECLARE_Int32(segcompaction_threshold_segment_num);
 // The segment whose row number above the threshold will be compacted during segcompaction
 DECLARE_Int32(segcompaction_small_threshold);
 
+// This config can be set to limit thread number in  segcompaction thread pool.
+DECLARE_mInt32(segcompaction_max_threads);
+
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
@@ -1003,17 +1011,6 @@ DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
 DECLARE_Bool(enable_parse_multi_dimession_array);
 
-// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
-// In the case of time series compaction, the execution of compaction is adjusted
-// using parameters that have the prefix time_series_compaction.
-DECLARE_mString(compaction_policy);
-// the size of input files for each compaction
-DECLARE_mInt64(time_series_compaction_goal_size_mbytes);
-// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
-DECLARE_mInt64(time_series_compaction_file_count_threshold);
-// if compaction has not been performed within 3600 seconds, a compaction will be triggered
-DECLARE_mInt64(time_series_compaction_time_threshold_seconds);
-
 // max depth of expression tree allowed.
 DECLARE_Int32(max_depth_of_expr_tree);
 
@@ -1032,6 +1029,8 @@ DECLARE_mInt32(s3_write_buffer_size);
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DECLARE_mInt32(s3_write_buffer_whole_size);
+// the max number of cached file handle for block segemnt
+DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 //enable shrink memory
 DECLARE_Bool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
@@ -1061,6 +1060,23 @@ DECLARE_mInt64(kerberos_expiration_time_seconds);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
+
+// the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
+DECLARE_mInt64(auto_inc_prefetch_size_ratio);
+
+// the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
+DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
+
+// number of threads that fetch auto-inc ranges from FE
+DECLARE_mInt64(auto_inc_fetch_thread_num);
+// Max connection cache num for point lookup queries
+DECLARE_mInt64(lookup_connection_cache_bytes_limit);
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DECLARE_mInt64(LZ4_HC_compression_level);
+
+// enable window_funnel_function with different modes
+DECLARE_mBool(enable_window_funnel_function_v2);
 
 #ifdef BE_TEST
 // test s3

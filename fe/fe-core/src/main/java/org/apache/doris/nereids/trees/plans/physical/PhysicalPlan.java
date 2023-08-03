@@ -30,4 +30,8 @@ public interface PhysicalPlan extends Plan {
 
     PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics);
+
+    default PhysicalPlan resetLogicalProperties() {
+        return this;
+    }
 }

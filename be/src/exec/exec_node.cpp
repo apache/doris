@@ -44,6 +44,7 @@
 #include "util/uid_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
+#include "vec/exec/distinct_vaggregation_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -371,7 +372,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::AGGREGATION_NODE:
-        *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        if (tnode.agg_node.aggregate_functions.empty() && state->enable_pipeline_exec()) {
+            *node = pool->add(new vectorized::DistinctAggregationNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
@@ -528,11 +533,8 @@ std::string ExecNode::get_name() {
 Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
     SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
-    auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
-            is_mem_reuse ? MutableBlock(output_block)
-                         : MutableBlock(VectorizedUtils::create_empty_columnswithtypename(
-                                   *_output_row_descriptor));
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     auto rows = origin_block->rows();
 
     if (rows != 0) {
@@ -552,9 +554,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
                 mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
             }
         }
-
-        if (!is_mem_reuse) output_block->swap(mutable_block.to_block());
-        DCHECK(output_block->rows() == rows);
+        DCHECK(mutable_block.rows() == rows);
     }
 
     return Status::OK();

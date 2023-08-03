@@ -603,6 +603,11 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 * `file_cache_base_path`
 
     指定block file cache在BE上的存储路径，默认 'random'，随机选择BE配置的存储路径。
+
+* `enable_inverted_index_query`
+
+    控制是否启用inverted index query，默认 true.
+
 	
 * `topn_opt_limit_threshold`
 

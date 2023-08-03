@@ -37,7 +37,7 @@ SHOW DATA
 语法：
 
 ```sql
-SHOW DATA [FROM db_name[.table_name]] [ORDER BY ...];
+SHOW DATA [FROM [db_name.]table_name] [ORDER BY ...];
 ```
 
 说明：

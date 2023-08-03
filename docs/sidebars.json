@@ -4,14 +4,8 @@
             "type": "category",
             "label": "Getting Started",
             "items": [
-                "get-starting/get-starting"
-            ]
-        },
-        {
-            "type": "category",
-            "label": "Doris Introduction",
-            "items": [
-                "summary/basic-summary"
+                "get-starting/quick-start",
+                "get-starting/what-is-apache-doris"
             ]
         },
         {
@@ -23,7 +17,7 @@
                     "type": "category",
                     "label": "Docker Deployment",
                     "items": [
-                        "install/construct-docker/construct-docker-image",
+                        "install/construct-docker/build-docker-image",
                         "install/construct-docker/run-docker-cluster"
                     ]
                 },
@@ -54,7 +48,7 @@
                     "type": "category",
                     "label": "Index",
                     "items": [
-                        "data-table/index/prefix-index",
+                        "data-table/index/index-overview",
                         "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
                         "data-table/index/ngram-bloomfilter-index",
@@ -108,7 +102,7 @@
                     "items": [
                         "data-operate/export/export-manual",
                         "data-operate/export/outfile",
-                        "data-operate/export/export_with_mysql_dump"
+                        "data-operate/export/export-with-mysql-dump"
                     ]
                 },
                 {
@@ -236,6 +230,7 @@
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
+                "ecosystem/dbt-doris-adapter",
                 {
                     "type": "category",
                     "label": "UDF",
@@ -1265,11 +1260,11 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-2.0-beta",
-                "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-2.0-Beta",
+                "releasenotes/release-2.0-Alpha",
 	        "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
-                "releasenotes/release-1.2.4.1",
+                "releasenotes/release-1.2.4",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",

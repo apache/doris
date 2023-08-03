@@ -98,7 +98,6 @@ public:
     Status init_env() {
         std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
         if (!doris::config::init(conffile.c_str(), true, true, true)) {
-            fprintf(stderr, "error read config file. \n");
             return Status::Error<INTERNAL_ERROR>("error read config file.");
         }
         doris::CpuInfo::init();

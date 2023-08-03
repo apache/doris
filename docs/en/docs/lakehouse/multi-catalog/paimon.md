@@ -30,31 +30,76 @@ under the License.
 <version since="dev">
 </version>
 
-## Usage
+## Instructions for use
 
-1. Currently, Doris only supports simple field types.
-2. Doris only supports Hive Metastore Catalogs currently. The usage is basically the same as that of Hive Catalogs. More types of Catalogs will be supported in future versions.
+1. When data in hdfs,need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE. First read the hadoop configuration file in the conf directory, and then read the related to the environment variable `HADOOP_CONF_DIR` configuration file.
+2. The currently adapted version of the payment is 0.4.0
 
 ## Create Catalog
 
-### Create Catalog Based on Paimon API
+Paimon Catalog Currently supports two types of Metastore creation catalogs:
+* filesystem(default),Store both metadata and data in the file system.
+* hive metastore,It also stores metadata in Hive metastore. Users can access these tables directly from Hive.
 
-Use the Paimon API to access metadata.Currently, only support Hive service as Paimon's Catalog.
+### Creating a Catalog Based on FileSystem
 
-- Hive Metastore
+#### HDFS
+```sql
+CREATE CATALOG `paimon_hdfs` PROPERTIES (
+    "type" = "paimon",
+    "warehouse" = "hdfs://HDFS8000871/user/paimon",
+    "dfs.nameservices"="HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871"="nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username"="hadoop"
+);
+
+```
+
+#### S3
 
 ```sql
-CREATE CATALOG `paimon` PROPERTIES (
+CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
-    "hive.metastore.uris" = "thrift://172.16.65.15:7004",
-    "dfs.ha.namenodes.HDFS1006531" = "nn2,nn1",
-    "dfs.namenode.rpc-address.HDFS1006531.nn2" = "172.16.65.115:4007",
-    "dfs.namenode.rpc-address.HDFS1006531.nn1" = "172.16.65.15:4007",
-    "dfs.nameservices" = "HDFS1006531",
-    "hadoop.username" = "hadoop",
-    "warehouse" = "hdfs://HDFS1006531/data/paimon",
-    "dfs.client.failover.proxy.provider.HDFS1006531" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+    "warehouse" = "s3://paimon-1308700295.cos.ap-beijing.myqcloud.com/paimoncos",
+    "s3.endpoint"="cos.ap-beijing.myqcloud.com",
+    "s3.access_key"="ak",
+    "s3.secret_key"="sk"
 );
+
+```
+
+#### OSS
+
+```sql
+CREATE CATALOG `paimon_oss` PROPERTIES (
+    "type" = "paimon",
+    "warehouse" = "oss://paimon-zd/paimonoss",
+    "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
+    "oss.access_key"="ak",
+    "oss.secret_key"="sk"
+);
+
+```
+
+### Creating a Catalog Based on Hive Metastore
+
+```sql
+CREATE CATALOG `paimon_hms` PROPERTIES (
+    "type" = "paimon",
+    "paimon.catalog.type"="hms",
+    "warehouse" = "hdfs://HDFS8000871/user/zhangdong/paimon2",
+    "hive.metastore.uris" = "thrift://172.21.0.44:7004",
+    "dfs.nameservices'='HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871'='nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username"="hadoop"
+);
+
 ```
 
 ## Column Type Mapping

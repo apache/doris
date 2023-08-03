@@ -303,7 +303,7 @@ public class JdbcResource extends Resource {
             // However when tinyInt1isBit=false, GetColumnClassName of MySQL returns java.lang.Boolean,
             // while that of Doris returns java.lang.Integer. In order to be compatible with both MySQL and Doris,
             // Jdbc params should set tinyInt1isBit=true&transformedBitIsBoolean=true
-            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "false", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "transformedBitIsBoolean", "false", "true");
             // set useUnicode and characterEncoding to false and utf-8
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
@@ -316,6 +316,9 @@ public class JdbcResource extends Resource {
         }
         if (dbType.equals(POSTGRESQL)) {
             newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
+        }
+        if (dbType.equals(SQLSERVER)) {
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useBulkCopyForBatchInsert", "false", "true");
         }
         return newJdbcUrl;
     }

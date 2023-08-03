@@ -160,7 +160,7 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray()) {
+    if (pure_doc_value && col.IsArray() && !col.Empty()) {
         RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
         return Status::OK();
@@ -201,7 +201,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                     cctz::parse("%Y-%m-%dT%H:%M:%E*S%Ez", str_date, cctz::utc_time_zone(), &tp);
             if (ok) {
                 success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
-                                               cctz::local_time_zone().name());
+                                               cctz::local_time_zone());
             }
         } else if (str_length == 19) {
             // YYYY-MM-DDTHH:MM:SS
@@ -211,7 +211,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                         cctz::parse("%Y-%m-%dT%H:%M:%S", str_date, cctz::utc_time_zone(), &tp);
                 if (ok) {
                     success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
-                                                   cctz::local_time_zone().name());
+                                                   cctz::local_time_zone());
                 }
             } else {
                 // YYYY-MM-DD HH:MM:SS
@@ -222,7 +222,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             // string long like "1677895728000"
             int64_t time_long = std::atol(str_date.c_str());
             if (time_long > 0) {
-                success = dt_val.from_unixtime(time_long / 1000, cctz::local_time_zone().name());
+                success = dt_val.from_unixtime(time_long / 1000, cctz::local_time_zone());
             }
         } else {
             // YYYY-MM-DD or others
@@ -234,7 +234,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
         }
 
     } else {
-        if (!dt_val.from_unixtime(col.GetInt64() / 1000, cctz::local_time_zone().name())) {
+        if (!dt_val.from_unixtime(col.GetInt64() / 1000, cctz::local_time_zone())) {
             RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
         }
     }
@@ -259,7 +259,7 @@ Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_d
         // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
         // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
         return get_date_value_int<T, RT>(col, type, false, slot);
-    } else if (col.IsArray() && pure_doc_value) {
+    } else if (col.IsArray() && pure_doc_value && !col.Empty()) {
         // this would happened just only when `enable_docvalue_scan = true`
         // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
         // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
@@ -295,7 +295,7 @@ Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* sl
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray()) {
+    if (pure_doc_value && col.IsArray() && !col.Empty()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col[0].GetFloat() : col[0].GetDouble());
         return Status::OK();
     }
@@ -323,7 +323,7 @@ Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray() && nullable) {
+    if (pure_doc_value && col.IsArray() && !col.Empty() && nullable) {
         T value = (T)(sizeof(T) == 4 ? col[0].GetFloat() : col[0].GetDouble());
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
         return Status::OK();
@@ -352,7 +352,7 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray()) {
+    if (pure_doc_value && col.IsArray() && !col.Empty()) {
         RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
         T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
@@ -489,7 +489,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
             // this may be a tricky, but we can work around this issue
             std::string val;
-            if (pure_doc_value) {
+            if (pure_doc_value && !col.Empty()) {
                 if (!col[0].IsString()) {
                     val = json_value_to_string(col[0]);
                 } else {
@@ -559,11 +559,11 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             }
 
             bool is_nested_str = false;
-            if (pure_doc_value && col.IsArray() && col[0].IsBool()) {
+            if (pure_doc_value && col.IsArray() && !col.Empty() && col[0].IsBool()) {
                 int8_t val = col[0].GetBool();
                 col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 break;
-            } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
+            } else if (pure_doc_value && col.IsArray() && !col.Empty() && col[0].IsString()) {
                 is_nested_str = true;
             } else if (pure_doc_value && col.IsArray()) {
                 return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
@@ -588,7 +588,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 data.assign_from_double(col.GetDouble());
             } else {
                 std::string val;
-                if (pure_doc_value) {
+                if (pure_doc_value && !col.Empty()) {
                     if (!col[0].IsString()) {
                         val = json_value_to_string(col[0]);
                     } else {
@@ -632,19 +632,11 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 case TYPE_VARCHAR:
                 case TYPE_STRING: {
                     std::string val;
-                    if (pure_doc_value) {
-                        if (!sub_col[0].IsString()) {
-                            val = json_value_to_string(sub_col[0]);
-                        } else {
-                            val = sub_col[0].GetString();
-                        }
+                    RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, sub_type);
+                    if (!sub_col.IsString()) {
+                        val = json_value_to_string(sub_col);
                     } else {
-                        RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, type);
-                        if (!sub_col.IsString()) {
-                            val = json_value_to_string(sub_col);
-                        } else {
-                            val = sub_col.GetString();
-                        }
+                        val = sub_col.GetString();
                     }
                     array.push_back(val);
                     break;
@@ -708,10 +700,12 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     }
 
                     bool is_nested_str = false;
-                    if (pure_doc_value && sub_col.IsArray() && sub_col[0].IsBool()) {
+                    if (pure_doc_value && sub_col.IsArray() && !sub_col.Empty() &&
+                        sub_col[0].IsBool()) {
                         array.push_back(sub_col[0].GetBool());
                         break;
-                    } else if (pure_doc_value && sub_col.IsArray() && sub_col[0].IsString()) {
+                    } else if (pure_doc_value && sub_col.IsArray() && !sub_col.Empty() &&
+                               sub_col[0].IsString()) {
                         is_nested_str = true;
                     } else if (pure_doc_value && sub_col.IsArray()) {
                         return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");

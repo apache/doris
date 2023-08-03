@@ -26,13 +26,16 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 public abstract class BaseAnalysisTask {
 
@@ -152,15 +155,37 @@ public abstract class BaseAnalysisTask {
             if (col == null) {
                 throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
             }
-            if (isUnsupportedType(col.getType().getPrimitiveType())) {
-                throw new RuntimeException(String.format("Column with type %s is not supported",
-                        col.getType().toString()));
-            }
+            Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
+                    String.format("Column with type %s is not supported", col.getType().toString()));
         }
 
     }
 
-    public abstract void execute() throws Exception;
+    public void execute() {
+        int retriedTimes = 0;
+        while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+            if (killed) {
+                break;
+            }
+            try {
+                doExecute();
+                break;
+            } catch (Throwable t) {
+                LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
+                if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                    throw new RuntimeException(t);
+                }
+                StatisticsUtil.sleep(TimeUnit.SECONDS.toMillis(2 ^ retriedTimes) * 10);
+            }
+        }
+    }
+
+    public abstract void doExecute() throws Exception;
+
+    protected void setTaskStateToRunning() {
+        Env.getCurrentEnv().getAnalysisManager()
+            .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
+    }
 
     public void cancel() {
         killed = true;
@@ -169,7 +194,7 @@ public abstract class BaseAnalysisTask {
         }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
-                        String.format("Job has been cancelled: %s", info.toString()), -1);
+                        String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
     }
 
     public long getLastExecTime() {
@@ -202,5 +227,12 @@ public abstract class BaseAnalysisTask {
         } else {
             return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Job id [%d], Task id [%d], catalog [%s], db [%s], table [%s], column [%s]",
+            info.jobId, info.taskId, catalog.getName(), db.getFullName(), tbl.getName(),
+            col == null ? "TableRowCount" : col.getName());
     }
 }

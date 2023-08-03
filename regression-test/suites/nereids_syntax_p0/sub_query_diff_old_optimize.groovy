@@ -159,7 +159,7 @@ suite ("sub_query_diff_old_optimize") {
         sql """
             select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 not in (select sub_query_diff_old_optimize_subquery3.k3 from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 = sub_query_diff_old_optimize_subquery1.k2 limit 1);
         """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: Unsupported correlated subquery with a LIMIT clause LogicalLimit ( limit=1, offset=0 )"
+        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: Unsupported correlated subquery with a LIMIT clause LogicalLimit ( limit=1, offset=0, phase=ORIGIN )"
 
     }
 

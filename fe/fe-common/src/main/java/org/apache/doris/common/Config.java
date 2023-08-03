@@ -223,7 +223,7 @@ public class Config extends ConfigBase {
             + "可以适当增大这个值",
             "The lock timeout of bdbje operation, in seconds. "
                     + "If there are many LockTimeoutException in FE WARN log, you can try to increase this value"})
-    public static int bdbje_lock_timeout_second = 1;
+    public static int bdbje_lock_timeout_second = 5;
 
     @ConfField(description = {"BDBJE 主从节点间同步的超时时间，单位为秒。如果出现大量的 ReplicaWriteException，"
             + "可以适当增大这个值",
@@ -399,6 +399,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"MySQL 服务的最大任务线程数", "The max number of task threads in MySQL service"})
     public static int max_mysql_service_task_threads_num = 4096;
 
+    @ConfField(description = {"BackendServiceProxy数量, 用于池化GRPC channel",
+            "BackendServiceProxy pool size for pooling GRPC channels."})
+    public static int backend_proxy_num = 48;
+
     @ConfField(description = {
             "集群 ID，用于内部认证。通常在集群第一次启动时，会随机生成一个 cluster id. 用户也可以手动指定。",
             "Cluster id used for internal authentication. Usually a random integer generated when master FE "
@@ -458,6 +462,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"和 Broker 进程交互的 RPC 的超时时间，单位是毫秒。",
             "The timeout of RPC between FE and Broker, in milliseconds"})
     public static int broker_timeout_ms = 10000; // 10s
+
+    @ConfField(description = {"主键高并发点查短路径超时时间。",
+            "The timeout of RPC for high concurrenty short circuit query"})
+    public static int point_query_timeout_ms = 10000; // 10s
 
     @ConfField(mutable = true, masterOnly = true, description = {"Insert load 的默认超时时间，单位是秒。",
             "Default timeout for insert load job, in seconds."})
@@ -803,7 +811,7 @@ public class Config extends ConfigBase {
      * Commonly, each Backends has one broker scanner.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long max_bytes_per_broker_scanner = 3 * 1024 * 1024 * 1024L; // 3G
+    public static long max_bytes_per_broker_scanner = 500 * 1024 * 1024 * 1024L; // 500G
 
     /**
      * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
@@ -1308,6 +1316,13 @@ public class Config extends ConfigBase {
     public static int max_multi_partition_num = 4096;
 
     /**
+     * Use this parameter to set the partition name prefix for multi partition,
+     * Only multi partition takes effect, not dynamic partitions.
+     * The default prefix is "p_".
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static String multi_partition_name_prefix = "p_";
+    /**
      * Control the max num of backup/restore job per db
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1462,7 +1477,7 @@ public class Config extends ConfigBase {
      * the system automatically checks the time interval for statistics
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int auto_check_statistics_in_minutes = 5;
+    public static int auto_check_statistics_in_minutes = 1;
 
     /**
      * If this configuration is enabled, you should also specify the trace_export_url.
@@ -1504,6 +1519,9 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean enable_pipeline_load = false;
+
+    @ConfField
+    public static int scheduler_job_task_max_num = 10;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
@@ -1555,18 +1573,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_array_type = false;
-
-    /**
-     * Support complex data type MAP.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_map_type = false;
-
-    /**
-     * Support complex data type STRUCT.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_struct_type = false;
 
     /**
      * The timeout of executing async remote fragment.
@@ -1677,14 +1683,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_task_num = 10;
-
-    /**
-     * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
-     * otherwise the statistics related internal table creation would be failed.
-     */
-    @ConfField
-    public static int statistic_internal_table_replica_num = 1;
+    public static int statistics_simultaneously_running_task_num = 5;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.
@@ -2022,7 +2021,7 @@ public class Config extends ConfigBase {
     public static boolean enable_feature_binlog = false;
 
     @ConfField
-    public static int analyze_task_timeout_in_minutes = 120;
+    public static int analyze_task_timeout_in_hours = 12;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
@@ -2035,18 +2034,36 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField
-    public static boolean enable_full_auto_analyze = false;
+    public static boolean enable_full_auto_analyze = true;
 
     @ConfField
     public static String full_auto_analyze_start_time = "00:00:00";
 
     @ConfField
-    public static String full_auto_analyze_end_time = "23:59:59";
+    public static String full_auto_analyze_end_time = "02:00:00";
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
 
     @ConfField
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "用于强制设定内表的副本数，如果改参数大于零，则用户在建表时指定的副本数将被忽略，而使用本参数设置的值。"
+                    + "同时，建表语句中指定的副本标签等参数会被忽略。该参数不影响包括创建分区、修改表属性的操作。该参数建议仅用于测试环境",
+            "Used to force the number of replicas of the internal table. If the config is greater than zero, "
+                    + "the number of replicas specified by the user when creating the table will be ignored, "
+                    + "and the value set by this parameter will be used. At the same time, the replica tags "
+                    + "and other parameters specified in the create table statement will be ignored. "
+                    + "This config does not effect the operations including creating partitions "
+                    + "and modifying table properties. "
+                    + "This config is recommended to be used only in the test environment"})
+    public static int force_olap_table_replication_num = 0;
+
+    @ConfField
+    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField
+    public static int cpu_resource_limit_per_analyze_task = 1;
 
 }

@@ -29,18 +29,21 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -121,6 +124,9 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
+        if (!FeConstants.enableInternalSchemaDb) {
+            return Collections.emptyList();
+        }
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
@@ -166,11 +172,14 @@ public class StatisticsUtil {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         sessionVariable.internalSession = true;
         sessionVariable.setMaxExecMemByte(Config.statistics_sql_mem_limit_in_bytes);
+        sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
+        sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
@@ -523,7 +532,10 @@ public class StatisticsUtil {
     public static long getIcebergRowCount(HMSExternalTable table) {
         long rowCount = 0;
         try {
-            Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(table);
+            Table icebergTable = Env.getCurrentEnv()
+                    .getExtMetaCacheMgr()
+                    .getIcebergMetadataCache()
+                    .getIcebergTable(table);
             TableScan tableScan = icebergTable.newScan().includeColumnStats();
             for (FileScanTask task : tableScan.planFiles()) {
                 rowCount += task.file().recordCount();
@@ -626,7 +638,7 @@ public class StatisticsUtil {
     }
 
     private static void processDataFile(DataFile dataFile, PartitionSpec partitionSpec,
-                                        String colName, ColumnStatisticBuilder columnStatisticBuilder) {
+            String colName, ColumnStatisticBuilder columnStatisticBuilder) {
         int colId = -1;
         for (Types.NestedField column : partitionSpec.schema().columns()) {
             if (column.name().equals(colName)) {
@@ -643,5 +655,23 @@ public class StatisticsUtil {
         columnStatisticBuilder.setCount(columnStatisticBuilder.getCount() + dataFile.recordCount());
         columnStatisticBuilder.setNumNulls(columnStatisticBuilder.getNumNulls()
                 + dataFile.nullValueCounts().get(colId));
+    }
+
+    public static boolean isUnsupportedType(Type type) {
+        if (ColumnStatistic.UNSUPPORTED_TYPE.contains(type)) {
+            return true;
+        }
+        return type instanceof ArrayType
+                || type instanceof StructType
+                || type instanceof MapType
+                || type instanceof VariantType;
+    }
+
+    public static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ignore) {
+            // IGNORE
+        }
     }
 }

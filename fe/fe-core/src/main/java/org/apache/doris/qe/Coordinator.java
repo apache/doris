@@ -1294,6 +1294,9 @@ public class Coordinator {
         // compute destinations and # senders per exchange node
         // (the root fragment doesn't have a destination)
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
+            if (params.fragment instanceof MultiCastPlanFragment) {
+                continue;
+            }
             PlanFragment destFragment = params.fragment.getDestFragment();
             if (destFragment == null) {
                 // root plan fragment
@@ -1308,6 +1311,10 @@ public class Coordinator {
             // output at the moment
 
             PlanNodeId exchId = sink.getExchNodeId();
+            PlanNode exchNode = PlanNode.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
+            Preconditions.checkState(exchNode != null, "exchNode is null");
+            Preconditions.checkState(exchNode instanceof ExchangeNode,
+                    "exchNode is not ExchangeNode" + exchNode.getId().toString());
             // we might have multiple fragments sending to this exchange node
             // (distributed MERGE), which is why we need to add up the #senders
             if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
@@ -1357,7 +1364,7 @@ public class Coordinator {
                 }
             } else {
                 if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
-                        && params.fragment.isRightChildOfBroadcastHashJoin()) {
+                        && ((ExchangeNode) exchNode).isRightChildOfBroadcastHashJoin()) {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
                     destParams.instanceExecParams.forEach(param -> {
@@ -1412,7 +1419,11 @@ public class Coordinator {
                 multi.getDestFragmentList().get(i).setOutputPartition(params.fragment.getOutputPartition());
 
                 PlanNodeId exchId = sink.getExchNodeId();
+                PlanNode exchNode = PlanNode.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
                 Preconditions.checkState(!destParams.perExchNumSenders.containsKey(exchId.asInt()));
+                Preconditions.checkState(exchNode != null, "exchNode is null");
+                Preconditions.checkState(exchNode instanceof ExchangeNode,
+                        "exchNode is not ExchangeNode" + exchNode.getId().toString());
                 if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
                     destParams.perExchNumSenders.put(exchId.asInt(), params.instanceExecParams.size());
                 } else {
@@ -1421,8 +1432,46 @@ public class Coordinator {
                 }
 
                 List<TPlanFragmentDestination> destinations = multiSink.getDestinations().get(i);
-                if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
-                        && params.fragment.isRightChildOfBroadcastHashJoin()) {
+                if (sink.getOutputPartition() != null
+                        && sink.getOutputPartition().isBucketShuffleHashPartition()) {
+                    // the destFragment must be bucket shuffle
+                    Preconditions.checkState(bucketShuffleJoinController
+                            .isBucketShuffleJoin(destFragment.getFragmentId().asInt()), "Sink is"
+                            + "Bucket Shuffle Partition, The destFragment must have bucket shuffle join node ");
+
+                    int bucketSeq = 0;
+                    int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
+
+                    // when left table is empty, it's bucketset is empty.
+                    // set right table destination address to the address of left table
+                    if (destParams.instanceExecParams.size() == 1 && (bucketNum == 0
+                            || destParams.instanceExecParams.get(0).bucketSeqSet.isEmpty())) {
+                        bucketNum = 1;
+                        destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
+                    }
+                    // process bucket shuffle join on fragment without scan node
+                    TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
+                    while (bucketSeq < bucketNum) {
+                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
+
+                        dest.fragment_instance_id = new TUniqueId(-1, -1);
+                        dest.server = dummyServer;
+                        dest.setBrpcServer(dummyServer);
+
+                        for (FInstanceExecParam instanceExecParams : destParams.instanceExecParams) {
+                            if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
+                                dest.fragment_instance_id = instanceExecParams.instanceId;
+                                dest.server = toRpcHost(instanceExecParams.host);
+                                dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                                break;
+                            }
+                        }
+
+                        bucketSeq++;
+                        destinations.add(dest);
+                    }
+                } else if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
+                        && ((ExchangeNode) exchNode).isRightChildOfBroadcastHashJoin()) {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
 

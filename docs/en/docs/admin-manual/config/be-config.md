@@ -250,7 +250,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_rpc_timeout_ms`
 
 * Description: thrift default timeout time
-* Default value: 10000
+* Default value: 60000
 
 #### `thrift_client_retry_interval_ms`
 
@@ -275,7 +275,7 @@ There are two ways to configure BE configuration items:
 #### `txn_commit_rpc_timeout_ms`
 
 * Description:txn submit rpc timeout
-* Default value: 10,000 (ms)
+* Default value: 60,000 (ms)
 
 #### `txn_map_shard_size`
 
@@ -326,7 +326,7 @@ There are two ways to configure BE configuration items:
 #### `fragment_pool_queue_size`
 
 * Description: The upper limit of query requests that can be processed on a single node
-* Default value: 2048
+* Default value: 4096
 
 #### `fragment_pool_thread_num_min`
 
@@ -336,7 +336,7 @@ There are two ways to configure BE configuration items:
 #### `fragment_pool_thread_num_max`
 
 * Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
-* Default value: 512
+* Default value: 2048
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -596,13 +596,13 @@ BaseCompaction:546859:
 
 * Type: int32
 * Description: The number of compaction tasks which execute in parallel for a disk(HDD).
-* Default value: 2
+* Default value: 4
 
 #### `compaction_task_num_per_fast_disk`
 
 * Type: int32
 * Description: The number of compaction tasks which execute in parallel for a fast disk(SSD).
-* Default value: 4
+* Default value: 8
 
 #### `cumulative_compaction_rounds_for_each_base_compaction_round`
 
@@ -664,33 +664,6 @@ BaseCompaction:546859:
 
 * Description: Minimal interval (s) to update peer replica infos
 * Default value: 60 (s)
-
-#### `compaction_policy`
-
-* Type: string
-* Description: Configure the compaction strategy in the compression phase. Currently, two compaction strategies are implemented, size_based and time_series.
-  - size_based: Version merging can only be performed when the disk volume of the rowset is the same order of magnitude. After merging, qualified rowsets are promoted to the base compaction stage. In the case of a large number of small batch imports, it can reduce the write magnification of base compact, balance the read magnification and space magnification, and reduce the data of file versions.
-  - time_series: When the disk size of a rowset accumulates to a certain threshold, version merging takes place. The merged rowset is directly promoted to the base compaction stage. This approach effectively reduces the write amplification rate of compaction, especially in scenarios with continuous imports in a time series context.
-* Default value: size_based
-
-#### `time_series_compaction_goal_size_mbytes`
-
-* Type: int64
-* Description: Enabling time series compaction will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
-* Default value: 512
-
-#### `time_series_compaction_file_count_threshold`
-
-* Type: int64
-* Description: Enabling time series compaction will utilize this parameter to adjust the minimum number of input files for each compaction. It comes into effect only when the condition specified by time_series_compaction_goal_size_mbytes is not met.
-  - If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
-* Default value: 2000
-
-#### `time_series_compaction_time_threshold_seconds`
-
-* Type: int64
-* Description: When time series compaction is enabled, a significant duration passes without a compaction being executed, a compaction will be triggered.
-* Default value: 3600 (s)
 
 
 ### Load
@@ -957,6 +930,11 @@ BaseCompaction:546859:
 
 * Description: Whether to use mmap to allocate memory
 * Default value: false
+
+#### `memtable_mem_tracker_refresh_interval_ms`
+
+* Description: Interval in milliseconds between memtbale flush mgr refresh iterations
+* Default value: 100
 
 #### `download_cache_buffer_size`
 
@@ -1283,6 +1261,11 @@ BaseCompaction:546859:
 #### `alter_tablet_worker_count`
 
 * Description: The number of threads making schema changes
+* Default value: 3
+
+### `alter_index_worker_count`
+
+* Description: The number of threads making index change
 * Default value: 3
 
 #### `ignore_load_tablet_failure`

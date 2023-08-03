@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_load_with_decimal", "p0") {
+suite("test_load_with_decimal", "p0,external,hive") {
     def tableName = "test_load_with_decimal"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

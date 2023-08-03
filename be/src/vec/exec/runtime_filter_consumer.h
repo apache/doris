@@ -70,6 +70,7 @@ private:
     int32_t _filter_id;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::list<vectorized::VExprContextSPtr> _probe_ctxs;
 
     const RowDescriptor& _row_descriptor_ref;
 

@@ -67,6 +67,27 @@ class ExchangeSinkOperator;
 
 namespace vectorized {
 class Channel;
+class VDataStreamSender;
+
+class BlockSerializer {
+public:
+    BlockSerializer(VDataStreamSender* parent, bool is_local = false);
+    Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
+                                 const std::vector<int>* rows = nullptr);
+    Status serialize_block(PBlock* dest, int num_receivers = 1);
+    Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
+
+    MutableBlock* get_block() const { return _mutable_block.get(); }
+
+    void reset_block() { _mutable_block.reset(); }
+
+private:
+    VDataStreamSender* _parent;
+    std::unique_ptr<MutableBlock> _mutable_block;
+
+    bool _is_local;
+    const int _batch_size;
+};
 
 class VDataStreamSender : public DataSink {
 public:
@@ -92,13 +113,11 @@ public:
     Status open(RuntimeState* state) override;
 
     Status send(RuntimeState* state, Block* block, bool eos = false) override;
-
+    Status try_close(RuntimeState* state, Status exec_status) override;
     Status close(RuntimeState* state, Status exec_status) override;
     RuntimeProfile* profile() override { return _profile; }
 
     RuntimeState* state() { return _state; }
-
-    Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
 
     void registe_channels(pipeline::ExchangeSinkBuffer* buffer);
 
@@ -110,6 +129,7 @@ protected:
     friend class Channel;
     friend class PipChannel;
     friend class pipeline::ExchangeSinkBuffer;
+    friend class BlockSerializer;
 
     void _roll_pb_block();
     Status _get_next_available_buffer(BroadcastPBlockHolder** holder);
@@ -129,15 +149,6 @@ protected:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    struct hash_128 {
-        uint64_t high;
-        uint64_t low;
-    };
-
-    using hash_128_t = hash_128;
-
-    Status handle_unpartitioned(Block* block);
-
     // Sender instance id, unique within a fragment.
     int _sender_id;
 
@@ -148,7 +159,6 @@ protected:
     int _current_channel_idx; // index of current channel to send to if _random == true
 
     TPartitionType::type _part_type;
-    bool _ignore_not_found;
 
     // serialized batches for broadcasting; we need two so we can write
     // one while the other one is still being sent
@@ -173,12 +183,12 @@ protected:
     RuntimeProfile::Counter* _brpc_wait_timer;
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
-    RuntimeProfile::Counter* _ignore_rows;
     RuntimeProfile::Counter* _local_sent_rows;
     RuntimeProfile::Counter* _local_send_timer;
     RuntimeProfile::Counter* _split_block_hash_compute_timer;
     RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
     RuntimeProfile::Counter* _blocks_sent_counter;
+    RuntimeProfile::Counter* _merge_block_timer;
 
     std::unique_ptr<MemTracker> _mem_tracker;
 
@@ -196,6 +206,8 @@ protected:
 
     bool _only_local_exchange = false;
     bool _enable_pipeline_exec = false;
+
+    std::unique_ptr<BlockSerializer> _serializer;
 };
 
 class Channel {
@@ -253,7 +265,7 @@ public:
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
-    Status add_rows(Block* block, const std::vector<int>& row);
+    virtual Status add_rows(Block* block, const std::vector<int>& row);
 
     virtual Status send_current_block(bool eos);
 
@@ -293,16 +305,16 @@ public:
                _local_recvr->sender_queue_empty(_parent->_sender_id);
     }
 
-    bool is_receiver_eof() const { return receiver_status_.is<ErrorCode::END_OF_FILE>(); }
+    bool is_receiver_eof() const { return _receiver_status.is<ErrorCode::END_OF_FILE>(); }
 
-    void set_receiver_eof(Status st) { receiver_status_ = st; }
+    void set_receiver_eof(Status st) { _receiver_status = st; }
 
 protected:
     bool _recvr_is_valid() {
         if (_local_recvr && !_local_recvr->is_closed()) {
             return true;
         }
-        receiver_status_ = Status::EndOfFile("local data stream receiver closed");
+        _receiver_status = Status::EndOfFile("local data stream receiver closed");
         return false;
     }
 
@@ -314,7 +326,7 @@ protected:
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
         brpc::Join(call_id);
-        receiver_status_ = Status::create(_closure->result.status());
+        _receiver_status = Status::create(_closure->result.status());
         if (cntl->Failed()) {
             std::string err = fmt::format(
                     "failed to send brpc batch, error={}, error_text={}, client: {}, "
@@ -324,7 +336,7 @@ protected:
             LOG(WARNING) << err;
             return Status::RpcError(err);
         }
-        return receiver_status_;
+        return _receiver_status;
     }
 
     // Serialize _batch into _thrift_batch and send via send_batch().
@@ -342,9 +354,6 @@ protected:
     int64_t _num_data_bytes_sent;
     int64_t _packet_seq;
 
-    // we're accumulating rows into this batch
-    std::unique_ptr<MutableBlock> _mutable_block;
-
     bool _need_close;
     bool _closed;
     int _be_number;
@@ -357,7 +366,7 @@ protected:
     PTransmitDataParams _brpc_request;
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
-    Status receiver_status_;
+    Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
     bool _is_transfer_chain;
@@ -373,6 +382,8 @@ protected:
     PBlock* _ch_cur_pb_block = nullptr;
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
+
+    std::unique_ptr<BlockSerializer> _serializer;
 };
 
 #define HANDLE_CHANNEL_STATUS(state, channel, status)    \
@@ -469,20 +480,33 @@ public:
         return Status::OK();
     }
 
+    Status add_rows(Block* block, const std::vector<int>& rows) override {
+        if (_fragment_instance_id.lo == -1) {
+            return Status::OK();
+        }
+
+        bool serialized = false;
+        _pblock = std::make_unique<PBlock>();
+        RETURN_IF_ERROR(
+                _serializer->next_serialized_block(block, _pblock.get(), 1, &serialized, &rows));
+        if (serialized) {
+            RETURN_IF_ERROR(send_current_block(false));
+        }
+
+        return Status::OK();
+    }
+
     // send _mutable_block
     Status send_current_block(bool eos) override {
         if (is_local()) {
             return send_local_block(eos);
         }
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        auto block_ptr = std::make_unique<PBlock>();
-        if (_mutable_block) {
-            auto block = _mutable_block->to_block();
-            RETURN_IF_ERROR(_parent->serialize_block(&block, block_ptr.get()));
-            block.clear_column_data();
-            _mutable_block->set_muatable_columns(block.mutate_columns());
+        if (eos) {
+            _pblock = std::make_unique<PBlock>();
+            RETURN_IF_ERROR(_serializer->serialize_block(_pblock.get(), 1));
         }
-        RETURN_IF_ERROR(send_block(block_ptr.release(), eos));
+        RETURN_IF_ERROR(send_block(_pblock.release(), eos));
         return Status::OK();
     }
 
@@ -508,6 +532,7 @@ private:
     pipeline::ExchangeSinkBuffer* _buffer = nullptr;
     bool _eos_send = false;
     std::unique_ptr<pipeline::SelfDeleteClosure<PTransmitDataResult>> _closure = nullptr;
+    std::unique_ptr<PBlock> _pblock;
 };
 
 } // namespace vectorized

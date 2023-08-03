@@ -28,9 +28,11 @@ under the License.
 
 ```shell
 brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
+python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
 ```
-   
+
+*使用 brew 安装的 jdk 版本为 11，因为在 macOS上，arm64 版本的 brew 默认没有 8 版本的 jdk*
+
 **依赖说明：**
 1. Java、Maven 等可以单独下载，方便管理
     - Mac 推荐 [Zulu JDK8](https://www.azul.com/downloads/?version=java-8-lts&os=macos&package=jdk#zulu)
