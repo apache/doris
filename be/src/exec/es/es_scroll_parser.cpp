@@ -593,7 +593,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 if (pure_doc_value) {
                     if (col.Empty()) {
                         break;
-                    } else if (col.IsArray() && !col[0].IsString()) {
+                    } else if (!col[0].IsString()) {
                         val = json_value_to_string(col[0]);
                     } else {
                         val = col[0].GetString();
