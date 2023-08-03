@@ -23,7 +23,6 @@ import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -58,7 +57,7 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
     }
 
     public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty(),ImmutableSet.of());
+        this(id, table, qualifier, Optional.empty(), Optional.empty(), ImmutableSet.of());
     }
 
     @Override

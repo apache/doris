@@ -26,7 +26,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
 
@@ -50,18 +49,18 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
         }
         TableIf table = relation.getTable();
         if (table == null) {
-            return relation;
+            return null;
         }
         String tableName = table.getName();
         DatabaseIf db = table.getDatabase();
         // when table inatanceof FunctionGenTable,db will be null
         if (db == null) {
-            return relation;
+            return null;
         }
         String dbName = db.getFullName();
         CatalogIf catalog = db.getCatalog();
         if (catalog == null) {
-            return relation;
+            return null;
         }
         String ctlName = catalog.getName();
         // TODO: 2023/7/19 checkColumnsPriv
@@ -72,6 +71,6 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
                     ctlName + ": " + dbName + ": " + tableName);
             throw new AnalysisException(message);
         }
-        return relation;
+        return null;
     }
 }

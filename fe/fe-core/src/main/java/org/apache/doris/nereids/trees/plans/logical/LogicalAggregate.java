@@ -112,7 +112,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             List<NamedExpression> outputExpressions,
             boolean normalized,
             boolean ordinalIsResolved,
-            Optional<LogicalRepeat> sourceRepeat,
+            Optional<LogicalRepeat<?>> sourceRepeat,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {

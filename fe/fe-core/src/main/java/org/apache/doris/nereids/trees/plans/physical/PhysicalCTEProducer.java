@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -136,7 +137,7 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
 
     @Override
     public PhysicalCTEProducer<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalCTEProducer<>(cteId, projects, groupExpression, null, physicalProperties,
+        return new PhysicalCTEProducer<>(cteId, groupExpression, null, physicalProperties,
                 statistics, child());
     }
 }
