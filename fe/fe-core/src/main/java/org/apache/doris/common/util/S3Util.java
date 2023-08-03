@@ -81,25 +81,42 @@ public class S3Util {
 
     private static String normalizedLocation(String location, Map<String, String> props) {
         try {
-            URI normalizedUri = new URI(location);
-            if (StringUtils.isEmpty(normalizedUri.getHost()) && location.startsWith(HdfsResource.HDFS_PREFIX)) {
-                // Need add hdfs host to location
-                String host = props.get(HdfsResource.DSF_NAMESERVICES);
-                if (StringUtils.isNotEmpty(host)) {
-                    // Replace 'hdfs://' to 'hdfs://name_service', for example: hdfs:///abc to hdfs://name_service/abc
-                    return location.replace(HdfsResource.HDFS_PREFIX, HdfsResource.HDFS_PREFIX + host);
-                } else {
-                    // If no hadoop HA config
-                    if (location.startsWith(HdfsResource.HDFS_PREFIX + '/')) {
-                        // Do not support hdfs:///location
-                        throw new RuntimeException("Invalid location with empty host: " + location);
-                    }
-                }
+            if (location.startsWith(HdfsResource.HDFS_PREFIX)) {
+                return normalizedHdfsPath(location, props);
             }
             return location;
         } catch (URISyntaxException e) {
             throw new RuntimeException(e.getMessage(), e);
         }
+    }
+
+    private static String normalizedHdfsPath(String location, Map<String, String> props) throws URISyntaxException {
+        URI normalizedUri = new URI(location);
+        // compatible with 'hdfs:///' or 'hdfs:/'
+        if (StringUtils.isEmpty(normalizedUri.getHost())) {
+            String normalizedPrefix = HdfsResource.HDFS_PREFIX + "//";
+            String brokenPrefix = HdfsResource.HDFS_PREFIX + "/";
+            if (location.startsWith(brokenPrefix) && !location.startsWith(normalizedPrefix)) {
+                location = location.replace(brokenPrefix, normalizedPrefix);
+            }
+            // Need add hdfs host to location
+            String host = props.get(HdfsResource.DSF_NAMESERVICES);
+            if (StringUtils.isNotEmpty(host)) {
+                // Replace 'hdfs://key/' to 'hdfs://name_service/key/'
+                // Or hdfs:///abc to hdfs://name_service/abc
+                return location.replace(normalizedPrefix, normalizedPrefix + host + "/");
+            } else {
+                // 'hdfs://null/' equals the 'hdfs:///'
+                if (location.startsWith(HdfsResource.HDFS_PREFIX + "///")) {
+                    // Do not support hdfs:///location
+                    throw new RuntimeException("Invalid location with empty host: " + location);
+                } else {
+                    // Replace 'hdfs://key/' to '/key/', try access local NameNode on BE.
+                    return location.replace(normalizedPrefix, "/");
+                }
+            }
+        }
+        return location;
     }
 
     /**

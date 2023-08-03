@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_materialized_view_lazy_open", "rollup") {
+suite("test_materialized_view_load_open", "rollup") {
 
     // because nereids cannot support rollup correctly forbid it temporary
     sql """set enable_nereids_planner=false"""
 
-    def tbName1 = "test_materialized_view_lazy_open"
-    def tbName2 = "test_materialized_view_lazy_open_dynamic_partition"
-    def tbName3 = "test_materialized_view_lazy_open_schema_change"
-    def tbName4 = "test_materialized_view_lazy_open_dynamic_partition_schema_change"
+    def tbName1 = "test_materialized_view_load_open"
+    def tbName2 = "test_materialized_view_load_open_dynamic_partition"
+    def tbName3 = "test_materialized_view_load_open_schema_change"
+    def tbName4 = "test_materialized_view_load_open_dynamic_partition_schema_change"
 
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -131,7 +131,7 @@ suite("test_materialized_view_lazy_open", "rollup") {
             );
         """
     
-    sql "CREATE materialized VIEW test_lazy_open AS SELECT k1 FROM ${tbName1} GROUP BY k1;"
+    sql "CREATE materialized VIEW test_load_open AS SELECT k1 FROM ${tbName1} GROUP BY k1;"
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
@@ -148,7 +148,7 @@ suite("test_materialized_view_lazy_open", "rollup") {
         }
     }
 
-    sql "CREATE materialized VIEW test_lazy_open_dynamic_partition AS SELECT k1 FROM ${tbName2} GROUP BY k1;"
+    sql "CREATE materialized VIEW test_load_open_dynamic_partition AS SELECT k1 FROM ${tbName2} GROUP BY k1;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName2)
@@ -165,7 +165,7 @@ suite("test_materialized_view_lazy_open", "rollup") {
         }
     }
 
-    sql "CREATE materialized VIEW test_lazy_open_schema_change AS SELECT k1 FROM ${tbName3} GROUP BY k1;"
+    sql "CREATE materialized VIEW test_load_open_schema_change AS SELECT k1 FROM ${tbName3} GROUP BY k1;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName3)
@@ -182,7 +182,7 @@ suite("test_materialized_view_lazy_open", "rollup") {
         }
     }
 
-    sql "CREATE materialized VIEW test_lazy_open_dynamic_partition_schema_change AS SELECT k1 FROM ${tbName4} GROUP BY k1;"
+    sql "CREATE materialized VIEW test_load_open_dynamic_partition_schema_change AS SELECT k1 FROM ${tbName4} GROUP BY k1;"
     max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName4)

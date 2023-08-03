@@ -224,7 +224,9 @@ Status Channel::close_wait(RuntimeState* state) {
         _need_close = false;
         return st;
     }
-    _serializer->reset_block();
+    if (_serializer) {
+        _serializer->reset_block();
+    }
     return Status::OK();
 }
 
@@ -647,14 +649,14 @@ Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
         RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
         {
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-            auto block = _serializer->get_block()->to_block();
+            Block block = _serializer->get_block()->to_block();
             RETURN_IF_ERROR(_serializer->serialize_block(&block, block_holder->get_block(),
                                                          _channels.size()));
             Status status;
             for (auto channel : _channels) {
                 if (!channel->is_receiver_eof()) {
                     if (channel->is_local()) {
-                        status = channel->send_local_block(block);
+                        status = channel->send_local_block(&block);
                     } else {
                         SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                         status = channel->send_block(block_holder, false);

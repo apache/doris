@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -74,7 +77,8 @@ public class DeriveStatsJobTest {
         long tableId1 = 0;
 
         List<String> qualifier = ImmutableList.of("test", "t");
-        slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        slot1 = new SlotReference(new ExprId(1), "c1", IntegerType.INSTANCE, true, qualifier,
+                    new Column("e", PrimitiveType.INT));
         new Expectations() {{
                 ConnectContext.get();
                 result = context;

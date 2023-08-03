@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Getting-Started",
+    "title": "Quick Start",
     "language": "en"
 }
 

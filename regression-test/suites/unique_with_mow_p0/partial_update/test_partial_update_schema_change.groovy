@@ -60,6 +60,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql1 " select * from ${tableName} order by c0 "
     
     // schema change
@@ -98,6 +101,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     // check data, new column is filled by default value.
     qt_sql2 " select * from ${tableName} order by c0 "
 
@@ -124,6 +130,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     // check data, new column is filled by given value.
     qt_sql3 " select * from ${tableName} order by c0 "
 
@@ -173,6 +182,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql4 " select * from ${tableName} order by c0 "
     
     // schema change
@@ -211,6 +223,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql5 " select * from ${tableName} order by c0 "
 
     // test load data with delete column, stream load will ignore the
@@ -238,6 +253,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql6 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -286,6 +304,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql7 " select * from ${tableName} order by c0 "
     
     // schema change
@@ -324,6 +345,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql8 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -364,6 +388,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql9 " select * from ${tableName} order by c0 "
     
     // schema change
@@ -416,6 +443,8 @@ suite("test_partial_update_schema_change", "p0") {
         }
     }
 
+    sql "sync"
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 
@@ -463,6 +492,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql10 " select * from ${tableName} order by c0 "
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
@@ -500,6 +532,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql11 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -547,6 +582,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql12 " select * from ${tableName} order by c0 "
     
     sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
@@ -573,6 +611,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql13 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -619,6 +660,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql14 " select * from ${tableName} order by c0 "
     
     // schema change
@@ -657,6 +701,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     // check data, new column is filled by default value.
     qt_sql15 " select * from ${tableName} order by c0 "
 
@@ -683,6 +730,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     // check data, new column is filled by given value.
     qt_sql16 " select * from ${tableName} order by c0 "
 
@@ -731,6 +781,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql17 " select * from ${tableName} order by c0 "
     
     // schema change
@@ -769,6 +822,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql18 " select * from ${tableName} order by c0 "
     
     // test load data with delete column
@@ -842,6 +898,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql19 " select * from ${tableName} order by c0 "
     
     // schema change
@@ -880,6 +939,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql20 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -919,6 +981,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql21 " select * from ${tableName} order by c0 "
     
     // schema change
@@ -946,31 +1011,28 @@ suite("test_partial_update_schema_change", "p0") {
     }
 
     // test load data with all key column
-    // todo cause core
-    // streamLoad {
-    //     table "${tableName}"
+    streamLoad {
+        table "${tableName}"
 
-    //     set 'column_separator', ','
-    //     set 'partial_columns', 'true'
-    //     set 'columns', 'c0, c1'
+        set 'column_separator', ','
+        set 'partial_columns', 'true'
+        set 'columns', 'c0, c1'
 
-    //     file 'schema_change/load_with_key_column.csv'
-    //     time 10000 // limit inflight 10s
+        file 'schema_change/load_with_key_column.csv'
+        time 10000 // limit inflight 10s
 
-    //     check { result, exception, startTime, endTime ->
-    //         if (exception != null) {
-    //             throw exception
-    //         }
-    //         log.info("Stream load result: ${result}".toString())
-    //         def json = parseJson(result)
-    //         assertEquals("success", json.Status.toLowerCase())
-    //         assertEquals(1, json.NumberTotalRows)
-    //         assertEquals(0, json.NumberFilteredRows)
-    //         assertEquals(0, json.NumberUnselectedRows)
-    //     }
-    // }
-    // //check data
-    // qt_sql22 " select * from ${tableName} order by c0 "
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals(0, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
@@ -1017,6 +1079,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql23 " select * from ${tableName} order by c0 "
     
     sql " CREATE INDEX test ON ${tableName} (c1) USING BITMAP "
@@ -1054,6 +1119,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql24 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -1100,6 +1168,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql25 " select * from ${tableName} order by c0 "
     
     sql " ALTER TABLE ${tableName} set ('in_memory' = 'false') "
@@ -1126,6 +1197,9 @@ suite("test_partial_update_schema_change", "p0") {
             assertEquals(0, json.NumberUnselectedRows)
         }
     }
+
+    sql "sync"
+
     qt_sql26 " select * from ${tableName} order by c0 "
 
     sql """ DROP TABLE IF EXISTS ${tableName} """

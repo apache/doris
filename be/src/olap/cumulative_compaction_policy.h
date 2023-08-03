@@ -33,7 +33,7 @@ namespace doris {
 class Tablet;
 struct Version;
 
-inline std::string_view CUMULATIVE_SIZE_BASED_POLICY = "size_based";
+inline constexpr std::string_view CUMULATIVE_SIZE_BASED_POLICY = "size_based";
 
 /// This class CumulativeCompactionPolicy is the base class of cumulative compaction policy.
 /// It defines the policy to do cumulative compaction. It has different derived classes, which implements
@@ -176,7 +176,8 @@ class CumulativeCompactionPolicyFactory {
 public:
     /// Static factory function. It can product different policy according to the `policy` parameter and use tablet ptr
     /// to construct the policy. Now it can product size based and num based policies.
-    static std::shared_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy();
+    static std::shared_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy(
+            const std::string_view& compaction_policy);
 };
 
 } // namespace doris

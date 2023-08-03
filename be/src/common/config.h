@@ -275,6 +275,7 @@ DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // and the min thread num of remote scanner thread pool
 DECLARE_Int32(doris_scanner_thread_pool_thread_num);
 // max number of remote scanner thread pool size
+// if equal to -1, value is std::max(512, CpuInfo::num_cores() * 10)
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
 // number of olap scanner thread pool queue size
 DECLARE_Int32(doris_scanner_thread_pool_queue_size);
@@ -422,9 +423,6 @@ DECLARE_mInt64(compaction_min_size_mbytes);
 // cumulative compaction policy: min and max delta file's number
 DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
-
-// This config can be set to limit thread number in  segcompaction thread pool.
-DECLARE_mInt32(seg_compaction_max_threads);
 
 // This config can be set to limit thread number in  multiget thread pool.
 DECLARE_mInt32(multi_get_max_threads);
@@ -957,6 +955,9 @@ DECLARE_Int32(segcompaction_threshold_segment_num);
 // The segment whose row number above the threshold will be compacted during segcompaction
 DECLARE_Int32(segcompaction_small_threshold);
 
+// This config can be set to limit thread number in  segcompaction thread pool.
+DECLARE_mInt32(segcompaction_max_threads);
+
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
@@ -1009,17 +1010,6 @@ DECLARE_Bool(inverted_index_compaction_enable);
 DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
 DECLARE_Bool(enable_parse_multi_dimession_array);
-
-// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
-// In the case of time series compaction, the execution of compaction is adjusted
-// using parameters that have the prefix time_series_compaction.
-DECLARE_mString(compaction_policy);
-// the size of input files for each compaction
-DECLARE_mInt64(time_series_compaction_goal_size_mbytes);
-// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
-DECLARE_mInt64(time_series_compaction_file_count_threshold);
-// if compaction has not been performed within 3600 seconds, a compaction will be triggered
-DECLARE_mInt64(time_series_compaction_time_threshold_seconds);
 
 // max depth of expression tree allowed.
 DECLARE_Int32(max_depth_of_expr_tree);
