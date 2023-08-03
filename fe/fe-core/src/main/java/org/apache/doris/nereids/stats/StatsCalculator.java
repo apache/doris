@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
@@ -600,6 +601,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return null;
     }
 
+    private ColumnStatistic setOlapPartitionInfo(TableIf tableIf, ColumnStatistic colStats) {
+        if (colStats.partitionIdToColStats == null || colStats.partitionIdToColStats.isEmpty()) {
+            return colStats;
+        }
+        if (!(tableIf instanceof OlapTable)) {
+            return colStats;
+        }
+        OlapTable table = (OlapTable) tableIf;
+        if (table.getPartitionInfo().getType() != PartitionType.UNPARTITIONED) {
+            colStats = new ColumnStatisticBuilder(colStats).setPartitionInfo(table.getPartitionInfo()).build();
+        }
+        return colStats;
+    }
+
     // TODO: 1. Subtract the pruned partition
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
@@ -647,6 +662,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 continue;
             }
             rowCount = Math.max(rowCount, cache.count);
+            cache = setOlapPartitionInfo(table, cache);
             Histogram histogram = getColumnHistogram(table, colName);
             if (histogram != null) {
                 ColumnStatisticBuilder columnStatisticBuilder =

@@ -291,7 +291,7 @@ public class CacheTest extends TestWithFeService {
                 table.getColumnStatistic("col");
                 result = new ColumnStatistic(1, 2,
                         null, 3, 4, 5, 6, 7, 8,
-                        null, null, false, null, new Date().toString());
+                        null, null, false, null, new Date().toString(), null);
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
