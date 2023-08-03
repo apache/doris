@@ -94,7 +94,7 @@ public class DiskUtils {
 
     public static String sizeFormat(long size) {
         int unitPos = 0;
-        while (size > 1024 && unitPos < units.length - 1) {
+        while (size >= 1024 && unitPos < units.length - 1) {
             unitPos++;
             size /= 1024;
         }
