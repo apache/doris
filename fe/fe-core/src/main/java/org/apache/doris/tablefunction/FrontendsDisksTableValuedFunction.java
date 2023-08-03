@@ -32,7 +32,7 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
- * frontends().
+ * frontends_disks().
  */
 public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "frontends_disks";

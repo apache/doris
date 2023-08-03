@@ -55,6 +55,8 @@ public abstract class TableValuedFunctionIf {
                 return new BackendsTableValuedFunction(params);
             case FrontendsTableValuedFunction.NAME:
                 return new FrontendsTableValuedFunction(params);
+            case FrontendsDisksTableValuedFunction.NAME:
+                return new FrontendsDisksTableValuedFunction(params);
             case WorkloadGroupsTableValuedFunction.NAME:
                 return new WorkloadGroupsTableValuedFunction(params);
             case CatalogsTableValuedFunction.NAME:
