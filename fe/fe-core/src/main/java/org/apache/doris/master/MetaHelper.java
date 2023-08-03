@@ -75,7 +75,7 @@ public class MetaHelper {
     }
 
     // download file from remote node and get md5 from header
-    public static String getRemoteFileAndReturnMd5(String urlStr, int timeout, OutputStream out) {
+    public static String getRemoteFileAndReturnMd5(String urlStr, int timeout, OutputStream out) throws IOException {
         HttpURLConnection conn = null;
         String md5Sum = null;
         try {
@@ -128,11 +128,11 @@ public class MetaHelper {
         String newFileMd5 = Md5Util.getMd5String(newFile);
         if (!masterImageMd5.equals(newFileMd5)) {
             LOG.error("The Master image md5 is different with copied image md5, fileName is: {}, "
-                + "master md5 is: {}, copied md5 is: {}", fileName, masterImageMd5, newFileMd5);
+                    + "master md5 is: {}, copied md5 is: {}", fileName, masterImageMd5, newFileMd5);
             throw new IOException("The Master image md5 is different with copied image md5, fileName is:"
                 + fileName + ", master md5 is: " + masterImageMd5 + ", copied md5 is :" + newFileMd5);
         }
         LOG.info("The Master image md5 is same as copied image md5, fileName is :{} , md5 is: {}",
-            fileName, newFileMd5);
+                fileName, newFileMd5);
     }
 }
