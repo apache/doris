@@ -155,6 +155,10 @@ public class SummaryProfile {
         for (String key : infos.keySet()) {
             if (SUMMARY_KEYS.contains(key)) {
                 summaryProfile.addInfoString(key, infos.get(key));
+            } else if (EXECUTION_SUMMARY_KEYS.contains(key)) {
+                // Some static value is build in summary profile, should add
+                // them to execution summary profile during update.
+                executionSummaryProfile.addInfoString(key, infos.get(key));
             }
         }
     }
