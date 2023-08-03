@@ -1184,10 +1184,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         StringBuilder sb = new StringBuilder();
         sb.append("tablet id: ").append(tabletId).append(", status: ").append(tabletStatus.name());
         sb.append(", state: ").append(state.name()).append(", type: ").append(type.name());
-        if (type == Type.BALANCE) {
+        if (type == Type.BALANCE && balanceType != null) {
             sb.append(", balance: ").append(balanceType.name());
         }
-        sb.append(", priority: ").append(priority.name());
+        if (priority != null) {
+            sb.append(", priority: ").append(priority.name());
+        }
         if (srcReplica != null) {
             sb.append(". from backend: ").append(srcReplica.getBackendId());
             sb.append(", src path hash: ").append(srcPathHash);
