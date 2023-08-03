@@ -125,6 +125,7 @@ public class DeleteStmt extends DdlStmt {
                 if (!(((OlapTable) targetTable).getKeysType() == KeysType.UNIQUE_KEYS)) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
                 }
+                wherePredicate.reset();
                 constructInsertStmt();
             }
         } else {
