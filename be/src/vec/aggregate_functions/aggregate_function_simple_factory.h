@@ -95,6 +95,12 @@ public:
             name_str = function_alias[name];
         }
 
+        if (be_version < AGG_FUNCTION_NEW) {
+            if (name == "collect_list" || name == "collect_set") {
+                return nullptr;
+            }
+        }
+
         if (nullable) {
             return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
                            ? nullptr
