@@ -158,7 +158,7 @@ services:
       - /data/be/storage/:/opt/apache-doris/be/storage/
       - /data/be/script/:/docker-entrypoint-initdb.d/
      depends_on:
-       -fe
+       - fe
      network_mode: host
 ```
 
