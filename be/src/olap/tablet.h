@@ -450,6 +450,18 @@ public:
                               DeleteBitmapPtr delete_bitmap, int64_t version,
                               CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr);
 
+    Status calc_delete_bitmap_parallel(RowsetSharedPtr rowset,
+                                       const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                                       const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                       DeleteBitmapPtr delete_bitmap, int64_t version,
+                                       CalcDeleteBitmapToken* token,
+                                       RowsetWriter* rowset_writer = nullptr);
+
+    Status calc_delete_bitmap_with_heap(RowsetSharedPtr rowset,
+                                        const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                                        const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                        DeleteBitmapPtr delete_bitmap);
+
     std::vector<RowsetSharedPtr> get_rowset_by_ids(
             const RowsetIdUnorderedSet* specified_rowset_ids);
 

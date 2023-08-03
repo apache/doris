@@ -35,8 +35,10 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_tree.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "olap/utils.h"
 #include "olap/version_graph.h"
 #include "util/metrics.h"
 #include "util/once.h"
@@ -44,32 +46,43 @@
 
 namespace doris {
 
-class MergeIndexDeleteBitmapCalculatorContext {
+constexpr static size_t kMergedPKIteratorReadBatchSize = 64;
+
+class MergedPKIndexDeleteBitmapCalculatorContext {
 public:
     class Comparator {
     public:
         Comparator(size_t sequence_length) : _sequence_length(sequence_length) {}
-        bool operator()(MergeIndexDeleteBitmapCalculatorContext* lhs,
-                        MergeIndexDeleteBitmapCalculatorContext* rhs) const;
-        bool is_key_same(Slice const& lhs, Slice const& rhs) const;
+        bool operator()(MergedPKIndexDeleteBitmapCalculatorContext* lhs,
+                        MergedPKIndexDeleteBitmapCalculatorContext* rhs) const;
+        [[nodiscard]] int compare_key(Slice const& lhs, Slice const& rhs) const;
+        [[nodiscard]] int compare_seq(Slice const& lhs, Slice const& rhs) const;
+        [[nodiscard]] bool is_key_same(Slice const& lhs, Slice const& rhs) const;
 
     private:
         size_t _sequence_length;
     };
 
-    MergeIndexDeleteBitmapCalculatorContext(std::unique_ptr<segment_v2::IndexedColumnIterator> iter,
-                                            vectorized::DataTypePtr index_type, int32_t segment_id,
-                                            size_t num_rows, size_t batch_max_size = 1024)
+    MergedPKIndexDeleteBitmapCalculatorContext(
+            std::unique_ptr<segment_v2::IndexedColumnIterator> iter,
+            vectorized::DataTypePtr index_type, RowsetId rowset_id, size_t end_version,
+            int32_t segment_id, size_t num_rows,
+            size_t batch_max_size = kMergedPKIteratorReadBatchSize)
             : _iter(std::move(iter)),
               _index_type(index_type),
               _num_rows(num_rows),
               _max_batch_size(batch_max_size),
+              _end_version(end_version),
+              _rowset_id(rowset_id),
               _segment_id(segment_id) {}
-    Status get_current_key(Slice& slice);
+    Status get_current_key(Slice* slice);
     Status advance();
     Status seek_at_or_after(Slice const& key);
-    size_t row_id() const { return _cur_row_id; }
-    int32_t segment_id() const { return _segment_id; }
+    [[nodiscard]] bool eof() const { return _cur_row_id >= _num_rows; }
+    [[nodiscard]] size_t row_id() const { return _cur_row_id; }
+    [[nodiscard]] int32_t segment_id() const { return _segment_id; }
+    [[nodiscard]] RowsetId rowset_id() const { return _rowset_id; }
+    [[nodiscard]] int64_t end_version() const { return _end_version; }
 
 private:
     Status _next_batch(size_t row_id);
@@ -82,28 +95,33 @@ private:
     size_t _cur_row_id {0};
     size_t const _num_rows;
     size_t const _max_batch_size;
+    size_t const _end_version;
+    RowsetId const _rowset_id;
     int32_t const _segment_id;
-    bool _excat_match {false};
+    bool _excat_match;
 };
 
-class MergeIndexDeleteBitmapCalculator {
+class MergedPKIndexDeleteBitmapCalculator {
 public:
-    MergeIndexDeleteBitmapCalculator() = default;
+    MergedPKIndexDeleteBitmapCalculator() = default;
 
-    Status init(RowsetId rowset_id, std::vector<SegmentSharedPtr> const& segments,
-                size_t seq_col_length = 0, size_t max_batch_size = 1024);
+    Status init(std::vector<SegmentSharedPtr> const& segments,
+                const std::vector<RowsetSharedPtr>* specified_rowsets = nullptr,
+                size_t seq_col_length = 0, size_t max_batch_size = kMergedPKIteratorReadBatchSize);
 
-    Status calculate_one(RowLocation& loc);
-
-    Status calculate_all(DeleteBitmapPtr delete_bitmap);
+    Status process(DeleteBitmapPtr delete_bitmap);
 
 private:
-    using Heap = std::priority_queue<MergeIndexDeleteBitmapCalculatorContext*,
-                                     std::vector<MergeIndexDeleteBitmapCalculatorContext*>,
-                                     MergeIndexDeleteBitmapCalculatorContext::Comparator>;
-    std::vector<MergeIndexDeleteBitmapCalculatorContext> _contexts;
-    MergeIndexDeleteBitmapCalculatorContext::Comparator _comparator {0};
-    RowsetId _rowset_id;
+    Status init(std::vector<SegmentSharedPtr> const& segments,
+                const std::vector<int64_t>* end_versions, size_t seq_col_length,
+                size_t max_batch_size);
+
+    using Heap = std::priority_queue<MergedPKIndexDeleteBitmapCalculatorContext*,
+                                     std::vector<MergedPKIndexDeleteBitmapCalculatorContext*>,
+                                     MergedPKIndexDeleteBitmapCalculatorContext::Comparator>;
+    std::vector<MergedPKIndexDeleteBitmapCalculatorContext> _contexts;
+    std::unique_ptr<std::vector<std::unique_ptr<SegmentCacheHandle>>> _seg_caches;
+    MergedPKIndexDeleteBitmapCalculatorContext::Comparator _comparator {0};
     std::unique_ptr<Heap> _heap;
     std::string _last_key;
     size_t _seq_col_length;

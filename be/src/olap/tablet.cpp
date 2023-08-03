@@ -3013,14 +3013,31 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
                                   DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                   CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
-    auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
+        auto rowset_id = rowset->rowset_id();
         LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet_id()
                   << " rowset: " << rowset_id;
         return Status::OK();
     }
+    size_t num_rows = 0;
+    for (auto const& segment : segments) {
+        num_rows += segment->num_rows();
+    }
+    bool is_partial_update = rowset->tablet_schema()->is_partial_update();
+    if (!is_partial_update &&
+        num_rows >= config::min_rows_to_use_merge_pk_iterator_for_delete_bitmap) {
+        calc_delete_bitmap_with_heap(rowset, segments, specified_rowsets, delete_bitmap);
+    } else {
+        calc_delete_bitmap_parallel(rowset, segments, specified_rowsets, delete_bitmap, end_version,
+                                    token, rowset_writer);
+    }
+    return Status::OK();
+}
 
-    OlapStopWatch watch;
+Status Tablet::calc_delete_bitmap_parallel(
+        RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+        int64_t end_version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
     doris::TabletSharedPtr tablet_ptr =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
     if (tablet_ptr == nullptr) {
@@ -3047,6 +3064,26 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
             delete_bitmap->merge(*seg_delete_bitmap);
         }
     }
+    return Status::OK();
+}
+
+Status Tablet::calc_delete_bitmap_with_heap(
+        RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+        const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap) {
+    OlapStopWatch watch;
+
+    size_t seq_col_length = 0;
+    auto&& schema = rowset->tablet_schema();
+    if (schema->has_sequence_col()) {
+        seq_col_length = schema->column(schema->sequence_col_idx()).length();
+    }
+
+    MergedPKIndexDeleteBitmapCalculator calculator;
+    RETURN_IF_ERROR(calculator.init(segments, &specified_rowsets, seq_col_length));
+    RETURN_IF_ERROR(calculator.process(delete_bitmap));
+
+    LOG(INFO) << fmt::format("calc rowsetwise delete bitmap of rowset{}, cost: {}(us)",
+                             rowset->rowset_id().to_string(), watch.get_elapse_time_us());
     return Status::OK();
 }
 
@@ -3665,10 +3702,9 @@ Status Tablet::calc_delete_bitmap_between_segments(
         seq_col_length = _schema->column(seq_col_idx).length();
     }
 
-    MergeIndexDeleteBitmapCalculator calculator;
-    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length));
-
-    RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
+    MergedPKIndexDeleteBitmapCalculator calculator;
+    RETURN_IF_ERROR(calculator.init(segments, nullptr, seq_col_length));
+    RETURN_IF_ERROR(calculator.process(delete_bitmap));
 
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "

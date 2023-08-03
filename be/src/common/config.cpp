@@ -1059,6 +1059,9 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 
+// minium rows required to use merge primary key iterator for calculating delete-bitmap
+DEFINE_Int64(min_rows_to_use_merge_pk_iterator_for_delete_bitmap, "50000000");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");

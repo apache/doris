@@ -17,12 +17,17 @@
 
 #include "olap/delete_bitmap_calculator.h"
 
+#include <iterator>
+
+#include "common/status.h"
 #include "olap/primary_key_index.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/segment_loader.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
-Status MergeIndexDeleteBitmapCalculatorContext::get_current_key(Slice& slice) {
+Status MergedPKIndexDeleteBitmapCalculatorContext::get_current_key(Slice* slice) {
     if (_cur_row_id >= _num_rows) {
         return Status::EndOfFile("Reach the end of file");
     }
@@ -30,12 +35,12 @@ Status MergeIndexDeleteBitmapCalculatorContext::get_current_key(Slice& slice) {
         RETURN_IF_ERROR(_iter->seek_to_ordinal(_cur_row_id));
         RETURN_IF_ERROR(_next_batch(_cur_row_id));
     }
-    slice = Slice(_index_column->get_data_at(_cur_pos).data,
-                  _index_column->get_data_at(_cur_pos).size);
+    *slice = Slice(_index_column->get_data_at(_cur_pos).data,
+                   _index_column->get_data_at(_cur_pos).size);
     return Status::OK();
 }
 
-Status MergeIndexDeleteBitmapCalculatorContext::advance() {
+Status MergedPKIndexDeleteBitmapCalculatorContext::advance() {
     ++_cur_pos;
     ++_cur_row_id;
     if (_cur_row_id >= _num_rows) {
@@ -44,9 +49,10 @@ Status MergeIndexDeleteBitmapCalculatorContext::advance() {
     return Status::OK();
 }
 
-Status MergeIndexDeleteBitmapCalculatorContext::seek_at_or_after(Slice const& key) {
+Status MergedPKIndexDeleteBitmapCalculatorContext::seek_at_or_after(Slice const& key) {
     auto st = _iter->seek_at_or_after(&key, &_excat_match);
     if (st.is<ErrorCode::NOT_FOUND>()) {
+        _cur_row_id = _num_rows;
         return Status::EndOfFile("Reach the end of file");
     }
     RETURN_IF_ERROR(st);
@@ -66,7 +72,7 @@ Status MergeIndexDeleteBitmapCalculatorContext::seek_at_or_after(Slice const& ke
     return _next_batch(current_ordinal);
 }
 
-Status MergeIndexDeleteBitmapCalculatorContext::_next_batch(size_t row_id) {
+Status MergedPKIndexDeleteBitmapCalculatorContext::_next_batch(size_t row_id) {
     // _iter should be seeked before calling this function
     DCHECK(row_id < _num_rows) << fmt::format("row_id: {} should be less than _num_rows: {}",
                                               row_id, _num_rows);
@@ -83,116 +89,134 @@ Status MergeIndexDeleteBitmapCalculatorContext::_next_batch(size_t row_id) {
     return Status::OK();
 }
 
-bool MergeIndexDeleteBitmapCalculatorContext::Comparator::operator()(
-        MergeIndexDeleteBitmapCalculatorContext* lhs,
-        MergeIndexDeleteBitmapCalculatorContext* rhs) const {
+bool MergedPKIndexDeleteBitmapCalculatorContext::Comparator::operator()(
+        MergedPKIndexDeleteBitmapCalculatorContext* lhs,
+        MergedPKIndexDeleteBitmapCalculatorContext* rhs) const {
     // std::proiroty_queue is a max heap, and function should return the result of `lhs < rhs`
     // so if the result of the function is true, rhs will be popped before lhs
     Slice key1, key2;
-    RETURN_IF_ERROR(lhs->get_current_key(key1));
-    RETURN_IF_ERROR(rhs->get_current_key(key2));
-    if (_sequence_length == 0) {
-        auto cmp_result = key1.compare(key2);
-        // when key1 is the same as key2,
-        // we want the one with greater segment id to be popped first
-        return cmp_result ? (cmp_result > 0) : (lhs->segment_id() < rhs->segment_id());
+    Status st;
+    st = lhs->get_current_key(&key1);
+    CHECK(LIKELY(st.ok())) << fmt::format("Reading key1 but get st = {}", st);
+    st = rhs->get_current_key(&key2);
+    CHECK(LIKELY(st.ok())) << fmt::format("Reading key2 but get st = {}", st);
+    int key_cmp_result = compare_key(key1, key2);
+    if (LIKELY(key_cmp_result != 0)) {
+        return key_cmp_result > 0;
     }
-    // smaller key popped first
-    auto key1_without_seq = Slice(key1.get_data(), key1.get_size() - _sequence_length);
-    auto key2_without_seq = Slice(key2.get_data(), key2.get_size() - _sequence_length);
-    auto cmp_result = key1_without_seq.compare(key2_without_seq);
-    if (cmp_result != 0) {
-        return cmp_result > 0;
+    int seq_cmp_result = compare_seq(key1, key2);
+    if (LIKELY(seq_cmp_result != 0)) {
+        return seq_cmp_result < 0;
     }
-    // greater sequence value popped first
-    auto key1_sequence_val =
-            Slice(key1.get_data() + key1.get_size() - _sequence_length, _sequence_length);
-    auto key2_sequence_val =
-            Slice(key2.get_data() + key2.get_size() - _sequence_length, _sequence_length);
-    cmp_result = key1_sequence_val.compare(key2_sequence_val);
-    if (cmp_result != 0) {
-        return cmp_result < 0;
+    if (LIKELY(lhs->end_version() != rhs->end_version())) {
+        return lhs->end_version() < rhs->end_version();
     }
-    // greater segment id popped first
     return lhs->segment_id() < rhs->segment_id();
 }
 
-bool MergeIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice const& lhs,
-                                                                      Slice const& rhs) const {
+int MergedPKIndexDeleteBitmapCalculatorContext::Comparator::compare_key(Slice const& lhs,
+                                                                        Slice const& rhs) const {
     auto lhs_without_seq = Slice(lhs.get_data(), lhs.get_size() - _sequence_length);
     auto rhs_without_seq = Slice(rhs.get_data(), rhs.get_size() - _sequence_length);
-    return lhs_without_seq.compare(rhs_without_seq) == 0;
+    return lhs_without_seq.compare(rhs_without_seq);
 }
 
-Status MergeIndexDeleteBitmapCalculator::init(RowsetId rowset_id,
-                                              std::vector<SegmentSharedPtr> const& segments,
-                                              size_t seq_col_length, size_t max_batch_size) {
-    _rowset_id = rowset_id;
+int MergedPKIndexDeleteBitmapCalculatorContext::Comparator::compare_seq(Slice const& lhs,
+                                                                        Slice const& rhs) const {
+    if (UNLIKELY(_sequence_length == 0)) {
+        return 0;
+    }
+    auto lhs_seq = Slice(lhs.get_data() + lhs.get_size() - _sequence_length, _sequence_length);
+    auto rhs_seq = Slice(rhs.get_data() + rhs.get_size() - _sequence_length, _sequence_length);
+    return lhs_seq.compare(rhs_seq);
+}
+
+bool MergedPKIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice const& lhs,
+                                                                         Slice const& rhs) const {
+    return compare_key(lhs, rhs) == 0;
+}
+
+Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> const& segments,
+                                                 const std::vector<int64_t>* end_versions,
+                                                 size_t seq_col_length, size_t max_batch_size) {
     _seq_col_length = seq_col_length;
-    _comparator = MergeIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length);
-    _contexts.reserve(segments.size());
+    _comparator = MergedPKIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length);
+    size_t num_segments = segments.size();
+    _contexts.reserve(num_segments);
     _heap = std::make_unique<Heap>(_comparator);
 
-    for (auto& segment : segments) {
+    for (size_t i = 0; i < num_segments; ++i) {
+        auto&& segment = segments[i];
+        int64_t end_version = end_versions ? (*end_versions)[i] : 0;
+        segment->rowset_id();
         RETURN_IF_ERROR(segment->load_index());
         auto pk_idx = segment->get_primary_key_index();
         std::unique_ptr<segment_v2::IndexedColumnIterator> index;
         RETURN_IF_ERROR(pk_idx->new_iterator(&index));
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                 pk_idx->type_info()->type(), 1, 0);
-        _contexts.emplace_back(std::move(index), index_type, segment->id(), pk_idx->num_rows());
+        _contexts.emplace_back(std::move(index), index_type, segment->rowset_id(), end_version,
+                               segment->id(), pk_idx->num_rows());
         _heap->push(&_contexts.back());
     }
     return Status::OK();
 }
 
-Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
-    // get the location of a out-of-date row
-    while (!_heap->empty()) {
-        auto cur_ctx = _heap->top();
-        _heap->pop();
-        Slice cur_key;
-        RETURN_IF_ERROR(cur_ctx->get_current_key(cur_key));
-        if (_comparator.is_key_same(cur_key, _last_key)) {
-            loc.segment_id = cur_ctx->segment_id();
-            loc.row_id = cur_ctx->row_id();
-            auto st = cur_ctx->advance();
-            if (st.ok()) {
-                _heap->push(cur_ctx);
-            } else if (!st.is<ErrorCode::END_OF_FILE>()) {
-                return st;
+Status MergedPKIndexDeleteBitmapCalculator::init(
+        std::vector<SegmentSharedPtr> const& segments,
+        const std::vector<RowsetSharedPtr>* specified_rowsets, size_t seq_col_length,
+        size_t max_batch_size) {
+    std::vector<SegmentSharedPtr> all_segments(segments);
+    std::vector<int64_t> end_versions(segments.size(), INT64_MAX);
+    if (specified_rowsets) {
+        size_t num_rowsets = specified_rowsets->size();
+        _seg_caches = std::make_unique<std::vector<std::unique_ptr<SegmentCacheHandle>>>(
+                specified_rowsets->size());
+        for (size_t i = 0; i < num_rowsets; ++i) {
+            auto&& rs = (*specified_rowsets)[i];
+            auto&& end_version = rs->version().second;
+            (*_seg_caches)[i] = std::make_unique<SegmentCacheHandle>();
+            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                    std::static_pointer_cast<BetaRowset>(rs), (*_seg_caches)[i].get(), true));
+            auto&& segments = (*_seg_caches)[i]->get_segments();
+            for (auto&& segment : segments) {
+                all_segments.emplace_back(segment);
+                end_versions.emplace_back(end_version);
             }
-            return Status::OK();
         }
-        if (_heap->empty()) {
-            break;
-        }
-        _last_key = cur_key.to_string();
-        auto nxt_ctx = _heap->top();
-        Slice nxt_key;
-        RETURN_IF_ERROR(nxt_ctx->get_current_key(nxt_key));
-        Status st = _comparator.is_key_same(cur_key, nxt_key)
-                            ? cur_ctx->advance()
-                            : cur_ctx->seek_at_or_after(Slice(
-                                      nxt_key.get_data(), nxt_key.get_size() - _seq_col_length));
-        if (st.is<ErrorCode::END_OF_FILE>()) {
-            continue;
-        }
-        RETURN_IF_ERROR(st);
-        _heap->push(cur_ctx);
     }
-    return Status::EndOfFile("Reach end of file");
+    return init(all_segments, &end_versions, seq_col_length, max_batch_size);
 }
 
-Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bitmap) {
-    RowLocation loc;
-    while (true) {
-        auto st = calculate_one(loc);
-        if (st.is<ErrorCode::END_OF_FILE>()) {
-            break;
+Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitmap) {
+    while (_heap->size() >= 2) {
+        auto iter1 = _heap->top();
+        _heap->pop();
+        auto iter2 = _heap->top();
+        _heap->pop();
+
+        Slice key1, key2;
+        RETURN_IF_ERROR(iter1->get_current_key(&key1));
+        RETURN_IF_ERROR(iter2->get_current_key(&key2));
+
+        if (LIKELY(!_comparator.is_key_same(key1, key2))) {
+            auto key2_without_seq = Slice(key2.get_data(), key2.get_size() - _seq_col_length);
+            auto st = iter1->seek_at_or_after(key2_without_seq);
+            if (UNLIKELY(!(st.ok() || st.is<ErrorCode::END_OF_FILE>() ||
+                           st.is<ErrorCode::NOT_FOUND>()))) {
+                return st;
+            }
+        } else {
+            delete_bitmap->add({iter2->rowset_id(), iter2->segment_id(), 0}, iter2->row_id());
+            iter2->advance();
         }
-        RETURN_IF_ERROR(st);
-        delete_bitmap->add({_rowset_id, loc.segment_id, 0}, loc.row_id);
+
+        if (!iter1->eof()) {
+            _heap->push(iter1);
+        }
+        if (!iter2->eof()) {
+            _heap->push(iter2);
+        }
     }
     return Status::OK();
 }
