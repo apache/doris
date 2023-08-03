@@ -188,7 +188,13 @@ public class BrokerFileGroupAggInfo implements Writable {
             aggKeyToFileGroups.put(fileGroupAggKey, fileGroupList);
         }
         // exist, aggregate them
-        fileGroupList.add(fileGroup);
+        // Currently, The difference of fileGroups is that they have different filPath.
+        if (fileGroupList.isEmpty()) {
+            fileGroupList.add(fileGroup);
+        } else {
+            BrokerFileGroup firstFileGroup = fileGroupList.get(0);
+            firstFileGroup.getFilePaths().addAll(fileGroup.getFilePaths());
+        }
 
         // update tableIdToPartitionIds
         Set<Long> partitionIds = tableIdToPartitionIds.get(fileGroup.getTableId());
