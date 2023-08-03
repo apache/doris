@@ -686,7 +686,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         {
             // send last block
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-            if (_serializer->get_block() && _serializer->get_block()->rows() > 0) {
+            if (_serializer && _serializer->get_block() && _serializer->get_block()->rows() > 0) {
                 auto block = _serializer->get_block()->to_block();
                 RETURN_IF_ERROR(
                         _serializer->serialize_block(&block, _cur_pb_block, _channels.size()));
