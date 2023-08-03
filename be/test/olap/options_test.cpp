@@ -118,16 +118,12 @@ TEST_F(OptionsTest, parse_root_path) {
     }
     {
         // test tail `;`
-        std::string path = "/home/disk1/doris;/home/disk2/doris;/home/disk2/doris;";
-        std::string p1 = "/home/disk1/doris";
-        std::string p2 = "/home/disk2/doris";
-        std::string p3 = "/home/disk2/doris";
+        std::string path = path1 + ";" + path2 + ";";
         std::vector<StorePath> paths;
         EXPECT_EQ(Status::OK(), parse_conf_store_paths(path, &paths));
-        EXPECT_EQ(paths.size(), 3);
-        EXPECT_STREQ(p1.c_str(), paths[0].path.c_str());
-        EXPECT_STREQ(p2.c_str(), paths[1].path.c_str());
-        EXPECT_STREQ(p3.c_str(), paths[2].path.c_str());
+        EXPECT_EQ(paths.size(), 2);
+        EXPECT_STREQ(path1.c_str(), paths[0].path.c_str());
+        EXPECT_STREQ(path2.c_str(), paths[1].path.c_str());
     }
 }
 

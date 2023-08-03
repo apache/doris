@@ -149,8 +149,8 @@ Status parse_root_path(const string& root_path, StorePath* path) {
 Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>* paths) {
     std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
     if (path_vec.empty()) {
-        return Status::Error<INVALID_ARGUMENT>("fail to parse empty storage_root_path config.",
-                                               config_path);
+        // means compute node
+        return Status::OK();
     }
     if (path_vec.back().empty()) {
         // deal with the case that user add `;` to the tail
