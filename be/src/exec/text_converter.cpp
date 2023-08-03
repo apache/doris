@@ -303,7 +303,7 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
         auto sub_type = type_desc.children[0];
         for (int i = 0; i < rows; i++) {
             for (auto range : ranges) {
-                write_date(sub_type, &col->get_data(), data + range.first, range.second,
+                write_data(sub_type, &col->get_data(), data + range.first, range.second,
                            copy_string, need_escape, 1, array_delimiter + 1);
             }
             col->get_offsets().push_back(col->get_offsets().back() + ranges.size());
@@ -339,10 +339,10 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
 
         for (int i = 0; i < rows; i++) {
             for (auto range : ranges) {
-                write_date(key_type, &col->get_keys(), data + range[0], range[1] - range[0],
+                write_data(key_type, &col->get_keys(), data + range[0], range[1] - range[0],
                            copy_string, need_escape, 1, array_delimiter + 1);
 
-                write_date(value_type, &col->get_values(), data + range[1] + 1, range[2] - range[1],
+                write_data(value_type, &col->get_values(), data + range[1] + 1, range[2] - range[1],
                            copy_string, need_escape, 1, array_delimiter + 1);
             }
 
@@ -363,7 +363,7 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
         }
         for (int i = 0; i < rows; i++) {
             for (size_t loc = 0; loc < col->get_columns().size(); loc++) {
-                write_date(type_desc.children[loc], &col->get_column(loc), data + ranges[loc].first,
+                write_data(type_desc.children[loc], &col->get_column(loc), data + ranges[loc].first,
                            ranges[loc].second, copy_string, need_escape, rows, array_delimiter + 1);
             }
         }
@@ -392,7 +392,7 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
 bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                                      vectorized::IColumn* nullable_col_ptr, const char* data,
                                      size_t len, bool copy_string, bool need_escape, size_t rows) {
-    return write_date(slot_desc->type(), nullable_col_ptr, data, len, copy_string, need_escape,
+    return write_data(slot_desc->type(), nullable_col_ptr, data, len, copy_string, need_escape,
                       rows, '\2');
 }
 
