@@ -2714,14 +2714,6 @@ show data （其他用法：HELP SHOW DATA）
 
 这个参数主要用于避免因 external catalog 无法访问、信息过多等原因导致的查询 `information_schema` 超时的问题。
 
-#### `max_instance_num`
-
-<version since="dev"></version>
-
-默认值：128
-
-用于限制parallel_fragment_exec_instance_num的设置，set parallel_fragment_exec_instance_num不能超过max_instance_num
-
 #### `enable_query_hit_stats`
 
 <version since="dev"></version>

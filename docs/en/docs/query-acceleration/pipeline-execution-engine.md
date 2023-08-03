@@ -77,3 +77,4 @@ If the user upgrades from a lower version, the default value will be the paralle
 ```
 set parallel_pipeline_task_num = 0;
 ```
+You can limit the automatically configured concurrency by setting "max_instance_num."（The default value is 64)
