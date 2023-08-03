@@ -169,6 +169,10 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // this case will be handled in load channel's add batch method.
     Status st = channel->add_batch(request, response);
     if (UNLIKELY(!st.ok())) {
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            _deregister_channel_all_writers(channel);
+        }
         channel->cancel();
         return st;
     }
