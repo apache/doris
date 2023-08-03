@@ -563,13 +563,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Histogram getColumnHistogram(TableIf table, String colName) {
-        if (totalHistogramMap.get(table.getName() + colName) != null) {
-            return totalHistogramMap.get(table.getName() + colName);
-        } else if (isPlayNereidsDump) {
-            return null;
-        } else {
-            return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
-        }
+        // if (totalHistogramMap.get(table.getName() + colName) != null) {
+        //     return totalHistogramMap.get(table.getName() + colName);
+        // } else if (isPlayNereidsDump) {
+        //     return null;
+        // } else {
+        //     return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+        // }
+        return null;
     }
 
     // TODO: 1. Subtract the pruned partition
@@ -583,18 +584,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         double rowCount = catalogRelation.getTable().estimatedRowCount();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
+            boolean shouldIgnoreThisCol = shouldIgnoreCol(table, slotReference.getColumn().get());
+
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache = Config.enable_stats && FeConstants.enableInternalSchemaDb
-                    ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+                    ? shouldIgnoreThisCol
+                        ? ColumnStatistic.UNKNOWN : getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
                         .build();
             }
             if (cache.isUnKnown) {
-                if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, slotReference.getColumn().get())) {
+                if (forbidUnknownColStats && !shouldIgnoreThisCol) {
                     if (StatisticsUtil.statsTblAvailable()) {
                         throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
                                 + "It may caused by:\n"
@@ -1054,7 +1058,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return groupExpression.childStatistics(1);
     }
 
-    private boolean ignoreUnknownColStatsCheck(TableIf tableIf, Column c) {
+    private boolean shouldIgnoreCol(TableIf tableIf, Column c) {
         if (tableIf instanceof SchemaTable) {
             return true;
         }

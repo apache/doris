@@ -751,7 +751,8 @@ public class AnalysisManager extends Daemon implements Writable {
 
     private ThreadPoolExecutor createThreadPoolForSyncAnalyze() {
         String poolName = "SYNC ANALYZE THREAD POOL";
-        return new ThreadPoolExecutor(0, 64,
+        return new ThreadPoolExecutor(0,
+                ConnectContext.get().getSessionVariable().parallelSyncAnalyzeTaskNum,
                 0, TimeUnit.SECONDS,
                 new SynchronousQueue(),
                 new ThreadFactoryBuilder().setDaemon(true).setNameFormat("SYNC ANALYZE" + "-%d")
@@ -867,6 +868,9 @@ public class AnalysisManager extends Daemon implements Writable {
                 executor.submit(() -> {
                     try {
                         if (cancelled) {
+                            errorMessages.add("Cancelled since query timeout,"
+                                    + "you could set could query_timeout or parallel_sync_analyze_task_num "
+                                    + "to a bigger value and try again");
                             return;
                         }
                         try {
