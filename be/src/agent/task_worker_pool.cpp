@@ -1159,7 +1159,7 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
                 s3_conf.request_timeout_ms = resource.s3_storage_param.request_timeout_ms;
                 // When using cold heat separation in minio, user might use ip address directly,
                 // which needs enable use_virtual_addressing to true
-                s3_conf.use_virtual_addressing = resource.s3_storage_param.use_path_style;
+                s3_conf.use_virtual_addressing = !resource.s3_storage_param.use_path_style;
                 std::shared_ptr<io::S3FileSystem> fs;
                 if (existed_resource.fs == nullptr) {
                     st = io::S3FileSystem::create(s3_conf, std::to_string(resource.id), &fs);
