@@ -34,6 +34,7 @@ import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.resource.Tag;
@@ -178,6 +179,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private Tablet tablet = null;
     private long visibleVersion = -1;
     private long committedVersion = -1;
+
+    private long tabletSize = 0;
 
     private Replica srcReplica = null;
     private long srcPathHash = -1;
@@ -477,13 +480,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     // database lock should be held.
     public long getTabletSize() {
-        long max = Long.MIN_VALUE;
-        for (Replica replica : tablet.getReplicas()) {
-            if (replica.getDataSize() > max) {
-                max = replica.getDataSize();
-            }
-        }
-        return max;
+        return tabletSize;
+    }
+
+    public void updateTabletSize() {
+        tabletSize = 0;
+        tablet.getReplicas().stream().forEach(
+                replica -> tabletSize = Math.max(tabletSize, replica.getDataSize()));
     }
 
     /*
@@ -1140,6 +1143,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(TimeUtils.longToTimeString(lastSchedTime));
         result.add(TimeUtils.longToTimeString(lastVisitedTime));
         result.add(TimeUtils.longToTimeString(finishedTime));
+        Pair<Double, String> tabletSizeDesc = DebugUtil.getByteUint(tabletSize);
+        result.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tabletSizeDesc.first) + " " + tabletSizeDesc.second);
         result.add(copyTimeMs > 0 ? String.valueOf(copySize / copyTimeMs / 1000.0) : FeConstants.null_string);
         result.add(String.valueOf(failedSchedCounter));
         result.add(String.valueOf(failedRunningCounter));
@@ -1190,12 +1195,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         if (priority != null) {
             sb.append(", priority: ").append(priority.name());
         }
+        sb.append(", tablet size: ").append(tabletSize);
         if (srcReplica != null) {
-            sb.append(". from backend: ").append(srcReplica.getBackendId());
+            sb.append(", from backend: ").append(srcReplica.getBackendId());
             sb.append(", src path hash: ").append(srcPathHash);
         }
         if (destPathHash != -1) {
-            sb.append(". to backend: ").append(destBackendId);
+            sb.append(", to backend: ").append(destBackendId);
             sb.append(", dest path hash: ").append(destPathHash);
         }
         sb.append(", visible version: ").append(visibleVersion);
