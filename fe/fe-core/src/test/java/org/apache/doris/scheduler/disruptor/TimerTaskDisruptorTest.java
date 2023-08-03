@@ -18,8 +18,8 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.scheduler.executor.JobExecutor;
-import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -30,7 +30,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class TimerTaskDisruptorTest {
@@ -56,7 +55,7 @@ public class TimerTaskDisruptorTest {
                 asyncJobManager.getJob(anyLong);
                 result = job;
             }};
-        timerTaskDisruptor.tryPublish(job.getJobId(), UUID.randomUUID().getMostSignificantBits());
+        timerTaskDisruptor.tryPublish(job.getJobId());
         Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> testEventExecuteFlag);
         Assertions.assertTrue(testEventExecuteFlag);
     }
@@ -64,7 +63,7 @@ public class TimerTaskDisruptorTest {
 
     class TestExecutor implements JobExecutor<Boolean> {
         @Override
-        public Boolean execute() {
+        public Boolean execute(Job job) {
             testEventExecuteFlag = true;
             return true;
         }

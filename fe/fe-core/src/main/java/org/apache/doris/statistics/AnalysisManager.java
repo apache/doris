@@ -41,6 +41,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.Util;
@@ -58,7 +59,9 @@ import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -82,14 +85,15 @@ import java.util.StringJoiner;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class AnalysisManager extends Daemon implements Writable {
-
-    public AnalysisTaskScheduler taskScheduler;
 
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
@@ -107,8 +111,7 @@ public class AnalysisManager extends Daemon implements Writable {
     public AnalysisManager() {
         super(TimeUnit.SECONDS.toMillis(StatisticConstants.ANALYZE_MANAGER_INTERVAL_IN_SECS));
         if (!Env.isCheckpointThread()) {
-            this.taskScheduler = new AnalysisTaskScheduler();
-            this.taskExecutor = new AnalysisTaskExecutor(taskScheduler);
+            this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num);
             this.statisticsCache = new StatisticsCache();
             taskExecutor.start();
         }
@@ -172,8 +175,7 @@ public class AnalysisManager extends Daemon implements Writable {
         }
     }
 
-    public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties)
-            throws DdlException {
+    public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties) {
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         db.readLock();
@@ -187,16 +189,24 @@ public class AnalysisManager extends Daemon implements Writable {
                         table.getName());
                 // columnNames null means to add all visitable columns.
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
-                        null, db.getId(), table);
+                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType())).map(
+                                Column::getName).collect(
+                                Collectors.toList()), db.getId(), table);
                 try {
                     analyzeTblStmt.check();
                 } catch (AnalysisException analysisException) {
-                    throw new DdlException(analysisException.getMessage(), analysisException);
+                    LOG.warn("Failed to build analyze job: {}",
+                            analysisException.getMessage(), analysisException);
                 }
                 analyzeStmts.add(analyzeTblStmt);
             }
             for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
-                analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
+                try {
+                    analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
+                } catch (DdlException e) {
+                    LOG.warn("Failed to build analyze job: {}",
+                            e.getMessage(), e);
+                }
             }
         } finally {
             db.readUnlock();
@@ -249,12 +259,13 @@ public class AnalysisManager extends Daemon implements Writable {
             return null;
         }
 
-        analysisTaskInfos.values().forEach(taskScheduler::schedule);
+        analysisTaskInfos.values().forEach(taskExecutor::submitTask);
         return jobInfo;
     }
 
     // Analysis job created by the system
-    public void createSystemAnalysisJob(AnalysisInfo info) throws DdlException {
+    public void createSystemAnalysisJob(AnalysisInfo info, AnalysisTaskExecutor analysisTaskExecutor)
+            throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(info);
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
@@ -268,8 +279,7 @@ public class AnalysisManager extends Daemon implements Writable {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         }
-
-        analysisTaskInfos.values().forEach(taskScheduler::schedule);
+        analysisTaskInfos.values().forEach(taskExecutor::submitTask);
     }
 
     private void sendJobId(List<AnalysisInfo> analysisInfos, boolean proxy) {
@@ -443,6 +453,7 @@ public class AnalysisManager extends Daemon implements Writable {
         Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
                 partitionNames, analysisType, analysisMode);
         taskInfoBuilder.setColToPartitions(colToPartitions);
+        taskInfoBuilder.setTaskIds(Lists.newArrayList());
 
         return taskInfoBuilder.build();
     }
@@ -515,6 +526,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 AnalysisInfoBuilder indexTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
                 AnalysisInfo analysisInfo = indexTaskInfoBuilder.setIndexId(indexId)
                         .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
+                jobInfo.addTaskId(taskId);
                 if (isSync) {
                     return;
                 }
@@ -541,6 +553,7 @@ public class AnalysisManager extends Daemon implements Writable {
             AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
                     .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
             analysisTasks.put(taskId, createTask(analysisInfo));
+            jobInfo.addTaskId(taskId);
             if (isSync) {
                 continue;
             }
@@ -584,6 +597,7 @@ public class AnalysisManager extends Daemon implements Writable {
         AnalysisInfo analysisInfo = colTaskInfoBuilder.setIndexId(-1L).setLastExecTimeInMs(System.currentTimeMillis())
                 .setTaskId(taskId).setColName("TableRowCount").setExternalTableLevelTask(true).build();
         analysisTasks.put(taskId, createTask(analysisInfo));
+        jobInfo.addTaskId(taskId);
         if (isSync) {
             // For sync job, don't need to persist, return here and execute it immediately.
             return;
@@ -712,7 +726,10 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public String getJobProgress(long jobId) {
-        List<AnalysisInfo> tasks = findTasks(jobId);
+        List<AnalysisInfo> tasks = findTasksByTaskIds(jobId);
+        if (tasks == null) {
+            return "N/A";
+        }
         int finished = 0;
         int failed = 0;
         int inProgress = 0;
@@ -738,10 +755,22 @@ public class AnalysisManager extends Daemon implements Writable {
         ConnectContext ctx = ConnectContext.get();
         try {
             ctxToSyncTask.put(ctx, syncTaskCollection);
-            syncTaskCollection.execute();
+            ThreadPoolExecutor syncExecPool = createThreadPoolForSyncAnalyze();
+            syncTaskCollection.execute(syncExecPool);
         } finally {
             ctxToSyncTask.remove(ctx);
         }
+    }
+
+    private ThreadPoolExecutor createThreadPoolForSyncAnalyze() {
+        String poolName = "SYNC ANALYZE THREAD POOL";
+        return new ThreadPoolExecutor(0,
+                ConnectContext.get().getSessionVariable().parallelSyncAnalyzeTaskNum,
+                0, TimeUnit.SECONDS,
+                new SynchronousQueue(),
+                new ThreadFactoryBuilder().setDaemon(true).setNameFormat("SYNC ANALYZE" + "-%d")
+                        .build(), new BlockedPolicy(poolName,
+                (int) TimeUnit.HOURS.toSeconds(Config.analyze_task_timeout_in_hours)));
     }
 
     public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {
@@ -844,28 +873,41 @@ public class AnalysisManager extends Daemon implements Writable {
             tasks.forEach(BaseAnalysisTask::cancel);
         }
 
-        public void execute() {
-            List<String> colNames = new ArrayList<>();
-            List<String> errorMessages = new ArrayList<>();
+        public void execute(ThreadPoolExecutor executor) {
+            List<String> colNames = Collections.synchronizedList(new ArrayList<>());
+            List<String> errorMessages = Collections.synchronizedList(new ArrayList<>());
+            CountDownLatch countDownLatch = new CountDownLatch(tasks.size());
             for (BaseAnalysisTask task : tasks) {
-                if (cancelled) {
-                    colNames.add(task.info.colName);
-                    errorMessages.add("Cancelled");
-                    continue;
-                }
-                try {
-                    task.doExecute();
-                    updateSyncTaskStatus(task, AnalysisState.FINISHED);
-                } catch (Throwable t) {
-                    colNames.add(task.info.colName);
-                    errorMessages.add(Util.getRootCauseMessage(t));
-                    updateSyncTaskStatus(task, AnalysisState.FAILED);
-                    LOG.warn("Failed to analyze, info: {}", task, t);
-                }
+                executor.submit(() -> {
+                    try {
+                        if (cancelled) {
+                            errorMessages.add("Cancelled since query timeout,"
+                                    + "you could set could query_timeout or parallel_sync_analyze_task_num "
+                                    + "to a bigger value and try again");
+                            return;
+                        }
+                        try {
+                            task.doExecute();
+                            updateSyncTaskStatus(task, AnalysisState.FINISHED);
+                        } catch (Throwable t) {
+                            colNames.add(task.info.colName);
+                            errorMessages.add(Util.getRootCauseMessage(t));
+                            updateSyncTaskStatus(task, AnalysisState.FAILED);
+                            LOG.warn("Failed to analyze, info: {}", task, t);
+                        }
+                    } finally {
+                        countDownLatch.countDown();
+                    }
+                });
+            }
+            try {
+                countDownLatch.await();
+            } catch (InterruptedException t) {
+                LOG.warn("Thread got interrupted when waiting sync analyze task execution finished", t);
             }
             if (!colNames.isEmpty()) {
                 throw new RuntimeException("Failed to analyze following columns:[" + String.join(",", colNames)
-                    + "] Reasons: " + String.join(",", errorMessages));
+                        + "] Reasons: " + String.join(",", errorMessages));
             }
         }
 
@@ -910,6 +952,14 @@ public class AnalysisManager extends Daemon implements Writable {
         synchronized (analysisTaskInfoMap) {
             return analysisTaskInfoMap.values().stream().filter(i -> i.jobId == jobId).collect(Collectors.toList());
         }
+    }
+
+    public List<AnalysisInfo> findTasksByTaskIds(long jobId) {
+        AnalysisInfo jobInfo = analysisJobInfoMap.get(jobId);
+        if (jobInfo != null && jobInfo.taskIds != null) {
+            return jobInfo.taskIds.stream().map(id -> analysisTaskInfoMap.get(id)).collect(Collectors.toList());
+        }
+        return null;
     }
 
     public void removeAll(List<AnalysisInfo> analysisInfos) {

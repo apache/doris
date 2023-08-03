@@ -106,6 +106,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
+    public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
@@ -359,6 +360,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
+    public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
+
     public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
 
     public static final String CBO_MEM_WEIGHT = "cbo_mem_weight";
@@ -563,6 +566,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true)
     public int parallelPipelineTaskNum = 0;
+
+    @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
+    public int maxInstanceNum = 64;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
@@ -1059,6 +1065,9 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableStrongConsistencyRead = false;
 
+    @VariableMgr.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
+    public int parallelSyncAnalyzeTaskNum = 2;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -1471,7 +1480,8 @@ public class SessionVariable implements Serializable, Writable {
     public int getParallelExecInstanceNum() {
         if (enablePipelineEngine && parallelPipelineTaskNum == 0) {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
-            return (size + 1) / 2;
+            int autoInstance = (size + 1) / 2;
+            return Math.min(autoInstance, maxInstanceNum);
         } else if (enablePipelineEngine) {
             return parallelPipelineTaskNum;
         } else {

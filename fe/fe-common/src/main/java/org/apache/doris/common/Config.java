@@ -1520,6 +1520,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean enable_pipeline_load = false;
 
+    @ConfField
+    public static int scheduler_job_task_max_num = 10;
+
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
@@ -1680,7 +1683,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_task_num = 10;
+    public static int statistics_simultaneously_running_task_num = 5;
 
     /**
      * if table has too many replicas, Fe occur oom when schema change.
@@ -1958,13 +1961,6 @@ public class Config extends ConfigBase {
             "Now default set to true, not support create complex type(array/struct/map) nested complex type "
                     + "when we create table, only support array type nested array"})
     public static boolean disable_nested_complex_type  = true;
-    /*
-     * "max_instance_num" is used to set the maximum concurrency. When the value set
-     * by "parallel_fragment_exec_instance_num" is greater than "max_instance_num",
-     * an error will be reported.
-     */
-    @ConfField(mutable = true)
-    public static int max_instance_num = 128;
 
     /*
      * This variable indicates the number of digits by which to increase the scale
@@ -2031,13 +2027,13 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField
-    public static boolean enable_full_auto_analyze = false;
+    public static boolean enable_full_auto_analyze = true;
 
     @ConfField
     public static String full_auto_analyze_start_time = "00:00:00";
 
     @ConfField
-    public static String full_auto_analyze_end_time = "23:59:59";
+    public static String full_auto_analyze_end_time = "02:00:00";
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
@@ -2056,6 +2052,12 @@ public class Config extends ConfigBase {
                     + "and modifying table properties. "
                     + "This config is recommended to be used only in the test environment"})
     public static int force_olap_table_replication_num = 0;
+
+    @ConfField
+    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+
+    @ConfField
+    public static int cpu_resource_limit_per_analyze_task = 1;
 
     @ConfField(mutable = true, masterOnly = false, description = {
         "master fe同步image文件到其他fe时是否校验md5",

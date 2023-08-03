@@ -1928,6 +1928,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setRpcPort(Config.rpc_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 result.setLastStartupTime(exeEnv.getStartupTime());
+                if (exeEnv.getDiskInfos() != null) {
+                    result.setDiskInfos(FeDiskInfo.toThrifts(exeEnv.getDiskInfos()));
+                }
             }
         } else {
             result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
@@ -2608,7 +2611,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Map<String, String> properties = request.getProperties();
         RestoreStmt restoreStmt = new RestoreStmt(label, repoName, null, properties, request.getMeta(),
                 request.getJobInfo());
-        restoreStmt.disableDynamicPartition();
+        restoreStmt.setIsBeingSynced();
         LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
             ConnectContext ctx = ConnectContext.get();

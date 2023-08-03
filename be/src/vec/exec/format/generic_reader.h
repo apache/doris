@@ -67,6 +67,8 @@ public:
         return Status::OK();
     }
 
+    virtual void close() {}
+
 protected:
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 

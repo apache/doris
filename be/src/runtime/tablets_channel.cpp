@@ -31,6 +31,10 @@
 #include <thread>
 #include <utility>
 
+#ifdef DEBUG
+#include <unordered_set>
+#endif
+
 #include "common/logging.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer.h"
@@ -112,13 +116,6 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 
     _state = kOpened;
     return Status::OK();
-}
-
-void TabletsChannel::_build_partition_tablets_relation(const PTabletWriterOpenRequest& request) {
-    for (auto& tablet : request.tablets()) {
-        _partition_tablets_map[tablet.partition_id()].emplace_back(tablet.tablet_id());
-        _tablet_partition_map[tablet.tablet_id()] = tablet.partition_id();
-    }
 }
 
 Status TabletsChannel::close(
@@ -331,6 +328,19 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     if (index_slots == nullptr) {
         Status::InternalError("unknown index id, key={}", _key.to_string());
     }
+
+#ifdef DEBUG
+    // check: tablet ids should be unique
+    {
+        std::unordered_set<int64_t> tablet_ids;
+        for (const auto& tablet : request.tablets()) {
+            CHECK(tablet_ids.count(tablet.tablet_id()) == 0)
+                    << "found duplicate tablet id: " << tablet.tablet_id();
+            tablet_ids.insert(tablet.tablet_id());
+        }
+    }
+#endif
+
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
         wrequest.index_id = request.index_id();

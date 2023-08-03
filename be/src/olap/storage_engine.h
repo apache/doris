@@ -55,7 +55,7 @@ class DataDir;
 class EngineTask;
 class MemTableFlushExecutor;
 class TaskWorkerPool;
-class BetaRowsetWriter;
+class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
@@ -208,7 +208,7 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                   bool force);
-    Status submit_seg_compaction_task(BetaRowsetWriter* writer,
+    Status submit_seg_compaction_task(SegcompactionWorker* worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
@@ -324,7 +324,7 @@ private:
 
     void _cache_file_cleaner_tasks_producer_callback();
 
-    Status _handle_seg_compaction(BetaRowsetWriter* writer,
+    Status _handle_seg_compaction(SegcompactionWorker* worker,
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
@@ -460,7 +460,9 @@ private:
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    // we use unordered_map to store all cumulative compaction policy sharded ptr
+    std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
+            _cumulative_compaction_policies;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;

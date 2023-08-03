@@ -26,13 +26,16 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 public abstract class BaseAnalysisTask {
 
@@ -152,10 +155,8 @@ public abstract class BaseAnalysisTask {
             if (col == null) {
                 throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
             }
-            if (isUnsupportedType(col.getType().getPrimitiveType())) {
-                throw new RuntimeException(String.format("Column with type %s is not supported",
-                        col.getType().toString()));
-            }
+            Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
+                    String.format("Column with type %s is not supported", col.getType().toString()));
         }
 
     }
@@ -174,6 +175,7 @@ public abstract class BaseAnalysisTask {
                 if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     throw new RuntimeException(t);
                 }
+                StatisticsUtil.sleep(TimeUnit.SECONDS.toMillis(2 ^ retriedTimes) * 10);
             }
         }
     }

@@ -100,10 +100,14 @@ class SyncerUtils {
         return clientImpl.client.getSnapshot(request)
     }
 
-    static TRestoreSnapshotResult restoreSnapshot(FrontendClientImpl clientImpl, SyncerContext context) throws TException {
+    static TRestoreSnapshotResult restoreSnapshot(FrontendClientImpl clientImpl, SyncerContext context, boolean forCCR) throws TException {
         TRestoreSnapshotRequest request = new TRestoreSnapshotRequest()
         setAuthorInformation(request, context)
-        request.setDb(context.db)
+        if (forCCR) {
+            request.setDb("TEST_" + context.db)
+        } else {
+            request.setDb(context.db)
+        }
         if (context.tableName != null) {
             request.setTable(context.tableName)
         }

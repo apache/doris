@@ -161,6 +161,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
                 RequireProperties.followParent(),
+                tempLogicalWindow.getWindowExpressions(),
                 tempLogicalWindow.getLogicalProperties(),
                 root);
 

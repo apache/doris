@@ -23,3 +23,9 @@
 -- !array_last --
 0.9899828598260161
 
+-- !offsets_check --
+0	[1, 2]	[[], [3], NULL]	{"a":1, "b":2}	{"e", NULL}
+1	[]	[]	{}	\N
+2	\N	\N	\N	{"h", 10}
+3	[5, NULL]	[[6, 7], [8, NULL], NULL]	{"f":1, "g":NULL}	{NULL, 9}
+

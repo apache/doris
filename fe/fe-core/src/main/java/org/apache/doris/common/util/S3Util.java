@@ -17,9 +17,11 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.credentials.CloudCredential;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,7 +40,9 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
+import java.util.Map;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(S3Util.class);
@@ -63,7 +67,7 @@ public class S3Util {
      * @param location origin location
      * @return metadata location path. just convert when storage is compatible with s3 client.
      */
-    public static String convertToS3IfNecessary(String location) {
+    public static String convertToS3IfNecessary(String location, Map<String, String> props) {
         LOG.debug("try convert location to s3 prefix: " + location);
         if (isObjStorageUseS3Client(location)) {
             int pos = location.indexOf("://");
@@ -71,6 +75,46 @@ public class S3Util {
                 throw new RuntimeException("No '://' found in location: " + location);
             }
             return "s3" + location.substring(pos);
+        }
+        return normalizedLocation(location, props);
+    }
+
+    private static String normalizedLocation(String location, Map<String, String> props) {
+        try {
+            if (location.startsWith(HdfsResource.HDFS_PREFIX)) {
+                return normalizedHdfsPath(location, props);
+            }
+            return location;
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    private static String normalizedHdfsPath(String location, Map<String, String> props) throws URISyntaxException {
+        URI normalizedUri = new URI(location);
+        // compatible with 'hdfs:///' or 'hdfs:/'
+        if (StringUtils.isEmpty(normalizedUri.getHost())) {
+            String normalizedPrefix = HdfsResource.HDFS_PREFIX + "//";
+            String brokenPrefix = HdfsResource.HDFS_PREFIX + "/";
+            if (location.startsWith(brokenPrefix) && !location.startsWith(normalizedPrefix)) {
+                location = location.replace(brokenPrefix, normalizedPrefix);
+            }
+            // Need add hdfs host to location
+            String host = props.get(HdfsResource.DSF_NAMESERVICES);
+            if (StringUtils.isNotEmpty(host)) {
+                // Replace 'hdfs://key/' to 'hdfs://name_service/key/'
+                // Or hdfs:///abc to hdfs://name_service/abc
+                return location.replace(normalizedPrefix, normalizedPrefix + host + "/");
+            } else {
+                // 'hdfs://null/' equals the 'hdfs:///'
+                if (location.startsWith(HdfsResource.HDFS_PREFIX + "///")) {
+                    // Do not support hdfs:///location
+                    throw new RuntimeException("Invalid location with empty host: " + location);
+                } else {
+                    // Replace 'hdfs://key/' to '/key/', try access local NameNode on BE.
+                    return location.replace(normalizedPrefix, "/");
+                }
+            }
         }
         return location;
     }
@@ -80,7 +124,7 @@ public class S3Util {
      * @param location origin split path
      * @return BE scan range path
      */
-    public static Path toScanRangeLocation(String location) {
+    public static Path toScanRangeLocation(String location, Map<String, String> props) {
         // All storage will use s3 client on BE.
         if (isObjStorage(location)) {
             int pos = location.indexOf("://");
@@ -95,7 +139,7 @@ public class S3Util {
                 location = "s3" + location.substring(pos);
             }
         }
-        return new Path(location);
+        return new Path(normalizedLocation(location, props));
     }
 
     public static boolean isHdfsOnOssEndpoint(String location) {

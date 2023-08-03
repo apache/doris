@@ -30,18 +30,6 @@ import java.util.Optional;
 
 /** abstract physical sink */
 public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
-
-    public PhysicalSink(PlanType type,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(type, logicalProperties, child);
-    }
-
-    public PhysicalSink(PlanType type,
-            Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, child);
-    }
-
     public PhysicalSink(PlanType type,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
