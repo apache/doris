@@ -215,6 +215,7 @@ import org.apache.doris.scheduler.AsyncJobRegister;
 import org.apache.doris.scheduler.manager.AsyncJobManager;
 import org.apache.doris.scheduler.manager.JobTaskManager;
 import org.apache.doris.scheduler.registry.PersistentJobRegister;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.StatisticsAutoAnalyzer;
