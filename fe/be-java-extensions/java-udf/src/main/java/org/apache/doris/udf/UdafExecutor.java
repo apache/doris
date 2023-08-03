@@ -351,8 +351,35 @@ public class UdafExecutor extends BaseExecutor {
         }
     }
 
-    public void copyTupleArrayResult(Object result, int row) throws UdfRuntimeException {
-        storeUdfResult(result, row, retClass);
+    public void copyTupleArrayResult(long hasPutElementNum, boolean isNullable, int row, Object result,
+            long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) throws UdfRuntimeException {
+        if (nullMapAddr > 0) {
+            UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 0);
+        }
+        copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, result, nullMapAddr, offsetsAddr, nestedNullMapAddr,
+                dataAddr, strOffsetAddr, retType.getItemType().getPrimitiveType());
+    }
+
+    public void copyTupleMapResult(long hasPutElementNum, boolean isNullable, int row, Object result, long nullMapAddr,
+            long offsetsAddr,
+            long keyNsestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
+            long valueNsestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) throws UdfRuntimeException {
+        if (nullMapAddr > 0) {
+            UdfUtils.UNSAFE.putByte(nullMapAddr + row, (byte) 0);
+        }
+        PrimitiveType keyType = retType.getKeyType().getPrimitiveType();
+        PrimitiveType valueType = retType.getValueType().getPrimitiveType();
+        Object[] keyCol = new Object[1];
+        Object[] valueCol = new Object[1];
+        Object[] resultArr = new Object[1];
+        resultArr[0] = result;
+        buildArrayListFromHashMap(resultArr, keyType, valueType, keyCol, valueCol);
+        copyTupleArrayResultImpl(hasPutElementNum, isNullable, row,
+                valueCol[0], nullMapAddr, offsetsAddr,
+                valueNsestedNullMapAddr, valueDataAddr, valueStrOffsetAddr, valueType);
+        copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, keyCol[0], nullMapAddr, offsetsAddr,
+                keyNsestedNullMapAddr, keyDataAddr, keyStrOffsetAddr, keyType);
     }
 
     @Override
