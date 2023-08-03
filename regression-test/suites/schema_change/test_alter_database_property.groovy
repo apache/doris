@@ -21,7 +21,7 @@ suite("test_alter_database_property") {
     sql """
         create database test_alter_database_property
         """
-    result = sql "show create database test_alter_database_property"
+    def result = sql "show create database test_alter_database_property"
     logger.info("${result}")
 
     // Case 1: alter database, set binlog enable is true
