@@ -1575,7 +1575,8 @@ struct StBuffer {
                 res->insert_data(nullptr, 0);
                 continue;
             }
-            GeoShape* res_shape = shape->buffer(buffer_radius->operator[](row).get<Float64>()).release();
+            std::unique_ptr<GeoShape> res_shape;
+            res_shape.reset(shape->buffer(buffer_radius->operator[](row).get<Float64>()).release());
 
             if(res_shape == nullptr){
                 res->insert_data(nullptr, 0);

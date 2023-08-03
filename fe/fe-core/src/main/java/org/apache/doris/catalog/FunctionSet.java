@@ -1501,6 +1501,12 @@ public class FunctionSet<T> {
         addBuiltin(AggregateFunction.createBuiltin("multi_distinct_group_concat", Lists.<Type>newArrayList(Type.STRING, Type.STRING),
                 Type.STRING, Type.STRING, "", "", "", "", "", false, true, false, true));
 
+        // st_collect(string) vectorized
+        addBuiltin(AggregateFunction.createBuiltin("st_collect", Lists.<Type>newArrayList(Type.VARCHAR), Type.VARCHAR,
+                Type.VARCHAR, "", "", "", "", "", false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("st_collect", Lists.<Type>newArrayList(Type.STRING), Type.STRING,
+                Type.STRING, "", "", "", "", "", false, true, false, true));
+
         // analytic functions
         // Rank
         addBuiltin(AggregateFunction.createAnalyticBuiltin("rank",

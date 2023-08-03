@@ -20,6 +20,7 @@
 #include <s2/mutable_s2shape_index.h>
 #include <s2/util/coding/coder.h>
 #include <vector>
+#include "GeoMultiPoint.h"
 #include "GeoMultiLineString.h"
 
 namespace doris {
