@@ -118,7 +118,6 @@ public class DeleteStmt extends DdlStmt {
         // analyze predicate
         if (fromClause == null) {
             ExprRewriter exprRewriter = new ExprRewriter(EXPR_NORMALIZE_RULES);
-            Expr copy = wherePredicate.clone();
             wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
             try {
                 analyzePredicate(wherePredicate, analyzer);
@@ -126,7 +125,7 @@ public class DeleteStmt extends DdlStmt {
                 if (!(((OlapTable) targetTable).getKeysType() == KeysType.UNIQUE_KEYS)) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
                 }
-                wherePredicate = copy;
+                wherePredicate.reset();
                 constructInsertStmt();
             }
         } else {
