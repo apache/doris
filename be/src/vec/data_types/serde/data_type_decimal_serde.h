@@ -47,6 +47,22 @@ class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(IsDecimalNumber<T>);
 
 public:
+    static constexpr PrimitiveType get_primitive_type() {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return TYPE_DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return TYPE_DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return TYPE_DECIMAL128I;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
+            return TYPE_DECIMALV2;
+        }
+        __builtin_unreachable();
+    }
+
     DataTypeDecimalSerDe(int scale_, int precision_)
             : scale(scale_),
               precision(precision_),

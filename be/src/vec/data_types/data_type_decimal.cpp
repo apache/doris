@@ -88,26 +88,11 @@ template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
     T val = 0;
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
-        if (!read_decimal_text_impl<TYPE_DECIMAL32, T>(val, rb, precision, scale)) {
-            return Status::InvalidArgument("parse decimal fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
-        }
-    } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
-        if (!read_decimal_text_impl<TYPE_DECIMAL64, T>(val, rb, precision, scale)) {
-            return Status::InvalidArgument("parse decimal fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
-        }
-    } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
-        if (!read_decimal_text_impl<TYPE_DECIMAL128I, T>(val, rb, precision, scale)) {
-            return Status::InvalidArgument("parse decimal fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
-        }
-    } else {
-        if (!read_decimal_text_impl<TYPE_DECIMALV2, T>(val, rb, precision, scale)) {
-            return Status::InvalidArgument("parse decimal fail, string: '{}'",
-                                           std::string(rb.position(), rb.count()).c_str());
-        }
+    if (!read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), T>(
+                val, rb, precision, scale)) {
+        return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                       std::string(rb.position(), rb.count()).c_str(),
+                                       DataTypeDecimalSerDe<T>::get_primitive_type());
     }
     column_data.emplace_back(val);
     return Status::OK();
