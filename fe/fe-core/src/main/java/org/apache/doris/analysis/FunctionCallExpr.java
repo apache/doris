@@ -1707,6 +1707,9 @@ public class FunctionCallExpr extends Expr {
                         && args[ix].isDecimalV3OrContainsDecimalV3())) {
                     // Do not do this cast if types are both decimalv3 with different precision/scale.
                     uncheckedCastChild(args[ix], i);
+                } else if (fnName.getFunction().equalsIgnoreCase("if")
+                        && argTypes[i].isArrayType() && ((ArrayType) argTypes[i]).getItemType().isNull()) {
+                    uncheckedCastChild(args[ix], i);
                 }
             }
         }
