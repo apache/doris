@@ -59,7 +59,7 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     }
 
     @Override
-    public Plan withChildren(List<Plan> children) {
+    public LogicalResultSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalResultSink's children size must be 1, but real is %s", children.size());
         return new LogicalResultSink<>(outputExprs, children.get(0));
@@ -76,14 +76,14 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+    public LogicalResultSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalResultSink<>(outputExprs, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+    public LogicalResultSink<Plan> withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1, "UnboundResultSink only accepts one child");
+        Preconditions.checkArgument(children.size() == 1, "LogicalResultSink only accepts one child");
         return new LogicalResultSink<>(outputExprs, groupExpression, logicalProperties, children.get(0));
     }
 

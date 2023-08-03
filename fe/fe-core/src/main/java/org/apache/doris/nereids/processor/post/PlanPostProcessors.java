@@ -71,7 +71,6 @@ public class PlanPostProcessors {
         builder.add(new Validator());
         builder.add(new RecomputeLogicalPropertiesProcessor());
         builder.add(new TopNScanOpt());
-        builder.add(new TwoPhaseReadOpt());
         return builder.build();
     }
 }
