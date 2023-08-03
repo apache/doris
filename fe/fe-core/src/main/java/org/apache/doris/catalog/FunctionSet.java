@@ -21,12 +21,14 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -453,6 +455,13 @@ public class FunctionSet<T> {
                 // The implementations of hex for string and int are different.
                 return false;
             }
+        }
+        // If set `roundPreciseDecimalV2Value`, only use decimalv3 as target type to execute round function
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName())
+                && descArgType.isDecimalV2()) {
+            return candicateArgType.getPrimitiveType() == PrimitiveType.DECIMAL128;
         }
         if ((descArgType.isDecimalV3() && candicateArgType.isDecimalV2())
                 || (descArgType.isDecimalV2() && candicateArgType.isDecimalV3())) {
@@ -1021,6 +1030,15 @@ public class FunctionSet<T> {
                         "",
                         "",
                         true, false, true, true));
+            }
+
+            if (!Type.JSONB.equals(t)) {
+                for (Type valueType : Type.getTrivialTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType), new MapType(t, valueType),
+                            Type.VARCHAR,
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
             }
 
             if (STDDEV_UPDATE_SYMBOL.containsKey(t)) {
