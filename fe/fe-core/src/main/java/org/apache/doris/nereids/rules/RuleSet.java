@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
+import org.apache.doris.nereids.rules.exploration.OrExpansion;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoin;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
@@ -98,6 +99,7 @@ public class RuleSet {
 
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(new MergeProjectsCBO())
+            .add(new OrExpansion())
             .build();
 
     public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
@@ -196,6 +198,7 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(EXPLORATION_RULES)
             .add(JoinCommute.BUSHY.build())
             .build();
 
