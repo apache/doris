@@ -45,6 +45,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -1465,6 +1466,109 @@ public class AuthTest {
             auth.grant(grantStmt);
         } catch (UserException e) {
             e.printStackTrace();
+            Assert.fail();
+        }
+    }
+
+    @Test
+    public void testColAuth() {
+        // create user
+        UserIdentity userIdentity = new UserIdentity("colUser", "%");
+        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // test table is *
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, new TablePattern("db1", "*"), Lists.newArrayList(
+                new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV, Lists.newArrayList("a", "b"))));
+        try {
+            grantStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+
+        // test CREATE_PRIV with col
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("db1", "tbl1"), Lists.newArrayList(
+                new AccessPrivilegeWithCols(AccessPrivilege.CREATE_PRIV, Lists.newArrayList("a", "b"))));
+        try {
+            grantStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+
+        // test Select_PRIV with col
+        grantStmt = new GrantStmt(userIdentity, null, new TablePattern("db1", "tbl1"), Lists.newArrayList(
+                new AccessPrivilegeWithCols(AccessPrivilege.SELECT_PRIV, Lists.newArrayList("a", "b"))));
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // check has select priv of column 'a'
+        try {
+            accessManager
+                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                            Sets.newHashSet("a"), PrivPredicate.SELECT);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // check has select priv of column 'c'
+        try {
+            accessManager
+                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                            Sets.newHashSet("c"), PrivPredicate.SELECT);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+        // check has load priv of column 'a'
+        try {
+            accessManager
+                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                            Sets.newHashSet("a"), PrivPredicate.LOAD);
+            Assert.fail();
+        } catch (UserException e) {
+            e.printStackTrace();
+        }
+        // check 'create_priv' use checkColumnsPriv
+        try {
+            accessManager
+                    .checkColumnsPriv(userIdentity, SystemInfoService.DEFAULT_CLUSTER + ":db1", "tbl1",
+                            Sets.newHashSet("a"), PrivPredicate.CREATE);
+            Assert.fail();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        // check show priv on ctl when has col priv
+        boolean hasPriv = accessManager.checkCtlPriv(userIdentity, Auth.DEFAULT_CATALOG, PrivPredicate.SHOW);
+        if (!hasPriv) {
+            Assert.fail();
+        }
+        // check show priv on db when has col priv
+        hasPriv = accessManager.checkDbPriv(userIdentity, Auth.DEFAULT_CATALOG, "db1", PrivPredicate.SHOW);
+        if (!hasPriv) {
+            Assert.fail();
+        }
+        // check show priv on tbl when has col priv
+        hasPriv = accessManager.checkTblPriv(userIdentity, Auth.DEFAULT_CATALOG, "db1", "tbl1", PrivPredicate.SHOW);
+        if (!hasPriv) {
+            Assert.fail();
+        }
+        // check select priv on tbl when has col priv
+        hasPriv = accessManager.checkTblPriv(userIdentity, Auth.DEFAULT_CATALOG, "db1", "tbl1", PrivPredicate.SELECT);
+        if (hasPriv) {
             Assert.fail();
         }
     }
