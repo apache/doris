@@ -32,6 +32,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+
 import java.util.List;
 
 /**
@@ -62,8 +63,8 @@ public class DateTrunc extends ScalarFunction
         final String constParam = ((VarcharLiteral) getArgument(1)).getStringValue().toLowerCase();
         if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
                 .contains(constParam)) {
-            throw new AnalysisException("date_trunc function second param only support argument is" +
-                    "year|quarter|month|week|day|hour|minute|second");
+            throw new AnalysisException("date_trunc function second param only support argument is"
+                    + "year|quarter|month|week|day|hour|minute|second");
         }
     }
 

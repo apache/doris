@@ -1537,16 +1537,17 @@ public class FunctionCallExpr extends Expr {
             }
         }
         if (fnName.getFunction().equalsIgnoreCase("date_trunc")) {
-            if ((children.size() != 2) || (getChild(1).isConstant() == false) || !(getChild(1) instanceof StringLiteral)) {
+            if ((children.size() != 2) || (getChild(1).isConstant() == false)
+                    || !(getChild(1) instanceof StringLiteral)) {
                 throw new AnalysisException(
-                        fnName.getFunction() + " needs two params, and the second is must be a string constant: " + this
-                                .toSql());
+                        fnName.getFunction() + " needs two params, and the second is must be a string constant: "
+                                + this.toSql());
             }
             final String constParam = ((StringLiteral) getChild(1)).getValue().toLowerCase();
             if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
                     .contains(constParam)) {
-                throw new AnalysisException("date_trunc function second param only support argument is " +
-                        "year|quarter|month|week|day|hour|minute|second");
+                throw new AnalysisException("date_trunc function second param only support argument is "
+                        + "year|quarter|month|week|day|hour|minute|second");
             }
         }
         if (fnName.getFunction().equalsIgnoreCase("char")) {
