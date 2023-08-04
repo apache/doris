@@ -27,6 +27,7 @@ suite("test_javaudaf_return_map") {
     try {
         try_sql("DROP FUNCTION IF EXISTS aggmap(int);")
         try_sql("DROP FUNCTION IF EXISTS aggmap2(int,double);")
+        try_sql("DROP FUNCTION IF EXISTS aggmap3(int,double);")
         try_sql("DROP TABLE IF EXISTS aggdb")
         sql """
             CREATE TABLE IF NOT EXISTS aggdb(
@@ -71,6 +72,18 @@ suite("test_javaudaf_return_map") {
         
         """
 
+
+        sql """
+          
+            CREATE AGGREGATE FUNCTION aggmap3(int,double) RETURNS Map<String,String> PROPERTIES (
+                 "file"="file://${jarPath}",
+                 "symbol"="org.apache.doris.udf.MyReturnMapString",
+                 "type"="JAVA_UDF"
+             ); 
+
+        
+        """
+
         qt_select_1 """ select aggmap(id) from aggdb; """
 
         qt_select_2 """ select aggmap2(id,d) from aggdb; """
@@ -78,9 +91,14 @@ suite("test_javaudaf_return_map") {
         qt_select_3 """ select aggmap(id) from aggdb group by id; """
 
         qt_select_4 """ select aggmap2(id,d) from aggdb group by id; """
+
+        qt_select_5 """ select aggmap3(id,d) from aggdb; """
+
+        qt_select_6 """ select aggmap3(id,d) from aggdb group by id; """
     } finally {
         try_sql("DROP FUNCTION IF EXISTS aggmap(int);")
         try_sql("DROP FUNCTION IF EXISTS aggmap2(int,double);")
+        try_sql("DROP FUNCTION IF EXISTS aggmap3(int,double);")
         try_sql("DROP TABLE IF EXISTS aggdb")
     }
 }

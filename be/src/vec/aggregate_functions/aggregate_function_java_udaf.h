@@ -58,12 +58,6 @@ public:
     AggregateJavaUdafData() = default;
     AggregateJavaUdafData(int64_t num_args) {
         argument_size = num_args;
-        output_value_buffer = std::make_unique<int64_t>(0);
-        output_null_value = std::make_unique<int64_t>(0);
-        output_offsets_ptr = std::make_unique<int64_t>(0);
-        output_intermediate_state_ptr = std::make_unique<int64_t>(0);
-        output_array_null_ptr = std::make_unique<int64_t>(0);
-        output_array_string_offsets_ptr = std::make_unique<int64_t>(0);
     }
 
     ~AggregateJavaUdafData() {
@@ -89,16 +83,6 @@ public:
             TJavaUdfExecutorCtorParams ctor_params;
             ctor_params.__set_fn(fn);
             ctor_params.__set_location(local_location);
-
-            ctor_params.__set_output_buffer_ptr((int64_t)output_value_buffer.get());
-
-            ctor_params.__set_output_null_ptr((int64_t)output_null_value.get());
-            ctor_params.__set_output_offsets_ptr((int64_t)output_offsets_ptr.get());
-            ctor_params.__set_output_intermediate_state_ptr(
-                    (int64_t)output_intermediate_state_ptr.get());
-            ctor_params.__set_output_array_null_ptr((int64_t)output_array_null_ptr.get());
-            ctor_params.__set_output_array_string_offsets_ptr(
-                    (int64_t)output_array_string_offsets_ptr.get());
 
             jbyteArray ctor_params_bytes;
 
@@ -296,32 +280,27 @@ public:
         to.insert_default();
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf get value function");
+        int64_t nullmap_address = 0;
         if (result_type->is_nullable()) {
             auto& nullable = assert_cast<ColumnNullable&>(to);
-            *output_null_value =
+            nullmap_address =
                     reinterpret_cast<int64_t>(nullable.get_null_map_column().get_raw_data().data);
             auto& data_col = nullable.get_nested_column();
-            RETURN_IF_ERROR(get_result(to, result_type, place, env, data_col));
+            RETURN_IF_ERROR(get_result(to, result_type, place, env, data_col, nullmap_address));
         } else {
-            *output_null_value = -1;
+            nullmap_address = -1;
             auto& data_col = to;
-            RETURN_IF_ERROR(get_result(to, result_type, place, env, data_col));
+            RETURN_IF_ERROR(get_result(to, result_type, place, env, data_col, nullmap_address));
         }
         return JniUtil::GetJniExceptionMsg(env);
     }
 
 private:
     Status get_result(IColumn& to, const DataTypePtr& return_type, int64_t place, JNIEnv* env,
-                      IColumn& data_col) const {
+                      IColumn& data_col, int64_t nullmap_address) const {
         jobject result_obj = env->CallNonvirtualObjectMethod(executor_obj, executor_cl,
                                                              executor_get_value_id, place);
         bool result_nullable = return_type->is_nullable();
-        int64_t nullmap_address = 0;
-        if (result_nullable) {
-            auto& nullable = assert_cast<ColumnNullable&>(to);
-            nullmap_address =
-                    reinterpret_cast<int64_t>(nullable.get_null_map_column().get_raw_data().data);
-        }
         if (data_col.is_column_string()) {
             const ColumnString* str_col = check_and_get_column<ColumnString>(data_col);
             ColumnString::Chars& chars = const_cast<ColumnString::Chars&>(str_col->get_chars());
@@ -330,17 +309,13 @@ private:
             int increase_buffer_size = 0;
             int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);
             chars.resize(buffer_size);
-            *output_value_buffer = reinterpret_cast<int64_t>(chars.data());
-            *output_offsets_ptr = reinterpret_cast<int64_t>(offsets.data());
-            *output_intermediate_state_ptr = reinterpret_cast<int64_t>(&chars);
             env->CallNonvirtualVoidMethod(
                     executor_obj, executor_cl, executor_copy_basic_result_id, result_obj,
-                    to.size() - 1, *output_null_value, reinterpret_cast<int64_t>(chars.data()),
+                    to.size() - 1, nullmap_address, reinterpret_cast<int64_t>(chars.data()),
                     reinterpret_cast<int64_t>(&chars), reinterpret_cast<int64_t>(offsets.data()));
         } else if (data_col.is_numeric() || data_col.is_column_decimal()) {
-            *output_value_buffer = reinterpret_cast<int64_t>(data_col.get_raw_data().data);
             env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_copy_basic_result_id,
-                                          result_obj, to.size() - 1, *output_null_value,
+                                          result_obj, to.size() - 1, nullmap_address,
                                           reinterpret_cast<int64_t>(data_col.get_raw_data().data),
                                           0, 0);
         } else if (data_col.is_column_array()) {
@@ -462,14 +437,11 @@ private:
             return s;
         };
         RETURN_IF_ERROR(register_id("<init>", UDAF_EXECUTOR_CTOR_SIGNATURE, executor_ctor_id));
-        RETURN_IF_ERROR(register_id("add", UDAF_EXECUTOR_ADD_SIGNATURE, executor_add_id));
         RETURN_IF_ERROR(register_id("reset", UDAF_EXECUTOR_RESET_SIGNATURE, executor_reset_id));
         RETURN_IF_ERROR(register_id("close", UDAF_EXECUTOR_CLOSE_SIGNATURE, executor_close_id));
         RETURN_IF_ERROR(register_id("merge", UDAF_EXECUTOR_MERGE_SIGNATURE, executor_merge_id));
         RETURN_IF_ERROR(
                 register_id("serialize", UDAF_EXECUTOR_SERIALIZE_SIGNATURE, executor_serialize_id));
-        RETURN_IF_ERROR(
-                register_id("getValue", UDAF_EXECUTOR_RESULT_SIGNATURE, executor_result_id));
         RETURN_IF_ERROR(register_id("getValue", "(J)Ljava/lang/Object;", executor_get_value_id));
         RETURN_IF_ERROR(
                 register_id("destroy", UDAF_EXECUTOR_DESTROY_SIGNATURE, executor_destroy_id));
@@ -501,11 +473,9 @@ private:
     jobject executor_obj;
     jmethodID executor_ctor_id;
 
-    jmethodID executor_add_id;
     jmethodID executor_add_batch_id;
     jmethodID executor_merge_id;
     jmethodID executor_serialize_id;
-    jmethodID executor_result_id;
     jmethodID executor_get_value_id;
     jmethodID executor_reset_id;
     jmethodID executor_close_id;
@@ -516,13 +486,6 @@ private:
     jmethodID executor_copy_basic_result_id;
     jmethodID executor_copy_array_result_id;
     jmethodID executor_copy_map_result_id;
-    std::unique_ptr<int64_t> output_value_buffer;
-    std::unique_ptr<int64_t> output_null_value;
-    std::unique_ptr<int64_t> output_offsets_ptr;
-    std::unique_ptr<int64_t> output_intermediate_state_ptr;
-    std::unique_ptr<int64_t> output_array_null_ptr;
-    std::unique_ptr<int64_t> output_array_string_offsets_ptr;
-
     int argument_size = 0;
     std::string serialize_data;
 };

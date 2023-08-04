@@ -164,43 +164,6 @@ public class UdafExecutor extends BaseExecutor {
     }
 
     /**
-     * invoke add function, add row in loop [rowStart, rowEnd).
-     */
-    public void add(boolean isSinglePlace, long rowStart, long rowEnd) throws UdfRuntimeException {
-        try {
-            long idx = rowStart;
-            do {
-                Long curPlace = null;
-                if (isSinglePlace) {
-                    curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr));
-                } else {
-                    curPlace = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, inputPlacesPtr) + 8L * idx);
-                }
-                Object[] inputArgs = new Object[argTypes.length + 1];
-                Object state = stateObjMap.get(curPlace);
-                if (state != null) {
-                    inputArgs[0] = state;
-                } else {
-                    Object newState = createAggState();
-                    stateObjMap.put(curPlace, newState);
-                    inputArgs[0] = newState;
-                }
-                do {
-                    Object[] inputObjects = allocateInputObjects(idx, 1);
-                    for (int i = 0; i < argTypes.length; ++i) {
-                        inputArgs[i + 1] = inputObjects[i];
-                    }
-                    allMethods.get(UDAF_ADD_FUNCTION).invoke(udf, inputArgs);
-                    idx++;
-                } while (isSinglePlace && idx < rowEnd);
-            } while (idx < rowEnd);
-        } catch (Exception e) {
-            LOG.warn("invoke add function meet some error: " + e.getCause().toString());
-            throw new UdfRuntimeException("UDAF failed to add: ", e);
-        }
-    }
-
-    /**
      * invoke user create function to get obj.
      */
     public Object createAggState() throws UdfRuntimeException {
@@ -292,18 +255,6 @@ public class UdafExecutor extends BaseExecutor {
     /**
      * invoke getValue to return finally result.
      */
-    public boolean getValue(long row, long place) throws UdfRuntimeException {
-        try {
-            if (stateObjMap.get(place) == null) {
-                stateObjMap.put(place, createAggState());
-            }
-            return storeUdfResult(allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place)),
-                    row, retClass);
-        } catch (Exception e) {
-            LOG.warn("invoke getValue function meet some error: " + e.getCause().toString());
-            throw new UdfRuntimeException("UDAF failed to result", e);
-        }
-    }
 
     public Object getValue(long place) throws UdfRuntimeException {
         try {
@@ -317,17 +268,6 @@ public class UdafExecutor extends BaseExecutor {
         }
     }
 
-    // public Object getValueArray(long row, long place) throws UdfRuntimeException {
-    //     try {
-    //         if (stateObjMap.get(place) == null) {
-    //             stateObjMap.put(place, createAggState());
-    //         }
-    //         return allMethods.get(UDAF_RESULT_FUNCTION).invoke(udf, stateObjMap.get((Long) place));
-    //     } catch (Exception e) {
-    //         LOG.warn("invoke getValue function meet some error: " + e.getCause().toString());
-    //         throw new UdfRuntimeException("UDAF failed to result", e);
-    //     }
-    // }
     public void copyTupleBasicResult(Object result, int row, long outputNullMapPtr, long outputBufferBase,
             long charsAddress,
             long offsetsAddr) throws UdfRuntimeException {
@@ -380,29 +320,6 @@ public class UdafExecutor extends BaseExecutor {
                 valueNsestedNullMapAddr, valueDataAddr, valueStrOffsetAddr, valueType);
         copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, keyCol[0], nullMapAddr, offsetsAddr,
                 keyNsestedNullMapAddr, keyDataAddr, keyStrOffsetAddr, keyType);
-    }
-
-    @Override
-    protected boolean storeUdfResult(Object obj, long row, Class retClass) throws UdfRuntimeException {
-        if (obj == null) {
-            // If result is null, return true directly when row == 0 as we have already inserted default value.
-            if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) == -1) {
-                throw new UdfRuntimeException("UDAF failed to store null data to not null column");
-            }
-            return true;
-        }
-        return super.storeUdfResultTest(obj, row, retClass);
-    }
-
-    @Override
-    protected long getCurrentOutputOffset(long row, boolean isArrayType) {
-        if (isArrayType) {
-            return Integer.toUnsignedLong(
-                    UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * (row - 1)));
-        } else {
-            return Integer.toUnsignedLong(
-                    UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * (row - 1)));
-        }
     }
 
     @Override
