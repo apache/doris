@@ -371,7 +371,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("k3", del_pred.sub_predicates_v2(2).column_name().c_str());
     EXPECT_STREQ("k4", del_pred.sub_predicates_v2(3).column_name().c_str());
     EXPECT_STREQ("k5", del_pred.sub_predicates_v2(4).column_name().c_str());
-    EXPECT_STREQ("k12", sub_predicates_v2(5).column_name().c_str());
+    EXPECT_STREQ("k12", del_pred.sub_predicates_v2(5).column_name().c_str());
 
     EXPECT_STREQ("=", del_pred.sub_predicates_v2(0).op().c_str());
     EXPECT_STREQ(">>", del_pred.sub_predicates_v2(1).op().c_str());
@@ -383,7 +383,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("1", del_pred.sub_predicates_v2(0).cond_value().c_str());
     EXPECT_STREQ("3", del_pred.sub_predicates_v2(1).cond_value().c_str());
     EXPECT_STREQ("5", del_pred.sub_predicates_v2(2).cond_value().c_str());
-    EXPECT_STREQ("NULL", del_pred.sub_predicates_v2(4).cond_value().c_str());
+    EXPECT_STREQ("NULL", del_pred.sub_predicates_v2(3).cond_value().c_str());
     EXPECT_STREQ("7", del_pred.sub_predicates_v2(4).cond_value().c_str());
     EXPECT_STREQ("9", del_pred.sub_predicates_v2(5).cond_value().c_str());
 
