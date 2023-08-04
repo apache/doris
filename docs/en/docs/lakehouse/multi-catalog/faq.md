@@ -149,3 +149,43 @@ under the License.
     ```
 
 14. When using JDBC Catalog to synchronize MySQL data to Doris, the date data synchronization error occurs. It is necessary to check whether the MySQL version corresponds to the MySQL driver package. For example, the driver com.mysql.cj.jdbc.Driver is required for MySQL8 and above.
+
+15. If an error is reported while configuring Kerberos in the catalog: `SIMPLE authentication is not enabled. Available:[TOKEN, KERBEROS]`.
+
+    Need to put `core-site.xml` to the `"${DORIS_HOME}/be/conf"` directory.
+
+    If an error is reported while accessing HDFS: `No common protection layer between client and server`, check the `hadoop.rpc.protection` on the client and server to make them consistent.
+
+    ```
+        <?xml version="1.0" encoding="UTF-8"?>
+        <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+        
+        <configuration>
+        
+            <property>
+                <name>hadoop.security.authentication</name>
+                <value>kerberos</value>
+            </property>
+        
+        </configuration>
+    ```
+
+16. The solutions when configuring Kerberos in the catalog and encounter an error: `Unable to obtain password from user`.
+    - The principal used must exist in the klist, use `klist -kt your.keytab` to check.
+    - Ensure the catalog configuration correct, such as missing the `yarn.resourcemanager.principal`.
+    - If the preceding checks are correct, the JDK version installed by yum or other package-management utility in the current system maybe have an unsupported encryption algorithm. It is recommended to install JDK by yourself and set `JAVA_HOME` environment variable.
+
+17. If an error is reported while querying the catalog with Kerberos: `GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos Ticket)`.
+    - Restarting FE and BE can solve the problem in most cases. 
+    - Before the restart all the nodes, can put `-Djavax.security.auth.useSubjectCredsOnly=false` to the `JAVA_OPTS` in `"${DORIS_HOME}/be/conf/be.conf"`, which can obtain credentials through the underlying mechanism, rather than through the application.
+    - Get more solutions to common JAAS errors from the [JAAS Troubleshooting](https://docs.oracle.com/javase/8/docs/technotes/guides/security/jgss/tutorials/Troubleshooting.html).
+
+18. If an error related to the Hive Metastore is reported while querying the catalog: `Invalid method name`.
+
+    Configure the `hive.version`.
+
+    ```sql
+    CREATE CATALOG hive PROPERTIES (
+        'hive.version' = '2.x.x'
+    );
+    ```
