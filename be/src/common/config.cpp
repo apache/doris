@@ -910,14 +910,23 @@ DEFINE_Bool(hide_webserver_config_page, "false");
 
 DEFINE_Bool(enable_segcompaction, "true");
 
-// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
-DEFINE_Int32(segcompaction_threshold_segment_num, "10");
+// Max number of segments allowed in a single segcompaction task.
+DEFINE_Int32(segcompaction_batch_size, "10");
 
-// The segment whose row number above the threshold will be compacted during segcompaction
-DEFINE_Int32(segcompaction_small_threshold, "1048576");
+// Max row count allowed in a single source segment, bigger segments will be skipped.
+DEFINE_Int32(segcompaction_candidate_max_rows, "1048576");
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DEFINE_mInt32(segcompaction_max_threads, "10");
+// Max file size allowed in a single source segment, bigger segments will be skipped.
+DEFINE_Int64(segcompaction_candidate_max_bytes, "104857600");
+
+// Max total row count allowed in a single segcompaction task.
+DEFINE_Int32(segcompaction_task_max_rows, "1572864");
+
+// Max total file size allowed in a single segcompaction task.
+DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
+
+// Global segcompaction thread pool size.
+DEFINE_mInt32(segcompaction_num_threads, "5");
 
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
