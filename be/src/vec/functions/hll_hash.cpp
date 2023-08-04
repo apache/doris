@@ -101,7 +101,6 @@ struct HLLFromUnhex {
             hll.deserialize(Slice(dst, cipher_len));
 
             res_data[i].merge(hll);
-            hll.clear();
         }
     }
 
@@ -127,7 +126,6 @@ struct HLLFromUnhex {
                 hll.deserialize(Slice(dst, cipher_len));
 
                 res_data[i].merge(hll);
-                hll.clear();
             }
         }
     }

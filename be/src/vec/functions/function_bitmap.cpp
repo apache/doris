@@ -267,15 +267,12 @@ struct BitmapFromUnhex {
             char dst[cipher_len];
             MathFunctions::hex_decode(raw_str, str_size, dst);
             if (UNLIKELY(!bitmap.deserialize(dst))) {
-                std::stringstream error_msg;
-                error_msg << "The input: " << std::string(raw_str, str_size)
-                          << " is not valid, deserialize to bitmap failed";
-                LOG(WARNING) << error_msg.str();
-                return Status::InternalError(error_msg.str());
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
             }
 
-            res.push_back(bitmap);
-            bitmap.clear();
+            res.push_back(std::move(bitmap));
         }
         return Status::OK();
     }
