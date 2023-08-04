@@ -49,13 +49,14 @@ public class S3FileReader implements AvroReader {
     private final String endpoint;
     private final String region;
 
-    public S3FileReader(String accessKey, String secretKey, String endpoint, String region,
-            String bucketName, String key) {
-        this.bucketName = bucketName;
-        this.key = key;
+    public S3FileReader(String accessKey, String secretKey, String endpoint, String region, String uri)
+            throws IOException {
         this.endpoint = endpoint;
         this.region = region;
-        credentials = new BasicAWSCredentials(accessKey, secretKey);
+        this.credentials = new BasicAWSCredentials(accessKey, secretKey);
+        S3Utils.parseURI(uri);
+        this.bucketName = S3Utils.getBucket();
+        this.key = S3Utils.getKey();
     }
 
     @Override

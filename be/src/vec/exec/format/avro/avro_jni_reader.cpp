@@ -91,6 +91,7 @@ Status AvroJNIReader::init_fetch_table_reader(
         required_param.insert(std::make_pair("uri", _params.hdfs_params.hdfs_conf.data()->value));
         break;
     case TFileType::FILE_S3:
+        required_param.insert(std::make_pair("uri", _range.path));
         required_param.insert(_params.properties.begin(), _params.properties.end());
         break;
     default:
