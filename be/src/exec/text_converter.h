@@ -63,7 +63,7 @@ public:
     void set_map_kv_delimiter(char mapkv_delimiter) { _map_kv_delimiter = mapkv_delimiter; }
 
 private:
-    bool write_data(const TypeDescriptor& type_desc, vectorized::IColumn* nullable_col_ptr,
+    bool _write_data(const TypeDescriptor& type_desc, vectorized::IColumn* nullable_col_ptr,
                     const char* data, size_t len, bool copy_string, bool need_escape, size_t rows,
                     char array_delimiter);
 

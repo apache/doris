@@ -66,14 +66,15 @@ void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
     }
 }
 
-bool TextConverter::write_data(const TypeDescriptor& type_desc,
+bool TextConverter::_write_data(const TypeDescriptor& type_desc,
                                vectorized::IColumn* nullable_col_ptr, const char* data, size_t len,
                                bool copy_string, bool need_escape, size_t rows,
                                char array_delimiter) {
     vectorized::IColumn* col_ptr = nullable_col_ptr;
     // \N means it's NULL
     std::string col_type_name = col_ptr->get_name();
-    if (col_type_name.substr(0, 8) == "Nullable") {
+    bool is_null_able = typeid(*nullable_col_ptr) == typeid(vectorized::ColumnNullable);
+    if (is_null_able) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(nullable_col_ptr);
         if ((len == 2 && data[0] == '\\' && data[1] == 'N') || len == SQL_NULL_DATA) {
             nullable_column->insert_many_defaults(rows);
@@ -303,7 +304,7 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
         auto sub_type = type_desc.children[0];
         for (int i = 0; i < rows; i++) {
             for (auto range : ranges) {
-                write_data(sub_type, &col->get_data(), data + range.first, range.second,
+                _write_data(sub_type, &col->get_data(), data + range.first, range.second,
                            copy_string, need_escape, 1, array_delimiter + 1);
             }
             col->get_offsets().push_back(col->get_offsets().back() + ranges.size());
@@ -339,10 +340,10 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
 
         for (int i = 0; i < rows; i++) {
             for (auto range : ranges) {
-                write_data(key_type, &col->get_keys(), data + range[0], range[1] - range[0],
+                _write_data(key_type, &col->get_keys(), data + range[0], range[1] - range[0],
                            copy_string, need_escape, 1, array_delimiter + 1);
 
-                write_data(value_type, &col->get_values(), data + range[1] + 1, range[2] - range[1],
+                _write_data(value_type, &col->get_values(), data + range[1] + 1, range[2] - range[1],
                            copy_string, need_escape, 1, array_delimiter + 1);
             }
 
@@ -363,7 +364,7 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
         }
         for (int i = 0; i < rows; i++) {
             for (size_t loc = 0; loc < col->get_columns().size(); loc++) {
-                write_data(type_desc.children[loc], &col->get_column(loc), data + ranges[loc].first,
+                _write_data(type_desc.children[loc], &col->get_column(loc), data + ranges[loc].first,
                            ranges[loc].second, copy_string, need_escape, rows, array_delimiter + 1);
             }
         }
@@ -375,7 +376,7 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
     }
 
     if (UNLIKELY(parse_result == StringParser::PARSE_FAILURE)) {
-        if (col_type_name.substr(0, 8) == "Nullable") {
+        if (is_null_able) {
             auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(nullable_col_ptr);
             size_t size = nullable_column->get_null_map_data().size();
             doris::vectorized::NullMap& null_map_data = nullable_column->get_null_map_data();
@@ -392,7 +393,7 @@ bool TextConverter::write_data(const TypeDescriptor& type_desc,
 bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                                      vectorized::IColumn* nullable_col_ptr, const char* data,
                                      size_t len, bool copy_string, bool need_escape, size_t rows) {
-    return write_data(slot_desc->type(), nullable_col_ptr, data, len, copy_string, need_escape,
+    return _write_data(slot_desc->type(), nullable_col_ptr, data, len, copy_string, need_escape,
                       rows, '\2');
 }
 
