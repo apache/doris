@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -101,7 +103,21 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
                 }
                 return ctx.root;
-            }).toRule(RuleType.COLLECT_FILTER)
+            }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT),
+
+            logicalProject(logicalOlapScan()).thenApply(
+                ctx -> {
+                    LeadingHint leading = (LeadingHint) ctx.cascadesContext
+                            .getStatementContext().getHintMap().get("Leading");
+                    if (leading == null) {
+                        return ctx.root;
+                    }
+                    LogicalProject<LogicalOlapScan> project = ctx.root;
+                    LogicalOlapScan scan = project.child();
+                    leading.getRelationIdToScanMap().put(scan.getRelationId(), project);
+                    return ctx.root;
+                }
+            ).toRule(RuleType.COLLECT_JOIN_CONSTRAINT)
         );
     }
 
@@ -176,6 +192,10 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
         long bitmap = LongBitmap.newBitmap();
         for (Slot slot : slots) {
             if (getNotNullable && slot.nullable()) {
+                continue;
+            }
+            if (!slot.isColumnFromTable()) {
+                // we can not get info from column not from table
                 continue;
             }
             String tableName = leading.getExprIdToTableNameMap().get(slot.getExprId());

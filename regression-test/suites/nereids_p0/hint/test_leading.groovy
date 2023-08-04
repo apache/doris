@@ -83,10 +83,12 @@ suite("test_leading") {
     qt_select19 """explain shape plan select /*+ leading (t2 t1) */ * from t1 where exists (select 1 from t2);"""
 
 //// test cte
-    // inside cte
+    // inline cte, change join order of tables inside cte
+    qt_select20 """explain shape plan with cte as (select * from t1 join t2 on c1 = c2) select * from cte, t2;"""
+    qt_select21 """explain shape plan with cte as (select /*+ leading(t2 t1) */ * from t1 join t2 on c1 = c2) select * from cte, t2;"""
     // outside cte
     // inside and outside together (after unnest subquery)
-    qt_select20 """"""
+//    qt_select20 """"""
 
     sql """drop table if exists t1;"""
     sql """drop table if exists t2;"""
