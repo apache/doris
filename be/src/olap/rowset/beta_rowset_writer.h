@@ -162,9 +162,8 @@ private:
             std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();
-    Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
-                                       size_t num);
-    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
+    Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
+    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
     bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
 
     bool _check_and_set_is_doing_segcompaction();
