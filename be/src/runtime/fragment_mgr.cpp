@@ -424,18 +424,15 @@ void FragmentMgr::remove_fragment_exec_state(std::shared_ptr<FragmentExecState> 
 }
 
 void FragmentMgr::remove_pipeline_context(
-        std::shared_ptr<pipeline::PipelineFragmentContext>& f_context) {
-    auto share_pip_ctx = f_context;
-    _exec_env->send_report_thread_pool()->submit_func([&, this] {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto query_id = share_pip_ctx->get_query_id();
-        auto* q_context = share_pip_ctx->get_query_context();
-        bool all_done = q_context->countdown();
-        this->_pipeline_map.erase(share_pip_ctx->get_fragment_instance_id());
-        if (all_done) {
-            this->_query_ctx_map.erase(query_id);
-        }
-    });
+    std::shared_ptr<pipeline::PipelineFragmentContext>& share_pip_ctx) {
+    std::lock_guard<std::mutex> lock(_lock);
+    auto query_id = share_pip_ctx->get_query_id();
+    auto* q_context = share_pip_ctx->get_query_context();
+    bool all_done = q_context->countdown();
+    this->_pipeline_map.erase(share_pip_ctx->get_fragment_instance_id());
+    if (all_done) {
+        this->_query_ctx_map.erase(query_id);
+    }
 }
 
 template <typename Params>

@@ -134,14 +134,7 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
-    if (_runtime_state != nullptr) {
-        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_ATTACH_TASK(_runtime_state.get());
-        _finish_call_back(_runtime_state.get(), &_exec_status);
-        _runtime_state.reset();
-    } else {
-        _finish_call_back(_runtime_state.get(), &_exec_status);
-    }
+
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -204,7 +197,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _start_timer = ADD_TIMER(_runtime_profile, "PipCtx1StartTime");
     COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
     _prepare_timer = ADD_TIMER(_runtime_profile, "PipCtx2PrepareTime");
-    _close_begin_timer = ADD_TIMER(_runtime_profile, "PipCtx3CloseTime");
+    _close_timer = ADD_TIMER(_runtime_profile, "PipCtx3CloseTime");
     Defer prepare_defer {[&]() {
         COUNTER_UPDATE(_prepare_timer, _fragment_watcher.elapsed_time());
     }};
@@ -758,11 +751,23 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
 }
 
 void PipelineFragmentContext::_close_action() {
-    _runtime_profile->total_time_counter()->update(close_end_time);
-    COUNTER_UPDATE(_close_timer, _fragment_watcher.elapsed_time());
+    auto close_time = _fragment_watcher.elapsed_time()
+    _runtime_profile->total_time_counter()->update(close_time);
+    COUNTER_UPDATE(_close_timer, close_time);
     this->_send_report();
     // all submitted tasks done
-    _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
+    auto share_this = shared_from_this();
+    _exec_env->fragment_mgr()->remove_pipeline_context(share_this);
+    _exec_env->send_report_thread_pool()->submit_func([&, this] {
+        if (_runtime_state != nullptr) {
+            // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
+            SCOPED_ATTACH_TASK(_runtime_state.get());
+            _finish_call_back(_runtime_state.get(), &_exec_status);
+            _runtime_state.reset();
+        } else {
+            _finish_call_back(_runtime_state.get(), &_exec_status);
+        }
+    })
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
@@ -773,7 +778,7 @@ void PipelineFragmentContext::close_a_pipeline() {
     }
 }
 
-void PipelineFragmentContext::_send_report() const {
+void PipelineFragmentContext::_send_report() {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
