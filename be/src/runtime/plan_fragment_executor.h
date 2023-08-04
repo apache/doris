@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/fragment_mgr.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -312,7 +313,7 @@ public:
     void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
 
 private:
-    Status _execute() const;
+    Status _execute();
     void coordinator_callback(const Status& status, RuntimeProfile* profile,
                               RuntimeProfile* load_channel_profile, bool done);
 

@@ -751,10 +751,10 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
 }
 
 void PipelineFragmentContext::_close_action() {
-    auto close_time = _fragment_watcher.elapsed_time()
+    auto close_time = _fragment_watcher.elapsed_time();
     _runtime_profile->total_time_counter()->update(close_time);
     COUNTER_UPDATE(_close_timer, close_time);
-    this->_send_report();
+    this->send_report();
     // all submitted tasks done
     auto share_this = shared_from_this();
     _exec_env->fragment_mgr()->remove_pipeline_context(share_this);
@@ -767,7 +767,7 @@ void PipelineFragmentContext::_close_action() {
         } else {
             _finish_call_back(_runtime_state.get(), &_exec_status);
         }
-    })
+    });
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
@@ -778,7 +778,7 @@ void PipelineFragmentContext::close_a_pipeline() {
     }
 }
 
-void PipelineFragmentContext::_send_report() {
+void PipelineFragmentContext::send_report() {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);

@@ -103,7 +103,7 @@ public:
         _merge_controller_handler = handler;
     }
 
-    void _send_report();
+    void send_report();
 
     Status update_status(Status status) {
         std::lock_guard<std::mutex> l(_status_lock);

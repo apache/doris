@@ -50,6 +50,7 @@
 #include "runtime/query_statistics.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
@@ -611,7 +612,7 @@ Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
 void FragmentExecState::execute(const FinishCallback& cb) {
     std::string func_name {"FragmentExecState::execute"};
 #ifndef BE_TEST
-    SCOPED_ATTACH_TASK(_executor->runtime_state());
+    SCOPED_ATTACH_TASK(_executor.runtime_state());
 #endif
 
     LOG_INFO(func_name)
@@ -624,14 +625,14 @@ void FragmentExecState::execute(const FinishCallback& cb) {
         cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "exec_state execute failed");
     }
 
-    _executor->exec_env()->fragment_mgr()->remove_fragment_exec_state(shared_from_this());
+    _executor.exec_env()->fragment_mgr()->remove_fragment_exec_state(shared_from_this());
 
     // Callback after remove from this id
-    auto status = _executor->status();
-    cb(_executor->runtime_state(), &status);
+    auto status = _executor.status();
+    cb(_executor.runtime_state(), &status);
 }
 
-Status FragmentExecState::_execute() const {
+Status FragmentExecState::_execute() {
     if (_need_wait_execution_trigger) {
         // if _need_wait_execution_trigger is true, which means this instance
         // is prepared but need to wait for the signal to do the rest execution.
