@@ -17,12 +17,8 @@
 
 package org.apache.doris.common.classloader;
 
-import sun.misc.CompoundEnumeration;
-
-import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.util.Enumeration;
 import java.util.List;
 
 public class JniScannerClassLoader extends URLClassLoader {
@@ -30,7 +26,7 @@ public class JniScannerClassLoader extends URLClassLoader {
     private final String scannerName;
 
     public JniScannerClassLoader(String scannerName, List<URL> urls) {
-        super(urls.toArray(new URL[0]));
+        super(urls.toArray(new URL[0]), ClassLoader.getSystemClassLoader());
         this.scannerName = scannerName;
     }
 
@@ -39,41 +35,5 @@ public class JniScannerClassLoader extends URLClassLoader {
         return "JniScannerClassLoader{"
                 + "scannerName='" + scannerName
                 + '}';
-    }
-
-    @Override
-    public final Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-        synchronized (getClassLoadingLock(name)) {
-            Class<?> loadedClass = findLoadedClass(name);
-            if (loadedClass != null) {
-                return resolveClass(loadedClass, resolve);
-            }
-            return super.loadClass(name, resolve);
-        }
-    }
-
-    private Class<?> resolveClass(Class<?> loadedClass, boolean resolve) {
-        if (resolve) {
-            resolveClass(loadedClass);
-        }
-        return loadedClass;
-    }
-
-    @Override
-    public URL getResource(String name) {
-        URL url = findResource(name);
-        if (url != null) {
-            return url;
-        }
-        return super.getResource(name);
-    }
-
-    @Override
-    public Enumeration<URL> getResources(String name) throws IOException {
-        @SuppressWarnings("unchecked")
-        Enumeration<URL>[] tmp = (Enumeration<URL>[]) new Enumeration<?>[2];
-        tmp[0] = findResources(name);
-        tmp[1] = super.getResources(name);
-        return new CompoundEnumeration<>(tmp);
     }
 }

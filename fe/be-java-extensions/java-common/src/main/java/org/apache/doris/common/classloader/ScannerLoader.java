@@ -17,13 +17,7 @@
 
 package org.apache.doris.common.classloader;
 
-import org.apache.doris.common.jni.JniScanner;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Streams;
-import org.apache.log4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,51 +27,60 @@ import java.net.URL;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.List;
-import java.util.ServiceLoader;
+import java.util.Map;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 
+/**
+ * BE will load scanners by JNI call, and then the JniConnector on BE will get scanner class by getLoadedClass.
+ */
 public class ScannerLoader {
-    private static final Logger LOG = Logger.getLogger(ScannerLoader.class);
+    private static final Map<String, Class<?>> loadedClasses = new HashMap<>();
+    private static final String CLASS_SUFFIX = ".class";
+    private static final String LOAD_PACKAGE = "org.apache.doris";
 
-    public static void load() {
-        LOG.info("--- scanner load class");
+    /**
+     * Load all classes from $DORIS_HOME/lib/java_extensions/*
+     */
+    public void loadAllScannerJars() {
         String basePath = System.getenv("DORIS_HOME");
         File library = new File(basePath, "/lib/java_extensions/");
-        listFiles(library).stream().filter(File::isDirectory).forEach(e -> {
-            JniScannerClassLoader classLoader = createScannerClassLoader(e.getName(), buildClassPath(e));
-            LOG.info("scanner Classpath for plugin: " + e.getName());
-            for (URL url : classLoader.getURLs()) {
-                LOG.info("scanner " + url.getPath());
-            }
+        // TODO: add thread pool to load each scanner
+        listFiles(library).stream().filter(File::isDirectory).forEach(sd -> {
+            JniScannerClassLoader classLoader = new JniScannerClassLoader(sd.getName(), buildClassPath(sd));
             try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-                ServiceLoader<JniScanner> serviceLoader = ServiceLoader.load(JniScanner.class, classLoader);
-                List<JniScanner> scanners = ImmutableList.copyOf(serviceLoader);
-                if (scanners.isEmpty()) {
-                    LOG.warn("No service providers of type " + JniScanner.class.getName()
-                            + " in the classpath: " + Lists.asList(null, classLoader.getURLs()));
-                }
-                for (JniScanner scanner : scanners) {
-                    LOG.info("Loaded " + scanner.getClass().getName());
-                }
+                loadJarClassFromDir(sd, classLoader);
             }
         });
     }
 
-    private static JniScannerClassLoader createScannerClassLoader(String name, List<URL> classPaths) {
-        return new JniScannerClassLoader(name, classPaths);
+    /**
+     * Get loaded class for JNI scanners
+     * @param className JNI scanner class name
+     * @return scanner class object
+     * @throws ClassNotFoundException JNI scanner class not found
+     */
+    public Class<?> getLoadedClass(String className) throws ClassNotFoundException {
+        String loadedClassName = getPackagePathName(className);
+        if (loadedClasses.containsKey(loadedClassName)) {
+            return loadedClasses.get(loadedClassName);
+        } else {
+            throw new ClassNotFoundException("JNI scanner has not been loaded or no such class: " + className);
+        }
     }
 
     private static List<URL> buildClassPath(File path) {
         return listFiles(path).stream()
-                .map(ScannerLoader::fileToUrl)
+                .map(ScannerLoader::classFileUrl)
                 .collect(Collectors.toList());
     }
 
-    private static URL fileToUrl(File file) {
+    private static URL classFileUrl(File file) {
         try {
             return file.toURI().toURL();
         } catch (MalformedURLException e) {
@@ -86,7 +89,6 @@ public class ScannerLoader {
     }
 
     public static List<File> listFiles(File library) {
-        LOG.info("---scanner dir: " + library.toPath());
         try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(library.toPath())) {
             return Streams.stream(directoryStream)
                     .map(Path::toFile)
@@ -98,23 +100,40 @@ public class ScannerLoader {
         }
     }
 
-    @VisibleForTesting
-    public static void loadJarClass(String path) throws IOException {
-        Enumeration<JarEntry> entryEnumeration;
-        try (JarFile jar = new JarFile(path)) {
-            entryEnumeration = jar.entries();
-            while (entryEnumeration.hasMoreElements()) {
-                JarEntry entry = entryEnumeration.nextElement();
-                String clazzName = entry.getName();
-                if (clazzName.endsWith(".class")) {
-                    clazzName = clazzName.substring(0, clazzName.length() - 6);
-                    clazzName = clazzName.replace("/", ".");
-                    Class.forName(clazzName);
+    public static void loadJarClassFromDir(File dir, JniScannerClassLoader classLoader) {
+        listFiles(dir).forEach(file -> {
+            Enumeration<JarEntry> entryEnumeration;
+            List<String> loadClassNames = new ArrayList<>();
+            try {
+                try (JarFile jar = new JarFile(file)) {
+                    entryEnumeration = jar.entries();
+                    while (entryEnumeration.hasMoreElements()) {
+                        JarEntry entry = entryEnumeration.nextElement();
+                        String className = entry.getName();
+                        if (!className.endsWith(CLASS_SUFFIX)) {
+                            continue;
+                        }
+                        className = className.substring(0, className.length() - CLASS_SUFFIX.length());
+                        String packageClassName = getPackagePathName(className);
+                        if (needToLoad(packageClassName)) {
+                            loadClassNames.add(packageClassName);
+                        }
+                    }
                 }
+                for (String className : loadClassNames) {
+                    loadedClasses.putIfAbsent(className, classLoader.loadClass(className));
+                }
+            } catch (Exception e) {
+                throw new RuntimeException(e.getMessage(), e);
             }
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
-        }
+        });
     }
 
+    private static String getPackagePathName(String className) {
+        return className.replace("/", ".");
+    }
+
+    private static boolean needToLoad(String className) {
+        return className.contains(LOAD_PACKAGE) && !className.contains("$");
+    }
 }

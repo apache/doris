@@ -18,7 +18,6 @@
 package org.apache.doris.common.classloader;
 
 import java.io.Closeable;
-import java.io.IOException;
 
 public class ThreadClassLoaderContext implements Closeable {
 
