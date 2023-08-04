@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.httpv2.util.Md5Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -176,6 +177,9 @@ public class RestBaseController extends BaseController {
         response.setHeader("Content-type", "application/octet-stream");
         response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());
         response.setHeader("X-Image-Size", imageFile.length() + "");
+        if (Config.enable_image_md5_check) {
+            response.setHeader("X-MD5", Md5Util.getMd5String(imageFile));
+        }
         getFile(request, response, imageFile, imageFile.getName());
     }
 

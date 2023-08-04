@@ -2059,4 +2059,8 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
 
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "master fe同步image文件到其他fe时是否校验md5",
+        "Whether to verify md5 when synchronizing image files from master fe to other fe"})
+    public static boolean enable_image_md5_check = true;
 }
