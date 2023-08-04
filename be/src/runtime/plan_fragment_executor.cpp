@@ -51,6 +51,7 @@
 #include "runtime/result_queue_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
