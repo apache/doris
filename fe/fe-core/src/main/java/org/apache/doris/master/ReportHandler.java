@@ -1163,6 +1163,7 @@ public class ReportHandler extends Daemon {
             // colocate table will delete Replica in meta when balance
             // but we need to rely on MetaNotFoundException to decide whether delete the tablet in backend
             // if the tablet is healthy, delete it.
+            boolean isColocateBackend = false;
             ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
             if (colocateTableIndex.isColocateTable(olapTable.getId())) {
                 ColocateTableIndex.GroupId groupId = colocateTableIndex.getGroup(tableId);
@@ -1176,6 +1177,10 @@ public class ReportHandler extends Daemon {
                 if (status == TabletStatus.HEALTHY) {
                     return false;
                 }
+
+                if (backendsSet.contains(backendId)) {
+                    isColocateBackend = true;
+                }
             }
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
@@ -1183,7 +1188,8 @@ public class ReportHandler extends Daemon {
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
                     visibleVersion, replicaAlloc, aliveBeIds);
 
-            if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING
+            if (isColocateBackend || status.first == TabletStatus.VERSION_INCOMPLETE
+                    || status.first == TabletStatus.REPLICA_MISSING
                     || status.first == TabletStatus.UNRECOVERABLE) {
                 long lastFailedVersion = -1L;
 
