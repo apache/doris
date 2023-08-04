@@ -69,6 +69,8 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& loa
 TabletsChannel::~TabletsChannel() {
     _s_tablet_writer_count -= _tablet_writers.size();
     for (auto& it : _tablet_writers) {
+        auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
+        memtable_memory_limiter->deregister_writer(it.second);
         delete it.second;
     }
     delete _schema;
