@@ -70,6 +70,7 @@
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
+#include "exprs/math_functions.h"
 
 namespace doris {
 class FunctionContext;
@@ -249,6 +250,37 @@ struct BitmapFromString {
         return Status::OK();
     }
 };
+
+struct BitmapFromUnhex {
+    static constexpr auto name = "unhex_to_bitmap";
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         std::vector<BitmapValue>& res, NullMap& null_map) {
+        auto size = offsets.size();
+        res.reserve(size);
+        BitmapValue bitmap;
+        for (size_t i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            int64_t str_size = offsets[i] - offsets[i - 1] - 1;
+
+            int cipher_len = str_size / 2;
+            char dst[cipher_len];
+            MathFunctions::hex_decode(raw_str, str_size, dst);
+            if (UNLIKELY(!bitmap.deserialize(dst))) {
+                std::stringstream error_msg;
+                error_msg << "The input: " << std::string(raw_str, str_size)
+                          << " is not valid, deserialize to bitmap failed";
+                LOG(WARNING) << error_msg.str();
+                return Status::InternalError(error_msg.str());
+            }
+
+            res.push_back(bitmap);
+            bitmap.clear();
+        }
+        return Status::OK();
+    }
+};
+
 
 struct BitmapFromArray {
     using ArgumentType = DataTypeArray;
@@ -1109,6 +1141,7 @@ using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
 using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
 
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
+using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromUnhex>;
 using FunctionBitmapFromArray = FunctionBitmapAlwaysNull<BitmapFromArray>;
 using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash<32>>;
 using FunctionBitmapHash64 = FunctionAlwaysNotNullable<BitmapHash<64>>;

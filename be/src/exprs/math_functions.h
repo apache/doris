@@ -37,6 +37,8 @@ public:
     static doris::StringRef decimal_to_base(doris::FunctionContext* ctx, int64_t src_num,
                                             int8_t dest_base);
 
+    static int hex_decode(const char* src_str, size_t src_len, char* dst_str);
+
     // Converts src_num representing a number in src_base but encoded in decimal
     // into its actual decimal number.
     // For example, if src_num is 21 and src_base is 5,
