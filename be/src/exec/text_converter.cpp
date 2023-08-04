@@ -67,9 +67,9 @@ void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
 }
 
 bool TextConverter::_write_data(const TypeDescriptor& type_desc,
-                               vectorized::IColumn* nullable_col_ptr, const char* data, size_t len,
-                               bool copy_string, bool need_escape, size_t rows,
-                               char array_delimiter) {
+                                vectorized::IColumn* nullable_col_ptr, const char* data, size_t len,
+                                bool copy_string, bool need_escape, size_t rows,
+                                char array_delimiter) {
     vectorized::IColumn* col_ptr = nullable_col_ptr;
     // \N means it's NULL
     std::string col_type_name = col_ptr->get_name();
@@ -305,7 +305,7 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
         for (int i = 0; i < rows; i++) {
             for (auto range : ranges) {
                 _write_data(sub_type, &col->get_data(), data + range.first, range.second,
-                           copy_string, need_escape, 1, array_delimiter + 1);
+                            copy_string, need_escape, 1, array_delimiter + 1);
             }
             col->get_offsets().push_back(col->get_offsets().back() + ranges.size());
         }
@@ -341,10 +341,10 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
         for (int i = 0; i < rows; i++) {
             for (auto range : ranges) {
                 _write_data(key_type, &col->get_keys(), data + range[0], range[1] - range[0],
-                           copy_string, need_escape, 1, array_delimiter + 1);
+                            copy_string, need_escape, 1, array_delimiter + 1);
 
-                _write_data(value_type, &col->get_values(), data + range[1] + 1, range[2] - range[1],
-                           copy_string, need_escape, 1, array_delimiter + 1);
+                _write_data(value_type, &col->get_values(), data + range[1] + 1,
+                            range[2] - range[1], copy_string, need_escape, 1, array_delimiter + 1);
             }
 
             col->get_offsets().push_back(col->get_offsets().back() + ranges.size());
@@ -364,8 +364,9 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
         }
         for (int i = 0; i < rows; i++) {
             for (size_t loc = 0; loc < col->get_columns().size(); loc++) {
-                _write_data(type_desc.children[loc], &col->get_column(loc), data + ranges[loc].first,
-                           ranges[loc].second, copy_string, need_escape, rows, array_delimiter + 1);
+                _write_data(type_desc.children[loc], &col->get_column(loc),
+                            data + ranges[loc].first, ranges[loc].second, copy_string, need_escape,
+                            rows, array_delimiter + 1);
             }
         }
         break;
@@ -394,7 +395,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                                      vectorized::IColumn* nullable_col_ptr, const char* data,
                                      size_t len, bool copy_string, bool need_escape, size_t rows) {
     return _write_data(slot_desc->type(), nullable_col_ptr, data, len, copy_string, need_escape,
-                      rows, '\2');
+                       rows, '\2');
 }
 
 void TextConverter::unescape_string_on_spot(const char* src, size_t* len) {

@@ -64,8 +64,8 @@ public:
 
 private:
     bool _write_data(const TypeDescriptor& type_desc, vectorized::IColumn* nullable_col_ptr,
-                    const char* data, size_t len, bool copy_string, bool need_escape, size_t rows,
-                    char array_delimiter);
+                     const char* data, size_t len, bool copy_string, bool need_escape, size_t rows,
+                     char array_delimiter);
 
     char _escape_char;
 
