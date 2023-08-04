@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.clone.TabletChecker.CheckerCounter;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
@@ -201,6 +202,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      * If every replicas match the backends in group, mark that group as stable.
      */
     private void matchGroup() {
+        long start = System.currentTimeMillis();
+        CheckerCounter counter = new CheckerCounter();
+
         Env env = Env.getCurrentEnv();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         ColocateTableIndex colocateIndex = env.getColocateTableIndex();
@@ -244,6 +248,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     backendBucketsSeq.size() + " vs. " + index.getTablets().size());
                             int idx = 0;
                             for (Long tabletId : index.getTabletIdsInOrder()) {
+                                counter.totalTabletNum++;
                                 Set<Long> bucketsSeq = backendBucketsSeq.get(idx);
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum,
                                         bucketsSeq.size() + " vs. " + replicationNum);
@@ -251,11 +256,13 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 TabletStatus st = tablet.getColocateHealthStatus(
                                         visibleVersion, replicaAlloc, bucketsSeq);
                                 if (st != TabletStatus.HEALTHY) {
+                                    counter.unhealthyTabletNum++;
                                     unstableReason = String.format("get unhealthy tablet %d in colocate table."
                                             + " status: %s", tablet.getId(), st);
                                     LOG.debug(unstableReason);
 
                                     if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
+                                        counter.tabletNotReady++;
                                         continue;
                                     }
 
@@ -275,6 +282,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                         // skip this group and check next one.
                                         LOG.info("tablet scheduler return: {}. stop colocate table check", res.name());
                                         break OUT;
+                                    } else if (res == AddResult.ADDED) {
+                                        counter.addToSchedulerTabletNum++;
+                                    }  else {
+                                        counter.tabletInScheduler++;
                                     }
                                 }
                                 idx++;
@@ -293,6 +304,11 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 colocateIndex.markGroupUnstable(groupId, unstableReason, true);
             }
         } // end for groups
+
+        long cost = System.currentTimeMillis() - start;
+        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
+                counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
+                counter.tabletInScheduler, counter.tabletNotReady, cost);
     }
 
     /*
