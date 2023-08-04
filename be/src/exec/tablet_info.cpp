@@ -201,7 +201,6 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
-        DCHECK(t_index.__isset.columns_desc);
         for (auto& tcolumn_desc : t_index.columns_desc) {
             if (_is_partial_update &&
                 _partial_update_input_columns.count(tcolumn_desc.column_name) == 0) {
