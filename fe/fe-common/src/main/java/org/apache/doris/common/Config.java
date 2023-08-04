@@ -2039,4 +2039,17 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int statistics_sql_parallel_exec_instance_num = 1;
+
+    @ConfField
+    public static int cpu_resource_limit_per_analyze_task = 1;
+
+    @ConfField(mutable = true, description = {
+            "Export任务允许的最大分区数量",
+            "The maximum number of partitions allowed by Export job"})
+    public static int maximum_number_of_export_partitions = 2000;
+
+    @ConfField(mutable = true, description = {
+            "Export任务允许的最大并行数",
+            "The maximum parallelism allowed by Export job"})
+    public static int maximum_parallelism_of_export_job = 50;
 }
