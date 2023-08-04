@@ -373,6 +373,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     // check where expr
                     ImportWhereStmt node = (ImportWhereStmt) parseNode;
                     if (node.isPreceding()) {
+                        if (isMultiTable) {
+                            throw new AnalysisException("Multi-table load does not support setting columns info");
+                        }
                         if (precedingImportWhereStmt != null) {
                             throw new AnalysisException("repeat setting of preceding where predicate");
                         }
