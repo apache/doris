@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Resource management",
+    "title": "Resource Management",
     "language": "en"
 }
 ---
