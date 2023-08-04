@@ -52,7 +52,6 @@ protected:
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
 private:
-
     // filter input rowset in some case:
     // 1. dup key without delete predicate
     void _filter_input_rowset();

@@ -205,5 +205,4 @@ Status BaseCompaction::pick_rowsets_to_compact() {
             interval_since_last_base_compaction);
 }
 
-
 } // namespace doris
