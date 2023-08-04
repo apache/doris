@@ -82,6 +82,7 @@ public:
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
 
     std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> get_tablets_channels() {
+        std::lock_guard<SpinLock> l(_tablets_channels_lock);
         return _tablets_channels;
     }
 
