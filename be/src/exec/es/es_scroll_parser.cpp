@@ -476,8 +476,10 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
             // this may be a tricky, but we can workaround this issue
             std::string val;
-            if (pure_doc_value && !col.Empty()) {
-                if (!col[0].IsString()) {
+            if (pure_doc_value) {
+                if (col.Empty()) {
+                    break;
+                } else if (!col[0].IsString()) {
                     val = json_value_to_string(col[0]);
                 } else {
                     val = col[0].GetString();
@@ -575,8 +577,10 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 data.assign_from_double(col.GetDouble());
             } else {
                 std::string val;
-                if (pure_doc_value && !col.Empty()) {
-                    if (!col[0].IsString()) {
+                if (pure_doc_value) {
+                    if (col.Empty()) {
+                        break;
+                    } else if (!col[0].IsString()) {
                         val = json_value_to_string(col[0]);
                     } else {
                         val = col[0].GetString();
