@@ -155,36 +155,17 @@ suite("test_index_match_select", "inverted_index_select"){
 
         // case1: match term
         // case1.0 test match ""
-        try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume2} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${string_colume1} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${char_colume1} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${text_colume1} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
+        qt_sql_empty1 """ select * from ${indexTbName1} where ${varchar_colume1} match_any "" order by name; """
+
+        qt_sql_empty2 """ select * from ${indexTbName1} where ${varchar_colume2} match_any "" order by name; """
+
+        qt_sql_empty3 """ select * from ${indexTbName1} where ${varchar_colume3} match_any "" order by name; """
+
+        qt_sql_empty4 """ select * from ${indexTbName1} where ${string_colume1} match_any "" order by name; """
+
+        qt_sql_empty5 """ select * from ${indexTbName1} where ${char_colume1} match_any "" order by name; """
+
+        qt_sql_empty6 """ select * from ${indexTbName1} where ${text_colume1} match_any "" order by name; """
 
         // case1.0 test int colume cannot use match
         def colume_match_result = "fail"
