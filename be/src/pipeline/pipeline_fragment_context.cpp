@@ -124,14 +124,12 @@ PipelineFragmentContext::PipelineFragmentContext(
           _exec_env(exec_env),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
           _query_ctx(std::move(query_ctx)),
-          _call_back(call_back),
-          _report_thread_active(false),
+          _finish_call_back(call_back),
           _report_status_cb(report_status_cb),
           _is_report_on_cancel(true) {
     if (_query_ctx->get_task_group()) {
         _task_group_entity = _query_ctx->get_task_group()->task_entity();
     }
-    _report_thread_future = _report_thread_promise.get_future();
     _fragment_watcher.start();
 }
 
@@ -139,12 +137,11 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     if (_runtime_state != nullptr) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
         SCOPED_ATTACH_TASK(_runtime_state.get());
-        _call_back(_runtime_state.get(), &_exec_status);
+        _finish_call_back(_runtime_state.get(), &_exec_status);
         _runtime_state.reset();
     } else {
-        _call_back(_runtime_state.get(), &_exec_status);
+        _finish_call_back(_runtime_state.get(), &_exec_status);
     }
-    DCHECK(!_report_thread_active);
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -156,6 +153,8 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         }
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             _exec_status = Status::Cancelled(msg);
+        } else {
+            _is_report_on_cancel = false;
         }
         _runtime_state->set_is_cancelled(true, msg);
 
@@ -187,7 +186,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     }
 }
 
-PipelinePtr PipelineFragmentContext::add_pipeline() {
+PipelinePtr PipelineFragmentContext::_add_pipeline() {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
@@ -202,10 +201,13 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
     const auto& local_params = request.local_params[idx];
     _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
-    _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
+    _start_timer = ADD_TIMER(_runtime_profile, "PipCtx1StartTime");
     COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
-    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
-    SCOPED_TIMER(_prepare_timer);
+    _prepare_timer = ADD_TIMER(_runtime_profile, "PipCtx2PrepareTime");
+    _close_begin_timer = ADD_TIMER(_runtime_profile, "PipCtx3CloseTime");
+    Defer prepare_defer {[&]() {
+        COUNTER_UPDATE(_prepare_timer, _fragment_watcher.elapsed_time());
+    }};
 
     auto* fragment_context = this;
     OpentelemetryTracer tracer = telemetry::get_noop_tracer();
@@ -314,7 +316,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
                 _runtime_state.get(), &_sink, *desc_tbl));
     }
 
-    _root_pipeline = fragment_context->add_pipeline();
+    _root_pipeline = fragment_context->_add_pipeline();
     RETURN_IF_ERROR(_build_pipelines(_root_plan, _root_pipeline));
     if (_sink) {
         RETURN_IF_ERROR(_create_sink(request.local_params[idx].sender_id,
@@ -360,74 +362,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     }
 
     return Status::OK();
-}
-
-void PipelineFragmentContext::_stop_report_thread() {
-    if (!_report_thread_active) {
-        return;
-    }
-
-    _report_thread_active = false;
-
-    _stop_report_thread_cv.notify_one();
-    // Wait infinitly to ensure that the report task is finished and the this variable
-    // is not used in report thread.
-    _report_thread_future.wait();
-}
-
-void PipelineFragmentContext::report_profile() {
-    SCOPED_ATTACH_TASK(_runtime_state.get());
-    VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
-
-    _report_thread_active = true;
-
-    std::unique_lock<std::mutex> l(_report_thread_lock);
-    // tell Open() that we started
-    _report_thread_started_cv.notify_one();
-
-    // Jitter the reporting time of remote fragments by a random amount between
-    // 0 and the report_interval.  This way, the coordinator doesn't get all the
-    // updates at once so its better for contention as well as smoother progress
-    // reporting.
-    int report_fragment_offset = rand() % config::status_report_interval;
-    // We don't want to wait longer than it takes to run the entire fragment.
-    _stop_report_thread_cv.wait_for(l, std::chrono::seconds(report_fragment_offset));
-    while (_report_thread_active) {
-        if (config::status_report_interval > 0) {
-            // wait_for can return because the timeout occurred or the condition variable
-            // was signaled.  We can't rely on its return value to distinguish between the
-            // two cases (e.g. there is a race here where the wait timed out but before grabbing
-            // the lock, the condition variable was signaled).  Instead, we will use an external
-            // flag, _report_thread_active, to coordinate this.
-            _stop_report_thread_cv.wait_for(l,
-                                            std::chrono::seconds(config::status_report_interval));
-        } else {
-            LOG(WARNING) << "config::status_report_interval is equal to or less than zero, exiting "
-                            "reporting thread.";
-            break;
-        }
-
-        if (VLOG_FILE_IS_ON) {
-            VLOG_FILE << "Reporting " << (!_report_thread_active ? "final " : " ")
-                      << "profile for instance " << _runtime_state->fragment_instance_id();
-            std::stringstream ss;
-            _runtime_state->runtime_profile()->compute_time_in_profile();
-            _runtime_state->runtime_profile()->pretty_print(&ss);
-            if (_runtime_state->load_channel_profile()) {
-                // _runtime_state->load_channel_profile()->compute_time_in_profile(); // TODO load channel profile add timer
-                _runtime_state->load_channel_profile()->pretty_print(&ss);
-            }
-            VLOG_FILE << ss.str();
-        }
-
-        if (!_report_thread_active) {
-            break;
-        }
-
-        send_report(false);
-    }
-
-    VLOG_FILE << "exiting reporting thread: instance_id=" << _runtime_state->fragment_instance_id();
 }
 
 // TODO: use virtual function to do abstruct
@@ -491,7 +425,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
             int child_count = union_node->children_count();
             auto data_queue = std::make_shared<DataQueue>(child_count);
             for (int child_id = 0; child_id < child_count; ++child_id) {
-                auto new_child_pipeline = add_pipeline();
+                auto new_child_pipeline = _add_pipeline();
                 RETURN_IF_ERROR(_build_pipelines(union_node->child(child_id), new_child_pipeline));
                 OperatorBuilderPtr child_sink_builder = std::make_shared<UnionSinkOperatorBuilder>(
                         union_node->id(), child_id, union_node, data_queue);
@@ -505,7 +439,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     }
     case TPlanNodeType::AGGREGATION_NODE: {
         auto* agg_node = dynamic_cast<vectorized::AggregationNode*>(node);
-        auto new_pipe = add_pipeline();
+        auto new_pipe = _add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipe));
         if (agg_node->is_aggregate_evaluators_empty()) {
             auto data_queue = std::make_shared<DataQueue>(1);
@@ -539,7 +473,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        auto new_pipeline = add_pipeline();
+        auto new_pipeline = _add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
 
         OperatorBuilderPtr sort_sink = std::make_shared<SortSinkOperatorBuilder>(node->id(), node);
@@ -551,7 +485,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::PARTITION_SORT_NODE: {
-        auto new_pipeline = add_pipeline();
+        auto new_pipeline = _add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
 
         OperatorBuilderPtr partition_sort_sink =
@@ -564,7 +498,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::ANALYTIC_EVAL_NODE: {
-        auto new_pipeline = add_pipeline();
+        auto new_pipeline = _add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(0), new_pipeline));
 
         OperatorBuilderPtr analytic_sink =
@@ -598,7 +532,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     }
     case TPlanNodeType::HASH_JOIN_NODE: {
         auto* join_node = assert_cast<vectorized::HashJoinNode*>(node);
-        auto new_pipe = add_pipeline();
+        auto new_pipe = _add_pipeline();
         if (join_node->should_build_hash_table()) {
             RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
         } else {
@@ -619,7 +553,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {
-        auto new_pipe = add_pipeline();
+        auto new_pipe = _add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
         OperatorBuilderPtr join_sink =
                 std::make_shared<NestLoopJoinBuildOperatorBuilder>(node->id(), node);
@@ -657,14 +591,14 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
 template <bool is_intersect>
 Status PipelineFragmentContext::_build_operators_for_set_operation_node(ExecNode* node,
                                                                         PipelinePtr cur_pipe) {
-    auto build_pipeline = add_pipeline();
+    auto build_pipeline = _add_pipeline();
     RETURN_IF_ERROR(_build_pipelines(node->child(0), build_pipeline));
     OperatorBuilderPtr sink_builder =
             std::make_shared<SetSinkOperatorBuilder<is_intersect>>(node->id(), node);
     RETURN_IF_ERROR(build_pipeline->set_sink(sink_builder));
 
     for (int child_id = 1; child_id < node->children_count(); ++child_id) {
-        auto probe_pipeline = add_pipeline();
+        auto probe_pipeline = _add_pipeline();
         RETURN_IF_ERROR(_build_pipelines(node->child(child_id), probe_pipeline));
         OperatorBuilderPtr probe_sink_builder =
                 std::make_shared<SetProbeSinkOperatorBuilder<is_intersect>>(node->id(), child_id,
@@ -781,7 +715,7 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         auto sender_size = thrift_sink.multi_cast_stream_sink.sinks.size();
         _multi_cast_stream_sink_senders.resize(sender_size);
         for (int i = 0; i < sender_size; ++i) {
-            auto new_pipeline = add_pipeline();
+            auto new_pipeline = _add_pipeline();
 
             auto row_desc =
                     !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
@@ -824,9 +758,9 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
 }
 
 void PipelineFragmentContext::_close_action() {
-    _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
-    send_report(true);
-    _stop_report_thread();
+    _runtime_profile->total_time_counter()->update(close_end_time);
+    COUNTER_UPDATE(_close_timer, _fragment_watcher.elapsed_time());
+    this->_send_report();
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
 }
@@ -839,7 +773,7 @@ void PipelineFragmentContext::close_a_pipeline() {
     }
 }
 
-void PipelineFragmentContext::send_report(bool done) {
+void PipelineFragmentContext::_send_report() const {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -848,7 +782,7 @@ void PipelineFragmentContext::send_report(bool done) {
 
     // If plan is done successfully, but _is_report_success is false,
     // no need to send report.
-    if (!_is_report_success && done && exec_status.ok()) {
+    if (!_is_report_success && exec_status.ok()) {
         return;
     }
 
@@ -860,14 +794,17 @@ void PipelineFragmentContext::send_report(bool done) {
         return;
     }
 
-    _report_status_cb(
-            {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
-             _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
-             done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
-             _fragment_instance_id, _backend_num, _runtime_state.get(),
-             std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
-             std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)});
+    auto share_this = shared_from_this();
+    _exec_env->send_report_thread_pool()->submit_func([&, this] {
+        share_this->_report_status_cb(
+                {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
+                 _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
+                 !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
+                 _fragment_instance_id, _backend_num, _runtime_state.get(),
+                 std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
+                 std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
+                           std::placeholders::_2)});
+    });
 }
 
 } // namespace doris::pipeline

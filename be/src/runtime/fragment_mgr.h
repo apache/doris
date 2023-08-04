@@ -93,8 +93,9 @@ public:
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params);
 
+    void remove_fragment_exec_state(std::shared_ptr<FragmentExecState> f_state);
     void remove_pipeline_context(
-            std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
+            std::shared_ptr<pipeline::PipelineFragmentContext>& pipeline_context);
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);

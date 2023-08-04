@@ -426,11 +426,11 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     _sum_rpc_timer->set(sum_time);
     _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
 
-    int64_t max_end_time = 0;
+    uint64_t max_end_time = 0;
     for (auto& [id, timer] : _instance_watcher) {
         max_end_time = std::max(timer.elapsed_time(), max_end_time);
     }
     auto* _max_end_timer = ADD_TIMER(profile, "MaxRpcEndTime");
-    _max_end_timer->set(max_end_time);
+    _max_end_timer->set(static_cast<int64_t>(max_end_time));
 }
 } // namespace doris::pipeline

@@ -63,7 +63,6 @@
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -108,208 +107,6 @@ std::string to_load_error_http_path(const std::string& file_name) {
 
 using apache::thrift::TException;
 using apache::thrift::transport::TTransportException;
-
-class FragmentExecState {
-public:
-    using report_status_callback_impl = std::function<void(const ReportStatusRequest)>;
-    // Constructor by using QueryContext
-    FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
-                      ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
-                      const report_status_callback_impl& report_status_cb_impl);
-
-    Status prepare(const TExecPlanFragmentParams& params);
-
-    Status execute();
-
-    Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
-    bool is_canceled() { return _cancelled; }
-
-    TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
-
-    TUniqueId query_id() const { return _query_id; }
-
-    PlanFragmentExecutor* executor() { return &_executor; }
-
-    const vectorized::VecDateTimeValue& start_time() const { return _start_time; }
-
-    void set_merge_controller_handler(
-            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
-        _merge_controller_handler = handler;
-    }
-
-    // Update status of this fragment execute
-    Status update_status(const Status& status) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (!status.ok() && _exec_status.ok()) {
-            _exec_status = status;
-            LOG(WARNING) << "query_id=" << print_id(_query_id)
-                         << ", instance_id=" << print_id(_fragment_instance_id)
-                         << " meet error status " << status;
-        }
-        return _exec_status;
-    }
-
-    void set_group(const TResourceInfo& info) {
-        _set_rsc_info = true;
-        _user = info.user;
-        _group = info.group;
-    }
-
-    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
-        if (_timeout_second <= 0) {
-            return false;
-        }
-        if (now.second_diff(_start_time) > _timeout_second) {
-            return true;
-        }
-        return false;
-    }
-
-    int get_timeout_second() const { return _timeout_second; }
-
-    std::shared_ptr<QueryContext> get_query_ctx() { return _query_ctx; }
-
-    void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
-
-private:
-    void coordinator_callback(const Status& status, RuntimeProfile* profile,
-                              RuntimeProfile* load_channel_profile, bool done);
-
-    // Id of this query
-    TUniqueId _query_id;
-    // Id of this instance
-    TUniqueId _fragment_instance_id;
-    // Used to report to coordinator which backend is over
-    int _backend_num;
-    TNetworkAddress _coord_addr;
-
-    // This context is shared by all fragments of this host in a query.
-    // _query_ctx should be the last one to be destructed, because _executor's
-    // destruct method will call close and it will depend on query context,
-    // for example runtime profile.
-    std::shared_ptr<QueryContext> _query_ctx;
-    PlanFragmentExecutor _executor;
-    vectorized::VecDateTimeValue _start_time;
-
-    std::mutex _status_lock;
-    Status _exec_status;
-
-    bool _set_rsc_info = false;
-    std::string _user;
-    std::string _group;
-
-    int _timeout_second;
-    std::atomic<bool> _cancelled {false};
-
-    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
-
-    // If set the true, this plan fragment will be executed only after FE send execution start rpc.
-    bool _need_wait_execution_trigger = false;
-    report_status_callback_impl _report_status_cb_impl;
-};
-
-FragmentExecState::FragmentExecState(const TUniqueId& query_id,
-                                     const TUniqueId& fragment_instance_id, int backend_num,
-                                     ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
-                                     const report_status_callback_impl& report_status_cb_impl)
-        : _query_id(query_id),
-          _fragment_instance_id(fragment_instance_id),
-          _backend_num(backend_num),
-          _query_ctx(std::move(query_ctx)),
-          _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
-                                              this, std::placeholders::_1, std::placeholders::_2,
-                                              std::placeholders::_3, std::placeholders::_4)),
-          _set_rsc_info(false),
-          _timeout_second(-1),
-          _report_status_cb_impl(report_status_cb_impl) {
-    _start_time = vectorized::VecDateTimeValue::local_time();
-    _coord_addr = _query_ctx->coord_addr;
-}
-
-Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
-    if (params.__isset.query_options) {
-        _timeout_second = params.query_options.execution_timeout;
-    }
-
-    if (_query_ctx == nullptr) {
-        if (params.__isset.resource_info) {
-            set_group(params.resource_info);
-        }
-    }
-
-    if (_query_ctx == nullptr) {
-        return _executor.prepare(params);
-    } else {
-        return _executor.prepare(params, _query_ctx.get());
-    }
-}
-
-Status FragmentExecState::execute() {
-    if (_need_wait_execution_trigger) {
-        // if _need_wait_execution_trigger is true, which means this instance
-        // is prepared but need to wait for the signal to do the rest execution.
-        if (!_query_ctx->wait_for_start()) {
-            return cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "wait fragment start timeout");
-        }
-    }
-#ifndef BE_TEST
-    if (_executor.runtime_state()->is_cancelled()) {
-        return Status::Cancelled("cancelled before execution");
-    }
-#endif
-    int64_t duration_ns = 0;
-    {
-        SCOPED_RAW_TIMER(&duration_ns);
-        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
-        Status st = _executor.open();
-        WARN_IF_ERROR(st,
-                      strings::Substitute("Got error while opening fragment $0, query id: $1",
-                                          print_id(_fragment_instance_id), print_id(_query_id)));
-        if (!st.ok()) {
-            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                   fmt::format("PlanFragmentExecutor open failed, reason: {}", st.to_string()));
-        }
-        _executor.close();
-    }
-    DorisMetrics::instance()->fragment_requests_total->increment(1);
-    DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
-    return Status::OK();
-}
-
-Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
-    if (!_cancelled) {
-        std::lock_guard<std::mutex> l(_status_lock);
-        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
-            _executor.set_is_report_on_cancel(false);
-        }
-        _executor.cancel(reason, msg);
-#ifndef BE_TEST
-        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
-        // For stream load the fragment's query_id == load id, it is set in FE.
-        auto stream_load_ctx = _query_ctx->exec_env()->new_load_stream_mgr()->get(_query_id);
-        if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(msg);
-        }
-#endif
-        _cancelled = true;
-    }
-    return Status::OK();
-}
-
-// There can only be one of these callbacks in-flight at any moment, because
-// it is only invoked from the executor's reporting thread.
-// Also, the reported status will always reflect the most recent execution status,
-// including the final status when execution finishes.
-void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfile* profile,
-                                             RuntimeProfile* load_channel_profile, bool done) {
-    _report_status_cb_impl(
-            {status, profile, load_channel_profile, done, _coord_addr, _query_id, -1,
-             _fragment_instance_id, _backend_num, _executor.runtime_state(),
-             std::bind(&FragmentExecState::update_status, this, std::placeholders::_1),
-             std::bind(&PlanFragmentExecutor::cancel, &_executor, std::placeholders::_1,
-                       std::placeholders::_2)});
-    DCHECK(status.ok() || done); // if !status.ok() => done
-}
 
 FragmentMgr::FragmentMgr(ExecEnv* exec_env)
         : _exec_env(exec_env), _stop_background_threads_latch(1) {
@@ -518,42 +315,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
 static void empty_function(RuntimeState*, Status*) {}
 
-void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
-                               const FinishCallback& cb) {
-    std::string func_name {"PlanFragmentExecutor::_exec_actual"};
-#ifndef BE_TEST
-    SCOPED_ATTACH_TASK(exec_state->executor()->runtime_state());
-#endif
-
-    LOG_INFO(func_name)
-            .tag("query_id", exec_state->query_id())
-            .tag("instance_id", exec_state->fragment_instance_id())
-            .tag("pthread_id", (uintptr_t)pthread_self());
-
-    Status st = exec_state->execute();
-    if (!st.ok()) {
-        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "exec_state execute failed");
-    }
-
-    std::shared_ptr<QueryContext> query_ctx = exec_state->get_query_ctx();
-    bool all_done = false;
-    if (query_ctx != nullptr) {
-        // decrease the number of unfinished fragments
-        all_done = query_ctx->countdown();
-    }
-
-    // remove exec state after this fragment finished
-    {
-        std::lock_guard<std::mutex> lock(_lock);
-        _fragment_map.erase(exec_state->fragment_instance_id());
-        if (all_done && query_ctx) {
-            _query_ctx_map.erase(query_ctx->query_id);
-        }
-    }
-
-    // Callback after remove from this id
-    auto status = exec_state->executor()->status();
-    cb(exec_state->executor()->runtime_state(), &status);
+void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb) {
+    exec_state->execute(cb);
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
@@ -645,16 +408,34 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     return Status::OK();
 }
 
-void FragmentMgr::remove_pipeline_context(
-        std::shared_ptr<pipeline::PipelineFragmentContext> f_context) {
+void FragmentMgr::remove_fragment_exec_state(std::shared_ptr<FragmentExecState> f_state) {
     std::lock_guard<std::mutex> lock(_lock);
-    auto query_id = f_context->get_query_id();
-    auto* q_context = f_context->get_query_context();
-    bool all_done = q_context->countdown();
-    _pipeline_map.erase(f_context->get_fragment_instance_id());
+    auto ins_id = f_state->fragment_instance_id();
+    auto q_context = f_state->get_query_ctx();
+    auto query_id = f_state->query_id();
+
+    bool all_done = q_context != nullptr && q_context->countdown();
+
+    // remove exec state after this fragment finished
+    _fragment_map.erase(ins_id);
     if (all_done) {
         _query_ctx_map.erase(query_id);
     }
+}
+
+void FragmentMgr::remove_pipeline_context(
+        std::shared_ptr<pipeline::PipelineFragmentContext>& f_context) {
+    auto share_pip_ctx = f_context;
+    _exec_env->send_report_thread_pool()->submit_func([&, this] {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto query_id = share_pip_ctx->get_query_id();
+        auto* q_context = share_pip_ctx->get_query_context();
+        bool all_done = q_context->countdown();
+        this->_pipeline_map.erase(share_pip_ctx->get_fragment_instance_id());
+        if (all_done) {
+            this->_query_ctx_map.erase(query_id);
+        }
+    });
 }
 
 template <typename Params>

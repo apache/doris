@@ -115,8 +115,9 @@ void PipelineTask::_init_profile() {
     _src_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime");
     _src_pending_finish_over_timer1 = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime1");
 
-    _dst_pending_finish_check_timer = ADD_TIMER(_task_profile, "Task4DstPendingFinishCheckTime");
     _dst_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task4DstPendingFinishOverTime");
+    _dst_pending_finish_check_timer =
+            ADD_TIMER(_dst_pending_finish_over_timer, "Task4DstPendingFinishCheckTime");
     _dst_pending_finish_over_timer1 = ADD_TIMER(_task_profile, "Task4DstPendingFinishOverTime1");
     _pip_task_total_timer = ADD_TIMER(_task_profile, "Task5TotalTime");
     _close_pipeline_timer = ADD_TIMER(_task_profile, "Task6ClosePipelineTime");

@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
@@ -134,6 +135,8 @@ public:
     DataSink* get_sink() const { return _sink.get(); }
 
     void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
+
+    ExecEnv* exec_env() const { return _exec_env; }
 
 private:
     ExecEnv* _exec_env; // not owned
@@ -243,6 +246,107 @@ private:
     void _collect_query_statistics();
 
     void _collect_node_statistics();
+};
+
+// used for not pipeline exec
+class FragmentExecState : public std::enable_shared_from_this<FragmentExecState> {
+public:
+    using FinishCallback = std::function<void(RuntimeState*, Status*)>;
+    using report_status_callback_impl = std::function<void(const ReportStatusRequest)>;
+    // Constructor by using QueryContext
+    FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
+                      ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
+                      const report_status_callback_impl& report_status_cb_impl);
+    Status prepare(const TExecPlanFragmentParams& params);
+
+    void execute(const FinishCallback& cb);
+
+    Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    bool is_canceled() { return _cancelled; }
+
+    TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
+
+    TUniqueId query_id() const { return _query_id; }
+
+    PlanFragmentExecutor* executor() { return &_executor; }
+
+    const vectorized::VecDateTimeValue& start_time() const { return _start_time; }
+
+    void set_merge_controller_handler(
+            std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
+        _merge_controller_handler = handler;
+    }
+
+    // Update status of this fragment execute
+    Status update_status(const Status& status) {
+        std::lock_guard<std::mutex> l(_status_lock);
+        if (!status.ok() && _exec_status.ok()) {
+            _exec_status = status;
+            LOG(WARNING) << "query_id=" << print_id(_query_id)
+                         << ", instance_id=" << print_id(_fragment_instance_id)
+                         << " meet error status " << status;
+        }
+        return _exec_status;
+    }
+
+    void set_group(const TResourceInfo& info) {
+        _set_rsc_info = true;
+        _user = info.user;
+        _group = info.group;
+    }
+
+    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
+        if (_timeout_second <= 0) {
+            return false;
+        }
+        if (now.second_diff(_start_time) > _timeout_second) {
+            return true;
+        }
+        return false;
+    }
+
+    int get_timeout_second() const { return _timeout_second; }
+
+    std::shared_ptr<QueryContext> get_query_ctx() { return _query_ctx; }
+
+    void set_need_wait_execution_trigger() { _need_wait_execution_trigger = true; }
+
+private:
+    Status _execute() const;
+    void coordinator_callback(const Status& status, RuntimeProfile* profile,
+                              RuntimeProfile* load_channel_profile, bool done);
+
+    // Id of this query
+    TUniqueId _query_id;
+    // Id of this instance
+    TUniqueId _fragment_instance_id;
+    // Used to report to coordinator which backend is over
+    int _backend_num;
+    TNetworkAddress _coord_addr;
+
+    // This context is shared by all fragments of this host in a query.
+    // _query_ctx should be the last one to be destructed, because _executor's
+    // destruct method will call close and it will depend on query context,
+    // for example runtime profile.
+    std::shared_ptr<QueryContext> _query_ctx;
+    PlanFragmentExecutor _executor;
+    vectorized::VecDateTimeValue _start_time;
+
+    std::mutex _status_lock;
+    Status _exec_status;
+
+    bool _set_rsc_info = false;
+    std::string _user;
+    std::string _group;
+
+    int _timeout_second;
+    std::atomic<bool> _cancelled {false};
+
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+
+    // If set the true, this plan fragment will be executed only after FE send execution start rpc.
+    bool _need_wait_execution_trigger = false;
+    report_status_callback_impl _report_status_cb_impl;
 };
 
 } // namespace doris

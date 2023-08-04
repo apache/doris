@@ -137,7 +137,7 @@ public:
     bool is_pending_finish() {
         bool source_ret;
         {
-            SCOPED_TIMER(_src_pending_finish_check_timer)
+            SCOPED_TIMER(_src_pending_finish_check_timer);
             source_ret = _source->is_pending_finish();
         }
         if (source_ret) {

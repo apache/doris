@@ -44,6 +44,7 @@
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
@@ -567,6 +568,134 @@ void PlanFragmentExecutor::close() {
 
     profile()->add_to_span(_span);
     _closed = true;
+}
+
+///////////////// FragmentExecState //////////////
+
+FragmentExecState::FragmentExecState(const TUniqueId& query_id,
+                                     const TUniqueId& fragment_instance_id, int backend_num,
+                                     ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
+                                     const report_status_callback_impl& report_status_cb_impl)
+        : _query_id(query_id),
+          _fragment_instance_id(fragment_instance_id),
+          _backend_num(backend_num),
+          _query_ctx(std::move(query_ctx)),
+          _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
+                                              this, std::placeholders::_1, std::placeholders::_2,
+                                              std::placeholders::_3, std::placeholders::_4)),
+          _set_rsc_info(false),
+          _timeout_second(-1),
+          _report_status_cb_impl(report_status_cb_impl) {
+    _start_time = vectorized::VecDateTimeValue::local_time();
+    _coord_addr = _query_ctx->coord_addr;
+}
+
+Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
+    if (params.__isset.query_options) {
+        _timeout_second = params.query_options.execution_timeout;
+    }
+
+    if (_query_ctx == nullptr) {
+        if (params.__isset.resource_info) {
+            set_group(params.resource_info);
+        }
+    }
+
+    if (_query_ctx == nullptr) {
+        return _executor.prepare(params);
+    } else {
+        return _executor.prepare(params, _query_ctx.get());
+    }
+}
+
+void FragmentExecState::execute(const FinishCallback& cb) {
+    std::string func_name {"FragmentExecState::execute"};
+#ifndef BE_TEST
+    SCOPED_ATTACH_TASK(_executor->runtime_state());
+#endif
+
+    LOG_INFO(func_name)
+            .tag("query_id", query_id())
+            .tag("instance_id", fragment_instance_id())
+            .tag("pthread_id", (uintptr_t)pthread_self());
+
+    Status st = _execute();
+    if (!st.ok()) {
+        cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "exec_state execute failed");
+    }
+
+    _executor->exec_env()->fragment_mgr()->remove_fragment_exec_state(shared_from_this());
+
+    // Callback after remove from this id
+    auto status = _executor->status();
+    cb(_executor->runtime_state(), &status);
+}
+
+Status FragmentExecState::_execute() const {
+    if (_need_wait_execution_trigger) {
+        // if _need_wait_execution_trigger is true, which means this instance
+        // is prepared but need to wait for the signal to do the rest execution.
+        if (!_query_ctx->wait_for_start()) {
+            return cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "wait fragment start timeout");
+        }
+    }
+#ifndef BE_TEST
+    if (_executor.runtime_state()->is_cancelled()) {
+        return Status::Cancelled("cancelled before execution");
+    }
+#endif
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
+        Status st = _executor.open();
+        WARN_IF_ERROR(st,
+                      strings::Substitute("Got error while opening fragment $0, query id: $1",
+                                          print_id(_fragment_instance_id), print_id(_query_id)));
+        if (!st.ok()) {
+            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                   fmt::format("PlanFragmentExecutor open failed, reason: {}", st.to_string()));
+        }
+        _executor.close();
+    }
+    DorisMetrics::instance()->fragment_requests_total->increment(1);
+    DorisMetrics::instance()->fragment_request_duration_us->increment(duration_ns / 1000);
+    return Status::OK();
+}
+
+Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
+    if (!_cancelled) {
+        std::lock_guard<std::mutex> l(_status_lock);
+        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+            _executor.set_is_report_on_cancel(false);
+        }
+        _executor.cancel(reason, msg);
+#ifndef BE_TEST
+        // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
+        // For stream load the fragment's query_id == load id, it is set in FE.
+        auto stream_load_ctx = _query_ctx->exec_env()->new_load_stream_mgr()->get(_query_id);
+        if (stream_load_ctx != nullptr) {
+            stream_load_ctx->pipe->cancel(msg);
+        }
+#endif
+        _cancelled = true;
+    }
+    return Status::OK();
+}
+
+// There can only be one of these callbacks in-flight at any moment, because
+// it is only invoked from the executor's reporting thread.
+// Also, the reported status will always reflect the most recent execution status,
+// including the final status when execution finishes.
+void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfile* profile,
+                                             RuntimeProfile* load_channel_profile, bool done) {
+    _report_status_cb_impl(
+            {status, profile, load_channel_profile, done, _coord_addr, _query_id, -1,
+             _fragment_instance_id, _backend_num, _executor.runtime_state(),
+             std::bind(&FragmentExecState::update_status, this, std::placeholders::_1),
+             std::bind(&PlanFragmentExecutor::cancel, &_executor, std::placeholders::_1,
+                       std::placeholders::_2)});
+    DCHECK(status.ok() || done); // if !status.ok() => done
 }
 
 } // namespace doris

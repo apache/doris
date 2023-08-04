@@ -67,8 +67,6 @@ public:
 
     ~PipelineFragmentContext();
 
-    PipelinePtr add_pipeline();
-
     TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
@@ -105,9 +103,7 @@ public:
         _merge_controller_handler = handler;
     }
 
-    void send_report(bool);
-
-    void report_profile();
+    void _send_report() const;
 
     Status update_status(Status status) {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -123,13 +119,12 @@ public:
 
 private:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
+    PipelinePtr _add_pipeline();
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     void _close_action();
-    void _stop_report_thread();
-    void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
     // Id of this query
     TUniqueId _query_id;
@@ -181,22 +176,14 @@ private:
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer;
     RuntimeProfile::Counter* _prepare_timer;
+    RuntimeProfile::Counter* _close_timer;
 
-    std::function<void(RuntimeState*, Status*)> _call_back;
+    std::function<void(RuntimeState*, Status*)> _finish_call_back;
     std::once_flag _close_once_flag;
 
-    std::condition_variable _report_thread_started_cv;
-    // true if we started the thread
-    bool _report_thread_active;
     // profile reporting-related
     report_status_callback _report_status_cb;
-    std::promise<bool> _report_thread_promise;
-    std::future<bool> _report_thread_future;
-    std::mutex _report_thread_lock;
 
-    // Indicates that profile reporting thread should stop.
-    // Tied to _report_thread_lock.
-    std::condition_variable _stop_report_thread_cv;
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
