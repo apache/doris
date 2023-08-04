@@ -297,7 +297,11 @@ public class StmtExecutor {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(DebugUtil.printId(context.queryId()));
-        builder.dorisVersion(Version.DORIS_BUILD_VERSION);
+        if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
+            builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
+        } else {
+            builder.dorisVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+        }
         builder.taskType(profileType.name());
         builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
         if (isFinished) {
