@@ -51,14 +51,14 @@ suite("test_date_trunc") {
 
     sql "sync"
 
-    qt_select_date_trunc_second """ SELECT k11, date_trunc(k11,'SECoND') FROM baseall """
-    qt_select_date_trunc_minute """ SELECT k11, date_trunc(k11,'MINutE') FROM baseall """
-    qt_select_date_trunc_hour """ SELECT k11, date_trunc(k11,'Hour') FROM baseall """
-    qt_select_date_trunc_day """ SELECT k11, date_trunc(k11,'DAY') FROM baseall """
-    qt_select_date_trunc_week """ SELECT k11, date_trunc(k11,'Week') FROM baseall """
-    qt_select_date_trunc_month """ SELECT k11, date_trunc(k11,'MONTH') FROM baseall """
-    qt_select_date_trunc_quarter """ SELECT k11, date_trunc(k11,'quarter') FROM baseall """
-    qt_select_date_trunc_year """ SELECT k11, date_trunc(k11,'YeaR') FROM baseall """
+    qt_select_date_trunc_second """ SELECT k11, date_trunc(k11,'SECoND') FROM baseall order by k1,k2,k3;"""
+    qt_select_date_trunc_minute """ SELECT k11, date_trunc(k11,'MINutE') FROM baseall order by k1,k2,k3;"""
+    qt_select_date_trunc_hour """ SELECT k11, date_trunc(k11,'Hour') FROM baseall order by k1,k2,k3;"""
+    qt_select_date_trunc_day """ SELECT k11, date_trunc(k11,'DAY') FROM baseall order by k1,k2,k3;"""
+    qt_select_date_trunc_week """ SELECT k11, date_trunc(k11,'Week') FROM baseall order by k1,k2,k3;"""
+    qt_select_date_trunc_month """ SELECT k11, date_trunc(k11,'MONTH') FROM baseall order by k1,k2,k3;"""
+    qt_select_date_trunc_quarter """ SELECT k11, date_trunc(k11,'quarter') FROM baseall order by k1,k2,k3;"""
+    qt_select_date_trunc_year """ SELECT k11, date_trunc(k11,'YeaR') FROM baseall order by k1,k2,k3;"""
 
     try {
         sql """ SELECT date_trunc(k11,k7) FROM baseall ; """
