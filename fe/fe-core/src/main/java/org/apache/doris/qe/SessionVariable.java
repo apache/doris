@@ -1241,6 +1241,10 @@ public class SessionVariable implements Serializable, Writable {
         return queryTimeoutS;
     }
 
+    public void setEnableTwoPhaseReadOpt(boolean enable) {
+        enableTwoPhaseReadOpt = enable;
+    }
+
     public int getMaxExecutionTimeMS() {
         return maxExecutionTimeMS;
     }
