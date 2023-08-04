@@ -250,10 +250,18 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 get_analyse_result(column_name, search_str, query_type, inverted_index_ctx.get());
 
         if (analyse_result.empty()) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
+            auto msg = fmt::format(
                     "token parser result is empty for query, "
                     "please check your query: '{}' and index parser: '{}'",
                     search_str, get_parser_string_from_properties(_index_meta.properties()));
+            if (query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+                query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+                query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+                LOG(WARNING) << msg;
+                return Status::OK();
+            } else {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
+            }
         }
 
         std::unique_ptr<lucene::search::Query> query;

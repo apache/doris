@@ -155,36 +155,17 @@ suite("test_index_match_select", "inverted_index_select"){
 
         // case1: match term
         // case1.0 test match ""
-        try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume2} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${string_colume1} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${char_colume1} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
-        try {
-            sql """ select * from ${indexTbName1} where ${text_colume1} match_any "" order by name; """
-        } catch(Exception ex) {
-            logger.info("select * from ${indexTbName1} where ${varchar_colume1} match_any,  result: " + ex)
-        }
+        qt_sql_empty1 """ select * from ${indexTbName1} where ${varchar_colume1} match_any "" order by name; """
+
+        qt_sql_empty2 """ select * from ${indexTbName1} where ${varchar_colume2} match_any "" order by name; """
+
+        qt_sql_empty3 """ select * from ${indexTbName1} where ${varchar_colume3} match_any "" order by name; """
+
+        qt_sql_empty4 """ select * from ${indexTbName1} where ${string_colume1} match_any "" order by name; """
+
+        qt_sql_empty5 """ select * from ${indexTbName1} where ${char_colume1} match_any "" order by name; """
+
+        qt_sql_empty6 """ select * from ${indexTbName1} where ${text_colume1} match_any "" order by name; """
 
         // case1.0 test int colume cannot use match
         def colume_match_result = "fail"
@@ -203,6 +184,10 @@ suite("test_index_match_select", "inverted_index_select"){
         qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_all '"zhang san"' order by name; """
         qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any 'san' order by name; """
         qt_sql """ select * from ${indexTbName1} where ${varchar_colume1} match_any 'not exist name' order by name; """
+        // stop word and empty query should return 0 rows
+        qt_sql1 """ select * from ${indexTbName1} where ${varchar_colume1} match_any '' order by name; """
+        qt_sql2 """ select * from ${indexTbName1} where ${varchar_colume1} match_any 'a' order by name; """
+
 
         // case2.1: test varchar none match same term with different way and repeate 5 times
         for (int test_times = 0; test_times < 5; test_times++) {
@@ -213,6 +198,9 @@ suite("test_index_match_select", "inverted_index_select"){
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match "grade 5" order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade none' order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade' order by name """
+            // stop word and empty query should return 0 rows
+            qt_sql3 """ select * from ${indexTbName1} where ${varchar_colume2} match '' order by name """
+            qt_sql4 """ select * from ${indexTbName1} where ${varchar_colume2} match 'a' order by name """
         }
 
         // cas2.2 test varchar standard match same term with different way and repeate 5 times
@@ -220,6 +208,9 @@ suite("test_index_match_select", "inverted_index_select"){
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any 'zhang yi' order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_all "zhang yi" order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume3} match_any '"zhang yi"' order by name """
+            // stop word and empty query should return 0 rows
+            qt_sql5 """ select * from ${indexTbName1} where ${varchar_colume3} match_any '' order by name """
+            qt_sql6 """ select * from ${indexTbName1} where ${varchar_colume3} match_any 'a' order by name """
         }
 
         // case3: test char standard match same term with different way and repeate 5 times
@@ -227,6 +218,9 @@ suite("test_index_match_select", "inverted_index_select"){
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any 'tall:100cm, weight: 30kg, hobbies:' order by name """
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_all "tall:100cm, weight: 30kg, hobbies:" order by name """
             qt_sql """ select * from ${indexTbName1} where ${char_colume1} match_any '"tall:100cm, weight: 30kg, hobbies:"' order by name """
+            // stop word and empty query should return 0 rows
+            qt_sql7 """ select * from ${indexTbName1} where ${char_colume1} match_any '' order by name """
+            qt_sql8 """ select * from ${indexTbName1} where ${char_colume1} match_any 'a' order by name """
         }
 
         // case4: test string simple match same term with different way and repeate 5 times
@@ -234,6 +228,8 @@ suite("test_index_match_select", "inverted_index_select"){
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_all 'A naughty boy' order by name """
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any "A naughty boy" order by name """
             qt_sql """ select * from ${indexTbName1} where ${string_colume1} match_any '"A naughty boy"' order by name """
+            // stop word and empty query should return 0 rows
+            qt_sql9 """ select * from ${indexTbName1} where ${string_colume1} match_any '' order by name """
         }
 
         // case5: test text standard match same term with different way and repeate 5 times
@@ -241,6 +237,9 @@ suite("test_index_match_select", "inverted_index_select"){
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all 'i just want go outside' order by name """
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_any "i just want go outside" order by name """
             qt_sql """ select * from ${indexTbName1} where ${text_colume1} match_all '"i just want go outside"' order by name """
+            // stop word and empty query should return 0 rows
+            qt_sql10 """ select * from ${indexTbName1} where ${text_colume1} match_all '' order by name """
+            qt_sql11 """ select * from ${indexTbName1} where ${text_colume1} match_all 'a' order by name """
         }
 
         // case6: test term and phrase mix select
