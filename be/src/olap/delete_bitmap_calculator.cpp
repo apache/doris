@@ -138,7 +138,8 @@ bool MergedPKIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice c
 
 Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> const& segments,
                                                  const std::vector<int64_t>* end_versions,
-                                                 size_t seq_col_length, size_t max_batch_size) {
+                                                 size_t num_base_segments, size_t seq_col_length,
+                                                 size_t max_batch_size) {
     _seq_col_length = seq_col_length;
     _comparator = MergedPKIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length);
     size_t num_segments = segments.size();
@@ -155,8 +156,9 @@ Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> c
         RETURN_IF_ERROR(pk_idx->new_iterator(&index));
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                 pk_idx->type_info()->type(), 1, 0);
+        bool is_base_segment = i < num_base_segments;
         _contexts.emplace_back(std::move(index), index_type, segment->rowset_id(), end_version,
-                               segment->id(), pk_idx->num_rows());
+                               segment->id(), is_base_segment, pk_idx->num_rows());
         _heap->push(&_contexts.back());
     }
     return Status::OK();
@@ -164,10 +166,11 @@ Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> c
 
 Status MergedPKIndexDeleteBitmapCalculator::init(
         std::vector<SegmentSharedPtr> const& segments,
-        const std::vector<RowsetSharedPtr>* specified_rowsets, size_t seq_col_length,
-        size_t max_batch_size) {
+        const std::vector<RowsetSharedPtr>* specified_rowsets,
+        bool calc_delete_bitmap_between_segments, size_t seq_col_length, size_t max_batch_size) {
     std::vector<SegmentSharedPtr> all_segments(segments);
     std::vector<int64_t> end_versions(segments.size(), INT64_MAX);
+    _calc_delete_bitmap_between_segments = calc_delete_bitmap_between_segments;
     if (specified_rowsets) {
         size_t num_rowsets = specified_rowsets->size();
         _seg_caches = std::make_unique<std::vector<std::unique_ptr<SegmentCacheHandle>>>(
@@ -185,11 +188,17 @@ Status MergedPKIndexDeleteBitmapCalculator::init(
             }
         }
     }
-    return init(all_segments, &end_versions, seq_col_length, max_batch_size);
+    return init(all_segments, &end_versions, segments.size(), seq_col_length, max_batch_size);
 }
 
 Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitmap) {
     while (_heap->size() >= 2) {
+        if (!_calc_delete_bitmap_between_segments) {
+            auto st = step();
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+        }
         auto iter1 = _heap->top();
         _heap->pop();
         auto iter2 = _heap->top();
@@ -216,6 +225,50 @@ Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitma
         }
         if (!iter2->eof()) {
             _heap->push(iter2);
+        }
+    }
+    return Status::OK();
+}
+
+Status MergedPKIndexDeleteBitmapCalculator::step() {
+    std::vector<MergedPKIndexDeleteBitmapCalculatorContext*> ctxs_to_seek;
+    MergedPKIndexDeleteBitmapCalculatorContext* target_ctx = nullptr;
+    while (!_heap->empty()) {
+        auto ctx = _heap->top();
+        if (ctxs_to_seek.empty() ||
+            ctx->is_base_segment() == ctxs_to_seek.back()->is_base_segment()) {
+            _heap->pop();
+            ctxs_to_seek.emplace_back(ctx);
+            continue;
+        }
+        target_ctx = ctx;
+        break;
+    }
+    if (target_ctx == nullptr) {
+        return Status::EndOfFile("EOF");
+    }
+    Slice key;
+    RETURN_IF_ERROR(target_ctx->get_current_key(&key));
+    key = Slice(key.get_data(), key.get_size() - _seq_col_length);
+    std::vector<MergedPKIndexDeleteBitmapCalculatorContext*> ctxs_to_push;
+    for (auto ctx : ctxs_to_seek) {
+        auto st = ctx->seek_at_or_after(key);
+        if (UNLIKELY(!(st.ok() || st.is<ErrorCode::NOT_FOUND>() ||
+                       st.is<ErrorCode::END_OF_FILE>()))) {
+            return st;
+        }
+        if (!ctx->eof()) {
+            ctxs_to_push.emplace_back(ctx);
+        }
+    }
+    std::sort(ctxs_to_push.begin(), ctxs_to_push.end(), _comparator);
+    for (size_t i = 0; i < ctxs_to_push.size(); ++i) {
+        auto ctx = ctxs_to_push[i];
+        if (i != 0) {
+            ctx->advance();
+        }
+        if (!ctx->eof()) {
+            _heap->push(ctx);
         }
     }
     return Status::OK();

@@ -66,7 +66,7 @@ public:
     MergedPKIndexDeleteBitmapCalculatorContext(
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter,
             vectorized::DataTypePtr index_type, RowsetId rowset_id, size_t end_version,
-            int32_t segment_id, size_t num_rows,
+            int32_t segment_id, bool is_base_segment, size_t num_rows,
             size_t batch_max_size = kMergedPKIteratorReadBatchSize)
             : _iter(std::move(iter)),
               _index_type(index_type),
@@ -74,7 +74,8 @@ public:
               _max_batch_size(batch_max_size),
               _end_version(end_version),
               _rowset_id(rowset_id),
-              _segment_id(segment_id) {}
+              _segment_id(segment_id),
+              _base_segment(is_base_segment) {}
     Status get_current_key(Slice* slice);
     Status advance();
     Status seek_at_or_after(Slice const& key);
@@ -83,6 +84,7 @@ public:
     [[nodiscard]] int32_t segment_id() const { return _segment_id; }
     [[nodiscard]] RowsetId rowset_id() const { return _rowset_id; }
     [[nodiscard]] int64_t end_version() const { return _end_version; }
+    [[nodiscard]] bool is_base_segment() const { return _base_segment; }
 
 private:
     Status _next_batch(size_t row_id);
@@ -99,6 +101,7 @@ private:
     RowsetId const _rowset_id;
     int32_t const _segment_id;
     bool _excat_match;
+    bool _base_segment;
 };
 
 class MergedPKIndexDeleteBitmapCalculator {
@@ -107,14 +110,17 @@ public:
 
     Status init(std::vector<SegmentSharedPtr> const& segments,
                 const std::vector<RowsetSharedPtr>* specified_rowsets = nullptr,
-                size_t seq_col_length = 0, size_t max_batch_size = kMergedPKIteratorReadBatchSize);
+                bool calc_delete_bitmap_between_segments = false, size_t seq_col_length = 0,
+                size_t max_batch_size = kMergedPKIteratorReadBatchSize);
 
     Status process(DeleteBitmapPtr delete_bitmap);
 
 private:
     Status init(std::vector<SegmentSharedPtr> const& segments,
-                const std::vector<int64_t>* end_versions, size_t seq_col_length,
-                size_t max_batch_size);
+                const std::vector<int64_t>* end_versions, size_t num_base_segments,
+                size_t seq_col_length, size_t max_batch_size);
+
+    Status step();
 
     using Heap = std::priority_queue<MergedPKIndexDeleteBitmapCalculatorContext*,
                                      std::vector<MergedPKIndexDeleteBitmapCalculatorContext*>,
@@ -125,6 +131,7 @@ private:
     std::unique_ptr<Heap> _heap;
     std::string _last_key;
     size_t _seq_col_length;
+    bool _calc_delete_bitmap_between_segments;
 };
 
 } // namespace doris
