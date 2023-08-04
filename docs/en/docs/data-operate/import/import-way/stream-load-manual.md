@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Stream load",
+    "title": "Stream Load",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Stream load
+# Stream Load
 
 Stream load is a synchronous way of importing. Users import local files or data streams into Doris by sending HTTP protocol requests. Stream load synchronously executes the import and returns the import result. Users can directly determine whether the import is successful by the return body of the request.
 

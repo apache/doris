@@ -26,6 +26,7 @@
 #include <queue>
 #include <utility>
 
+#include "bvar/bvar.h"
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -37,6 +38,8 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+
+bvar::Adder<int64_t> g_memtrackerlimiter_cnt("memtrackerlimiter_cnt");
 
 // Save all MemTrackerLimiters in use.
 // Each group corresponds to several MemTrackerLimiters and has a lock.
@@ -80,6 +83,7 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
         _tracker_limiter_group_it = mem_tracker_limiter_pool[_group_num].trackers.insert(
                 mem_tracker_limiter_pool[_group_num].trackers.end(), this);
     }
+    g_memtrackerlimiter_cnt << 1;
 }
 
 MemTrackerLimiter::~MemTrackerLimiter() {
@@ -98,6 +102,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             _tracker_limiter_group_it = mem_tracker_limiter_pool[_group_num].trackers.end();
         }
     }
+    g_memtrackerlimiter_cnt << -1;
 }
 
 MemTracker::Snapshot MemTrackerLimiter::make_snapshot() const {

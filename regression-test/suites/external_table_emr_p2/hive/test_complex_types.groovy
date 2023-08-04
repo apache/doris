@@ -50,5 +50,7 @@ suite("test_complex_types", "p2") {
         qt_array_filter """select count(array_size(array_filter(i -> (i > 0.99), capacity))) from byd where array_size(array_filter(i -> (i > 0.99), capacity))"""
 
         qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
+
+        qt_offsets_check """select * from complex_offsets_check order by id"""
     }
 }

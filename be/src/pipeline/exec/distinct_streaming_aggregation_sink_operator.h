@@ -63,7 +63,7 @@ public:
     Status close(RuntimeState* state) override;
 
     bool reached_limited_rows() {
-        return _node->limit() != -1 && _output_distinct_rows > _node->limit();
+        return _node->limit() != -1 && _output_distinct_rows >= _node->limit();
     }
 
 private:

@@ -24,10 +24,13 @@
 
 #include <mutex>
 
+#include "bvar/bvar.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
+
+bvar::Adder<int64_t> g_memtracker_cnt("memtracker_cnt");
 
 // Save all MemTrackers in use to maintain the weak relationship between MemTracker and MemTrackerLimiter.
 // When MemTrackerLimiter prints statistics, all MemTracker statistics with weak relationship will be printed together.
@@ -73,6 +76,7 @@ void MemTracker::bind_parent(MemTrackerLimiter* parent) {
         _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.insert(
                 mem_tracker_pool[_parent_group_num].trackers.end(), this);
     }
+    g_memtracker_cnt << 1;
 }
 
 MemTracker::~MemTracker() {
@@ -82,6 +86,7 @@ MemTracker::~MemTracker() {
             mem_tracker_pool[_parent_group_num].trackers.erase(_tracker_group_it);
             _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.end();
         }
+        g_memtracker_cnt << -1;
     }
 }
 

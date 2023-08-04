@@ -79,6 +79,8 @@ suite("test_map_load_and_function", "p0") {
     qt_select_map1 "SELECT map('k11', 1000, 'k22', 2000)"
     qt_select_map2 "SELECT map(1000, 'k11', 2000, 'k22')"
     qt_select_map3 "SELECT map()"
+    // map nested
+    qt_select_map4 "select m from (SELECT map(1000, 'k11', 2000, 'k22') as m) t"
 
     // map element_at
     qt_select_element1 "SELECT map('k11', 1000, 'k22', 2000)['k11']"

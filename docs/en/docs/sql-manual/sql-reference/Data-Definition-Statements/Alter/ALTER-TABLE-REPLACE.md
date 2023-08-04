@@ -67,7 +67,7 @@ If `swap` is `false`, do as follows:
 
 ### Example
 
-1. Atomic swap `tbl1` with `tbl2` without dropping any tables
+1. Atomic swap `tbl1` with `tbl2` without dropping any tables(Note: if you delete it, you actually delete tbl1 and rename tbl2 to tbl1.)
 
 ```sql
 ALTER TABLE tbl1 REPLACE WITH TABLE tbl2;

@@ -547,7 +547,12 @@ public class FunctionCallExpr extends Expr {
 
         for (int i = 0; i < len; ++i) {
             if (i != 0) {
-                sb.append(", ");
+                if (fnName.getFunction().equalsIgnoreCase("group_concat")
+                        && orderByElements.size() > 0 && i == len - orderByElements.size()) {
+                    sb.append(" ");
+                } else {
+                    sb.append(", ");
+                }
             }
             if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
                     && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
@@ -1702,6 +1707,9 @@ public class FunctionCallExpr extends Expr {
                         && args[ix].isDecimalV3OrContainsDecimalV3())) {
                     // Do not do this cast if types are both decimalv3 with different precision/scale.
                     uncheckedCastChild(args[ix], i);
+                } else if (fnName.getFunction().equalsIgnoreCase("if")
+                        && argTypes[i].isArrayType() && ((ArrayType) argTypes[i]).getItemType().isNull()) {
+                    uncheckedCastChild(args[ix], i);
                 }
             }
         }
@@ -1785,6 +1793,11 @@ public class FunctionCallExpr extends Expr {
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
+        for (OrderByElement o : orderByElements) {
+            if (!o.getExpr().isAnalyzed) {
+                o.getExpr().analyzeImpl(analyzer);
+            }
+        }
     }
 
     // if return type is nested type, need to be determined the sub-element type

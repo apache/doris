@@ -284,7 +284,8 @@ Status Tablet::_init_once_action() {
 #ifdef BE_TEST
     // init cumulative compaction policy by type
     _cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    _tablet_meta->compaction_policy());
 #endif
 
     RowsetVector rowset_vec;
@@ -1062,7 +1063,7 @@ uint32_t Tablet::_calc_base_compaction_score() const {
 
     // In the time series compaction policy, we want the base compaction to be triggered
     // when there are delete versions present.
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+    if (_tablet_meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         return (base_rowset_exist && has_delete) ? score : 0;
     }
 
@@ -3568,7 +3569,7 @@ void Tablet::gc_binlogs(int64_t version) {
         if (binlog_meta_entry_pb.has_rowset_id_v2()) {
             rowset_id = binlog_meta_entry_pb.rowset_id_v2();
         } else {
-            // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
+            // key is 'binlog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
             auto pos = key.rfind('_');
             if (pos == std::string::npos) {
                 LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);

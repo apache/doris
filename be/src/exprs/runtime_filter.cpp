@@ -1810,6 +1810,8 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
         update_runtime_filter_type_to_profile();
     }
     this->signal();
+
+    _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
     return Status::OK();
 }
 

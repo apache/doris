@@ -17,6 +17,9 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
+
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -42,12 +45,22 @@ public class AnalysisManagerTest {
 
         };
 
+        new MockUp<AnalysisInfo>() {
+            @Mock
+            public String toString() {
+                return "";
+            }
+        };
+
         AnalysisInfo job = new AnalysisInfoBuilder().setJobId(1)
-                .setState(AnalysisState.PENDING).setJobType(AnalysisInfo.JobType.MANUAL).build();
+                .setState(AnalysisState.PENDING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
         AnalysisInfo taskInfo1 = new AnalysisInfoBuilder().setJobId(1)
-                .setTaskId(2).setState(AnalysisState.PENDING).build();
+                .setTaskId(2).setJobType(JobType.MANUAL).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setState(AnalysisState.PENDING).build();
         AnalysisInfo taskInfo2 = new AnalysisInfoBuilder().setJobId(1)
-                .setTaskId(3).setState(AnalysisState.PENDING).build();
+                .setTaskId(3).setAnalysisType(AnalysisType.FUNDAMENTALS).setJobType(JobType.MANUAL)
+                .setState(AnalysisState.PENDING).build();
         AnalysisManager manager = new AnalysisManager();
         manager.replayCreateAnalysisJob(job);
         manager.replayCreateAnalysisTask(taskInfo1);

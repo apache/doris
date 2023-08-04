@@ -218,4 +218,24 @@ suite("test_delete") {
 
     sql """ delete from  delete_test_tb2 where k1 is null and k2 = 4.45; """
     qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+    
+    sql '''
+        CREATE TABLE test1 (
+            x varchar NOT NULL,
+            id varchar NOT NULL
+        )
+        ENGINE=OLAP
+        UNIQUE KEY(`x`)COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`x`) 
+        BUCKETS 96
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+        ); 
+    '''
+    
+    sql 'insert into test1 values("a", "a"), ("bb", "bb"), ("ccc", "ccc")'
+    sql 'delete from test1 where length(x)=2'
+    
+    qt_delete_fn 'select * from test1 order by x'
 }

@@ -74,6 +74,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -410,7 +411,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
         }
         return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
-            defaultVal, comment, true);
+                defaultVal, comment, true);
     }
 
     @Override
@@ -1369,6 +1370,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
         multiTableFragmentInstanceIdIndexMap.remove(request.getTxnId());
+        deleteMultiTableStreamLoadJobIndex(request.getTxnId());
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
 
@@ -1731,6 +1733,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    /**
+     * For first-class multi-table scenarios, we should store the mapping between Txn and data source type in a common
+     * place. Since there is only Kafka now, we should do this first.
+     */
+    private void buildMultiTableStreamLoadTask(StreamLoadTask baseTaskInfo, long txnId) {
+        try {
+            RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
+                    .getRoutineLoadJobByMultiLoadTaskTxnId(txnId);
+            if (routineLoadJob == null) {
+                return;
+            }
+            baseTaskInfo.setMultiTableBaseTaskInfo(routineLoadJob);
+        } catch (Exception e) {
+            LOG.warn("failed to build multi table stream load task: {}", e.getMessage());
+        }
+    }
+
+    private void deleteMultiTableStreamLoadJobIndex(long txnId) {
+        try {
+            Env.getCurrentEnv().getRoutineLoadManager().removeMultiLoadTaskTxnIdToRoutineLoadJobId(txnId);
+        } catch (Exception e) {
+            LOG.warn("failed to delete multi table stream load job index: {}", e.getMessage());
+        }
+    }
+
     @Override
     public TStreamLoadMultiTablePutResult streamLoadMultiTablePut(TStreamLoadPutRequest request) {
         List<OlapTable> olapTables;
@@ -1790,10 +1817,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 int index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
                 if (enablePipelineLoad) {
                     planFragmentParamsList.add(generatePipelineStreamLoadPut(request, db, fullDbName, table, timeoutMs,
-                            index));
+                            index, true));
                 } else {
                     TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
-                            table, timeoutMs, index);
+                            table, timeoutMs, index, true);
 
                     planFragmentParamsList.add(planFragmentParams);
                 }
@@ -1941,12 +1968,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
                                                                String fullDbName, OlapTable table,
                                                                long timeoutMs) throws UserException {
-        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1);
+        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1, false);
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
                                                                String fullDbName, OlapTable table,
-                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex)
+                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex,
+                                                               boolean isMultiTableRequest)
             throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
@@ -1954,6 +1982,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            if (isMultiTableRequest) {
+                buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
+            }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId(), multiTableFragmentInstanceIdIndex);
             // add table indexes to transaction state
@@ -1987,13 +2018,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs, 1);
+        return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs,
+                1, false);
     }
 
     private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
                                                                   String fullDbName, OlapTable table,
                                                                   long timeoutMs,
-                                                               int multiTableFragmentInstanceIdIndex)
+                                                                  int multiTableFragmentInstanceIdIndex,
+                                                                  boolean isMultiTableRequest)
             throws UserException {
         if (db == null) {
             String dbName = fullDbName;
@@ -2008,6 +2041,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            if (isMultiTableRequest) {
+                buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
+            }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
@@ -2146,6 +2182,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setRpcPort(Config.rpc_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 result.setLastStartupTime(exeEnv.getStartupTime());
+                if (exeEnv.getDiskInfos() != null) {
+                    result.setDiskInfos(FeDiskInfo.toThrifts(exeEnv.getDiskInfos()));
+                }
             }
         } else {
             result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
@@ -2826,7 +2865,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Map<String, String> properties = request.getProperties();
         RestoreStmt restoreStmt = new RestoreStmt(label, repoName, null, properties, request.getMeta(),
                 request.getJobInfo());
-        restoreStmt.disableDynamicPartition();
+        restoreStmt.setIsBeingSynced();
         LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
             ConnectContext ctx = ConnectContext.get();

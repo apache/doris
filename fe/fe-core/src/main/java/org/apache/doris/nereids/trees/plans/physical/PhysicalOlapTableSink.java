@@ -57,26 +57,14 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     private final boolean singleReplicaLoad;
     private final boolean isPartialUpdate;
 
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
-            List<Column> cols, boolean singleReplicaLoad, boolean isPartialUpdate, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
-        this(database, targetTable, partitionIds, cols, singleReplicaLoad, isPartialUpdate,
-                Optional.empty(), logicalProperties, child);
-    }
-
     /**
      * Constructor
      */
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
-            List<Column> cols, boolean singleReplicaLoad, boolean isPartialUpdate,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
-        this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
-        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
-        this.cols = Utils.copyRequiredList(cols);
-        this.partitionIds = Utils.copyRequiredList(partitionIds);
-        this.singleReplicaLoad = singleReplicaLoad;
-        this.isPartialUpdate = isPartialUpdate;
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds, List<Column> cols,
+            boolean singleReplicaLoad, boolean isPartialUpdate, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(database, targetTable, partitionIds, cols, singleReplicaLoad, isPartialUpdate,
+                groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
     }
 
     /**
@@ -221,5 +209,11 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
         } else {
             return PhysicalProperties.GATHER;
         }
+    }
+
+    @Override
+    public PhysicalOlapTableSink<Plan> resetLogicalProperties() {
+        return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols, singleReplicaLoad,
+                isPartialUpdate, groupExpression, null, physicalProperties, statistics, child());
     }
 }

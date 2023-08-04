@@ -297,8 +297,11 @@ public class StmtExecutor {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(DebugUtil.printId(context.queryId()));
-        builder.dorisVersion(
-                Version.DORIS_BUILD_VERSION_MAJOR == 0 ? Version.DORIS_BUILD_VERSION : Version.DORIS_BUILD_SHORT_HASH);
+        if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
+            builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
+        } else {
+            builder.dorisVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+        }
         builder.taskType(profileType.name());
         builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
         if (isFinished) {
@@ -1405,7 +1408,6 @@ public class StmtExecutor {
             }
         }
 
-
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {
@@ -2505,7 +2507,7 @@ public class StmtExecutor {
                 coord.exec();
             } catch (Exception e) {
                 queryScheduleSpan.recordException(e);
-                throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
+                throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
             } finally {
                 queryScheduleSpan.end();
             }

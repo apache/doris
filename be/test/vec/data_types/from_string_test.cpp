@@ -82,19 +82,21 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                                   {"doris be better"}, {"doris be better"}),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING, {"doris be better"},
                                   {"doris be better"}, {"doris be better"}),
-                // here if non-valid string , wrapper field will return make 999999999999999999.999999999, but data type will just throw error
-                // decimal ==> decimalv2(decimal<128>(27,9))           (17, 9)(firstN 0 will ignore)
+                // Decimal parse using StringParser which has SUCCESS|OVERFLOW|UNDERFLOW|FAILURE
+                // wrapper_field from_string(scale) and data_type from_string(scale) use rounding when meet underflow,
+                //  wrapper_field use min/max when meet overflow, but data_type just throw error
                 FieldType_RandStr(
+                        // decimalv2 will ignore the scale and precision when parse string
                         FieldType::OLAP_FIELD_TYPE_DECIMAL,
                         {
                                 "012345678901234567.012345678",
-                                // (18, 8) (automatically fill 0 for scala)
+                                // (18, 8)
                                 "123456789012345678.01234567",
-                                // (17, 10) (wrapper_field just drop last, but data_type rounding last to make it fit)
+                                // (17, 10)
                                 "12345678901234567.0123456779",
-                                // (17, 11) (wrapper_field just drop last, but data_type return error)
+                                // (17, 11)
                                 "12345678901234567.01234567791",
-                                // (19, 8) (wrong)
+                                // (19, 8)
                                 "1234567890123456789.01234567",
                         },
                         {"12345678901234567.012345678", "123456789012345678.012345670",
@@ -102,54 +104,75 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                          "999999999999999999.999999999"},
                         {"12345678901234567.012345678", "123456789012345678.012345670",
                          "12345678901234567.012345678", "", ""}),
-                // here decimal if non-valid value wrapper field will return make 999999999999999999.999999999, but data type will just throw error
-                // wrapper field to_string() will drop the scala.
-                // decimal32 ==>  decimal32(9,2)                       (7,2)         (6,3)         (7,3)           (8,1)
+                // decimal32 ==>  decimal32(9,2)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
-                                  {"1234567.12", "123456.123", "1234567.123", "12345679.1"},
-                                  {"1234567", "123456", "999999999", "12345679"},
-                                  {"1234567.12", "123456.12", "", ""}),
-                // decimal64 ==> decimal64(18,9)                        (9, 9)                   (3,2)    (9, 10)                  (10, 9)
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL64,
-                                  {"123456789.123456789", "123.12", "123456789.0123456789",
-                                   "1234567890.123456789"},
-                                  {"123456789", "123", "999999999999999999", "999999999999999999"},
-                                  {"123456789.123456789", "123.120000000", "", ""}),
-                // decimal128I ==> decimal128I(38,18)                     (19,18)
+                                  // (7,2)         (6,3)         (7,3)           (8,1)
+                                  {"1234567.12", "123456.123", "1234567.123", "12345679.112345"},
+                                  //StringParser res: SUCCESS      UNDERFLOW  UNDERFLOW    OVERFLOW
+                                  {"123456712", "12345612", "123456712", "999999999"},
+                                  {"1234567.12", "123456.12", "1234567.12", ""}),
+                // decimal64 ==> decimal64(18,9)
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+                        //(9, 9)                (3,2)       (9, 10)
+                        {"123456789.123456789", "123.12", "123456789.0123456789",
+                         //(10, 9)
+                         "1234567890.123456789"},
+                        //StringParser res: SUCCESS               SUCCESS         UNDERFLOW             OVERFLOW
+                        {"123456789123456789", "123120000000", "123456789012345679",
+                         "999999999999999999"},
+                        {"123456789.123456789", "123.120000000", "123456789.012345679", ""}),
+                // decimal128I ==> decimal128I(38,18)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+                                  // (19,18) ==> StringParser::SUCCESS
                                   {"01234567890123456789.123456789123456789",
-                                   // (20,11) (automatically fill 0 for scala)
+                                   // (20,11) ==> StringParser::SUCCESS
                                    "12345678901234567890.12345678911",
-                                   // (19,18)
+                                   // (19,18) ==> StringParser::SUCCESS
                                    "1234567890123456789.123456789123456789",
-                                   // (19,19) (rounding last to make it fit)
+                                   // (19,19) ==> StringParser::UNDERFLOW
                                    "1234567890123456789.1234567890123456789",
-                                   // (18, 20) (rounding to make it fit)
+                                   // (18, 20) ==> StringParser::UNDERFLOW
                                    "123456789012345678.01234567890123456789",
-                                   // (20, 19) (wrong)
-                                   "12345678901234567890.1234567890123456789"},
-                                  {"1234567890123456789", "12345678901234567890",
-                                   "1234567890123456789", "1234567890123456789",
-                                   "123456789012345678", "99999999999999999999999999999999999999"},
+                                   // (20, 19) ==> StringParser::UNDERFLOW
+                                   "12345678901234567890.1234567890123456789",
+                                   // (21, 17) ==> StringParser::OVERFLOW
+                                   "123456789012345678901.12345678901234567"},
+                                  {"1234567890123456789123456789123456789",
+                                   "12345678901234567890123456789110000000",
+                                   "1234567890123456789123456789123456789",
+                                   "1234567890123456789123456789012345679",
+                                   "123456789012345678012345678901234568",
+                                   "12345678901234567890123456789012345679",
+                                   "99999999999999999999999999999999999999"},
                                   {"1234567890123456789.123456789123456789",
                                    "12345678901234567890.123456789110000000",
                                    "1234567890123456789.123456789123456789",
                                    "1234567890123456789.123456789012345679",
-                                   "123456789012345678.012345678901234568", ""}),
+                                   "123456789012345678.012345678901234568",
+                                   "12345678901234567890.123456789012345679", ""}),
 
         };
         for (auto type_pair : arithmetic_scala_field_types) {
             auto type = std::get<0>(type_pair);
             DataTypePtr data_type_ptr;
+            int precision = 0;
+            int scale = 0;
             if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL32) {
                 // decimal32(7, 2)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 9, 2);
+                precision = 9;
+                scale = 2;
             } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL64) {
                 // decimal64(18, 9)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 18, 9);
+                precision = 18;
+                scale = 9;
             } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I) {
                 // decimal128I(38,18)
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 38, 18);
+                precision = 38;
+                scale = 18;
             } else {
                 data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
             }
@@ -162,9 +185,9 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 std::unique_ptr<WrapperField> wf(WrapperField::create_by_type(type));
                 std::cout << "the ith : " << i << " test_str: " << test_str << std::endl;
                 // from_string
-                Status st = wf->from_string(test_str);
+                Status st = wf->from_string(test_str, precision, scale);
                 EXPECT_EQ(st.ok(), true);
-                //to_string
+                // wrapper field to_string is only for debug
                 std::string wfs = wf->to_string();
                 EXPECT_EQ(wfs, std::get<2>(type_pair)[i]);
             }

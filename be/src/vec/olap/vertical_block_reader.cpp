@@ -455,6 +455,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                             .data();
 
             int cur_row = 0;
+            int delete_count = 0;
             while (cur_row < block_rows) {
                 if (_row_sources_buffer->get_agg_flag(row_source_idx)) {
                     row_source_idx++;
@@ -464,6 +465,8 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 filter_data[cur_row] = sign;
                 if (UNLIKELY(!sign)) {
                     _row_sources_buffer->set_agg_flag(row_source_idx, true);
+                    _block_row_locations[cur_row].row_id = -1;
+                    delete_count++;
                 }
                 cur_row++;
                 row_source_idx++;
@@ -476,9 +479,11 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                                                              std::make_shared<DataTypeUInt8>(),
                                                              "__DORIS_COMPACTION_FILTER__"};
             block->insert(column_with_type_and_name);
-            Block::filter_block(block, target_columns.size(), target_columns.size());
+            RETURN_IF_ERROR(
+                    Block::filter_block(block, target_columns.size(), target_columns.size()));
             _stats.rows_del_filtered += block_rows - block->rows();
             DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
+            DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
         }
 
         size_t filtered_rows_in_rs_buffer = 0;
