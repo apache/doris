@@ -56,9 +56,7 @@ const char* UDAF_EXECUTOR_RESET_SIGNATURE = "(J)V";
 struct AggregateJavaUdafData {
 public:
     AggregateJavaUdafData() = default;
-    AggregateJavaUdafData(int64_t num_args) {
-        argument_size = num_args;
-    }
+    AggregateJavaUdafData(int64_t num_args) { argument_size = num_args; }
 
     ~AggregateJavaUdafData() {
         JNIEnv* env;
