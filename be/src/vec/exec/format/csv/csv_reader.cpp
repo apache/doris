@@ -207,11 +207,16 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.text_params.__isset.escape) {
         _escape = _params.file_attributes.text_params.escape;
     }
-    _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
     _text_converter->set_escape_char(_escape);
 
     _trim_tailing_spaces =
             (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
+
+    if (_params.file_attributes.__isset.trim_double_quotes) {
+        _trim_double_quotes = _params.file_attributes.trim_double_quotes;
+    }
+
+    _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
 
     if (_enclose == 0) {
         _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
@@ -229,10 +234,6 @@ Status CsvReader::init_reader(bool is_load) {
     //get array delimiter
     _array_delimiter = _params.file_attributes.text_params.array_delimiter;
     _text_converter->set_array_delimiter(_array_delimiter[0]);
-
-    if (_params.file_attributes.__isset.trim_double_quotes) {
-        _trim_double_quotes = _params.file_attributes.trim_double_quotes;
-    }
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file

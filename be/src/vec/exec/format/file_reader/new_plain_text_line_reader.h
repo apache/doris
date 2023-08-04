@@ -48,6 +48,9 @@ public:
     /// @return line delimiter pos if found, otherwise return nullptr.
     virtual const uint8_t* read_line(const uint8_t* start, const size_t len) = 0;
 
+    /// @brief call back for finishing reading on line
+    virtual void on_line_finished() = 0;
+
     /// @return length of line delimiter
     [[nodiscard]] virtual size_t line_delimiter_length() const = 0;
 
@@ -68,6 +71,8 @@ public:
     [[nodiscard]] inline size_t line_delimiter_length() const override {
         return line_delimiter_len;
     }
+
+    inline void on_line_finished() override {}
 
     inline void refresh() override {}
 
@@ -161,6 +166,13 @@ public:
         _idx = 0;
         _result = nullptr;
         _field_splitter->refresh();
+        _latest_field_start_offset = 0;
+    }
+
+    //HACK: process the last field (cuz last field may not be read if meet eof without line delimiter)
+    inline void on_line_finished() override {
+        _field_splitter->split_field(_curr_data, _latest_field_start_offset,
+                                     _total_len - _latest_field_start_offset);
     }
 
 protected:
@@ -191,6 +203,8 @@ protected:
     const size_t _column_sep_len;
 
     size_t _total_len;
+    size_t _latest_field_start_offset = 0;
+    const uint8_t* _curr_data;
 
     size_t _idx = 0;
     const uint8_t* _result = nullptr;
