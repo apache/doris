@@ -127,7 +127,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         RUNNING, // tablet is being scheduled
         FINISHED, // task is finished
         CANCELLED, // task is failed
-        TIMEOUT, // task is timeout
         UNEXPECTED // other unexpected errors
     }
 
@@ -656,7 +655,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      */
     public void chooseDestReplicaForVersionIncomplete(Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException {
-        List<Replica> candidates = Lists.newArrayList();
+        List<Replica> decommissionCand = Lists.newArrayList();
+        List<Replica> colocateCand = Lists.newArrayList();
+        List<Replica> notColocateCand = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
             if (replica.isBad()) {
                 LOG.debug("replica {} is bad, skip. tablet: {}",
@@ -671,21 +672,35 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            // check version and replica state.
-            // if the replica's state is DECOMMISSION, it may be chose as dest replica,
-            // and its state will be set to NORMAL later.
+            // not enough version completed replicas, then try add back the decommission replica.
+            if (replica.getState() == ReplicaState.DECOMMISSION) {
+                decommissionCand.add(replica);
+                continue;
+            }
+
             if (replica.getLastFailedVersion() <= 0
-                    && replica.getVersion() >= visibleVersion
-                    && replica.getState() != ReplicaState.DECOMMISSION) {
+                    && replica.getVersion() >= visibleVersion) {
                 // skip healthy replica
                 LOG.debug("replica {} version {} is healthy, visible version {}, replica state {}, skip. tablet: {}",
                         replica.getId(), replica.getVersion(), visibleVersion, replica.getState(), tabletId);
                 continue;
             }
 
-            candidates.add(replica);
+            if (colocateBackendsSet != null && colocateBackendsSet.contains(replica.getBackendId())) {
+                colocateCand.add(replica);
+            } else {
+                notColocateCand.add(replica);
+            }
         }
 
+        List<Replica> candidates = null;
+        if (!colocateCand.isEmpty()) {
+            candidates = colocateCand;
+        } else if (!notColocateCand.isEmpty()) {
+            candidates = notColocateCand;
+        } else {
+            candidates = decommissionCand;
+        }
         if (candidates.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, "unable to choose dest replica");
         }
