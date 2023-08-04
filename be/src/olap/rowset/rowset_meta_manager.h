@@ -64,9 +64,14 @@ public:
 
     static Status remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 
-    static Status traverse_rowset_metas(
-            OlapMeta* meta,
-            std::function<bool(const TabletUid&, const RowsetId&, const std::string&)> const& func);
+    static Status remove_binlog(OlapMeta* meta, const std::string& suffix);
+
+    static Status traverse_rowset_metas(OlapMeta* meta,
+                                        std::function<bool(const TabletUid&, const RowsetId&,
+                                                           const std::string&)> const& collector);
+
+    static Status traverse_binlog_metas(
+            OlapMeta* meta, std::function<bool(const string&, const string&, bool)> const& func);
 
     static Status load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
 
