@@ -99,7 +99,13 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         new MockUp<OlapAnalysisTask>() {
             @Mock
             public void execSQL(String sql) throws Exception {
+            }
+        };
 
+        new MockUp<StatisticsCache>() {
+
+            @Mock
+            public void syncLoadColStats(long tableId, long idxId, String colName) {
             }
         };
 
