@@ -43,8 +43,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/thread_context.h"
-#include "util/doris_metrics.h"
 #include "tablet_meta.h"
+#include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
@@ -237,7 +237,6 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
 
 void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block,
                                            RowInBlock* new_row, RowInBlock* row_in_skiplist) {
-
     if (_tablet_schema->has_sequence_col() && _seq_col_idx_in_block >= 0) {
         DCHECK_LT(_seq_col_idx_in_block, mutable_block.columns());
         auto col_ptr = mutable_block.mutable_columns()[_seq_col_idx_in_block].get();
