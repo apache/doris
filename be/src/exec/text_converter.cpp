@@ -289,7 +289,6 @@ bool TextConverter::_write_data(const TypeDescriptor& type_desc,
         break;
     }
     case TYPE_ARRAY: {
-
         auto col = reinterpret_cast<vectorized::ColumnArray*>(col_ptr);
 
         std::vector<std::pair<size_t, size_t>> ranges;
