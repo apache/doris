@@ -134,7 +134,7 @@ void handle_get_rowset_meta(HttpRequest* req) {
         auto tablet = get_tablet(tablet_id);
         const auto& rowset_id = get_http_param(req, kRowsetIdParameter);
         const auto& binlog_version = get_http_param(req, kBinlogVersionParameter);
-        auto rowset_meta = tablet->get_binlog_rowset_meta(binlog_version, rowset_id);
+        auto rowset_meta = tablet->get_rowset_binlog_meta(binlog_version, rowset_id);
         if (rowset_meta.empty()) {
             HttpChannel::send_reply(req, HttpStatus::NOT_FOUND,
                                     fmt::format("get rowset meta failed, rowset_id={}", rowset_id));

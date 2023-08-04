@@ -338,6 +338,7 @@ struct TSnapshotRequest {
     10: optional bool is_copy_tablet_task
     11: optional Types.TVersion start_version
     12: optional Types.TVersion end_version
+    13: optional bool is_copy_binlog
 }
 
 struct TReleaseSnapshotRequest {
