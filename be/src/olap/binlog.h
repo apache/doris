@@ -25,8 +25,9 @@
 #include "olap/olap_common.h"
 
 namespace doris {
-constexpr std::string_view kBinlogPrefix = "binglog_";
+constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
+constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
 
 inline auto make_binlog_meta_key(std::string_view tablet, int64_t version,
                                  std::string_view rowset) {
@@ -82,7 +83,7 @@ inline bool starts_with_binlog_meta(std::string_view str) {
 }
 
 inline std::string get_binlog_data_key_from_meta_key(std::string_view meta_key) {
-    // like "binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7" => "binglog_data-6943f1585fe834b5-e542c2b83a21d0b7"
+    // like "binlog_meta_6943f1585fe834b5-e542c2b83a21d0b7" => "binlog_data-6943f1585fe834b5-e542c2b83a21d0b7"
     return fmt::format("{}data_{}", kBinlogPrefix, meta_key.substr(kBinlogMetaPrefix.length()));
 }
 } // namespace doris

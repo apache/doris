@@ -277,12 +277,18 @@ Status OlapMeta::remove(const int column_family_index, const std::vector<std::st
 
 Status OlapMeta::iterate(const int column_family_index, const std::string& prefix,
                          std::function<bool(const std::string&, const std::string&)> const& func) {
+    return iterate(column_family_index, prefix, prefix, func);
+}
+
+Status OlapMeta::iterate(const int column_family_index, const std::string& seek_key,
+                         const std::string& prefix,
+                         std::function<bool(const std::string&, const std::string&)> const& func) {
     auto& handle = _handles[column_family_index];
     std::unique_ptr<Iterator> it(_db->NewIterator(ReadOptions(), handle.get()));
-    if (prefix == "") {
+    if (seek_key == "") {
         it->SeekToFirst();
     } else {
-        it->Seek(prefix);
+        it->Seek(seek_key);
     }
     rocksdb::Status status = it->status();
     if (!status.ok()) {

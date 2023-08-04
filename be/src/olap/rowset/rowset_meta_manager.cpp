@@ -170,7 +170,7 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
     auto traverse_func = [&rowset_id, &num_segments](const std::string& key,
                                                      const std::string& value) -> bool {
         VLOG_DEBUG << fmt::format("key:{}, value:{}", key, value);
-        // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
+        // key is 'binlog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
         // check starts with "binlog_meta_"
         if (!starts_with_binlog_meta(key)) {
             LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
@@ -229,7 +229,7 @@ std::pair<std::string, int64_t> RowsetMetaManager::get_binlog_info(
     auto traverse_func = [&rowset_id, &num_segments](const std::string& key,
                                                      const std::string& value) -> bool {
         VLOG_DEBUG << fmt::format("key:{}, value:{}", key, value);
-        // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
+        // key is 'binlog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
         auto pos = key.rfind('_');
         if (pos == std::string::npos) {
             LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
@@ -283,6 +283,11 @@ Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const Row
     return status;
 }
 
+Status RowsetMetaManager::remove_binlog(OlapMeta* meta, const std::string& suffix) {
+    return meta->remove(META_COLUMN_FAMILY_INDEX,
+                        {kBinlogMetaPrefix.data() + suffix, kBinlogDataPrefix.data() + suffix});
+}
+
 Status RowsetMetaManager::traverse_rowset_metas(
         OlapMeta* meta,
         std::function<bool(const TabletUid&, const RowsetId&, const std::string&)> const& func) {
@@ -304,6 +309,43 @@ Status RowsetMetaManager::traverse_rowset_metas(
     };
     Status status =
             meta->iterate(META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX, traverse_rowset_meta_func);
+    return status;
+}
+
+Status RowsetMetaManager::traverse_binlog_metas(
+        OlapMeta* meta, std::function<bool(const string&, const string&, bool)> const& collector) {
+    std::pair<std::string, bool> last_info = std::make_pair(kBinlogMetaPrefix.data(), false);
+    bool seek_found = false;
+    Status status;
+    auto traverse_binlog_meta_func = [&last_info, &seek_found, &collector](
+                                             const std::string& key,
+                                             const std::string& value) -> bool {
+        seek_found = true;
+        auto& [last_prefix, need_collect] = last_info;
+        size_t pos = key.find('_', kBinlogMetaPrefix.size());
+        if (pos == std::string::npos) {
+            LOG(WARNING) << "invalid binlog meta key: " << key;
+            return true;
+        }
+        std::string_view key_view(key.data(), pos);
+        std::string_view last_prefix_view(last_prefix.data(), last_prefix.size() - 1);
+
+        if (last_prefix_view != key_view) {
+            need_collect = collector(key, value, true);
+            last_prefix = std::string(key_view) + "~";
+        } else if (need_collect) {
+            collector(key, value, false);
+        }
+
+        return need_collect;
+    };
+
+    do {
+        seek_found = false;
+        status = meta->iterate(META_COLUMN_FAMILY_INDEX, last_info.first, kBinlogMetaPrefix.data(),
+                               traverse_binlog_meta_func);
+    } while (status.ok() && seek_found);
+
     return status;
 }
 
