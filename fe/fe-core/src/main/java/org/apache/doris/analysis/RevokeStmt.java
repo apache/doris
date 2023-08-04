@@ -37,8 +37,7 @@ import java.util.Set;
 
 // REVOKE STMT
 // revoke privilege from some user, this is an administrator operation.
-//
-// REVOKE privilege [, privilege] ON db.tbl FROM user_identity [ROLE 'role'];
+// REVOKE privilege[(col1,col2...)] [, privilege] ON db.tbl FROM user_identity [ROLE 'role'];
 // REVOKE privilege [, privilege] ON resource 'resource' FROM user_identity [ROLE 'role'];
 // REVOKE role [, role] FROM user_identity
 public class RevokeStmt extends DdlStmt {
@@ -139,6 +138,8 @@ public class RevokeStmt extends DdlStmt {
             }
         }
 
+        GrantStmt.checkAccessPrivileges(accessPrivileges);
+
         for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
             accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tblPattern);
         }
@@ -149,7 +150,7 @@ public class RevokeStmt extends DdlStmt {
 
         // Revoke operation obey the same rule as Grant operation. reuse the same method
         if (tblPattern != null) {
-            GrantStmt.checkTablePrivileges(privileges, role, tblPattern);
+            GrantStmt.checkTablePrivileges(privileges, role, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
             GrantStmt.checkResourcePrivileges(privileges, role, resourcePattern);
         } else if (workloadGroupPattern != null) {
@@ -163,9 +164,13 @@ public class RevokeStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("REVOKE ");
-        if (privileges != null) {
+        if (!CollectionUtils.isEmpty(privileges)) {
             sb.append(Joiner.on(", ").join(privileges));
-        } else {
+        }
+        if (!MapUtils.isEmpty(colPrivileges)) {
+            sb.append(GrantStmt.colPrivMapToString(colPrivileges));
+        }
+        if (!CollectionUtils.isEmpty(roles)) {
             sb.append(Joiner.on(", ").join(roles));
         }
 

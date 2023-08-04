@@ -41,13 +41,13 @@ import org.apache.commons.collections.MapUtils;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 // GRANT STMT
-// GRANT privilege [, privilege] ON db.tbl TO user_identity [ROLE 'role'];
+// GRANT privilege[(col1,col2...)] [, privilege] ON db.tbl TO user_identity [ROLE 'role'];
 // GRANT privilege [, privilege] ON RESOURCE 'resource' TO user_identity [ROLE 'role'];
 // GRANT role [, role] TO user_identity
-// TODO: 2023/8/3 tosql analyze desc
 public class GrantStmt extends DdlStmt {
     private UserIdentity userIdent;
     // Indicates which permissions are granted to this role
@@ -151,6 +151,8 @@ public class GrantStmt extends DdlStmt {
             }
         }
 
+        checkAccessPrivileges(accessPrivileges);
+
         for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
             accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tblPattern);
         }
@@ -160,13 +162,23 @@ public class GrantStmt extends DdlStmt {
         }
 
         if (tblPattern != null) {
-            checkTablePrivileges(privileges, role, tblPattern);
+            checkTablePrivileges(privileges, role, tblPattern, colPrivileges);
         } else if (resourcePattern != null) {
             checkResourcePrivileges(privileges, role, resourcePattern);
         } else if (workloadGroupPattern != null) {
             checkWorkloadGroupPrivileges(privileges, role, workloadGroupPattern);
         } else if (roles != null) {
             checkRolePrivileges();
+        }
+    }
+
+    public static void checkAccessPrivileges(
+            List<AccessPrivilegeWithCols> accessPrivileges) throws AnalysisException {
+        for (AccessPrivilegeWithCols access : accessPrivileges) {
+            if (!access.getAccessPrivilege().canHasColPriv() && !CollectionUtils.isEmpty(access.getCols())) {
+                throw new AnalysisException(
+                        String.format("%s do not support col auth.", access.getAccessPrivilege().name()));
+            }
         }
     }
 
@@ -187,7 +199,8 @@ public class GrantStmt extends DdlStmt {
      * @param tblPattern
      * @throws AnalysisException
      */
-    public static void checkTablePrivileges(Collection<Privilege> privileges, String role, TablePattern tblPattern)
+    public static void checkTablePrivileges(Collection<Privilege> privileges, String role, TablePattern tblPattern,
+            Map<ColPrivilegeKey, Set<String>> colPrivileges)
             throws AnalysisException {
         // Rule 1
         if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL && (privileges.contains(Privilege.ADMIN_PRIV)
@@ -236,6 +249,11 @@ public class GrantStmt extends DdlStmt {
         // Rule 6
         if (privileges.contains(Privilege.USAGE_PRIV)) {
             throw new AnalysisException("Can not grant/revoke USAGE_PRIV to/from database or table");
+        }
+
+        // Rule 7
+        if (!MapUtils.isEmpty(colPrivileges) && "*".equals(tblPattern.getTbl())) {
+            throw new AnalysisException("Col auth must specify specific table");
         }
     }
 
@@ -297,16 +315,34 @@ public class GrantStmt extends DdlStmt {
         }
     }
 
+    public static String colPrivMapToString(Map<ColPrivilegeKey, Set<String>> colPrivileges) {
+        if (MapUtils.isEmpty(colPrivileges)) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (Entry<ColPrivilegeKey, Set<String>> entry : colPrivileges.entrySet()) {
+            builder.append(entry.getKey().getPrivilege());
+            builder.append("(");
+            builder.append(Joiner.on(", ").join(entry.getValue()));
+            builder.append(")");
+            builder.append(",");
+        }
+        return builder.deleteCharAt(builder.length() - 1).toString();
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("GRANT ");
-        if (privileges != null) {
+        if (!CollectionUtils.isEmpty(privileges)) {
             sb.append(Joiner.on(", ").join(privileges));
-        } else {
+        }
+        if (!MapUtils.isEmpty(colPrivileges)) {
+            sb.append(colPrivMapToString(colPrivileges));
+        }
+        if (!CollectionUtils.isEmpty(roles)) {
             sb.append(Joiner.on(", ").join(roles));
         }
-
         if (tblPattern != null) {
             sb.append(" ON ").append(tblPattern).append(" TO ");
         } else if (resourcePattern != null) {

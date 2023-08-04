@@ -80,6 +80,10 @@ public enum AccessPrivilege {
         }
     }
 
+    public boolean canHasColPriv() {
+        return this == SELECT_PRIV || this == LOAD_PRIV;
+    }
+
     public static AccessPrivilege fromName(String privStr) {
         try {
             return AccessPrivilege.valueOf(privStr.toUpperCase());
