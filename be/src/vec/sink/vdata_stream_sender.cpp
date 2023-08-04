@@ -686,15 +686,15 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         {
             // send last block
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-            if (_serializer->get_block() && _serializer->get_block()->rows() > 0) {
-                auto block = _serializer->get_block()->to_block();
+            if (_serializer && _serializer->get_block() && _serializer->get_block()->rows() > 0) {
+                Block block = _serializer->get_block()->to_block();
                 RETURN_IF_ERROR(
                         _serializer->serialize_block(&block, _cur_pb_block, _channels.size()));
                 Status status;
                 for (auto channel : _channels) {
                     if (!channel->is_receiver_eof()) {
                         if (channel->is_local()) {
-                            status = channel->send_local_block(block);
+                            status = channel->send_local_block(&block);
                         } else {
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                             status = channel->send_block(_cur_pb_block, false);

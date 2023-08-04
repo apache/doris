@@ -968,7 +968,7 @@ public class HiveMetaStoreCache {
         private AcidInfo acidInfo;
 
         public void addFile(RemoteFile file) {
-            if (isFileVisible(file.getName())) {
+            if (isFileVisible(file.getPath())) {
                 HiveFileStatus status = new HiveFileStatus();
                 status.setBlockLocations(file.getBlockLocations());
                 status.setPath(file.getPath());
@@ -980,7 +980,7 @@ public class HiveMetaStoreCache {
         }
 
         public void addSplit(FileSplit split) {
-            if (isFileVisible(split.getPath().getName())) {
+            if (isFileVisible(split.getPath())) {
                 splits.add(split);
             }
         }
@@ -998,10 +998,19 @@ public class HiveMetaStoreCache {
             this.acidInfo = acidInfo;
         }
 
-        private boolean isFileVisible(String filename) {
-            return StringUtils.isNotEmpty(filename)
-                        && !filename.startsWith(".")
-                        && !filename.startsWith("_");
+        private boolean isFileVisible(Path path) {
+            if (path == null || StringUtils.isEmpty(path.toString())) {
+                return false;
+            }
+            if (path.getName().startsWith(".") || path.getName().startsWith("_")) {
+                return false;
+            }
+            for (String name : path.toString().split("/")) {
+                if (name.startsWith(".hive-staging")) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 

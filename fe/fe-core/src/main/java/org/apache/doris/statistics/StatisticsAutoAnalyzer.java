@@ -17,12 +17,13 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.AnalyzeProperties;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
@@ -38,8 +39,8 @@ import org.apache.logging.log4j.Logger;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -53,7 +54,8 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     private AnalysisTaskExecutor analysisTaskExecutor;
 
     public StatisticsAutoAnalyzer() {
-        super("Automatic Analyzer", TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes));
+        super("Automatic Analyzer",
+                TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes) / 2);
         analysisTaskExecutor = new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num);
     }
 
@@ -92,8 +94,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                     continue;
                 }
                 AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-                List<AnalysisInfo> analysisInfos = analysisManager.buildAnalysisInfosForDB(databaseIf,
-                        AnalyzeProperties.DEFAULT_PROP);
+                List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
                 for (AnalysisInfo analysisInfo : analysisInfos) {
                     analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
                     if (analysisInfo == null) {
@@ -106,10 +107,34 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                     }
                 }
             }
-
         }
+    }
 
-        analyzePeriodically();
+    private List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<TableIf> db) {
+        List<AnalysisInfo> analysisInfos = new ArrayList<>();
+        for (TableIf table : db.getTables()) {
+            if (table instanceof View) {
+                continue;
+            }
+            TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
+                    table.getName());
+            AnalysisInfo jobInfo = new AnalysisInfoBuilder()
+                    .setJobId(Env.getCurrentEnv().getNextId())
+                    .setCatalogName(db.getCatalog().getName())
+                    .setDbName(db.getFullName())
+                    .setTblName(tableName.getTbl())
+                    .setColName(
+                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType())).map(
+                            Column::getName).collect(Collectors.joining(","))
+                    )
+                    .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
+                    .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
+                    .setAnalysisMethod(AnalysisInfo.AnalysisMethod.FULL)
+                    .setScheduleType(AnalysisInfo.ScheduleType.ONCE)
+                    .setJobType(JobType.SYSTEM).build();
+            analysisInfos.add(jobInfo);
+        }
+        return analysisInfos;
     }
 
     private void analyzePeriodically() {
@@ -174,22 +199,16 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return null;
         }
 
-        if (tblStats == TableStatistic.UNKNOWN) {
-            return jobInfo;
-        }
-
-        if (!needReanalyzeTable(table, tblStats)) {
+        if (!(needReanalyzeTable(table, tblStats) || tblStats == TableStatistic.UNKNOWN)) {
             return null;
         }
 
-        Set<String> needRunPartitions = new HashSet<>();
-        Set<String> statsPartitions = jobInfo.colToPartitions.values()
-                .stream()
-                .flatMap(Collection::stream)
+        Set<String> needRunPartitions = table.getPartitionNames().stream()
+                .map(table::getPartition)
+                .filter(Partition::hasData)
+                .filter(partition ->
+                    partition.getVisibleVersionTime() >= lastExecTimeInMs).map(Partition::getName)
                 .collect(Collectors.toSet());
-
-        checkAnalyzedPartitions(table, statsPartitions, needRunPartitions, lastExecTimeInMs);
-        checkNewPartitions(table, needRunPartitions, lastExecTimeInMs);
 
         if (needRunPartitions.isEmpty()) {
             return null;
@@ -205,65 +224,22 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         return tblHealth < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD;
     }
 
-    private void checkAnalyzedPartitions(TableIf table, Set<String> statsPartitions,
-            Set<String> needRunPartitions, long lastExecTimeInMs) {
-        for (String statsPartition : statsPartitions) {
-            Partition partition = table.getPartition(statsPartition);
-            if (partition == null) {
-                // Partition that has been deleted also need to
-                // be reanalyzed (delete partition statistics later)
-                needRunPartitions.add(statsPartition);
-                continue;
-            }
-            TableStatistic partitionStats = null;
-            try {
-                partitionStats = StatisticsRepository
-                    .fetchTableLevelOfPartStats(partition.getId());
-            } catch (DdlException e) {
-                LOG.warn("Failed to fetch part stats", e);
-                continue;
-            }
-
-            if (needReanalyzePartition(lastExecTimeInMs, partition, partitionStats)
-                    || partitionStats == TableStatistic.UNKNOWN) {
-                needRunPartitions.add(partition.getName());
-            }
-        }
-    }
-
-    private boolean needReanalyzePartition(long lastExecTimeInMs, Partition partition, TableStatistic partStats) {
-        long partUpdateTime = partition.getVisibleVersionTime();
-        if (partUpdateTime < lastExecTimeInMs) {
-            return false;
-        }
-        long pRowCount = partition.getBaseIndex().getRowCount();
-        long pUpdateRows = Math.abs(pRowCount - partStats.rowCount);
-        int partHealth = StatisticsUtil.getTableHealth(pRowCount, pUpdateRows);
-        return partHealth < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD;
-    }
-
-    private void checkNewPartitions(TableIf table, Set<String> needRunPartitions, long lastExecTimeInMs) {
-        Set<String> partitionNames = table.getPartitionNames();
-        partitionNames.removeAll(needRunPartitions);
-        needRunPartitions.addAll(
-                partitionNames.stream()
-                        .map(table::getPartition)
-                        .filter(partition -> partition.getVisibleVersionTime() >= lastExecTimeInMs)
-                        .map(Partition::getName)
-                        .collect(Collectors.toSet())
-        );
-    }
-
     private AnalysisInfo getAnalysisJobInfo(AnalysisInfo jobInfo, TableIf table,
             Set<String> needRunPartitions) {
         Map<String, Set<String>> newColToPartitions = Maps.newHashMap();
         Map<String, Set<String>> colToPartitions = jobInfo.colToPartitions;
-        colToPartitions.keySet().forEach(colName -> {
-            Column column = table.getColumn(colName);
-            if (column != null) {
-                newColToPartitions.put(colName, needRunPartitions);
+        if (colToPartitions == null) {
+            for (Column c : table.getColumns()) {
+                newColToPartitions.put(c.getName(), needRunPartitions);
             }
-        });
+        } else {
+            colToPartitions.keySet().forEach(colName -> {
+                Column column = table.getColumn(colName);
+                if (column != null) {
+                    newColToPartitions.put(colName, needRunPartitions);
+                }
+            });
+        }
         return new AnalysisInfoBuilder(jobInfo)
                 .setColToPartitions(newColToPartitions).build();
     }

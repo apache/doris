@@ -714,4 +714,7 @@ suite("test_date_function") {
         sql "select cast('20230631' as date), cast('20230632' as date)"
         result([[null, null]])
     }
+    
+    res = sql "explain select date_trunc('2022-04-24', 'day'), date_trunc('1999-03-12 00:31:23', 'hour')"
+    assertFalse(res.contains("date_trunc"))
 }

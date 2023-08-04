@@ -8,32 +8,32 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN](cs1.cs_call_center_sk = call_center.cc_call_center_sk)
-------------------PhysicalProject
---------------------filter(cc_county IN ('Ziebach County', 'Luce County', 'Richland County', 'Daviess County', 'Barrow County'))
-----------------------PhysicalOlapScan[call_center]
+----------------hashJoin[INNER_JOIN](cs1.cs_ship_date_sk = date_dim.d_date_sk)
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashJoin[RIGHT_SEMI_JOIN](cs1.cs_order_number = cs2.cs_order_number)( not (cs_warehouse_sk = cs_warehouse_sk))
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[catalog_sales]
-------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN](cs1.cs_ship_date_sk = date_dim.d_date_sk)
-----------------------------PhysicalProject
-------------------------------filter((cast(d_date as DATETIMEV2(0)) <= cast(days_add(cast('2002-4-01' as DATEV2), INTERVAL 60 DAY) as DATETIMEV2(0)))(date_dim.d_date >= 2002-04-01))
---------------------------------PhysicalOlapScan[date_dim]
+------------------------hashJoin[INNER_JOIN](cs1.cs_call_center_sk = call_center.cc_call_center_sk)
+--------------------------hashJoin[RIGHT_ANTI_JOIN](cs1.cs_order_number = cr1.cr_order_number)
 ----------------------------PhysicalDistribute
-------------------------------hashJoin[RIGHT_ANTI_JOIN](cs1.cs_order_number = cr1.cr_order_number)
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[catalog_returns]
+----------------------------PhysicalDistribute
+------------------------------hashJoin[INNER_JOIN](cs1.cs_ship_addr_sk = customer_address.ca_address_sk)
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[catalog_sales]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_returns]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[INNER_JOIN](cs1.cs_ship_addr_sk = customer_address.ca_address_sk)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[catalog_sales]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------filter((cast(ca_state as VARCHAR(*)) = 'WV'))
-------------------------------------------PhysicalOlapScan[customer_address]
+------------------------------------filter((cast(ca_state as VARCHAR(*)) = 'WV'))
+--------------------------------------PhysicalOlapScan[customer_address]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter(cc_county IN ('Ziebach County', 'Luce County', 'Richland County', 'Daviess County', 'Barrow County'))
+--------------------------------PhysicalOlapScan[call_center]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------filter((cast(d_date as DATETIMEV2(0)) <= cast(days_add(cast('2002-4-01' as DATEV2), INTERVAL 60 DAY) as DATETIMEV2(0)))(date_dim.d_date >= 2002-04-01))
+------------------------PhysicalOlapScan[date_dim]
 

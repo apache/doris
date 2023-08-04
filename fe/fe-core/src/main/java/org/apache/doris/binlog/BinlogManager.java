@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
+import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
@@ -245,6 +246,27 @@ public class BinlogManager {
         String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, true);
+    }
+
+    // add Barrier log
+    public void addBarrierLog(BarrierLog barrierLog, long commitSeq) {
+        if (barrierLog == null) {
+            return;
+        }
+
+        long dbId = barrierLog.getDbId();
+        long tableId = barrierLog.getTableId();
+        if (dbId == 0 || tableId == 0) {
+            return;
+        }
+
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(tableId);
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.BARRIER;
+        String data = barrierLog.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false);
     }
 
     // get binlog by dbId, return first binlog.version > version

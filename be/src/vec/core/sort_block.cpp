@@ -64,7 +64,7 @@ struct PartialSortingLess {
 
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
                 UInt64 limit) {
-    if (!src_block) {
+    if (!src_block.columns()) {
         return;
     }
 
@@ -119,7 +119,7 @@ void sort_block(Block& src_block, Block& dest_block, const SortDescription& desc
 
 void stable_get_permutation(const Block& block, const SortDescription& description,
                             IColumn::Permutation& out_permutation) {
-    if (!block) {
+    if (!block.columns()) {
         return;
     }
 
@@ -137,7 +137,7 @@ void stable_get_permutation(const Block& block, const SortDescription& descripti
 }
 
 bool is_already_sorted(const Block& block, const SortDescription& description) {
-    if (!block) {
+    if (!block.columns()) {
         return true;
     }
 
@@ -173,7 +173,7 @@ bool is_already_sorted(const Block& block, const SortDescription& description) {
 }
 
 void stable_sort_block(Block& block, const SortDescription& description) {
-    if (!block) {
+    if (!block.columns()) {
         return;
     }
 
