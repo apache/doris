@@ -112,9 +112,16 @@ public:
 
     void refresh_profile();
 
-    std::unordered_map<int64_t, DeltaWriter*> get_tablet_writers() {
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
-        return _tablet_writers;
+    std::vector<std::shared_ptr<DeltaWriter>> get_tablet_writers() {
+        std::vector<std::shared_ptr<DeltaWriter>> ret_map;
+
+        for (int i = 0; i < config::tablet_writers_shard_num; ++i) {
+            std::lock_guard<SpinLock> l(*_tablet_writers_locks[i]);
+            for (auto& it : *_tablet_writers_maps[i]) {
+                ret_map.push_back(it.second);
+            }
+        }
+        return ret_map;
     }
 
 private:
@@ -142,8 +149,6 @@ private:
     // make execute sequence
     std::mutex _lock;
 
-    SpinLock _tablet_writers_lock;
-
     enum State {
         kInitialized,
         kOpened,
@@ -168,9 +173,12 @@ private:
     // currently it's OK.
     Status _close_status;
 
-    // tablet_id -> TabletChannel
+    // tablet_id -> TabletChannel maps in shards
     // when you erase, you should call deregister_writer method in MemTableMemoryLimiter;
-    std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;
+    std::vector<std::unique_ptr<std::unordered_map<int64_t, std::shared_ptr<DeltaWriter>>>>
+            _tablet_writers_maps;
+    // corresponding locks to protect each shard
+    std::vector<std::unique_ptr<SpinLock>> _tablet_writers_locks;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.
     // So that following batch will not handle this tablet anymore.
@@ -181,8 +189,6 @@ private:
     std::unordered_set<int64_t> _reducing_tablets;
 
     std::unordered_set<int64_t> _partition_ids;
-
-    static std::atomic<uint64_t> _s_tablet_writer_count;
 
     bool _is_high_priority = false;
 

@@ -72,7 +72,7 @@ private:
     void _register_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
         for (auto& tablet_channel_it : channel->get_tablets_channels()) {
             for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
-                _memtable_memory_limiter->register_writer(writer_it.second);
+                _memtable_memory_limiter->register_writer(writer_it);
             }
         }
     }
@@ -80,7 +80,7 @@ private:
     void _deregister_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
         for (auto& tablet_channel_it : channel->get_tablets_channels()) {
             for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
-                _memtable_memory_limiter->deregister_writer(writer_it.second);
+                _memtable_memory_limiter->deregister_writer(writer_it);
             }
         }
     }

@@ -103,7 +103,7 @@ protected:
             auto tablet_channel_it = _tablets_channels.find(index_id);
             if (tablet_channel_it != _tablets_channels.end()) {
                 for (auto& writer_it : tablet_channel_it->second->get_tablet_writers()) {
-                    memtable_memory_limiter->deregister_writer(writer_it.second);
+                    memtable_memory_limiter->deregister_writer(writer_it);
                 }
             }
         }

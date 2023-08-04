@@ -50,8 +50,6 @@ class SlotDescriptor;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
-std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
-
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
                                bool is_high_priority, RuntimeProfile* profile)
         : _key(key),
@@ -59,20 +57,20 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& loa
           _load_id(load_id),
           _closed_senders(64),
           _is_high_priority(is_high_priority) {
-    static std::once_flag once_flag;
+    _tablet_writers_locks.resize(config::tablet_writers_shard_num);
+    for (auto& it : _tablet_writers_locks) {
+        it = std::make_unique<SpinLock>();
+    }
+
+    _tablet_writers_maps.resize(config::tablet_writers_shard_num);
+    for (auto& it : _tablet_writers_maps) {
+        it = std::make_unique<std::unordered_map<int64_t, std::shared_ptr<DeltaWriter>>>();
+    }
+
     _init_profile(profile);
-    std::call_once(once_flag, [] {
-        REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
-    });
 }
 
 TabletsChannel::~TabletsChannel() {
-    _s_tablet_writer_count -= _tablet_writers.size();
-    for (auto& it : _tablet_writers) {
-        auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
-        memtable_memory_limiter->deregister_writer(it.second);
-        delete it.second;
-    }
     delete _schema;
 }
 
@@ -150,40 +148,43 @@ Status TabletsChannel::close(
         // All senders are closed
         // 1. close all delta writers
         std::set<DeltaWriter*> need_wait_writers;
-        for (auto& it : _tablet_writers) {
-            if (_partition_ids.count(it.second->partition_id()) > 0) {
-                auto st = it.second->close();
-                if (!st.ok()) {
-                    auto err_msg = fmt::format(
-                            "close tablet writer failed, tablet_id={}, "
-                            "transaction_id={}, err={}",
-                            it.first, _txn_id, st.to_string());
-                    LOG(WARNING) << err_msg;
-                    PTabletError* tablet_error = tablet_errors->Add();
-                    tablet_error->set_tablet_id(it.first);
-                    tablet_error->set_msg(st.to_string());
-                    // just skip this tablet(writer) and continue to close others
-                    continue;
+        for (int i = 0; i < config::tablet_writers_shard_num; ++i) {
+            for (auto& it : *_tablet_writers_maps[i]) {
+                if (_partition_ids.count(it.second->partition_id()) > 0) {
+                    auto st = it.second->close();
+                    if (!st.ok()) {
+                        auto err_msg = fmt::format(
+                                "close tablet writer failed, tablet_id={}, "
+                                "transaction_id={}, err={}",
+                                it.first, _txn_id, st.to_string());
+                        LOG(WARNING) << err_msg;
+                        PTabletError* tablet_error = tablet_errors->Add();
+                        tablet_error->set_tablet_id(it.first);
+                        tablet_error->set_msg(st.to_string());
+                        // just skip this tablet(writer) and continue to close others
+                        continue;
+                    }
+                    // tablet writer in `_broken_tablets` should not call `build_rowset` and
+                    // `commit_txn` method, after that, the publish-version task will success,
+                    // which can cause the replica inconsistency.
+                    if (_is_broken_tablet(it.second->tablet_id())) {
+                        LOG(WARNING)
+                                << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
+                                << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
+                        continue;
+                    }
+                    need_wait_writers.insert(it.second.get());
+                } else {
+                    auto st = it.second->cancel();
+                    if (!st.ok()) {
+                        LOG(WARNING) << "cancel tablet writer failed, tablet_id=" << it.first
+                                     << ", transaction_id=" << _txn_id;
+                        // just skip this tablet(writer) and continue to close others
+                        continue;
+                    }
+                    VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << it.first
+                                  << ", transaction_id=" << _txn_id;
                 }
-                // tablet writer in `_broken_tablets` should not call `build_rowset` and
-                // `commit_txn` method, after that, the publish-version task will success,
-                // which can cause the replica inconsistency.
-                if (_is_broken_tablet(it.second->tablet_id())) {
-                    LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
-                                 << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
-                    continue;
-                }
-                need_wait_writers.insert(it.second);
-            } else {
-                auto st = it.second->cancel();
-                if (!st.ok()) {
-                    LOG(WARNING) << "cancel tablet writer failed, tablet_id=" << it.first
-                                 << ", transaction_id=" << _txn_id;
-                    // just skip this tablet(writer) and continue to close others
-                    continue;
-                }
-                VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << it.first
-                              << ", transaction_id=" << _txn_id;
             }
         }
 
@@ -296,9 +297,9 @@ void TabletsChannel::refresh_profile() {
     int64_t max_tablet_mem_usage = 0;
     int64_t max_tablet_write_mem_usage = 0;
     int64_t max_tablet_flush_mem_usage = 0;
-    {
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
-        for (auto& it : _tablet_writers) {
+    for (int i = 0; i < config::tablet_writers_shard_num; ++i) {
+        std::lock_guard<SpinLock> l(*_tablet_writers_locks[i]);
+        for (auto& it : *_tablet_writers_maps[i]) {
             int64_t write_mem = it.second->mem_consumption(MemType::WRITE);
             write_mem_usage += write_mem;
             int64_t flush_mem = it.second->mem_consumption(MemType::FLUSH);
@@ -358,6 +359,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
+        std::shared_ptr<DeltaWriter> writer_ptr(writer);
         if (!st.ok()) {
             auto err_msg = fmt::format(
                     "open delta writer failed, tablet_id={}"
@@ -367,12 +369,12 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
             return Status::InternalError(err_msg);
         }
         {
-            std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            _tablet_writers.emplace(tablet.tablet_id(), writer);
+            int64_t pos = tablet.tablet_id() % config::tablet_writers_shard_num;
+            std::lock_guard<SpinLock> l(*_tablet_writers_locks[pos]);
+            _tablet_writers_maps[pos]->emplace(tablet.tablet_id(), writer_ptr);
         }
     }
-    _s_tablet_writer_count += _tablet_writers.size();
-    DCHECK_EQ(_tablet_writers.size(), request.tablets_size());
+
     return Status::OK();
 }
 
@@ -381,8 +383,11 @@ Status TabletsChannel::cancel() {
     if (_state == kFinished) {
         return _close_status;
     }
-    for (auto& it : _tablet_writers) {
-        it.second->cancel();
+
+    for (int i = 0; i < config::tablet_writers_shard_num; ++i) {
+        for (auto& it : *_tablet_writers_maps[i]) {
+            it.second->cancel();
+        }
     }
     _state = kFinished;
     if (_write_single_replica) {
@@ -447,12 +452,13 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
         {
-            std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            auto tablet_writer_it = _tablet_writers.find(tablet_id);
-            if (tablet_writer_it == _tablet_writers.end()) {
+            int pos = tablet_id % config::tablet_writers_shard_num;
+            std::lock_guard<SpinLock> l(*_tablet_writers_locks[pos]);
+            auto tablet_writer_it = _tablet_writers_maps[pos]->find(tablet_id);
+            if (tablet_writer_it == _tablet_writers_maps[pos]->end()) {
                 return Status::InternalError("unknown tablet to append data, tablet={}");
             }
-            Status st = write_func(tablet_writer_it->second);
+            Status st = write_func(tablet_writer_it->second.get());
             if (!st.ok()) {
                 auto err_msg =
                         fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",

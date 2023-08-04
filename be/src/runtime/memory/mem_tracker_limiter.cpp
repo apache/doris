@@ -27,9 +27,9 @@
 #include <utility>
 
 #include "bvar/bvar.h"
-#include "olap/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group.h"
 #include "service/backend_options.h"
 #include "util/mem_info.h"

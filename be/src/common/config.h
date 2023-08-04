@@ -993,6 +993,7 @@ DECLARE_Int64(file_cache_min_file_segment_size);
 DECLARE_Int64(file_cache_max_file_segment_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
+DECLARE_mInt32(tablet_writers_shard_num);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

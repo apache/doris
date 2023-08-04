@@ -135,6 +135,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
+    std::shared_ptr<DeltaWriter> delta_writer_ptr(delta_writer);
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -160,13 +161,13 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     _mgr->init(100);
     {
         std::lock_guard<std::mutex> l(lock);
-        _mgr->register_writer(delta_writer);
+        _mgr->register_writer(delta_writer_ptr);
     }
     _mgr->handle_memtable_flush();
     CHECK_EQ(0, delta_writer->active_memtable_mem_consumption());
     {
         std::lock_guard<std::mutex> l(lock);
-        _mgr->deregister_writer(delta_writer);
+        _mgr->deregister_writer(delta_writer_ptr);
     }
 
     res = delta_writer->close();
@@ -177,6 +178,5 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     EXPECT_EQ(Status::OK(), res);
     res = _engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
-    delete delta_writer;
 }
 } // namespace doris

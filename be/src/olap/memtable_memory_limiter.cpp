@@ -44,7 +44,6 @@ MemTableMemoryLimiter::~MemTableMemoryLimiter() {
     DEREGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption);
     for (auto writer : _writers) {
         if (writer != nullptr) {
-            delete writer;
             writer = nullptr;
         }
     }
@@ -61,12 +60,12 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
-void MemTableMemoryLimiter::register_writer(DeltaWriter* writer) {
+void MemTableMemoryLimiter::register_writer(std::shared_ptr<DeltaWriter> writer) {
     std::lock_guard<std::mutex> l(_lock);
     _writers.insert(writer);
 }
 
-void MemTableMemoryLimiter::deregister_writer(DeltaWriter* writer) {
+void MemTableMemoryLimiter::deregister_writer(std::shared_ptr<DeltaWriter> writer) {
     std::lock_guard<std::mutex> l(_lock);
     _writers.erase(writer);
 }
