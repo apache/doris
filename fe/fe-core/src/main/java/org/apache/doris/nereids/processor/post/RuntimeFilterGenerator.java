@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -49,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -199,13 +201,17 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     continue;
                 }
                 Slot olapScanSlot = aliasTransferMap.get(targetSlot).second;
+                PhysicalRelation scan = aliasTransferMap.get(targetSlot).first;
+                Preconditions.checkState(scan != null, "scan is null");
+                if (!checkPhysicalRelationType(scan)) {
+                    continue;
+                }
                 RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                         bitmapContains.child(0), ImmutableList.of(olapScanSlot),
                         ImmutableList.of(bitmapContains.child(1)), type, i, join, isNot, -1L);
                 ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
                 ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-                ctx.setTargetsOnScanNode(aliasTransferMap.get(targetSlot).first.getRelationId(),
-                        olapScanSlot);
+                ctx.setTargetsOnScanNode(scan.getRelationId(), olapScanSlot);
                 join.addBitmapRuntimeFilterCondition(bitmapRuntimeFilterCondition);
             }
         }
@@ -306,7 +312,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         PhysicalRelation scan = aliasTransferMap.get(unwrappedSlot).first;
 
         Preconditions.checkState(olapScanSlot != null && scan != null);
-
+        if (!checkPhysicalRelationType(scan)) {
+            return;
+        }
         if (scan instanceof PhysicalCTEConsumer) {
             Set<CTEId> processedCTE = context.getRuntimeFilterContext().getProcessedCTE();
             CTEId cteId = ((PhysicalCTEConsumer) scan).getCteId();
@@ -370,6 +378,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     continue;
                 }
                 PhysicalRelation scan = aliasTransferMap.get(origSlot).first;
+                Preconditions.checkState(scan != null, "scan is null");
+                if (!checkPhysicalRelationType(scan)) {
+                    continue;
+                }
                 if (type == TRuntimeFilterType.IN_OR_BLOOM
                         && ctx.getSessionVariable().getEnablePipelineEngine()
                         && hasRemoteTarget(join, scan)) {
@@ -644,6 +656,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         } else {
             return true;
         }
+    }
+
+    private boolean checkPhysicalRelationType(PhysicalRelation scan) {
+        if ((scan instanceof PhysicalCatalogRelation && !(scan instanceof PhysicalSchemaScan))
+                || scan instanceof PhysicalCTEConsumer) {
+            return true;
+        }
+        return false;
     }
 
     private boolean checkCanPushDownIntoBasicTable(PhysicalPlan root) {
