@@ -258,7 +258,6 @@ struct BitmapFromUnhex {
                          std::vector<BitmapValue>& res, NullMap& null_map) {
         auto size = offsets.size();
         res.reserve(size);
-        BitmapValue bitmap;
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t str_size = offsets[i] - offsets[i - 1] - 1;
@@ -266,6 +265,7 @@ struct BitmapFromUnhex {
             int cipher_len = str_size / 2;
             char dst[cipher_len];
             MathFunctions::hex_decode(raw_str, str_size, dst);
+            BitmapValue bitmap;
             if (UNLIKELY(!bitmap.deserialize(dst))) {
                 res.emplace_back();
                 null_map[i] = 1;
