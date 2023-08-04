@@ -17,12 +17,14 @@
 
 package org.apache.doris.scheduler.disruptor;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.manager.AsyncJobManager;
 
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mocked;
 import mockit.Tested;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
@@ -41,6 +43,9 @@ public class TimerTaskDisruptorTest {
     private AsyncJobManager asyncJobManager;
 
     private static boolean testEventExecuteFlag = false;
+
+    @Mocked
+    Env env;
 
     @BeforeEach
     public void init() {
