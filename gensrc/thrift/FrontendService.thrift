@@ -979,6 +979,7 @@ enum TBinlogType {
   DUMMY = 7,
   ALTER_DATABASE_PROPERTY = 8,
   MODIFY_TABLE_PROPERTY = 9,
+  BARRIER = 10,
 }
 
 struct TBinlog {
