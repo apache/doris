@@ -17,6 +17,8 @@
 
 #include "olap/delete_bitmap_calculator.h"
 
+#include <gen_cpp/types.pb.h>
+
 #include <iterator>
 
 #include "common/status.h"
@@ -158,7 +160,7 @@ Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> c
                 pk_idx->type_info()->type(), 1, 0);
         bool is_base_segment = i < num_base_segments;
         _contexts.emplace_back(std::move(index), index_type, segment->rowset_id(), end_version,
-                               segment->id(), is_base_segment, pk_idx->num_rows());
+                               segment->id(), is_base_segment, pk_idx->num_rows(), max_batch_size);
         _heap->push(&_contexts.back());
     }
     return Status::OK();
@@ -194,8 +196,22 @@ Status MergedPKIndexDeleteBitmapCalculator::init(
 Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitmap) {
     while (_heap->size() >= 2) {
         if (!_calc_delete_bitmap_between_segments) {
-            auto st = step();
-            if (st.is<ErrorCode::END_OF_FILE>()) {
+            bool should_return = false;
+            while (true) {
+                auto st = step();
+                if (st.ok()) {
+                    break;
+                }
+                if (st.is<ErrorCode::NOT_FOUND>()) {
+                    should_return = true;
+                    break;
+                }
+                if (st.is<ErrorCode::END_OF_FILE>()) {
+                    continue;
+                }
+                RETURN_IF_ERROR(st);
+            }
+            if (should_return) {
                 break;
             }
         }
@@ -211,8 +227,7 @@ Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitma
         if (LIKELY(!_comparator.is_key_same(key1, key2))) {
             auto key2_without_seq = Slice(key2.get_data(), key2.get_size() - _seq_col_length);
             auto st = iter1->seek_at_or_after(key2_without_seq);
-            if (UNLIKELY(!(st.ok() || st.is<ErrorCode::END_OF_FILE>() ||
-                           st.is<ErrorCode::NOT_FOUND>()))) {
+            if (UNLIKELY(!(st.ok() || st.is<ErrorCode::END_OF_FILE>()))) {
                 return st;
             }
         } else {
@@ -235,17 +250,16 @@ Status MergedPKIndexDeleteBitmapCalculator::step() {
     MergedPKIndexDeleteBitmapCalculatorContext* target_ctx = nullptr;
     while (!_heap->empty()) {
         auto ctx = _heap->top();
-        if (ctxs_to_seek.empty() ||
-            ctx->is_base_segment() == ctxs_to_seek.back()->is_base_segment()) {
-            _heap->pop();
-            ctxs_to_seek.emplace_back(ctx);
-            continue;
+        if (!ctxs_to_seek.empty() &&
+            ctx->is_base_segment() != ctxs_to_seek.back()->is_base_segment()) {
+            target_ctx = ctx;
+            break;
         }
-        target_ctx = ctx;
-        break;
+        _heap->pop();
+        ctxs_to_seek.emplace_back(ctx);
     }
     if (target_ctx == nullptr) {
-        return Status::EndOfFile("EOF");
+        return Status::NotFound("No target found");
     }
     Slice key;
     RETURN_IF_ERROR(target_ctx->get_current_key(&key));
@@ -253,19 +267,29 @@ Status MergedPKIndexDeleteBitmapCalculator::step() {
     std::vector<MergedPKIndexDeleteBitmapCalculatorContext*> ctxs_to_push;
     for (auto ctx : ctxs_to_seek) {
         auto st = ctx->seek_at_or_after(key);
-        if (UNLIKELY(!(st.ok() || st.is<ErrorCode::NOT_FOUND>() ||
-                       st.is<ErrorCode::END_OF_FILE>()))) {
+        if (UNLIKELY(!(st.ok() || st.is<ErrorCode::END_OF_FILE>()))) {
             return st;
         }
         if (!ctx->eof()) {
             ctxs_to_push.emplace_back(ctx);
         }
     }
+    if (ctxs_to_push.empty()) {
+        return Status::EndOfFile("No ctx to push");
+    }
     std::sort(ctxs_to_push.begin(), ctxs_to_push.end(), _comparator);
+    std::reverse(ctxs_to_push.begin(), ctxs_to_push.end());
+    Slice first_key;
     for (size_t i = 0; i < ctxs_to_push.size(); ++i) {
         auto ctx = ctxs_to_push[i];
-        if (i != 0) {
-            ctx->advance();
+        if (i == 0) {
+            RETURN_IF_ERROR(ctx->get_current_key(&first_key));
+        } else {
+            Slice cur_key;
+            RETURN_IF_ERROR(ctx->get_current_key(&cur_key));
+            if (_comparator.is_key_same(cur_key, first_key)) {
+                ctx->advance();
+            }
         }
         if (!ctx->eof()) {
             _heap->push(ctx);

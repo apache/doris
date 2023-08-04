@@ -73,9 +73,9 @@ public:
               _num_rows(num_rows),
               _max_batch_size(batch_max_size),
               _end_version(end_version),
+              _base_segment(is_base_segment),
               _rowset_id(rowset_id),
-              _segment_id(segment_id),
-              _base_segment(is_base_segment) {}
+              _segment_id(segment_id) {}
     Status get_current_key(Slice* slice);
     Status advance();
     Status seek_at_or_after(Slice const& key);
@@ -98,10 +98,10 @@ private:
     size_t const _num_rows;
     size_t const _max_batch_size;
     size_t const _end_version;
+    bool const _base_segment;
     RowsetId const _rowset_id;
     int32_t const _segment_id;
     bool _excat_match;
-    bool _base_segment;
 };
 
 class MergedPKIndexDeleteBitmapCalculator {
