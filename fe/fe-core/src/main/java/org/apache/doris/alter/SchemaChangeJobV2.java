@@ -77,6 +77,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /*
  * Version 2 of SchemaChangeJob.
@@ -306,8 +307,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // send all tasks and wait them finished
             AgentTaskQueue.addBatchTask(batchTask);
             AgentTaskExecutor.submit(batchTask);
-            long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum,
-                    Config.max_create_table_timeout_second * 1000L);
+            long timeout = Config.tablet_create_timeout_second * 1000L * totalReplicaNum;
+            timeout = Math.max(timeout, Config.min_create_table_timeout_second * 1000);
+            timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
             boolean ok = false;
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -324,9 +326,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg = countDownLatch.getStatus().getErrorMsg();
                 } else {
-                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
                     // only show at most 3 results
-                    List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                    List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
+                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                            .collect(Collectors.toList());
                     errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
                 }
                 LOG.warn("failed to create replicas for job: {}, {}", jobId, errMsg);

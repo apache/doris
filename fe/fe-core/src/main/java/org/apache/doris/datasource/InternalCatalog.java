@@ -1859,6 +1859,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // estimate timeout
             long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
+            timeout = Math.max(timeout, Config.min_create_table_timeout_second * 1000);
             timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -1897,9 +1898,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                 } else {
                     errMsg += "Timeout:" + (timeout / 1000) + " seconds.";
-                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
                     // only show at most 3 results
-                    List<String> subList = unfinishedMarks.stream().limit(3)
+                    List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
                             .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
                             .collect(Collectors.toList());
                     if (!subList.isEmpty()) {

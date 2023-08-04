@@ -810,6 +810,7 @@ public class RestoreJob extends AbstractJob {
 
             // estimate timeout
             long timeout = Config.tablet_create_timeout_second * 1000L * batchTask.getTaskNum();
+            timeout = Math.max(timeout, Config.min_create_table_timeout_second * 1000);
             timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
             try {
                 LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
@@ -880,9 +881,10 @@ public class RestoreJob extends AbstractJob {
                 }
             }
         } else {
-            List<Entry<Long, Long>> unfinishedMarks = latch.getLeftMarks();
             // only show at most 10 results
-            List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 10));
+            List<String> subList = latch.getLeftMarks().stream().limit(10)
+                    .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                    .collect(Collectors.toList());
             String idStr = Joiner.on(", ").join(subList);
             status = new Status(ErrCode.COMMON_ERROR,
                     "Failed to create replicas for restore. unfinished marks: " + idStr);

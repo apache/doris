@@ -119,6 +119,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
+import java.util.stream.Collectors;
 
 public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
@@ -2273,6 +2274,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // estimate timeout
             long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
+            timeout = Math.max(timeout, Config.min_create_table_timeout_second * 1000);
             timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
             boolean ok = false;
             try {
@@ -2289,12 +2291,13 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
                 } else {
-                    List<Map.Entry<Long, Set<Pair<Long, Integer>>>> unfinishedMarks = countDownLatch.getLeftMarks();
                     // only show at most 3 results
-                    List<Map.Entry<Long, Set<Pair<Long, Integer>>>> subList = unfinishedMarks.subList(0,
-                            Math.min(unfinishedMarks.size(), 3));
+                    List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
+                            .map(item -> "(backendId = " + item.getKey() + ", tabletsWithHash = "
+                                    + item.getValue() + ")")
+                            .collect(Collectors.toList());
                     if (!subList.isEmpty()) {
-                        errMsg += " Unfinished mark: " + Joiner.on(", ").join(subList);
+                        errMsg += " Unfinished: " + Joiner.on(", ").join(subList);
                     }
                 }
                 errMsg += ". This operation maybe partial successfully, You should retry until success.";
@@ -2354,6 +2357,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // estimate timeout
             long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
+            timeout = Math.max(timeout, Config.min_create_table_timeout_second * 1000);
             timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
             boolean ok = false;
             try {

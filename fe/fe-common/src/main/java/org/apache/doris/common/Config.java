@@ -420,6 +420,10 @@ public class Config extends ConfigBase {
                             + "(m * n * tablet_create_timeout_second) before timeout"})
     public static int tablet_create_timeout_second = 1;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"创建表的最小超时时间，单位是秒。",
+            "Minimal waiting time for creating a table, in seconds."})
+    public static int min_create_table_timeout_second = 10;
+
     @ConfField(mutable = true, masterOnly = true, description = {"创建表的最大超时时间，单位是秒。",
             "Maximal waiting time for creating a table, in seconds."})
     public static int max_create_table_timeout_second = 3600;
