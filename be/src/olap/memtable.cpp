@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "bvar/bvar.h"
 #include "common/config.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
@@ -39,7 +40,6 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
-#include "bvar/bvar.h"
 
 namespace doris {
 

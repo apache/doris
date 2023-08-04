@@ -20,9 +20,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
+#include "bvar/bvar.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
-#include "bvar/bvar.h"
 
 namespace doris {
 
