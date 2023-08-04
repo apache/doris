@@ -110,3 +110,78 @@ under the License.
     ```
     'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
     ```
+
+12. 在hive上可以查到hudi表分区字段的值，但是在doris查不到。
+
+    doris和hive目前查询hudi的方式不一样，doris需要在hudi表结构的avsc文件里添加上分区字段,如果没加，就会导致doris查询partition_val为空（即使设置了hoodie.datasource.hive_sync.partition_fields=partition_val也不可以）
+    ```
+    {
+        "type": "record",
+        "name": "record",
+        "fields": [{
+            "name": "partition_val",
+            "type": [
+                "null",
+                "string"
+                ],
+            "doc": "Preset partition field, empty string when not partitioned",
+            "default": null
+            },
+            {
+            "name": "name",
+            "type": "string",
+            "doc": "名称"
+            },
+            {
+            "name": "create_time",
+            "type": "string",
+            "doc": "创建时间"
+            }
+        ]
+    }
+    ```
+
+13. Hive 1.x 的 orc 格式的表可能会遇到底层 orc 文件 schema 中列名为 `_col0`，`_col1`，`_col2`... 这类系统列名，此时需要在 catalog 配置中添加 `hive.version` 为 1.x.x，这样就会使用 hive 表中的列名进行映射。
+
+    ```sql
+    CREATE CATALOG hive PROPERTIES (
+        'hive.version' = '1.x.x'
+    );
+    ```
+
+14. 使用JDBC Catalog将MySQL数据同步到Doris中，日期数据同步错误。需要校验下MySQL的版本是否与MySQL的驱动包是否对应，比如MySQL8以上需要使用驱动com.mysql.cj.jdbc.Driver。
+
+15. 在Catalog中配置Kerberos时，如果报错`SIMPLE authentication is not enabled. Available:[TOKEN, KERBEROS]`，那么需要将`core-site.xml`文件放到`"${DORIS_HOME}/be/conf"`目录下。
+    
+    如果访问HDFS报错`No common protection layer between client and server`，检查客户端和服务端的`hadoop.rpc.protection`属性，使他们保持一致。
+    
+    ```
+        <?xml version="1.0" encoding="UTF-8"?>
+        <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+        
+        <configuration>
+        
+            <property>
+                <name>hadoop.security.authentication</name>
+                <value>kerberos</value>
+            </property>
+            
+        </configuration>
+    ```
+
+16. 在Catalog中配置Kerberos时，报错`Unable to obtain password from user`的解决方法：
+    - 用到的principal必须在klist中存在，使用`klist -kt your.keytab`检查。
+    - 检查catalog配置是否正确，比如漏配`yarn.resourcemanager.principal`。
+    - 若上述检查没问题，则当前系统yum或者其他包管理软件安装的JDK版本存在不支持的加密算法，建议自行安装JDK并设置`JAVA_HOME`环境变量。
+
+17. 查询配置了Kerberos的外表，遇到该报错：`GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos Ticket)`，一般重启FE和BE能够解决该问题。
+    - 重启所有节点前可在`"${DORIS_HOME}/be/conf/be.conf"`中的JAVA_OPTS参数里配置`-Djavax.security.auth.useSubjectCredsOnly=false`，通过底层机制去获取JAAS credentials信息，而不是应用程序。
+    - 在[JAAS Troubleshooting](https://docs.oracle.com/javase/8/docs/technotes/guides/security/jgss/tutorials/Troubleshooting.html)中可获取更多常见JAAS报错的解决方法。
+
+18. 使用Catalog查询表数据时发现与Hive Metastore相关的报错：`Invalid method name`，需要设置`hive.version`参数。
+
+    ```sql
+    CREATE CATALOG hive PROPERTIES (
+        'hive.version' = '1.x.x'
+    );
+    ```
