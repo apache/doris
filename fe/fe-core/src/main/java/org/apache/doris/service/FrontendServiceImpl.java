@@ -1701,6 +1701,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    /**
+     * For first-class multi-table scenarios, we should store the mapping between Txn and data source type in a common
+     * place. Since there is only Kafka now, we should do this first.
+     */
     private void buildMultiTableStreamLoadTask(StreamLoadTask baseTaskInfo, long txnId) {
         try {
             RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
@@ -1715,7 +1719,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void deleteMultiTableStreamLoadJobIndex(long txnId) {
-
         try {
             Env.getCurrentEnv().getRoutineLoadManager().removeMultiLoadTaskTxnIdToRoutineLoadJobId(txnId);
         } catch (Exception e) {
@@ -1782,10 +1785,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 int index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
                 if (enablePipelineLoad) {
                     planFragmentParamsList.add(generatePipelineStreamLoadPut(request, db, fullDbName, table, timeoutMs,
-                            index));
+                            index, true));
                 } else {
                     TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
-                            table, timeoutMs, index);
+                            table, timeoutMs, index, true);
 
                     planFragmentParamsList.add(planFragmentParams);
                 }
@@ -1833,12 +1836,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
                                                                String fullDbName, OlapTable table,
                                                                long timeoutMs) throws UserException {
-        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1);
+        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1, false);
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
                                                                String fullDbName, OlapTable table,
-                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex)
+                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex,
+                                                               boolean isMultiTableRequest)
             throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
@@ -1846,7 +1850,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-            buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
+            if (isMultiTableRequest) {
+                buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
+            }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId(), multiTableFragmentInstanceIdIndex);
             // add table indexes to transaction state
@@ -1880,13 +1886,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs, 1);
+        return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs,
+                1, false);
     }
 
     private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
                                                                   String fullDbName, OlapTable table,
                                                                   long timeoutMs,
-                                                                  int multiTableFragmentInstanceIdIndex)
+                                                                  int multiTableFragmentInstanceIdIndex,
+                                                                  boolean isMultiTableRequest)
             throws UserException {
         if (db == null) {
             String dbName = fullDbName;
@@ -1901,7 +1909,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-            buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
+            if (isMultiTableRequest) {
+                buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
+            }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
