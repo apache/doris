@@ -96,7 +96,7 @@ protected:
         bool finished = false;
         auto index_id = request.index_id();
         // close will reset deltawriter memtable and should deregister writer before it.
-        if (finished) {
+        {
             std::lock_guard<SpinLock> l(_tablets_channels_lock);
             auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
             auto tablet_channel_it = _tablets_channels.find(index_id);
