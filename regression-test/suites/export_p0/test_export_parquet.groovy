@@ -203,8 +203,8 @@ suite("test_export_parquet", "p0") {
         qt_select_load1 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
     
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${table_load_name}")
-        delete_files.call("${outFilePath}")
+        // try_sql("DROP TABLE IF EXISTS ${table_load_name}")
+        // delete_files.call("${outFilePath}")
     }
 
     try_sql("DROP TABLE IF EXISTS ${table_export_name}")
