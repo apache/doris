@@ -954,7 +954,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMinidump = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
-    public boolean enableFoldNondeterministicFn = true;
+    public boolean enableFoldNondeterministicFn = false;
 
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
