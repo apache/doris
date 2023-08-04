@@ -814,14 +814,11 @@ public class LoadManager implements Writable {
     public void write(DataOutput out) throws IOException {
         long currentTimeMs = System.currentTimeMillis();
         List<LoadJob> loadJobs =
-                idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs)).collect(Collectors.toList());
+                idToLoadJob.values().stream().filter(t -> !t.isExpired(currentTimeMs))
+                        .filter(t -> !(t instanceof MiniLoadJob)).collect(Collectors.toList());
 
         out.writeInt(loadJobs.size());
         for (LoadJob loadJob : loadJobs) {
-            if (loadJob instanceof MiniLoadJob) {
-                // Deprecated, no longer write image
-                continue;
-            }
             loadJob.write(out);
         }
     }
