@@ -23,7 +23,6 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -41,6 +40,7 @@ import org.apache.doris.qe.VariableMgr;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,15 +58,30 @@ import java.util.UUID;
 //          BY BROKER 'broker_name' [( $broker_attrs)]
 public class ExportStmt extends StatementBase {
     private static final Logger LOG = LogManager.getLogger(ExportStmt.class);
-
-    public static final String TABLET_NUMBER_PER_TASK_PROP = "tablet_num_per_task";
+    public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_COLUMNS = "";
+    private static final String DEFAULT_PARALLELISM = "1";
+
+    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
+            .add(LABEL)
+            .add(PARALLELISM)
+            .add(LoadStmt.EXEC_MEM_LIMIT)
+            .add(LoadStmt.TIMEOUT_PROPERTY)
+            .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
+            .add(LoadStmt.TIMEOUT_PROPERTY)
+            .add(OutFileClause.PROP_MAX_FILE_SIZE)
+            .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
+            .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
+            .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
+            .add("format")
+            .build();
+
     private TableName tblName;
-    private List<String> partitions;
+    private List<String> partitionStringNames;
     private Expr whereExpr;
     private String path;
     private BrokerDesc brokerDesc;
@@ -80,6 +95,8 @@ public class ExportStmt extends StatementBase {
     private String format;
 
     private String label;
+
+    private Integer parallelism;
 
     private String maxFileSize;
     private String deleteExistingFiles;
@@ -117,7 +134,7 @@ public class ExportStmt extends StatementBase {
     }
 
     public List<String> getPartitions() {
-        return partitions;
+        return partitionStringNames;
     }
 
     public Expr getWhereExpr() {
@@ -189,7 +206,7 @@ public class ExportStmt extends StatementBase {
             if (partitionNames.isTemp()) {
                 throw new AnalysisException("Do not support exporting temporary partitions");
             }
-            partitions = partitionNames.getPartitionNames();
+            partitionStringNames = partitionNames.getPartitionNames();
         }
 
         // check auth
@@ -234,7 +251,7 @@ public class ExportStmt extends StatementBase {
         Table table = db.getTableOrAnalysisException(tblName.getTbl());
         table.readLock();
         try {
-            if (partitions == null) {
+            if (partitionStringNames == null) {
                 return;
             }
             if (!table.isPartitioned()) {
@@ -256,7 +273,7 @@ public class ExportStmt extends StatementBase {
                             + tblType.toString() + " type, do not support EXPORT.");
             }
 
-            for (String partitionName : partitions) {
+            for (String partitionName : partitionStringNames) {
                 Partition partition = table.getPartition(partitionName);
                 if (partition == null) {
                     throw new AnalysisException("Partition [" + partitionName + "] does not exist");
@@ -306,41 +323,31 @@ public class ExportStmt extends StatementBase {
     }
 
     private void checkProperties(Map<String, String> properties) throws UserException {
+        for (String key : properties.keySet()) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
+                throw new DdlException("Invalid property key: '" + key + "'");
+            }
+        }
+
+        // convert key to lowercase
+        Map<String, String> tmpMap = Maps.newHashMap();
+        for (String key : properties.keySet()) {
+            tmpMap.put(key.toLowerCase(), properties.get(key));
+        }
+        properties = tmpMap;
+
         this.columnSeparator = Separator.convertSeparator(PropertyAnalyzer.analyzeColumnSeparator(
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
         this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, DEFAULT_COLUMNS);
 
-        // timeout
-        if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-            try {
-                Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
-            } catch (NumberFormatException e) {
-                throw new DdlException("Invalid timeout value: " + e.getMessage());
-            }
-        } else {
-            properties.put(LoadStmt.TIMEOUT_PROPERTY, String.valueOf(Config.export_task_default_timeout_second));
-        }
-
         // format
-        if (properties.containsKey(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE)) {
-            this.format = properties.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE).toLowerCase();
-        } else {
-            this.format = "csv";
-        }
+        this.format = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv").toLowerCase();
 
-        // tablet num per task
-        if (properties.containsKey(TABLET_NUMBER_PER_TASK_PROP)) {
-            try {
-                Long.parseLong(properties.get(TABLET_NUMBER_PER_TASK_PROP));
-            } catch (NumberFormatException e) {
-                throw new DdlException("Invalid tablet num per task value: " + e.getMessage());
-            }
-        } else {
-            // use session variables
-            properties.put(TABLET_NUMBER_PER_TASK_PROP, String.valueOf(Config.export_tablet_num_per_task));
-        }
+        // parallelism
+        String parallelismString = properties.getOrDefault(PARALLELISM, DEFAULT_PARALLELISM);
+        parallelism = Integer.parseInt(parallelismString);
 
         // max_file_size
         this.maxFileSize = properties.getOrDefault(OutFileClause.PROP_MAX_FILE_SIZE, "");
@@ -365,9 +372,9 @@ public class ExportStmt extends StatementBase {
         } else {
             sb.append(tblName.toSql());
         }
-        if (partitions != null && !partitions.isEmpty()) {
+        if (partitionStringNames != null && !partitionStringNames.isEmpty()) {
             sb.append(" PARTITION (");
-            Joiner.on(", ").appendTo(sb, partitions);
+            Joiner.on(", ").appendTo(sb, partitionStringNames);
             sb.append(")");
         }
         sb.append("\n");
@@ -407,5 +414,9 @@ public class ExportStmt extends StatementBase {
 
     public String getDeleteExistingFiles() {
         return deleteExistingFiles;
+    }
+
+    public Integer getParallelNum() {
+        return parallelism;
     }
 }
