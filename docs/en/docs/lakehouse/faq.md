@@ -154,6 +154,8 @@ under the License.
 
     Need to put `core-site.xml` to the `"${DORIS_HOME}/be/conf"` directory.
 
+    If an error is reported while accessing HDFS: `No common protection layer between client and server`, check the `hadoop.rpc.protection` on the client and server to make them consistent.
+
     ```
         <?xml version="1.0" encoding="UTF-8"?>
         <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
@@ -171,6 +173,7 @@ under the License.
 16. The solutions when configuring Kerberos in the catalog and encounter an error: `Unable to obtain password from user`.
     - The principal used must exist in the klist, use `klist -kt your.keytab` to check.
     - Ensure the catalog configuration correct, such as missing the `yarn.resourcemanager.principal`.
+    - If the preceding checks are correct, the JDK version installed by yum or other package-management utility in the current system maybe have an unsupported encryption algorithm. It is recommended to install JDK by yourself and set `JAVA_HOME` environment variable.
 
 17. If an error is reported while querying the catalog with Kerberos: `GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos Ticket)`.
     - Restarting FE and BE can solve the problem in most cases. 
