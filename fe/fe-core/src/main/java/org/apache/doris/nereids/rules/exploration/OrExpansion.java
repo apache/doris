@@ -21,7 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -52,6 +53,7 @@ import java.util.stream.Collectors;
  *                           HJ(cond1) HJ(cond2 and !cond1)
  */
 public class OrExpansion extends OneExplorationRuleFactory {
+    public static final OrExpansion INSTANCE = new OrExpansion();
 
     @Override
     public Rule build() {
@@ -68,10 +70,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     // We pick the first or condition that can be split to EqualTo expressions.
                     for (Expression expr : otherConditions) {
                         Pair<List<Expression>, List<Expression>> pair = expandExpr(expr, join);
-                        // TODO: Now we don't support expand condition with complex expression
-                        if (pair.second.isEmpty() && pair.first.stream()
-                                .noneMatch(e -> !((EqualTo) e).left().isSlot()
-                                        && !((EqualTo) e).right().isSlot())) {
+                        if (pair.second.isEmpty()) {
                             disjunctions = pair.first;
                             otherConditions.remove(expr);
                             break;
@@ -136,10 +135,16 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     .map(e -> e.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s))
                     .collect(Collectors.toList());
 
-            // TODO: normalize join condition
             LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.withJoinConjuncts(hashCond, otherCond)
                     .withChildren(Lists.newArrayList(left, right));
-            joins.add(newJoin);
+            if (newJoin.getHashJoinConjuncts().stream().anyMatch(equalTo ->
+                    equalTo.children().stream().anyMatch(e -> !(e instanceof Slot)))) {
+                Plan plan = PushdownExpressionsInHashCondition.pushDownHashExpression(newJoin);
+                plan = new LogicalProject<>(new ArrayList<>(newJoin.getOutput()), plan);
+                joins.add(plan);
+            } else {
+                joins.add(newJoin);
+            }
         }
         return joins;
     }
