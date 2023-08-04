@@ -517,6 +517,8 @@ public:
             return "int";
         case JsonbType::T_Int64:
             return "bigint";
+        case JsonbType::T_Int128:
+            return "largeint";
         case JsonbType::T_Double:
             return "double";
         case JsonbType::T_Float:
@@ -626,7 +628,7 @@ inline bool JsonbInt64Val::setVal(int64_t value) {
 
 typedef NumberValT<__int128_t> JsonbInt128Val;
 
-// override setVal for Int64Val
+// override setVal for Int128Val
 template <>
 inline bool JsonbInt128Val::setVal(__int128_t value) {
     if (!isInt128()) {
@@ -676,11 +678,13 @@ public:
             return ((JsonbInt32Val*)this)->val();
         case JsonbType::T_Int64:
             return ((JsonbInt64Val*)this)->val();
+        case JsonbType::T_Int128:
+            return ((JsonbInt128Val*)this)->val();
         default:
             return 0;
         }
     }
-    bool setVal(int64_t val) {
+    bool setVal(int128_t val) {
         switch (type_) {
         case JsonbType::T_Int8:
             if (val < std::numeric_limits<int8_t>::min() ||
@@ -698,7 +702,9 @@ public:
                 return false;
             return ((JsonbInt32Val*)this)->setVal((int32_t)val);
         case JsonbType::T_Int64:
-            return ((JsonbInt64Val*)this)->setVal(val);
+            return ((JsonbInt64Val*)this)->setVal((int64_t)val);
+        case JsonbType::T_Int128:
+            return ((JsonbInt128Val*)this)->setVal(val);
         default:
             return false;
         }

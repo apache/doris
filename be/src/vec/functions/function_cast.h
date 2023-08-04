@@ -615,6 +615,8 @@ struct ConvertImplNumberToJsonb {
                 writer.writeInt32(data[i]);
             } else if constexpr (std::is_same_v<ColumnInt64, ColumnType>) {
                 writer.writeInt64(data[i]);
+            } else if constexpr (std::is_same_v<ColumnInt128, ColumnType>) {
+                writer.writeInt128(data[i]);
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
             } else {
@@ -742,6 +744,14 @@ struct ConvertImplFromJsonb {
                 } else if constexpr (type_index == TypeIndex::Int64) {
                     if (value->isInt8() || value->isInt16() || value->isInt32() ||
                         value->isInt64()) {
+                        res[i] = ((const JsonbIntVal*)value)->val();
+                    } else {
+                        null_map[i] = 1;
+                        res[i] = 0;
+                    }
+                } else if constexpr (type_index == TypeIndex::Int128) {
+                    if (value->isInt8() || value->isInt16() || value->isInt32() ||
+                        value->isInt64() || value->isInt128()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
@@ -1798,6 +1808,8 @@ private:
             return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32>::execute;
         case TypeIndex::Int64:
             return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64>::execute;
+        case TypeIndex::Int128:
+            return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
         case TypeIndex::Float64:
             return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
         default:
@@ -1822,6 +1834,8 @@ private:
             return &ConvertImplNumberToJsonb<ColumnInt32>::execute;
         case TypeIndex::Int64:
             return &ConvertImplNumberToJsonb<ColumnInt64>::execute;
+        case TypeIndex::Int128:
+            return &ConvertImplNumberToJsonb<ColumnInt128>::execute;
         case TypeIndex::Float64:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
         case TypeIndex::String:
