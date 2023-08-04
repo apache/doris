@@ -188,10 +188,11 @@ public class PropertyAnalyzer {
 
         TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
         long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
-        // newStoragePolicy would be assigned with one valid value once
-        // hasStoragePolicy is assigned true
-        String newStoragePolicy = null;
         final String oldStoragePolicy = oldDataProperty.getStoragePolicy();
+        // When we create one table with table's property set storage policy,
+        // the properties wouldn't contain storage policy so the hasStoragePolicy would be false,
+        // then we would just set the partition's storage policy the same as the table's
+        String newStoragePolicy = oldStoragePolicy;
         boolean hasStoragePolicy = false;
         boolean storageMediumSpecified = false;
 
