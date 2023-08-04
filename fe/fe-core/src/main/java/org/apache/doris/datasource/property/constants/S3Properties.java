@@ -93,7 +93,6 @@ public class S3Properties extends BaseProperties {
         // required by storage policy
         public static final String ROOT_PATH = "AWS_ROOT_PATH";
         public static final String BUCKET = "AWS_BUCKET";
-        public static final String PATH_KEY = "AWS_PATH_KEY";
         // optional
         public static final String MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
         public static final String REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
