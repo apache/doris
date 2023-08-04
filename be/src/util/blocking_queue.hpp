@@ -82,6 +82,18 @@ public:
         return true;
     }
 
+    // Return false if queue full or has been shutdown.
+    bool try_put(const T& val) {
+        std::unique_lock unique_lock(_lock);
+        if (_list.size() < _max_elements && !_shutdown) {
+            _list.push_back(val);
+            unique_lock.unlock();
+            _get_cv.notify_one();
+            return true;
+        }
+        return false;
+    }
+
     // Shut down the queue. Wakes up all threads waiting on BlockingGet or BlockingPut.
     void shutdown() {
         {
@@ -97,6 +109,8 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         return _list.size();
     }
+
+    uint32_t get_max_size() const { return _max_elements; }
 
     // Returns the total amount of time threads have blocked in BlockingGet.
     uint64_t total_get_wait_time() const { return _total_get_wait_time; }

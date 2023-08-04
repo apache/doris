@@ -709,10 +709,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
             if (!st.ok() && final_st.ok()) {
                 final_st = st;
             }
-        }
-        // wait all channels to finish
-        for (int i = 0; i < _channels.size(); ++i) {
-            Status st = _channels[i]->close_wait(state);
+            st = _channels[i]->close_wait(state);
             if (!st.ok() && final_st.ok()) {
                 final_st = st;
             }

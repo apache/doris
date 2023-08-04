@@ -73,13 +73,13 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/priority_thread_pool.hpp"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 
 using std::filesystem::directory_iterator;
 using std::filesystem::path;

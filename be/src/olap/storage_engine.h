@@ -61,7 +61,6 @@ class CumulativeCompaction;
 class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
 class MemTracker;
-class PriorityThreadPool;
 class StreamLoadRecorder;
 class TCloneReq;
 class TCreateTabletReq;
