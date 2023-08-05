@@ -35,19 +35,19 @@ under the License.
 ### example
 
 ```
-mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(2)) cnt;
-+------+
-| cnt  |
-+------+
-|    0 |
-+------+
+mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(2));
++--------------------------------------------+
+| bitmap_has_any(to_bitmap(1), to_bitmap(2)) |
++--------------------------------------------+
+|                                          0 |
++--------------------------------------------+
 
-mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(1)) cnt;
-+------+
-| cnt  |
-+------+
-|    1 |
-+------+
+mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(1));
++--------------------------------------------+
+| bitmap_has_any(to_bitmap(1), to_bitmap(1)) |
++--------------------------------------------+
+|                                          1 |
++--------------------------------------------+
 ```
 
 ### keywords

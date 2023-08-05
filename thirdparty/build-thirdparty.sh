@@ -266,9 +266,9 @@ check_if_source_exist() {
     echo "===== begin build $1"
 }
 
-check_if_archieve_exist() {
+check_if_archive_exist() {
     if [[ -z $1 ]]; then
-        echo "archieve should specified to check if exist."
+        echo "archive should specified to check if exist."
         exit 1
     fi
 
@@ -1167,9 +1167,9 @@ build_parallel_hashmap() {
 
 # pdqsort
 build_pdqsort() {
-    check_if_source_exist "${PDQSORT_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${PDQSORT_SOURCE}"
-    cp -r pdqsort.h "${TP_INSTALL_DIR}/include/"
+    check_if_archive_exist "${PDQSORT_FILE}"
+    cd "${TP_SOURCE_DIR}"
+    cp "${PDQSORT_FILE}" "${TP_INSTALL_DIR}/include/"
 }
 
 # libdivide
@@ -1432,6 +1432,32 @@ build_jemalloc() {
     mv "${TP_INSTALL_DIR}"/lib/libjemalloc.a "${TP_INSTALL_DIR}"/lib/libjemalloc_doris.a
 }
 
+# libunwind
+build_libunwind() {
+    # https://github.com/libunwind/libunwind
+    # https://github.com/libunwind/libunwind/issues/189
+    # https://stackoverflow.com/questions/27842377/building-libunwind-for-mac
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        check_if_source_exist "${LIBUNWIND_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
+
+        mkdir -p "${BUILD_DIR}"
+        cd "${BUILD_DIR}"
+
+        # We should enable optimizations (otherwise it will be too slow in debug)
+        # and disable sanitizers (otherwise infinite loop may happen)
+        # close exceptions and rtti can improve the operating efficiency of the program
+        # LIBUNWIND_NO_HEAP: https://reviews.llvm.org/D11897
+        # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
+        # -nostdinc++ only required for gcc compilation
+        cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti"
+        CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+
+        make -j "${PARALLEL}"
+        make install
+    fi
+}
+
 # benchmark
 build_benchmark() {
     check_if_source_exist "${BENCHMARK_SOURCE}"
@@ -1453,6 +1479,7 @@ build_benchmark() {
 
     mkdir -p "${TP_INCLUDE_DIR}/benchmark"
     cp "${TP_SOURCE_DIR}/${BENCHMARK_SOURCE}/include/benchmark/benchmark.h" "${TP_INCLUDE_DIR}/benchmark/"
+    cp "${TP_SOURCE_DIR}/${BENCHMARK_SOURCE}/include/benchmark/export.h" "${TP_INCLUDE_DIR}/benchmark/"
     cp "${TP_SOURCE_DIR}/${BENCHMARK_SOURCE}/build/src/libbenchmark.a" "${TP_LIB_DIR}"
 }
 
@@ -1582,6 +1609,9 @@ build_hadoop_libs() {
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/*.a"
+    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
+    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -1643,6 +1673,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         xxhash
         concurrentqueue
         fast_float
+        libunwind
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

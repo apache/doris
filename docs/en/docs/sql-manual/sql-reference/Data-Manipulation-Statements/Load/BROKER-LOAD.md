@@ -65,6 +65,7 @@ WITH BROKER broker_name
   INTO TABLE `table_name`
   [PARTITION (p1, p2, ...)]
   [COLUMNS TERMINATED BY "column_separator"]
+  [LINES TERMINATED BY "line_delimiter"]
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
@@ -95,6 +96,10 @@ WITH BROKER broker_name
   - `COLUMNS TERMINATED BY`
 
     Specifies the column separator. Only valid in CSV format. Only single-byte delimiters can be specified.
+
+  - `LINES TERMINATED BY`
+
+    Specifies the line delimiter. Only valid in CSV format. Only single-byte delimiters can be specified.
 
   - `FORMAT AS`
 
@@ -186,8 +191,15 @@ WITH BROKER broker_name
   - `load_to_single_tablet`
   
     Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition.
+    
+  - <version since="dev" type="inline"> priority </version>
+    
+    Set the priority of the load job, there are three options: `HIGH/NORMAL/LOW`, use `NORMAL` priority as default. The pending broker load jobs which have higher priority will be chosen to execute earlier.
+
 -  <version since="1.2.3" type="inline"> comment </version>
-    Specify the comment for the import job. The comment can be viewed in the `show load` statement.
+    
+   Specify the comment for the import job. The comment can be viewed in the `show load` statement.
+
 ### Example
 
 1. Import a batch of data from HDFS

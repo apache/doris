@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pipeline execution engine",
+    "title": "Pipeline Execution Engine",
     "language": "en",
     "toc_min_heading_level": 2,
     "toc_max_heading_level": 4
@@ -26,7 +26,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pipeline execution engine
+# Pipeline Execution Engine
 
 <version since="2.0.0"></version>
 
@@ -69,15 +69,11 @@ This improves the efficiency of CPU execution on mixed-load SQL and enhances the
 set enable_pipeline_engine = true;
 ```
 
-#### parallel_fragment_exec_instance_num
+#### parallel_pipeline_task_num
 
-The default configuration of `parallel_fragment_exec_instance_num` represents the number of instances that a SQL query will query concurrently; Doris defaults to `1`, which affects the number of query threads in the non-Pipeline execution engine, whereas in the Pipeline execution engine there is no thread inflation This configuration affects the number of threads in the Non-Pipeline execution engine. The recommended configuration here is `16`, but users can actually adjust it to suit their own queries.
+`parallel_pipeline_task_num` represents the concurrency of pipeline tasks of a query. Default value is `0` (e.g. half number of CPU cores). Users can adjust this value according to their own workloads.
 
 ```
-set parallel_fragment_exec_instance_num = 16;
+set parallel_pipeline_task_num = 0;
 ```
-
-Specifically, if set to 0, the concurrency in the Pipeline execution engine will automatically be set to half of the number of CPU cores.
-"parallel_fragment_exec_instance_num" cannot be set higher than the "max_instance_num" in "fe.conf" (default is 128).
-
-
+You can limit the automatically configured concurrency by setting "max_instance_num."（The default value is 64)

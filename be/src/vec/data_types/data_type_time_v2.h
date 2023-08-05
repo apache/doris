@@ -139,7 +139,7 @@ public:
     }
     MutableColumnPtr create_column() const override;
 
-    UInt32 get_scale() const { return _scale; }
+    UInt32 get_scale() const override { return _scale; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 

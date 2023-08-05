@@ -43,6 +43,7 @@
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
 #include "runtime/exec_env.h"
+#include "util/jni-util.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -80,11 +81,6 @@ static std::string broker_ip = "127.0.0.1";
 static int broker_port = 8008;
 static std::string broker_location = "hdfs://my_nameservice/user/doris";
 
-// commend out to enable specified test
-#define TestHdfsFileSystem DISABLED_TestHdfsFileSystem
-#define TestS3FileSystem DISABLED_TestS3FileSystem
-#define TestBrokerFileSystem DISABLED_TestBrokerFileSystem
-
 class RemoteFileSystemTest : public testing::Test {
 public:
     virtual void SetUp() {
@@ -104,6 +100,7 @@ public:
 
         broker_addr.__set_hostname(broker_ip);
         broker_addr.__set_port(broker_port);
+        CHECK_STATUS_OK(doris::JniUtil::Init());
     }
 
     virtual void TearDown() {}

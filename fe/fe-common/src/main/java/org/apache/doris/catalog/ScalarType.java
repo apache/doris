@@ -31,8 +31,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -125,28 +123,8 @@ public class ScalarType extends Type {
     @SerializedName(value = "lenStr")
     private String lenStr;
 
-    @SerializedName(value = "subTypes")
-    private List<Type> subTypes;
-
-    @SerializedName(value = "subTypeNullables")
-    private List<Boolean> subTypeNullables;
-
-    public List<Type> getSubTypes() {
-        return subTypes;
-    }
-
-    public List<Boolean> getSubTypeNullables() {
-        return subTypeNullables;
-    }
-
     public ScalarType(PrimitiveType type) {
         this.type = type;
-    }
-
-    public ScalarType(List<Type> subTypes, List<Boolean> subTypeNullables) {
-        this.type = PrimitiveType.AGG_STATE;
-        this.subTypes = subTypes;
-        this.subTypeNullables = subTypeNullables;
     }
 
     public static ScalarType createType(PrimitiveType type, int len, int precision, int scale) {
@@ -165,6 +143,8 @@ public class ScalarType extends Type {
                 return createDecimalType(precision, scale);
             case DATETIMEV2:
                 return createDatetimeV2Type(scale);
+            case TIMEV2:
+                return createTimeV2Type(scale);
             default:
                 return createType(type);
         }
@@ -667,17 +647,7 @@ public class ScalarType extends Type {
                 stringBuilder.append("json");
                 break;
             case AGG_STATE:
-                stringBuilder.append("agg_state(");
-                for (int i = 0; i < subTypes.size(); i++) {
-                    if (i > 0) {
-                        stringBuilder.append(", ");
-                    }
-                    stringBuilder.append(subTypes.get(i).toSql());
-                    if (subTypeNullables.get(i)) {
-                        stringBuilder.append(" NULL");
-                    }
-                }
-                stringBuilder.append(")");
+                stringBuilder.append("agg_state(unknown)");
                 break;
             default:
                 stringBuilder.append("unknown type: " + type.toString());
@@ -714,7 +684,15 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DATETIMEV2: {
-                Preconditions.checkArgument(precision >= scale);
+                Preconditions.checkArgument(precision >= scale,
+                        String.format("given precision %d is out of scale bound %d", precision, scale));
+                scalarType.setScale(scale);
+                scalarType.setPrecision(precision);
+                break;
+            }
+            case TIMEV2: {
+                Preconditions.checkArgument(precision >= scale,
+                        String.format("given precision %d is out of scale bound %d", precision, scale));
                 scalarType.setScale(scale);
                 scalarType.setPrecision(precision);
                 break;
@@ -723,18 +701,6 @@ public class ScalarType extends Type {
                 break;
         }
         node.setScalarType(scalarType);
-
-        if (subTypes != null) {
-            List<TTypeDesc> types = new ArrayList<TTypeDesc>();
-            for (int i = 0; i < subTypes.size(); i++) {
-                TTypeDesc desc = new TTypeDesc();
-                desc.setTypes(new ArrayList<TTypeNode>());
-                subTypes.get(i).toThrift(desc);
-                desc.setIsNullable(subTypeNullables.get(i));
-                types.add(desc);
-            }
-            container.setSubTypes(types);
-        }
     }
 
     public int decimalPrecision() {
@@ -867,6 +833,9 @@ public class ScalarType extends Type {
         if (equals(t)) {
             return true;
         }
+        if (t.isAnyType()) {
+            return t.matchesType(this);
+        }
         if (!t.isScalarType()) {
             return false;
         }
@@ -908,23 +877,10 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
-        if (this.isAggStateType() && other.isAggStateType()) {
-            int subTypeNumber = subTypeNullables.size();
-            if (subTypeNumber != other.subTypeNullables.size()) {
-                return false;
-            }
-            for (int i = 0; i < subTypeNumber; i++) {
-                if (!subTypeNullables.get(i).equals(other.subTypeNullables.get(i))) {
-                    return false;
-                }
-                if (!subTypes.get(i).equals(other.subTypes.get(i))) {
-                    return false;
-                }
-            }
-            return true;
+        if ((this.isDatetimeV2() && other.isDatetimeV2())) {
+            return this.decimalScale() == other.decimalScale();
         }
-
-        if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
+        if (this.isTimeV2() && other.isTimeV2()) {
             return this.decimalScale() == other.decimalScale();
         }
         if (type.isDecimalV3Type() && other.isDecimalV3()) {
@@ -1120,7 +1076,7 @@ public class ScalarType extends Type {
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return MAX_DECIMALV2_TYPE;
+                return Type.DOUBLE;
             }
             return t1.isDecimalV2() ? t1 : t2;
         }

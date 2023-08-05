@@ -60,6 +60,7 @@ public class DecimalV3Type extends FractionalType {
             .put(LargeIntType.INSTANCE, LARGEINT_DECIMAL)
             .put(FloatType.INSTANCE, FLOAT_DECIMAL)
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
+            .put(NullType.INSTANCE, BOOLEAN_DECIMAL)
             .build();
 
     protected final int precision;
@@ -98,9 +99,11 @@ public class DecimalV3Type extends FractionalType {
 
     /** createDecimalV3Type. */
     public static DecimalV3Type createDecimalV3Type(int precision, int scale) {
-        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION);
-        Preconditions.checkArgument(scale >= 0);
-        Preconditions.checkArgument(precision >= scale);
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_DECIMAL128_PRECISION,
+                "precision should in (0, " + MAX_DECIMAL128_PRECISION + "], but real precision is " + precision);
+        Preconditions.checkArgument(scale >= 0, "scale should not smaller than 0, but real scale is " + scale);
+        Preconditions.checkArgument(precision >= scale, "precision should not smaller than scale,"
+                + " but precision is " + precision, ", scale is " + scale);
         return new DecimalV3Type(precision, scale);
     }
 
@@ -146,7 +149,7 @@ public class DecimalV3Type extends FractionalType {
 
     @Override
     public DataType defaultConcreteType() {
-        return SYSTEM_DEFAULT;
+        return this;
     }
 
     @Override

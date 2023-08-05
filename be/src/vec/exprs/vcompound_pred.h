@@ -45,15 +45,13 @@ public:
     VCompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
         _op = node.opcode;
         _fn.name.function_name = compound_operator_to_string(_op);
-        _expr_name = "VCompoundPredicate (" + _fn.name.function_name + ")";
+        _expr_name = fmt::format("VCompoundPredicate[{}](arguments={},return={})",
+                                 _fn.name.function_name, get_child_names(), _data_type->get_name());
     }
-
-    VExprSPtr clone() const override { return VCompoundPred::create_shared(*this); }
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status execute(VExprContext* context, vectorized::Block* block,
-                   int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         if (children().size() == 1 || !_all_child_is_compound_and_not_const() ||
             _children[0]->is_nullable() || _children[1]->is_nullable()) {
             // TODO:
@@ -144,17 +142,6 @@ public:
         return Status::OK();
     }
 
-    std::string debug_string() const override {
-        std::stringstream out;
-        out << _expr_name << "{\n";
-        out << _children[0]->debug_string();
-        if (children().size() > 1) {
-            out << ",\n" << _children[1]->debug_string();
-        }
-        out << "}";
-        return out.str();
-    }
-
     bool is_compound_predicate() const override { return true; }
 
 private:
@@ -195,7 +182,5 @@ private:
     }
 
     TExprOpcode::type _op;
-
-    std::string _expr_name;
 };
 } // namespace doris::vectorized

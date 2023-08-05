@@ -80,6 +80,10 @@ public class ArrayType extends Type {
             return true;
         }
 
+        if (t.isAnyType()) {
+            return t.matchesType(this);
+        }
+
         if (!t.isArrayType()) {
             return false;
         }

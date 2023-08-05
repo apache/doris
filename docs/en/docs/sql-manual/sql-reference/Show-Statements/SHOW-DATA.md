@@ -37,7 +37,7 @@ This statement is used to display the amount of data, the number of replicas, an
 grammar:
 
 ```sql
-SHOW DATA [FROM db_name[.table_name]] [ORDER BY ...];
+SHOW DATA [FROM [db_name.]table_name] [ORDER BY ...];
 ````
 
 illustrate:

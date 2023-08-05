@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <chrono>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -363,13 +364,23 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
     return Status::OK();
 }
 
+// the condition variable would wait at most 10 seconds
+// otherwise it would quit the procedure and treat it
+// as one time out error status and would make the load
+// task failed
+constexpr static int WAIT_TIME_OUT_MS = 10000;
+
 // there exists occasions where the buffer is already closed but
 // some prior tasks are still queued in thread pool, so we have to check whether
 // the buffer is closed each time the condition variable is notified.
 void PrefetchBuffer::reset_offset(size_t offset) {
     {
         std::unique_lock lck {_lock};
-        _prefetched.wait(lck, [this]() { return _buffer_status != BufferStatus::PENDING; });
+        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+                                  [this]() { return _buffer_status != BufferStatus::PENDING; })) {
+            _prefetch_status = Status::TimedOut("time out when reset prefetch buffer");
+            return;
+        }
         if (UNLIKELY(_buffer_status == BufferStatus::CLOSED)) {
             _prefetched.notify_all();
             return;
@@ -393,9 +404,13 @@ void PrefetchBuffer::reset_offset(size_t offset) {
 void PrefetchBuffer::prefetch_buffer() {
     {
         std::unique_lock lck {_lock};
-        _prefetched.wait(lck, [this]() {
-            return _buffer_status == BufferStatus::RESET || _buffer_status == BufferStatus::CLOSED;
-        });
+        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
+                return _buffer_status == BufferStatus::RESET ||
+                       _buffer_status == BufferStatus::CLOSED;
+            })) {
+            _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
+            return;
+        }
         // in case buffer is already closed
         if (UNLIKELY(_buffer_status == BufferStatus::CLOSED)) {
             _prefetched.notify_all();
@@ -432,7 +447,11 @@ void PrefetchBuffer::prefetch_buffer() {
     _statis.prefetch_request_io += 1;
     _statis.prefetch_request_bytes += _len;
     std::unique_lock lck {_lock};
-    _prefetched.wait(lck, [this]() { return _buffer_status == BufferStatus::PENDING; });
+    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+                              [this]() { return _buffer_status == BufferStatus::PENDING; })) {
+        _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
+        return;
+    }
     if (!s.ok() && _offset < _reader->size()) {
         _prefetch_status = std::move(s);
     }
@@ -509,10 +528,13 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
-        _prefetched.wait(lck, [this]() {
-            return _buffer_status == BufferStatus::PREFETCHED ||
-                   _buffer_status == BufferStatus::CLOSED;
-        });
+        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
+                return _buffer_status == BufferStatus::PREFETCHED ||
+                       _buffer_status == BufferStatus::CLOSED;
+            })) {
+            _prefetch_status = Status::TimedOut("time out when read prefetch buffer");
+            return _prefetch_status;
+        }
         if (UNLIKELY(BufferStatus::CLOSED == _buffer_status)) {
             return Status::OK();
         }
@@ -545,7 +567,11 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
 void PrefetchBuffer::close() {
     std::unique_lock lck {_lock};
     // in case _reader still tries to write to the buf after we close the buffer
-    _prefetched.wait(lck, [this]() { return _buffer_status != BufferStatus::PENDING; });
+    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+                              [this]() { return _buffer_status != BufferStatus::PENDING; })) {
+        _prefetch_status = Status::TimedOut("time out when close prefetch buffer");
+        return;
+    }
     _buffer_status = BufferStatus::CLOSED;
     _prefetched.notify_all();
     if (_sync_profile != nullptr) {
@@ -598,8 +624,11 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
 }
 
 PrefetchBufferedReader::~PrefetchBufferedReader() {
-    close();
-    _closed = true;
+    /// set `_sync_profile` to nullptr to avoid updating counter after the runtime profile has been released.
+    std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
+                  [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->_sync_profile = nullptr; });
+    /// Better not to call virtual functions in a destructor.
+    _close_internal();
 }
 
 Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -628,6 +657,10 @@ Status PrefetchBufferedReader::read_at_impl(size_t offset, Slice result, size_t*
 }
 
 Status PrefetchBufferedReader::close() {
+    return _close_internal();
+}
+
+Status PrefetchBufferedReader::_close_internal() {
     if (!_closed) {
         _closed = true;
         std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
@@ -643,10 +676,14 @@ InMemoryFileReader::InMemoryFileReader(io::FileReaderSPtr reader) : _reader(std:
 }
 
 InMemoryFileReader::~InMemoryFileReader() {
-    close();
+    _close_internal();
 }
 
 Status InMemoryFileReader::close() {
+    return _close_internal();
+}
+
+Status InMemoryFileReader::_close_internal() {
     if (!_closed) {
         _closed = true;
         return _reader->close();
@@ -734,13 +771,13 @@ Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset,
 Status DelegateReader::create_file_reader(RuntimeProfile* profile,
                                           const FileSystemProperties& system_properties,
                                           const FileDescription& file_description,
+                                          const io::FileReaderOptions& reader_options,
                                           std::shared_ptr<io::FileSystem>* file_system,
                                           io::FileReaderSPtr* file_reader, AccessMode access_mode,
-                                          io::FileReaderOptions reader_options,
                                           const IOContext* io_ctx, const PrefetchRange file_range) {
     io::FileReaderSPtr reader;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(profile, system_properties, file_description,
-                                                    file_system, &reader, reader_options));
+    RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
+                                                    reader_options, file_system, &reader, profile));
     if (reader->size() < IN_MEMORY_FILE_SIZE) {
         *file_reader = std::make_shared<InMemoryFileReader>(reader);
     } else if (access_mode == AccessMode::SEQUENTIAL) {

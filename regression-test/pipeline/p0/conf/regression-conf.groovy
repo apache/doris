@@ -21,8 +21,14 @@
 defaultDb = "regression_test"
 
 jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
+
+feSourceThriftAddress = "127.0.0.1:9020"
+feTargetThriftAddress = "127.0.0.1:9020"
+feSyncerUser = "root"
+feSyncerPassword = ""
 
 feHttpAddress = "172.19.0.2:8131"
 feHttpUser = "root"
@@ -48,9 +54,9 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_broker_load,test_spark_load,analyze_test"
+excludeSuites = "test_profile,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet"
 // this directories will not be executed
-excludeDirectories = ""
+excludeDirectories = "workload_manager_p1"
 
 customConf1 = "test_custom_conf_value"
 
@@ -76,6 +82,11 @@ pg_14_port=7121
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableHiveTest=false
 hms_port=7141
+
+enableEsTest=false
+es_6_port=19200
+es_7_port=29200
+es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 

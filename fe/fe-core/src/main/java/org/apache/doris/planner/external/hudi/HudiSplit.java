@@ -26,8 +26,9 @@ import java.util.List;
 
 @Data
 public class HudiSplit extends FileSplit {
-    public HudiSplit(Path file, long start, long length, long fileLength, String[] hosts) {
-        super(file, start, length, fileLength, hosts, null);
+    public HudiSplit(Path file, long start, long length, long fileLength, String[] hosts,
+            List<String> partitionValues) {
+        super(file, start, length, fileLength, hosts, partitionValues);
     }
 
     private String instantTime;

@@ -1,3 +1,4 @@
+      
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -90,4 +91,50 @@ suite("aggregate_grouping_function") {
     """
 
     sql "DROP TABLE test_aggregate_grouping_function"
+
+    sql "DROP TABLE IF EXISTS test_aggregate_collect_set"
+ 
+    sql """
+        CREATE table test_aggregate_collect_set (
+		custr_nbr varchar(30),   
+		bar_code varchar(36),
+       		audit_id varchar(255),
+		case_id text,
+		into_time text,
+		audit_time text,
+		apply_type text,
+		node_code text,
+		audit_code1 text,
+		audit_code2 text,
+		audit_code3 text
+	) UNIQUE KEY (custr_nbr,bar_code,audit_id )
+	distributed by hash (custr_nbr,bar_code,audit_id ) buckets 10
+	properties(
+		  "replication_num" = "1"
+	);"""
+
+    sql """ INSERT into test_aggregate_collect_set values ('custr_nbr', 'barcode', 'audit_id', 'case_id', '2007-11-30 10:30:19', '2007-11-30 10:30:19', '2', 'Decline', 'c1', 'c2', 'c3');"""
+
+    sql """ 
+	SELECT
+	    tt.tag_value
+	FROM (
+	    SELECT
+	        d.custr_nbr,
+	        concat_ws('|', collect_set(d.is_code1)) as tag_value
+	    FROM (
+	        SELECT
+	            b.custr_nbr,
+	            1 as is_code1
+	        FROM test_aggregate_collect_set b
+	    ) d
+	    GROUP BY d.custr_nbr
+	) tt
+	GROUP BY tt.tag_value
+	;
+	"""
+
+    sql "DROP TABLE test_aggregate_collect_set"
 }
+
+    

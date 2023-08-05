@@ -81,8 +81,6 @@ public:
     VExpr() = default;
     virtual ~VExpr() = default;
 
-    virtual VExprSPtr clone() const = 0;
-
     virtual const std::string& expr_name() const = 0;
 
     /// Initializes this expr instance for execution. This does not include initializing
@@ -103,16 +101,14 @@ public:
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope);
 
-    virtual Status execute(VExprContext* context, vectorized::Block* block,
-                           int* result_column_id) = 0;
+    virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
     /// Subclasses overriding this function should call VExpr::Close().
     //
     /// If scope if FRAGMENT_LOCAL, both fragment- and thread-local state should be torn
     /// down. Otherwise, if scope is THREAD_LOCAL, only thread-local state should be torn
     /// down.
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope);
 
     DataTypePtr& data_type() { return _data_type; }
 
@@ -140,15 +136,13 @@ public:
     static Status clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
                                       VExprContextSPtrs& new_ctxs);
 
-    static void close(const VExprContextSPtrs& ctxs, RuntimeState* state);
-
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _type.type; }
 
     static Status create_expr(const TExprNode& expr_node, VExprSPtr& expr);
 
-    static Status create_tree_from_thrift(const std::vector<doris::TExprNode>& nodes, int* node_idx,
+    static Status create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                           VExprSPtr& root_expr, VExprContextSPtr& ctx);
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
@@ -177,7 +171,7 @@ public:
     int fn_context_index() const { return _fn_context_index; }
 
     static const VExprSPtr expr_without_cast(const VExprSPtr& expr) {
-        if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
+        if (expr->node_type() == TExprNodeType::CAST_EXPR) {
             return expr_without_cast(expr->_children[0]);
         }
         return expr;
@@ -208,6 +202,17 @@ protected:
         std::stringstream out;
         out << expr_name << "(" << VExpr::debug_string() << ")";
         return out.str();
+    }
+
+    std::string get_child_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name();
+        }
+        return res;
     }
 
     Status check_constant(const Block& block, ColumnNumbers arguments) const;

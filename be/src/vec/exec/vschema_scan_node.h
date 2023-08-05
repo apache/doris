@@ -42,7 +42,7 @@ class Block;
 class VSchemaScanNode : public ScanNode {
 public:
     VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~VSchemaScanNode();
+    ~VSchemaScanNode() override;
     Status prepare(RuntimeState* state) override;
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

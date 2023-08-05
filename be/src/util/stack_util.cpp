@@ -17,6 +17,16 @@
 
 #include "util/stack_util.h"
 
+#include <execinfo.h>
+#include <signal.h>
+#include <stdio.h>
+
+#include <boost/stacktrace.hpp>
+
+#include "common/stack_trace.h"
+#include "util/mem_info.h"
+#include "util/pretty_printer.h"
+
 namespace google {
 namespace glog_internal_namespace_ {
 void DumpStackTraceToString(std::string* stacktrace);
@@ -25,15 +35,54 @@ void DumpStackTraceToString(std::string* stacktrace);
 
 namespace doris {
 
-// `boost::stacktrace::stacktrace()` has memory leak, so use the glog internal func to print stacktrace.
-// The reason for the boost::stacktrace memory leak is that a state is saved in the thread local of each
-// thread but is not actively released. Refer to:
-// https://github.com/boostorg/stacktrace/issues/118
-// https://github.com/boostorg/stacktrace/issues/111
 std::string get_stack_trace() {
+#ifdef ENABLE_STACKTRACE
+    auto tool = config::get_stack_trace_tool;
+    if (tool == "glog") {
+        return get_stack_trace_by_glog();
+    } else if (tool == "boost") {
+        return get_stack_trace_by_boost();
+    } else if (tool == "glibc") {
+        return get_stack_trace_by_glibc();
+    } else if (tool == "libunwind") {
+#if USE_UNWIND
+        return get_stack_trace_by_libunwind();
+#else
+        return get_stack_trace_by_glog();
+#endif
+    } else {
+        return "no stack";
+    }
+#endif
+    return "no enable stack";
+}
+
+std::string get_stack_trace_by_glog() {
     std::string s;
     google::glog_internal_namespace_::DumpStackTraceToString(&s);
     return s;
+}
+
+std::string get_stack_trace_by_boost() {
+    return boost::stacktrace::to_string(boost::stacktrace::stacktrace());
+}
+
+std::string get_stack_trace_by_glibc() {
+    void* trace[16];
+    char** messages = (char**)nullptr;
+    int i, trace_size = 0;
+
+    trace_size = backtrace(trace, 16);
+    messages = backtrace_symbols(trace, trace_size);
+    std::stringstream out;
+    for (i = 1; i < trace_size; ++i) {
+        out << messages[i] << "\n";
+    }
+    return out.str();
+}
+
+std::string get_stack_trace_by_libunwind() {
+    return StackTrace().toString();
 }
 
 } // namespace doris

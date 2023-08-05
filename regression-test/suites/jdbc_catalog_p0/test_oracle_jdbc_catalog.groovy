@@ -65,6 +65,9 @@ suite("test_oracle_jdbc_catalog", "p0") {
         order_qt_test8  """ select * from TEST_NUMBER2 order by ID; """
         order_qt_test9  """ select * from TEST_NUMBER3 order by ID; """
         order_qt_test10  """ select * from TEST_NUMBER4 order by ID; """
+        order_qt_filter1  """ select * from TEST_CHAR where ID = 1 order by ID; """
+        order_qt_filter2  """ select * from TEST_CHAR where 1 = 1 order by ID; """
+        order_qt_filter3  """ select * from TEST_CHAR where ID = 1 and 1 = 1  order by ID; """
 
         // The result of TEST_RAW will change
         // So instead of qt, we're using sql here.
@@ -133,6 +136,19 @@ suite("test_oracle_jdbc_catalog", "p0") {
         qt_lower_case_table_names3  """ select * from test_int order by ID; """
 
         sql """drop catalog if exists ${catalog_name} """
+
+        // test for clob type
+        sql """create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
+                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_table_names" = "true"
+        );"""
+        sql """ switch ${catalog_name} """
+        qt_query_clob """ select * from doris_test.test_clob order by id; """
 
     }
 }

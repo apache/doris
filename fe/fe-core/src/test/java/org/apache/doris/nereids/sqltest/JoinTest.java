@@ -19,7 +19,8 @@ package org.apache.doris.nereids.sqltest;
 
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -45,21 +46,21 @@ public class JoinTest extends SqlTestBase {
         PhysicalPlan plan = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .deriveStats()
                 .optimize()
                 .getBestPlanTree();
         // generate colocate join plan without physicalDistribute
         System.out.println(plan.treeString());
-        Assertions.assertFalse(plan.anyMatch(PhysicalDistribute.class::isInstance));
+        Assertions.assertFalse(plan.anyMatch(p -> p instanceof PhysicalDistribute
+                && ((PhysicalDistribute) p).getDistributionSpec() instanceof DistributionSpecHash));
         sql = "select * from T1 join T0 on T1.score = T0.score and T1.id = T0.id;";
         plan = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .deriveStats()
                 .optimize()
                 .getBestPlanTree();
         // generate colocate join plan without physicalDistribute
-        Assertions.assertFalse(plan.anyMatch(PhysicalDistribute.class::isInstance));
+        Assertions.assertFalse(plan.anyMatch(p -> p instanceof PhysicalDistribute
+                && ((PhysicalDistribute) p).getDistributionSpec() instanceof DistributionSpecHash));
     }
 
     @Test
@@ -91,9 +92,11 @@ public class JoinTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .optimize()
-                .getBestPlanTree();
+                .getBestPlanTree(PhysicalProperties.ANY);
         Assertions.assertEquals(
-                ((DistributionSpecHash) plan.getPhysicalProperties().getDistributionSpec()).getShuffleType(),
-                ShuffleType.NATURAL);
+                ShuffleType.NATURAL,
+                ((DistributionSpecHash) ((PhysicalPlan) (plan.child(0).child(0)))
+                        .getPhysicalProperties().getDistributionSpec()).getShuffleType()
+        );
     }
 }

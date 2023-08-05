@@ -73,6 +73,12 @@ a-b c
 -- !sql --
 a <b> b
 
+-- !sql_utf1 --
+true
+
+-- !sql_utf2 --
+true
+
 -- !sql_regexp_null --
 \N
 \N

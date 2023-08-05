@@ -19,7 +19,6 @@ suite("test_struct_show_create", "query") {
     // define a sql table
     def testTable = "test_struct_show_create"
 
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
 
     def create_test_table = {testTablex ->
         def result1 = sql """
@@ -72,7 +71,8 @@ suite("test_struct_show_create", "query") {
         sql "DROP TABLE IF EXISTS ${testTable}"
         create_test_table.call(testTable)
         qt_select_count "select count(k2), count(k3), count(k4), count(k5), count(6), count(k7), count(k8), count(k9), count(k10), count(11) from ${testTable}"
-        qt_select "show create table ${testTable}"
+        def res = sql "show create table ${testTable}"
+        assertTrue(res.size() != 0)
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

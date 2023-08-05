@@ -242,19 +242,9 @@ under the License.
 
 4. 在使用Clang编译Doris时会默认使用PCH文件来加速编译过程，ccache的默认配置可能会导致PCH文件无法被缓存，或者缓存无法被命中，进而导致PCH被重复编译，拖慢编译速度，需要进行如下配置：  
 
-   如需让ccache缓存PCH文件：
+   使用Clang编译，但不想使用PCH文件来加速编译过程，则需要加上参数`ENABLE_PCH=OFF`
    ```shell
-   export CCACHE_PCH_EXTSUM=true
-   ccache --set-config=sloppiness=pch_defines,time_macros --set-config=pch_external_checksum=true
-   ```
-   不再让ccache缓存PCH文件：
-   ```shell
-   export CCACHE_NOPCH_EXTSUM=true
-   ccache --set-config=sloppiness=default --set-config=pch_external_checksum=false
-   ```
-   使用Clang编译，但不想使用PCH文件来加速编译过程，则需要加上参数`ENABLE_PCH=0`
-   ```shell
-   DORIS_TOOLCHAIN=clang ENABLE_PCH=0 sh build.sh
+   DORIS_TOOLCHAIN=clang ENABLE_PCH=OFF sh build.sh
    ```
 
 ## 特别声明

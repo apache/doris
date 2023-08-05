@@ -32,7 +32,7 @@ ALTER TABLE PARTITION
 
 ### Description
 
-This statement is used to modify the partition of an existing table.
+This statement is used to modify a table with a partition.
 
 This operation is synchronous, and the return of the command indicates the completion of the execution.
 

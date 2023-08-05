@@ -21,39 +21,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
-set(EXEC_FILES
-    data_sink.cpp
-    decompressor.cpp
-    exec_node.cpp
-    text_converter.cpp
-    olap_common.cpp
-    tablet_info.cpp
-    es/es_scan_reader.cpp
-    es/es_scroll_query.cpp
-    es/es_scroll_parser.cpp
-    schema_scanner.cpp
-    schema_scanner/schema_tables_scanner.cpp
-    schema_scanner/schema_dummy_scanner.cpp
-    schema_scanner/schema_schemata_scanner.cpp
-    schema_scanner/schema_variables_scanner.cpp
-    schema_scanner/schema_columns_scanner.cpp
-    schema_scanner/schema_charsets_scanner.cpp
-    schema_scanner/schema_collations_scanner.cpp
-    schema_scanner/schema_helper.cpp
-    schema_scanner/schema_views_scanner.cpp
-    schema_scanner/schema_statistics_scanner.cpp
-    schema_scanner/schema_table_privileges_scanner.cpp
-    schema_scanner/schema_schema_privileges_scanner.cpp
-    schema_scanner/schema_user_privileges_scanner.cpp
-    schema_scanner/schema_files_scanner.cpp
-    schema_scanner/schema_partitions_scanner.cpp
-    schema_scanner/schema_rowsets_scanner.cpp
-    scan_node.cpp
-    odbc_connector.cpp
-    table_connector.cpp
-    schema_scanner.cpp
-    rowid_fetcher.cpp
-)
+file(GLOB_RECURSE EXEC_FILES CONFIGURE_DEPENDS *.cpp)
 
 if (WITH_LZO)
     set(EXEC_FILES ${EXEC_FILES}

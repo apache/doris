@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -80,10 +79,6 @@ public class BitmapFilterPredicate extends Predicate {
         if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isEnableProjection()) {
             throw new AnalysisException(
                     "Please enable the session variable 'enable_projection' through `set enable_projection = true;`");
-        }
-
-        if (!VectorizedUtil.isVectorized()) {
-            throw new AnalysisException("In bitmap syntax is currently only supported in the vectorization engine.");
         }
     }
 

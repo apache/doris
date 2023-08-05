@@ -33,6 +33,11 @@ public class JdbcClickHouseClient extends JdbcClient {
     }
 
     @Override
+    protected String[] getTableTypes() {
+        return new String[] {"TABLE", "VIEW", "SYSTEM TABLE"};
+    }
+
+    @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
 
         String ckType = fieldSchema.getDataTypeName();
@@ -60,12 +65,25 @@ public class JdbcClickHouseClient extends JdbcClient {
         }
 
         if (ckType.startsWith("DateTime")) {
-            // DateTime with second precision, DateTime64 with [0~9] precision
+            // DateTime with second precision
             if (ckType.equals("DateTime")) {
                 return ScalarType.createDatetimeV2Type(0);
             } else {
-                // will lose precision
-                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+                // DateTime64 with [0~9] precision
+                int indexStart = ckType.indexOf('(');
+                int indexEnd = ckType.indexOf(')');
+                if (indexStart != -1 && indexEnd != -1) {
+                    String scaleStr = ckType.substring(indexStart + 1, indexEnd);
+                    int scale = Integer.parseInt(scaleStr);
+                    if (scale > 6) {
+                        scale = 6;
+                    }
+                    // return with the actual scale
+                    return ScalarType.createDatetimeV2Type(scale);
+                } else {
+                    // default precision if not specified
+                    return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+                }
             }
         }
 

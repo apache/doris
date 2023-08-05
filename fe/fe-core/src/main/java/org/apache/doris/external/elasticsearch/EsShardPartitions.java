@@ -82,7 +82,8 @@ public class EsShardPartitions {
                 }
             }
             if (singleShardRouting.isEmpty()) {
-                LOG.warn("could not find a healthy allocation for [{}][{}]", indexName, i);
+                LOG.error("could not find a healthy allocation for [{}][{}]", indexName, i);
+                continue;
             }
             partitions.addShardRouting(i, singleShardRouting);
         }

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -30,7 +29,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTable> implements GsonPostProcessable {
+public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTable> {
 
     private static final Logger LOG = LogManager.getLogger(IcebergExternalDatabase.class);
 
@@ -50,9 +49,8 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     }
 
     @Override
-    public void dropTable(String tableName) {
+    public void dropTableForReplay(String tableName) {
         LOG.debug("drop table [{}]", tableName);
-        makeSureInitialized();
         Long tableId = tableNameToId.remove(tableName);
         if (tableId == null) {
             LOG.warn("drop table [{}] failed", tableName);
@@ -61,9 +59,8 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     }
 
     @Override
-    public void createTable(String tableName, long tableId) {
+    public void createTableForReplay(String tableName, long tableId) {
         LOG.debug("create table [{}]", tableName);
-        makeSureInitialized();
         tableNameToId.put(tableName, tableId);
         IcebergExternalTable table = new IcebergExternalTable(tableId, tableName, name,
                 (IcebergExternalCatalog) extCatalog);

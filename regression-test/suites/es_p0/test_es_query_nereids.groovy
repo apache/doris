@@ -154,10 +154,5 @@ suite("test_es_query_nereids", "p0") {
         order_qt_sql82 """select * from test2_20220808 where test4='2022-08-08'"""
         order_qt_sql83 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
         order_qt_sql84 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
-
-
-        sql """drop catalog if exists es6_nereids;"""
-        sql """drop catalog if exists es7_nereids;"""
-        sql """drop catalog if exists es8_nereids;"""
     }
 }

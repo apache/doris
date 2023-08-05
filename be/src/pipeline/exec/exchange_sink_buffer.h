@@ -19,6 +19,7 @@
 
 #include <brpc/controller.h>
 #include <gen_cpp/data.pb.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
@@ -32,6 +33,7 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 
 namespace doris {
@@ -113,8 +115,8 @@ public:
             const std::function<void(const InstanceLoId&, const std::string&)>& fail_fn) {
         _fail_fn = fail_fn;
     }
-    void addSuccessHandler(
-            const std::function<void(const InstanceLoId&, const bool&, const T&)>& suc_fn) {
+    void addSuccessHandler(const std::function<void(const InstanceLoId&, const bool&, const T&,
+                                                    const int64_t&)>& suc_fn) {
         _suc_fn = suc_fn;
     }
 
@@ -131,7 +133,7 @@ public:
                         cntl.latency_us());
                 _fail_fn(_id, err);
             } else {
-                _suc_fn(_id, _eos, result);
+                _suc_fn(_id, _eos, result, start_rpc_time);
             }
         } catch (const std::exception& exp) {
             LOG(FATAL) << "brpc callback error: " << exp.what();
@@ -142,13 +144,19 @@ public:
 
     brpc::Controller cntl;
     T result;
+    int64_t start_rpc_time;
 
 private:
     std::function<void(const InstanceLoId&, const std::string&)> _fail_fn;
-    std::function<void(const InstanceLoId&, const bool&, const T&)> _suc_fn;
+    std::function<void(const InstanceLoId&, const bool&, const T&, const int64_t&)> _suc_fn;
     InstanceLoId _id;
     bool _eos;
     vectorized::BroadcastPBlockHolder* _data;
+};
+
+struct ExchangeRpcContext {
+    SelfDeleteClosure<PTransmitDataResult>* _closure = nullptr;
+    bool is_cancelled = false;
 };
 
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
@@ -160,8 +168,10 @@ public:
     Status add_block(TransmitInfo&& request);
     Status add_block(BroadcastTransmitInfo&& request);
     bool can_write() const;
-    bool is_pending_finish() const;
+    bool is_pending_finish();
     void close();
+    void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void update_profile(RuntimeProfile* profile);
 
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
@@ -175,11 +185,13 @@ private:
             _instance_to_broadcast_package_queue;
     using PackageSeq = int64_t;
     // must init zero
+    // TODO: make all flat_hash_map to a STRUT
     phmap::flat_hash_map<InstanceLoId, PackageSeq> _instance_to_seq;
-    phmap::flat_hash_map<InstanceLoId, PTransmitDataParams*> _instance_to_request;
-    phmap::flat_hash_map<InstanceLoId, PUniqueId> _instance_to_finst_id;
+    phmap::flat_hash_map<InstanceLoId, std::unique_ptr<PTransmitDataParams>> _instance_to_request;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
+    phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
+    phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
 
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
@@ -187,16 +199,18 @@ private:
     // Sender instance id, unique within a fragment. StreamSender save the variable
     int _sender_id;
     int _be_number;
-
+    std::atomic<int64_t> _rpc_count = 0;
     PipelineFragmentContext* _context;
 
     Status _send_rpc(InstanceLoId);
     // must hold the _instance_to_package_queue_mutex[id] mutex to opera
-    void _construct_request(InstanceLoId id);
+    void _construct_request(InstanceLoId id, PUniqueId);
     inline void _ended(InstanceLoId id);
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
+    void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
+    int64_t get_sum_rpc_time();
 };
 
 } // namespace pipeline

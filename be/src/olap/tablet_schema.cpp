@@ -427,6 +427,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
         _aggregation_name = column.aggregation();
     }
+    if (column.has_result_is_nullable()) {
+        _result_is_nullable = column.result_is_nullable();
+    }
     if (column.has_visible()) {
         _visible = column.visible();
     }
@@ -464,6 +467,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     if (!_aggregation_name.empty()) {
         column->set_aggregation(_aggregation_name);
     }
+    column->set_result_is_nullable(_result_is_nullable);
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
@@ -494,26 +498,15 @@ bool TabletColumn::is_row_store_column() const {
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
         vectorized::DataTypePtr type) const {
-    auto state_type = dynamic_cast<const vectorized::DataTypeAggState*>(type.get());
-    if (!state_type) {
-        return nullptr;
-    }
-    vectorized::DataTypes argument_types;
-    for (auto col : _sub_columns) {
-        auto sub_type = vectorized::DataTypeFactory::instance().create_data_type(col);
-        state_type->add_sub_type(sub_type);
-    }
-    auto agg_function = vectorized::AggregateFunctionSimpleFactory::instance().get(
-            _aggregation_name, state_type->get_sub_types(), false);
-
-    return vectorized::AggregateStateUnion::create(agg_function, {type}, type);
+    auto state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
+    return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix) const {
     std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
 
-    std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + suffix;
+    std::string agg_name = origin_name + suffix;
     std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
@@ -521,6 +514,11 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
                                                                                type->is_nullable());
     if (function) {
         return function;
+    }
+    if (type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+        LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
+                     << ", column_type=" << type->get_name();
+        return nullptr;
     }
     return get_aggregate_function_union(type);
 }
@@ -644,6 +642,17 @@ void TabletSchema::append_index(TabletIndex index) {
     _indexes.push_back(std::move(index));
 }
 
+void TabletSchema::remove_index(int64_t index_id) {
+    std::vector<TabletIndex> indexes;
+    for (auto index : _indexes) {
+        if (index.index_id() == index_id) {
+            continue;
+        }
+        indexes.emplace_back(std::move(index));
+    }
+    _indexes = std::move(indexes);
+}
+
 void TabletSchema::clear_columns() {
     _field_name_to_index.clear();
     _field_id_to_index.clear();
@@ -718,8 +727,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
             if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
                 _missing_cids.emplace_back(i);
                 auto tablet_column = column(i);
-                if (!tablet_column.has_default_value()) {
-                    _allow_key_not_exist_in_partial_update = false;
+                if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
+                    _can_insert_new_rows_in_partial_update = false;
                 }
             } else {
                 _update_cids.emplace_back(i);
@@ -1072,8 +1081,8 @@ void TabletSchema::set_partial_update_info(bool is_partial_update,
         if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
             _missing_cids.emplace_back(i);
             auto tablet_column = column(i);
-            if (!tablet_column.has_default_value()) {
-                _allow_key_not_exist_in_partial_update = false;
+            if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
+                _can_insert_new_rows_in_partial_update = false;
             }
         } else {
             _update_cids.emplace_back(i);

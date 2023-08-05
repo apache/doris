@@ -212,7 +212,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                 .getJob(getDbName(), getLabel());
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
-                .createDataSource(job.getDataSourceType().name(), dataSourceMapProperties);
+                .createDataSource(job.getDataSourceType().name(), dataSourceMapProperties, job.isMultiTable());
         dataSourceProperties.setAlter(true);
         dataSourceProperties.setTimezone(job.getTimezone());
         dataSourceProperties.analyze();

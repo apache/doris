@@ -32,10 +32,12 @@ import org.apache.doris.thrift.TTableType;
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.Table;
 import com.aliyun.odps.type.ArrayTypeInfo;
+import com.aliyun.odps.type.CharTypeInfo;
 import com.aliyun.odps.type.DecimalTypeInfo;
 import com.aliyun.odps.type.MapTypeInfo;
 import com.aliyun.odps.type.StructTypeInfo;
 import com.aliyun.odps.type.TypeInfo;
+import com.aliyun.odps.type.VarcharTypeInfo;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -95,13 +97,15 @@ public class MaxComputeExternalTable extends ExternalTable {
                 return Type.BIGINT;
             }
             case CHAR: {
-                return Type.CHAR;
-            }
-            case VARCHAR: {
-                return Type.VARCHAR;
+                CharTypeInfo charType = (CharTypeInfo) typeInfo;
+                return ScalarType.createChar(charType.getLength());
             }
             case STRING: {
-                return Type.STRING;
+                return ScalarType.createStringType();
+            }
+            case VARCHAR: {
+                VarcharTypeInfo varcharType = (VarcharTypeInfo) typeInfo;
+                return ScalarType.createVarchar(varcharType.getLength());
             }
             case JSON: {
                 return Type.UNSUPPORTED;
@@ -158,7 +162,11 @@ public class MaxComputeExternalTable extends ExternalTable {
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
         TMCTable tMcTable = new TMCTable();
-        tMcTable.setTunnelUrl(((MaxComputeExternalCatalog) catalog).getTunnelUrl());
+        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) catalog;
+        tMcTable.setRegion(mcCatalog.getRegion());
+        tMcTable.setAccessKey(mcCatalog.getAccessKey());
+        tMcTable.setSecretKey(mcCatalog.getSecretKey());
+        tMcTable.setPublicAccess(String.valueOf(mcCatalog.enablePublicAccess()));
         // use mc project as dbName
         tMcTable.setProject(dbName);
         tMcTable.setTable(name);
@@ -168,9 +176,14 @@ public class MaxComputeExternalTable extends ExternalTable {
         return tTableDescriptor;
     }
 
+    public Table getOdpsTable() {
+        return odpsTable;
+    }
+
     @Override
     public String getMysqlType() {
         return "BASE TABLE";
     }
+
 }
 

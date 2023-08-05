@@ -195,14 +195,12 @@ TEST_F(TableFunctionTest, vexplode_split) {
         // Case 3: explode_split("a,b,c", "a,")) --> ["", "b,c"]
         // Case 4: explode_split("", ",")) --> [""]
         InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
-        InputDataSet input_sets = {{Null(), Null()},
-                                   {std::string("a,b,c"), std::string(",")},
+        InputDataSet input_sets = {{std::string("a,b,c"), std::string(",")},
                                    {std::string("a,b,c"), std::string("a,")},
                                    {std::string(""), std::string(",")}};
 
         InputTypeSet output_types = {TypeIndex::String};
-        InputDataSet output_sets = {{},
-                                    {std::string("a"), std::string("b"), std::string("c")},
+        InputDataSet output_sets = {{std::string("a"), std::string("b"), std::string("c")},
                                     {std::string(""), std::string("b,c")},
                                     {std::string("")}};
 

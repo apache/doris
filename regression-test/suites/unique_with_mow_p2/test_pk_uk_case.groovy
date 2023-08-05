@@ -86,7 +86,8 @@ suite("test_pk_uk_case") {
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
         PROPERTIES (
-        "replication_num" = "1"
+        "replication_num" = "1",
+        "enable_unique_key_merge_on_write" = "false"
         )       
     """
 
@@ -205,8 +206,6 @@ suite("test_pk_uk_case") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNamePk}
-                            WHERE
-                            l_shipdate <= DATE '2023-01-01' - INTERVAL '90' DAY
                             GROUP BY
                             l_returnflag,
                             l_linestatus
@@ -227,8 +226,6 @@ suite("test_pk_uk_case") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNameUk}
-                            WHERE
-                            l_shipdate <= DATE '2023-01-01' - INTERVAL '90' DAY
                             GROUP BY
                             l_returnflag,
                             l_linestatus

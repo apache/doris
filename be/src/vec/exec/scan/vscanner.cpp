@@ -109,6 +109,10 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status VScanner::_filter_output_block(Block* block) {
+    if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
+        // scanner filter_block is already done (only by _topn_next currently), just skip it
+        return Status::OK();
+    }
     auto old_rows = block->rows();
     Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();
@@ -144,17 +148,6 @@ Status VScanner::try_append_late_arrival_runtime_filter() {
 Status VScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
-    }
-    for (auto& ctx : _stale_expr_ctxs) {
-        ctx->close(state);
-    }
-
-    for (auto& conjunct : _conjuncts) {
-        conjunct->close(state);
-    }
-
-    for (auto& ctx : _common_expr_ctxs_push_down) {
-        ctx->close(state);
     }
 
     COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);

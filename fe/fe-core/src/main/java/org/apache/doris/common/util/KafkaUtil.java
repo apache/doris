@@ -45,13 +45,14 @@ public class KafkaUtil {
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
             Map<String, String> convertedCustomProperties) throws UserException {
         TNetworkAddress address = null;
+        Backend be = null;
         try {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }
             Collections.shuffle(backendIds);
-            Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
             address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
@@ -77,9 +78,10 @@ public class KafkaUtil {
                 return result.getKafkaMetaResult().getPartitionIdsList();
             }
         } catch (Exception e) {
-            LOG.warn("failed to get partitions.", e);
+            LOG.warn("failed to get partitions from backend[{}].", be.getId(), e);
             throw new LoadException(
-                    "Failed to get all partitions of kafka topic: " + topic + ". error: " + e.getMessage());
+                    "Failed to get all partitions of kafka topic: " + topic + " from backend[" + be.getId()
+                        + "]. error: " + e.getMessage());
         }
     }
 

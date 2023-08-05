@@ -26,6 +26,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Sets;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -45,8 +46,6 @@ public class LdapAuthenticateTest {
 
     @Mocked
     private LdapManager ldapManager;
-    @Mocked
-    private LdapPrivsChecker ldapPrivsChecker;
     @Mocked
     private Env env;
     @Mocked
@@ -113,7 +112,7 @@ public class LdapAuthenticateTest {
                     minTimes = 0;
                     result = new Delegate() {
                         LdapUserInfo fakeGetGroups(String user) {
-                            return new LdapUserInfo(anyString, false, "", new Role(anyString));
+                            return new LdapUserInfo(anyString, false, "", Sets.newHashSet(new Role(anyString)));
                         }
                     };
                 } else {

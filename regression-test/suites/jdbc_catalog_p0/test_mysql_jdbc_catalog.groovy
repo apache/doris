@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_jdbc_catalog", "p0") {
+suite("test_mysql_jdbc_catalog", "p0,external,mysql") {
     qt_sql """select current_catalog()"""
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -48,6 +48,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String ex_tb20 = "ex_tb20";
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
+        String auto_default_t = "auto_default_t";
+        String dt = "dt";
+        String dt_null = "dt_null";
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -55,11 +58,11 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
-        
+
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
               CREATE TABLE ${inDorisTable} (
@@ -98,6 +101,15 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
+        order_qt_information_schema """ show tables from information_schema; """
+        order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
+        order_qt_dt """select * from ${dt}; """
+        order_qt_dt_null """select * from ${dt_null} order by 1; """
+        order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
+        order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
+        order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
+        order_qt_date_trunc """ SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05'; """
+        order_qt_money_format """ select k8 from test1 where money_format(k8) = '1.00'; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
@@ -128,7 +140,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true"
         );"""
-        
+
         sql """switch ${catalog_name}"""
 
         qt_specified_database_1   """ show databases; """
@@ -146,7 +158,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "only_specified_database" = "true",
             "include_database_list" = "doris_test"
         );"""
-        
+
         sql """switch ${catalog_name}"""
 
         qt_specified_database_2   """ show databases; """
@@ -208,5 +220,18 @@ suite("test_mysql_jdbc_catalog", "p0") {
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
         sql """ drop catalog if exists ${catalog_name} """
+
+        // test mysql view
+        sql """ CREATE CATALOG view_catalog PROPERTIES (
+            "type"="jdbc",
+            "jdbc.user"="root",
+            "jdbc.password"="123456",
+            "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+        """
+        qt_mysql_view """ select * from  view_catalog.doris_test.mysql_view order by col_1;"""
+        sql """ drop catalog if exists  view_catalog; """
     }
 }
+

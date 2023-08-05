@@ -43,6 +43,8 @@ namespace doris {
 
 namespace vectorized {
 
+using ZoneList = std::map<std::string, cctz::time_zone>;
+
 enum TimeUnit {
     MICROSECOND,
     SECOND,
@@ -351,6 +353,8 @@ public:
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len);
+    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
+                       ZoneList& time_zone_cache);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -655,6 +659,8 @@ public:
         _type = TIME_DATETIME;
     }
 
+    bool get_date_from_daynr(uint64_t);
+
 private:
     // Used to make sure sizeof VecDateTimeValue
     friend class UnusedClass;
@@ -679,14 +685,14 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
+    bool from_date_str_base(const char* date_str, int len, const cctz::time_zone* local_time_zone,
+                            ZoneList* time_zone_cache);
+
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
 
     static uint8_t calc_week(const VecDateTimeValue& value, uint8_t mode, uint32_t* year,
                              bool disable_lut = false);
-
-    // This is private function which modify date but modify `_type`
-    bool get_date_from_daynr(uint64_t);
 
     // Helper to set max, min, zero
     void set_zero(int type);
@@ -801,6 +807,8 @@ public:
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len, int scale = -1);
+    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
+                       ZoneList& time_zone_cache, int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -870,6 +878,10 @@ public:
         return hour() * SECOND_PER_HOUR + minute() * SECOND_PER_MINUTE + second();
     }
 
+    int64_t time_part_to_microsecond() const {
+        return time_part_to_seconds() * 1000 * 1000 + microsecond();
+    }
+
     uint16_t year() const { return date_v2_value_.year_; }
     uint8_t month() const { return date_v2_value_.month_; }
     int quarter() const { return (date_v2_value_.month_ - 1) / 3 + 1; }
@@ -937,7 +949,7 @@ public:
     bool from_unixtime(int64_t, const cctz::time_zone& ctz);
 
     bool from_unixtime(int64_t, int32_t, const std::string& timezone, const int scale);
-    bool from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, const int scale);
+    bool from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
 
     bool operator==(const DateV2Value<T>& other) const {
         // NOTE: This is not same with MySQL.
@@ -1065,9 +1077,25 @@ public:
         return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
+    //only calculate the diff of dd:mm:ss.SSSSSS
+    template <typename RHS>
+    int64_t time_part_diff_microsecond(const RHS& rhs) const {
+        return time_part_to_microsecond() - rhs.time_part_to_microsecond();
+    }
+
     template <typename RHS>
     int64_t second_diff(const RHS& rhs) const {
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
+    }
+
+    template <typename RHS>
+    double microsecond_diff(const RHS& rhs) const {
+        int64_t diff_m = (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY * 1000 * 1000 +
+                         time_part_diff_microsecond(rhs);
+        if (diff_m > (int64_t)3020399 * 1000 * 1000) {
+            diff_m = (int64_t)3020399 * 1000 * 1000;
+        }
+        return diff_m;
     }
 
     bool can_cast_to_date_without_loss_accuracy() {
@@ -1137,6 +1165,9 @@ private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
+
+    bool from_date_str_base(const char* date_str, int len, int scale,
+                            const cctz::time_zone* local_time_zone, ZoneList* time_zone_cache);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);
@@ -1450,6 +1481,9 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const DateV2Value<T>& t
 class DataTypeDateTime;
 class DataTypeDateV2;
 class DataTypeDateTimeV2;
+
+[[maybe_unused]] void init_date_day_offset_dict();
+[[maybe_unused]] DateV2Value<DateV2ValueType>* get_date_day_offset_dict();
 
 template <typename T>
 struct DateTraits {};

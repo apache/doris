@@ -88,6 +88,19 @@ public class PartitionKeyDesc {
         return desc;
     }
 
+    public static PartitionKeyDesc createMultiFixed(
+            List<PartitionValue> lowerValues,
+            List<PartitionValue> upperValues,
+            Long interval) {
+        PartitionKeyDesc desc = new PartitionKeyDesc();
+        desc.lowerValues = lowerValues;
+        desc.upperValues = upperValues;
+        desc.timeInterval = interval;
+        desc.timeType = "";
+        desc.partitionKeyValueType = PartitionKeyValueType.FIXED;
+        return desc;
+    }
+
     public Long getTimeInterval() {
         return timeInterval;
     }

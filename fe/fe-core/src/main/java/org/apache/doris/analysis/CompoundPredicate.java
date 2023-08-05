@@ -292,6 +292,9 @@ public class CompoundPredicate extends Predicate {
 
     @Override
     public Expr replaceSubPredicate(Expr subExpr) {
+        if (toSqlWithoutTbl().equals(subExpr.toSqlWithoutTbl())) {
+            return null;
+        }
         if (op.equals(Operator.AND)) {
             Expr lhs = children.get(0);
             Expr rhs = children.get(1);

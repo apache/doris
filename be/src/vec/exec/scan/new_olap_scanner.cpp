@@ -63,18 +63,26 @@ namespace doris::vectorized {
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
-                               const std::vector<RowsetReaderSharedPtr>& rs_readers,
-                               const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
-                               bool need_agg_finalize, RuntimeProfile* profile)
+                               RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
-          _need_agg_finalize(need_agg_finalize),
           _version(-1),
           _scan_range(scan_range),
           _key_ranges(key_ranges) {
-    DCHECK(rs_readers.size() == rs_reader_seg_offsets.size());
-    _tablet_reader_params.rs_readers = rs_readers;
-    _tablet_reader_params.rs_readers_segment_offsets = rs_reader_seg_offsets;
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _is_init = false;
+}
+
+NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
+                               bool aggregation, const TPaloScanRange& scan_range,
+                               const std::vector<OlapScanRange*>& key_ranges,
+                               const std::vector<RowSetSplits>& rs_splits, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
+          _aggregation(aggregation),
+          _version(-1),
+          _scan_range(scan_range),
+          _key_ranges(key_ranges) {
+    _tablet_reader_params.rs_splits = rs_splits;
     _tablet_schema = std::make_shared<TabletSchema>();
     _is_init = false;
 }
@@ -103,10 +111,13 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
+Status NewOlapScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    return VScanner::prepare(state, conjuncts);
+}
+
 Status NewOlapScanner::init() {
     _is_init = true;
     auto parent = static_cast<NewOlapScanNode*>(_parent);
-    RETURN_IF_ERROR(VScanner::prepare(_state, parent->_conjuncts));
 
     for (auto& ctx : parent->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
@@ -116,10 +127,11 @@ Status NewOlapScanner::init() {
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
-    _tablet_reader->set_batch_size(
-            _parent->limit() == -1
-                    ? _state->batch_size()
-                    : std::min(static_cast<int64_t>(_state->batch_size()), _parent->limit()));
+    // batch size is passed down to segment iterator, use _state->batch_size()
+    // instead of _parent->limit(), because if _parent->limit() is a very small
+    // value (e.g. select a from t where a .. and b ... limit 1),
+    // it will be very slow when reading data in segment iterator
+    _tablet_reader->set_batch_size(_state->batch_size());
 
     // Get olap table
     TTabletId tablet_id = _scan_range.tablet_id;
@@ -132,7 +144,8 @@ Status NewOlapScanner::init() {
         RETURN_IF_ERROR(status);
         _tablet = std::move(tablet);
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
-        if (olap_scan_node.__isset.columns_desc && !olap_scan_node.columns_desc.empty() &&
+        if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
+            !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0) {
             schema_key = SchemaCache::get_schema_key(tablet_id, olap_scan_node.columns_desc,
                                                      olap_scan_node.schema_version,
@@ -153,7 +166,9 @@ Status NewOlapScanner::init() {
                 for (const auto& column_desc : olap_scan_node.columns_desc) {
                     _tablet_schema->append_column(TabletColumn(column_desc));
                 }
-                _tablet_schema->set_schema_version(olap_scan_node.schema_version);
+                if (olap_scan_node.__isset.schema_version) {
+                    _tablet_schema->set_schema_version(olap_scan_node.schema_version);
+                }
             }
             if (olap_scan_node.__isset.indexes_desc) {
                 _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
@@ -162,7 +177,7 @@ Status NewOlapScanner::init() {
 
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
-            if (_tablet_reader_params.rs_readers.empty()) {
+            if (_tablet_reader_params.rs_splits.empty()) {
                 const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
                 if (rowset == nullptr) {
                     std::stringstream ss;
@@ -176,7 +191,7 @@ Status NewOlapScanner::init() {
                 // the rowsets maybe compacted when the last olap scanner starts
                 Version rd_version(0, _version);
                 Status acquire_reader_st =
-                        _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
+                        _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_splits);
                 if (!acquire_reader_st.ok()) {
                     LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                     std::stringstream ss;
@@ -232,28 +247,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
         const FilterPredicates& filter_predicates,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
-    bool single_version =
-            (_tablet_reader_params.rs_readers.size() == 1 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->start_version() == 0 &&
-             !_tablet_reader_params.rs_readers[0]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping()) ||
-            (_tablet_reader_params.rs_readers.size() == 2 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
-             _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
-             !_tablet_reader_params.rs_readers[1]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping());
-    auto real_parent = reinterpret_cast<NewOlapScanNode*>(_parent);
+    const bool single_version = _tablet_reader_params.has_single_version();
+
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
-        _tablet_reader_params.direct_mode =
-                _aggregation || single_version ||
-                real_parent->_olap_scan_node.__isset.push_down_agg_type_opt;
+        _tablet_reader_params.direct_mode = _aggregation || single_version ||
+                                            (_parent->get_push_down_agg_type() != TPushAggOp::NONE);
     }
 
     RETURN_IF_ERROR(_init_return_columns());
@@ -262,10 +263,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
-    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt) {
-        _tablet_reader_params.push_down_agg_type_opt =
-                real_parent->_olap_scan_node.push_down_agg_type_opt;
-    }
+    _tablet_reader_params.push_down_agg_type_opt = _parent->get_push_down_agg_type();
     _tablet_reader_params.version = Version(0, _version);
 
     // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,
@@ -370,11 +368,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
-    // If a agg node is this scan node direct parent
-    // we will not call agg object finalize method in scan node,
-    // to avoid the unnecessary SerDe and improve query performance
-    _tablet_reader_params.need_agg_finalize = _need_agg_finalize;
-
     if (!config::disable_storage_page_cache) {
         _tablet_reader_params.use_page_cache = true;
     }
@@ -402,6 +395,20 @@ Status NewOlapScanner::_init_tablet_reader_params(
         // runtime predicate push down optimization for topn
         _tablet_reader_params.use_topn_opt =
                 ((NewOlapScanNode*)_parent)->_olap_scan_node.use_topn_opt;
+    }
+
+    // If this is a Two-Phase read query, and we need to delay the release of Rowset
+    // by rowset->update_delayed_expired_timestamp().This could expand the lifespan of Rowset
+    if (_tablet_schema->field_index(BeConsts::ROWID_COL) >= 0) {
+        constexpr static int delayed_s = 60;
+        for (auto rs_reader : _tablet_reader_params.rs_splits) {
+            uint64_t delayed_expired_timestamp =
+                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
+                    delayed_s;
+            rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
+                    delayed_expired_timestamp);
+            StorageEngine::instance()->add_quering_rowset(rs_reader.rs_reader->rowset());
+        }
     }
 
     return Status::OK();
@@ -439,10 +446,10 @@ Status NewOlapScanner::_init_return_columns() {
 
 doris::TabletStorageType NewOlapScanner::get_storage_type() {
     int local_reader = 0;
-    for (const auto& reader : _tablet_reader_params.rs_readers) {
-        local_reader += reader->rowset()->is_local();
+    for (const auto& reader : _tablet_reader_params.rs_splits) {
+        local_reader += reader.rs_reader->rowset()->is_local();
     }
-    int total_reader = _tablet_reader_params.rs_readers.size();
+    int total_reader = _tablet_reader_params.rs_splits.size();
 
     if (local_reader == total_reader) {
         return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
@@ -478,7 +485,7 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // readers will be release when runtime state deconstructed but
     // deconstructor in reader references runtime state
     // so that it will core
-    _tablet_reader_params.rs_readers.clear();
+    _tablet_reader_params.rs_splits.clear();
     _tablet_reader.reset();
 
     RETURN_IF_ERROR(VScanner::close(state));
@@ -553,6 +560,7 @@ void NewOlapScanner::_update_counters_before_close() {
     }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
+    COUNTER_UPDATE(olap_parent->_dict_filtered_counter, stats.rows_dict_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_filtered);
     COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_by_bitmap);

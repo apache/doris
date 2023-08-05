@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -74,11 +75,11 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(or, stat);
         Assertions.assertTrue(
-                Precision.equals(expected.getRowCount(), 550,
+                Precision.equals(expected.getRowCount(), 750,
                          0.01));
     }
 
-    // a > 500 or b < 100
+    // a > 500 and b < 100
     // b isNaN
     @Test
     public void testAndNaN() {
@@ -103,7 +104,7 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics expected = filterEstimation.estimate(and, stat);
         Assertions.assertTrue(
-                Precision.equals(expected.getRowCount(), 50,
+                Precision.equals(expected.getRowCount(), 250,
                         0.01));
     }
 
@@ -418,7 +419,9 @@ class FilterEstimationTest {
                 .setAvgSizeByte(4)
                 .setNumNulls(0)
                 .setMinValue(1)
-                .setMaxValue(10);
+                .setMinExpr(new IntLiteral(1))
+                .setMaxValue(10)
+                .setMaxExpr(new IntLiteral(10));
         slotToColumnStat.put(a, builder.build());
         Statistics stat = new Statistics(1000, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();

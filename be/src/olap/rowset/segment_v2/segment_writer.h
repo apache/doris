@@ -35,7 +35,6 @@
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
@@ -58,7 +57,6 @@ class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
 class KeyCoder;
 struct RowsetWriterContext;
-struct FlushContext;
 
 namespace io {
 class FileWriter;
@@ -72,12 +70,10 @@ extern const uint32_t k_segment_magic_length;
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     bool enable_unique_key_merge_on_write = false;
-    bool is_direct_write = false;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
 
     RowsetWriterContext* rowset_ctx = nullptr;
-    // If it is directly write from load procedure, else
-    // it could be compaction or schema change etc..
+    DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
@@ -91,11 +87,10 @@ public:
                            std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
-    Status init(const FlushContext* flush_ctx = nullptr);
+    Status init();
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
-                const FlushContext* flush_ctx = nullptr);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
     template <typename RowType>
     Status append_row(const RowType& row);
@@ -107,8 +102,11 @@ public:
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
+    size_t try_get_inverted_index_file_size();
 
+    size_t get_inverted_index_file_size() const { return _inverted_index_file_size; }
     uint32_t num_rows_written() const { return _num_rows_written; }
+    int64_t num_rows_filtered() const { return _num_rows_filtered; }
     uint32_t row_count() const { return _row_count; }
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
@@ -132,7 +130,8 @@ public:
 
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
     Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                const std::vector<bool>& use_default_flag, bool has_default);
+                                const std::vector<bool>& use_default_or_null_flag,
+                                bool has_default_or_nullable);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -178,6 +177,7 @@ private:
     SegmentFooterPB _footer;
     size_t _num_key_columns;
     size_t _num_short_key_columns;
+    size_t _inverted_index_file_size;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
@@ -194,6 +194,8 @@ private:
     bool _has_key = true;
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
+    // number of rows filtered in strict mode partial update
+    int64_t _num_rows_filtered = 0;
     // _row_count means total row count of this segment
     // In vertical compaction row count is recorded when key columns group finish
     //  and _num_rows_written will be updated in value column group

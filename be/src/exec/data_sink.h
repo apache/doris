@@ -66,6 +66,13 @@ public:
     virtual Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) {
         return Status::NotSupported("Not support send block");
     }
+
+    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
+        return Status::OK();
+    }
+
+    virtual bool is_close_done() { return true; }
+
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
     // It must be okay to call this multiple times. Subsequent calls should

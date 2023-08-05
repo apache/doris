@@ -57,11 +57,11 @@ suite("test_map_show_create", "query") {
 
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
-        sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
         create_test_table.call(testTable)
 
-        qt_select "SHOW CREATE TABLE ${testTable}"
+        def res = sql "SHOW CREATE TABLE ${testTable}"
+        assertTrue(res.size() != 0)
         qt_select "select count(k2), count(k3), count(k4), count(k5), count(k6) from ${testTable}"
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")

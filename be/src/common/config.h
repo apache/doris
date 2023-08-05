@@ -106,8 +106,7 @@ DECLARE_Int32(brpc_num_threads);
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
-// memory mode
-// performance or compact
+// performance moderate or or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
 // process memory limit specified as number of bytes
@@ -166,8 +165,20 @@ DECLARE_mString(process_full_gc_size);
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
 
+// gc will release cache, cancel task, and task will wait for gc to release memory,
+// default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
+DECLARE_mBool(disable_memory_gc);
+
+// malloc or new large memory larger than large_memory_check_bytes and Doris Allocator is not used,
+// will print a warning containing the stacktrace, but not prevent memory alloc.
+// large memory alloc looking forward to using Allocator.
+DECLARE_mInt64(large_memory_check_bytes);
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
+
+// reach mem limit, don't serialize in batch
+DECLARE_mInt64(pre_serialize_keys_limit_bytes);
 
 // the port heartbeat service used
 DECLARE_Int32(heartbeat_service_port);
@@ -185,14 +196,18 @@ DECLARE_Int32(push_worker_count_high_priority);
 DECLARE_Int32(publish_version_worker_count);
 // the count of tablet thread to publish version
 DECLARE_Int32(tablet_publish_txn_max_thread);
+// the timeout of EnginPublishVersionTask
+DECLARE_Int32(publish_version_task_timeout_s);
+// the count of thread to calc delete bitmap
+DECLARE_Int32(calc_delete_bitmap_max_thread);
 // the count of thread to clear transaction task
 DECLARE_Int32(clear_transaction_task_worker_count);
 // the count of thread to delete
 DECLARE_Int32(delete_worker_count);
 // the count of thread to alter table
 DECLARE_Int32(alter_tablet_worker_count);
-// the count of thread to alter inverted index
-DECLARE_Int32(alter_inverted_index_worker_count);
+// the count of thread to alter index
+DECLARE_Int32(alter_index_worker_count);
 // the count of thread to clone
 DECLARE_Int32(clone_worker_count);
 // the count of thread to clone
@@ -260,6 +275,7 @@ DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // and the min thread num of remote scanner thread pool
 DECLARE_Int32(doris_scanner_thread_pool_thread_num);
 // max number of remote scanner thread pool size
+// if equal to -1, value is std::max(512, CpuInfo::num_cores() * 10)
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
 // number of olap scanner thread pool queue size
 DECLARE_Int32(doris_scanner_thread_pool_queue_size);
@@ -341,10 +357,20 @@ DECLARE_Int32(index_page_cache_percentage);
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
+// whether to disable pk page cache feature in storage
+DECLARE_Bool(disable_pk_storage_page_cache);
 
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit
 DECLARE_String(pk_storage_page_cache_limit);
+// data page size for primary key index
+DECLARE_Int32(primary_key_data_page_size);
+
+// inc_rowset snapshot rs sweep time interval
+DECLARE_mInt32(data_page_cache_stale_sweep_time_sec);
+DECLARE_mInt32(index_page_cache_stale_sweep_time_sec);
+// great impact on the performance of MOW, so it can be longer.
+DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
 
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
@@ -400,9 +426,6 @@ DECLARE_mInt64(compaction_min_size_mbytes);
 DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DECLARE_mInt32(seg_compaction_max_threads);
-
 // This config can be set to limit thread number in  multiget thread pool.
 DECLARE_mInt32(multi_get_max_threads);
 
@@ -457,7 +480,7 @@ DECLARE_String(ssl_certificate_path);
 // Path of private key
 DECLARE_String(ssl_private_key_path);
 // Whether to check authorization
-DECLARE_Bool(enable_http_auth);
+DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
 // Period to update rate counters and sampling counters in ms.
@@ -475,6 +498,8 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
+// Default, if less than or equal 32 core, the following are 128, 128, 10240, 10240 in turn.
+//          if greater than 32 core, the following are core num * 4, core num * 4, core num * 320, core num * 320 in turn
 DECLARE_Int32(brpc_heavy_work_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
@@ -494,11 +519,9 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 // the timeout of a rpc to open the tablet writer in remote BE.
 // short operation time, can set a short timeout
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
-// The configuration is used to enable lazy open feature, and the default value is false.
-// When there is mixed deployment in the upgraded version, it needs to be set to false.
-DECLARE_mBool(enable_lazy_open_partition);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
+DECLARE_mBool(exchange_sink_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -533,25 +556,6 @@ DECLARE_Int32(min_buffer_size); // 1024, The minimum read buffer size (in bytes)
 // For each io buffer size, the maximum number of buffers the IoMgr will hold onto
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DECLARE_Int32(max_free_io_buffers);
-
-// Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, DiskIO free buffer.
-DECLARE_Bool(disable_mem_pools);
-
-// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
-// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
-// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
-// increase this variable can improve performance,
-// but will acquire more free memory which can not be used by other modules.
-DECLARE_mString(chunk_reserved_bytes_limit);
-// 1024, The minimum chunk allocator size (in bytes)
-DECLARE_Int32(min_chunk_reserved_bytes);
-// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
-// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
-// of gperftools tcmalloc central lock.
-// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
-// gperftools tcmalloc.
-DECLARE_mBool(disable_chunk_allocator_in_vec);
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -591,8 +595,8 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
-// Sleep time in milliseconds between load channel memory refresh iterations
-DECLARE_mInt64(load_channel_memory_refresh_sleep_time_ms);
+// Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
+DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
 // Alignment
 DECLARE_Int32(memory_max_alignment);
@@ -689,6 +693,8 @@ DECLARE_String(default_rowset_type);
 // Maximum size of a single message body in all protocols
 DECLARE_Int64(brpc_max_body_size);
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
+// Default, if the physical memory is less than or equal to 64G, the value is 1G
+//          if the physical memory is greater than 64G, the value is physical memory * mem_limit(0.8) / 1024 * 20
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
@@ -768,10 +774,6 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
-// else we will call sync method
-DECLARE_mBool(runtime_filter_use_async_rpc);
-
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -820,6 +822,10 @@ DECLARE_String(kafka_broker_version_fallback);
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
 DECLARE_Int32(routine_load_consumer_pool_size);
+
+// Used in single-stream-multi-table load. When receive a batch of messages from kafka,
+// if the size of batch is more than this threshold, we will request plans for all related tables.
+DECLARE_Int32(multi_table_batch_plan_threshold);
 
 // When the timeout of a load task is less than this threshold,
 // Doris treats it as a high priority task.
@@ -945,11 +951,23 @@ DECLARE_Bool(hide_webserver_config_page);
 
 DECLARE_Bool(enable_segcompaction);
 
-// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
-DECLARE_Int32(segcompaction_threshold_segment_num);
+// Max number of segments allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_batch_size);
 
-// The segment whose row number above the threshold will be compacted during segcompaction
-DECLARE_Int32(segcompaction_small_threshold);
+// Max row count allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int32(segcompaction_candidate_max_rows);
+
+// Max file size allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int64(segcompaction_candidate_max_bytes);
+
+// Max total row count allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_task_max_rows);
+
+// Max total file size allowed in a single segcompaction task.
+DECLARE_Int64(segcompaction_task_max_bytes);
+
+// Global segcompaction thread pool size.
+DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
@@ -958,7 +976,7 @@ DECLARE_Bool(enable_java_support);
 DECLARE_Bool(enable_fuzzy_mode);
 
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_mInt16(pipeline_short_query_timeout_s);
+DECLARE_Bool(enable_workload_group_for_scan);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -975,10 +993,10 @@ DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 
 // inverted index searcher cache
-// cache entry stay time after lookup, default 1h
+// cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
 // cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
-DECLARE_mInt32(index_cache_entry_no_visit_gc_time_s);
+DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -1010,6 +1028,10 @@ DECLARE_Int32(max_depth_of_expr_tree);
 // Report a tablet as bad when io errors occurs more than this value.
 DECLARE_mInt64(max_tablet_io_errors);
 
+// Report a tablet as bad when its path not found
+DECLARE_Int32(tablet_path_check_interval_seconds);
+DECLARE_mInt32(tablet_path_check_batch_size);
+
 // Page size of row column, default 4KB
 DECLARE_mInt64(row_column_page_size);
 // it must be larger than or equal to 5MB
@@ -1018,6 +1040,8 @@ DECLARE_mInt32(s3_write_buffer_size);
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DECLARE_mInt32(s3_write_buffer_whole_size);
+// the max number of cached file handle for block segemnt
+DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 //enable shrink memory
 DECLARE_Bool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
@@ -1029,6 +1053,41 @@ DECLARE_Bool(enable_feature_binlog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
+
+// max number of hdfs file handle in cache
+DECLARE_Int64(max_hdfs_file_handle_cache_num);
+// max number of meta info of external files, such as parquet footer
+DECLARE_Int64(max_external_file_meta_cache_num);
+
+// max_write_buffer_number for rocksdb
+DECLARE_Int32(rocksdb_max_write_buffer_number);
+
+// Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
+DECLARE_mBool(allow_invalid_decimalv2_literal);
+// the max expiration time of kerberos ticket.
+// If a hdfs filesytem with kerberos authentication live longer
+// than this time, it will be expired.
+DECLARE_mInt64(kerberos_expiration_time_seconds);
+
+// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
+DECLARE_mString(get_stack_trace_tool);
+
+// the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
+DECLARE_mInt64(auto_inc_prefetch_size_ratio);
+
+// the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
+DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
+
+// number of threads that fetch auto-inc ranges from FE
+DECLARE_mInt64(auto_inc_fetch_thread_num);
+// Max connection cache num for point lookup queries
+DECLARE_mInt64(lookup_connection_cache_bytes_limit);
+
+// level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
+DECLARE_mInt64(LZ4_HC_compression_level);
+
+// enable window_funnel_function with different modes
+DECLARE_mBool(enable_window_funnel_function_v2);
 
 #ifdef BE_TEST
 // test s3

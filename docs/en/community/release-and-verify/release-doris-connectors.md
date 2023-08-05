@@ -42,116 +42,80 @@ First, see the [release preparation](./release-prepare.md) documentation to prep
 
 ## Releasing to Maven
 
-Let's take the example of releasing Flink Connector v1.0.0.
+Let's take the release of Spark Connector 1.2.0 as an example.
 
-### 1. Prepare the branch
+### 1. Prepare branch
 
-Create a branch in the codebase: branch-1.0, and checkout to that branch.
+Create a branch in the code base: release-1.2.0, and checkout to this branch.
 
-### 2. release to Maven staging
+### 2. Release to Maven staging
 
-Since Flink Connector releases different releases for different Flink versions (e.g. 1.11, 1.12, 1.13), we need to handle each version separately.
+Because Spark Connector releases different releases for different Spark versions (such as 2.3, 3.1, 3.2), we need to process each version separately at compile time.
 
-Let's take Flink version 1.14.3 and scala version 2.12 as an example.
-
-First, replace flink.version and scala.version in pom.xml with
+Let's take Spark version 2.3 and scala version 2.11 as examples:
+```
+mvn clean install \
+-Dspark.version=2.3.0 \
+-Dscala.version=2.11 \
+-Dspark.major.version=2.3 \
+-Drevision=1.2.0
+```
+>Note: For related parameters, please refer to the compilation command in the build.sh script, and revision is the version number to be released this time.
 
 ```
-cd flink-doris-connector/
-sed -i 's/\${env.flink.version}/1.14.3/g' pom.xml
-sed -i 's/\${env.flink.minor.version}/1.14/g' pom.xml
-sed -i 's/\${env.scala.version}/2.12/g' pom.xml
-
-Mac:
-
-sed -i '' 's/\${env.flink.version}/1.14.3/g' pom.xml
-sed -i '' 's/\${env.flink.minor.version}/1.14/g' pom.xml
-sed -i '' 's/\${env.scala.version}/2.12/g' pom.xml
+mvn deploy \
+-Papache-release \
+-Dspark.version=2.3.0 \
+-Dscala.version=2.11 \
+-Dspark.major.version=2.3 \
+-Drevision=1.2.0
 ```
 
-After replacing, commit the local changes to.
-
-```
-git add . -u
-git commit -m "prepare for 1.14_2.12-1.0.0"
-```
-
-Execute the following command to start generating the release tag.
-
-```bash
-cd flink-doris-connector/
-mvn release:clean
-mvn release:prepare -DpushChanges=false
-```
-
-where `-DpushChanges=false` means that the newly generated branches and tags are not pushed to the codebase during execution.
-
-After executing the `release:prepare` command, the following three pieces of information will be requested.
-
-1. the version of the Doris Flink Connector: which we can do by default, either by entering a carriage return or by typing in the version you want. The version format is `{connector.version}`, e.g. `1.0.0`.
-2. The release tag of Doris Flink Connector: the release process will generate a tag locally, we can use the default tag name, such as `1.14_2.12-1.0.0`.
-3. The version number of the next version of Doris Flink Connector: This version number is only used for generating local branches and has no real meaning. For example, if the current release is `1.0.0`, then the next version number should be `1.0.1-SNAPSHOT`.
-
-`mvn release:prepare` may ask for GPG passphrase, if you get `gpg: no valid OpenPGP data found` error, you can try after executing `export GPG_TTY=$(tty)`.
-
-If `mvn release:prepare` succeeds, a tag and a branch will be created locally, and two new commits will be added to the current branch, the first one corresponding to the newly created tag and the second one to the branch of the next release, which can be viewed via `git log`.
-
-Once the local tag is verified, you need to push the tag to the repository.
-
-`git push upstream --tags`
-
-where upstream points to the `apache/doris-flink-connector` repository.
-
-Finally, execute perform:
-
-```
-mvn release:perform
-```
-
-After successful execution, the version just released can be found in [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories)
+After successful execution, you can find the newly released version in [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories):
 
 ![](/images/staging-repositories.png)
 
-**Note that the `.asc` signature file needs to be included.**
+**Note that the `.asc` signature file needs to be included. **
 
-If there is an error. You need to delete the local tag, the tag in the codebase, and the two newly generated local commits. And drop the staging. Then re-execute the above steps.
+If the operation is wrong, you need to drop the staging. Then perform the above steps again.
 
-After checking, click the `close` button in the figure to finish staging release.
+After checking, click the `close` button in the figure to complete the staging release.
 
 ### 3. Prepare svn
 
-Check out the svn repository.
+Check out the svn repository:
 
 ```
 svn co https://dist.apache.org/repos/dist/dev/doris/
 ```
 
-Package the tag source code and generate the signature file and sha256 checksum file. Here we take `1.14_2.12-1.0.0` as an example.
+Package tag source code, and generate signature file and sha256 verification file. Here we take `1.14_2.12-1.0.0` as an example. Other tag operations are the same
 
 ```
-git archive --format=tar 1.14_2.12-1.0.0 --prefix=apache-doris-flink-connector-1.14_2.12-1.0.0-src/ | gzip > apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz
-gpg -u xxx@apache.org --armor --output apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.asc  --detach-sign apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz
-sha512sum apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz > apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.sha512
+git archive --format=tar release-1.2.0 --prefix=apache-doris-spark-connector-1.2.0-src/ | gzip > apache-doris-spark-connector-1.2.0-src.tar.gz
+
+gpg -u xxx@apache.org --armor --output apache-doris-spark-connector-1.2.0-src.tar.gz.asc --detach-sign apache-doris-spark-connector-1.2.0- src.tar.gz
+sha512sum apache-doris-spark-connector-1.2.0-src.tar.gz > apache-doris-spark-connector-1.2.0-src.tar.gz.sha512
 
 Mac:
-shasum -a 512 apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz > apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.sha512
+shasum -a 512 apache-doris-spark-connector-1.2.0-src.tar.gz > apache-doris-spark-connector-1.2.0-src.tar.gz.sha512
 ```
 
-The end result is three files:
+You end up with three files:
 
 ```
-apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz
-apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.asc
-apache-doris-flink-connector-1.14_2.12-1.0.0-src.tar.gz.sha512
+apache-doris-spark-connector-1.2.0-src.tar.gz
+apache-doris-spark-connector-1.2.0-src.tar.gz.asc
+apache-doris-spark-connector-1.2.0-src.tar.gz.sha512
 ```
 
 Move these three files to the svn directory:
 
 ```
-doris/flink-connector/1.0.0/
+doris/spark-connector/1.2.0/
 ```
 
-The final svn directory structure will look like this:
+The final svn directory structure is similar to:
 
 ```
 |____0.15
@@ -160,72 +124,75 @@ The final svn directory structure will look like this:
 | | |____apache-doris-0.15.0-incubating-src.tar.gz.asc
 | | |____apache-doris-0.15.0-incubating-src.tar.gz
 |____KEYS
-|____flink-connector
-| |____1.0.0
-| | |____apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz
-| | |____apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.sha512
-| | |____apache-doris-flink-connector-1.14_2.12-1.0.0-incubating-src.tar.gz.asc
+|____spark-connector
+| |____1.2.0
+| | |____apache-doris-spark-connector-1.2.0-src.tar.gz
+| | |____apache-doris-spark-connector-1.2.0-src.tar.gz.asc
+| | |____apache-doris-spark-connector-1.2.0-src.tar.gz.sha512
 ```
 
-Where 0.15 is the directory of Doris main code, and under `flink-connector/1.0.0` is the content of this release.
+Among them, 0.15 is the directory of Doris main code, and `spark-connector/1.2.0` is the content of this release.
 
-Note that the preparation of the KEYS file can be found in [release preparation](. /release-prepare.md).
+Note, for the preparation of the KEYS file, please refer to the introduction in [Release Preparation](./release-prepare.md).
 
-### 4. Polling
+### 4. Voting
 
-Initiate a poll in the dev@doris mailgroup, with the following template.
+Initiate a vote in the dev@doris mail group, the template is as follows:
 
 ```
-Hi All,
+Hi all,
 
-This is a call for vote to release Flink Connectors v1.0.0 for Apache Doris
+This is a call for the vote to release Apache Doris Spark Connector 1.2.0
 
-- apache-doris-flink-connector-1.14_2.12-1.0.0
+The git tag for the release:
+https://github.com/apache/doris-spark-connector/releases/tag/1.2.0
 
-The release node:
-xxxxx
+Release Notes are here:
+https://github.com/apache/doris-spark-connector/issues/109
+
+Thanks to everyone who has contributed to this release.
 
 The release candidates:
-https://dist.apache.org/repos/dist/dev/doris/flink-connector/1.0.0/
+https://dist.apache.org/repos/dist/dev/doris/spark-connector/1.2.0/
 
 Maven 2 staging repository:
-https://repository.apache.org/content/repositories/orgapachedoris-1002/org/apache/doris/doris-flink-connector/
+https://repository.apache.org/content/repositories/orgapachedoris-1031
 
-Git tag for the release:
-https://github.com/apache/doris-flink-connector/tree/1.14_2.12-1.0.0
 
-Keys to verify the Release Candidate:
+KEYS file is available here:
 https://downloads.apache.org/doris/KEYS
 
-Look at here for how to verify this release candidate:
-hhttps://doris.apache.org/zh-CN/community/release-and-verify/release-verify
+To verify and build, you can refer to the following link:
+https://doris.apache.org/community/release-and-verify/release-verify
 
-The vote will be open for at least 72 hours or until necessary number of votes are reached.
+The vote will be open for at least 72 hours.
 
-Please vote accordingly:
-
-[ ] +1 approve
-[ ] +0 no opinion
-[ ] -1 disapprove with the reason
+[ ] +1 Approve the release
+[ ] +0 No opinion
+[ ] -1 Do not release this package because ...
 ```
 
-## Completing the release
+## Finish publishing
 
-Please refer to the [Release Completion](./release-complete.md) document to complete the release process.
+Please refer to the [Complete Release](./release-complete.md) document to complete the entire release process.
 
-## Appendix: Releasing to SNAPSHOT
+## APPENDIX: Releasing TO SNAPSHOT
 
-Snapshot is not an Apache Release version and is only used for pre-release previews. Snapshot versions can be released after discussion and approval by the PMC
+Snapshot is not an Apache Release version, it is only used for preview before release. After being discussed and approved by the PMC, the Snapshot version can be released
 
-Switch to the flink connector directory, we will use flink version 1.13.5, scalar 2.12 as an example
+Switch to the spark connector directory, we take spark version 2.3, scala 2.11 as an example
 
-```
-cd flink-doris-connector
-mvn deploy -Dflink.version=1.13.5 -Dscala.version=2.12
-```
-
-After that you can see the snapshot version here.
 
 ```
-https://repository.apache.org/content/repositories/snapshots/org/apache/doris/doris-flink-connector/
+cd spark-doris-connector
+mvn deploy \
+-Dspark.version=2.3.0 \
+-Dscala.version=2.11 \
+-Dspark.major.version=2.3 \
+```
+
+Afterwards you can see the snapshot version here:
+
+```
+https://repository.apache.org/content/repositories/snapshots/org/apache/doris/doris-spark-connector/
 ```

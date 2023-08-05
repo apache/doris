@@ -48,10 +48,12 @@ public class HdfsResource extends Resource {
     public static String HADOOP_USER_NAME = "hadoop.username";
     public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
+    public static String HADOOP_KERBEROS_AUTHORIZATION = "hadoop.security.authorization";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
     public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
     public static String DSF_NAMESERVICES = "dfs.nameservices";
+    public static final String HDFS_PREFIX = "hdfs:";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;

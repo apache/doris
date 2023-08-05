@@ -266,6 +266,7 @@ public class OperationType {
 
     public static final short OP_CREATE_MTMV_TASK = 340;
     public static final short OP_DROP_MTMV_TASK = 341;
+    @Deprecated
     public static final short OP_CHANGE_MTMV_TASK = 342;
 
     public static final short OP_ALTER_MTMV_STMT = 345;
@@ -302,6 +303,25 @@ public class OperationType {
     public static final short OP_CREATE_ANALYSIS_JOB = 432;
 
     public static final short OP_DELETE_ANALYSIS_JOB = 433;
+
+    public static final short OP_ALTER_DATABASE_PROPERTY = 434;
+
+    public static final short OP_GC_BINLOG = 435;
+
+    public static final short OP_BARRIER = 436;
+
+    // change an auto increment id for a column
+    public static final short OP_UPDATE_AUTO_INCREMENT_ID = 437;
+
+    // scheduler job
+    public static final short OP_CREATE_SCHEDULER_JOB = 450;
+
+    public static final short OP_UPDATE_SCHEDULER_JOB = 451;
+
+    public static final short OP_DELETE_SCHEDULER_JOB = 452;
+
+    public static final short OP_CREATE_SCHEDULER_TASK = 453;
+    public static final short OP_DELETE_SCHEDULER_TASK = 454;
 
 
     /**

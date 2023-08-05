@@ -60,14 +60,13 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/io/io_helper.h"
+
 #ifndef USE_LIBCPP
 #include <memory_resource>
-
 #define PMR std::pmr
 #else
 #include <boost/container/pmr/monotonic_buffer_resource.hpp>
 #include <boost/container/pmr/vector.hpp>
-
 #define PMR boost::container::pmr
 #endif
 
@@ -408,19 +407,25 @@ public:
         if (arguments.size() > 1) {
             auto& col = *block.get_by_position(arguments[1]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) upper = *string_ref.data;
+            if (string_ref.size > 0) {
+                upper = *string_ref.data;
+            }
         }
 
         if (arguments.size() > 2) {
             auto& col = *block.get_by_position(arguments[2]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) lower = *string_ref.data;
+            if (string_ref.size > 0) {
+                lower = *string_ref.data;
+            }
         }
 
         if (arguments.size() > 3) {
             auto& col = *block.get_by_position(arguments[3]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) number = *string_ref.data;
+            if (string_ref.size > 0) {
+                number = *string_ref.data;
+            }
         }
 
         if (arguments.size() > 4) {
@@ -536,10 +541,14 @@ private:
             int len = offsets[i] - offset;
             if constexpr (Reverse) {
                 auto start = std::max(len - n, 0);
-                if (start > 0) memcpy(&res[offset], &chars[offset], start);
+                if (start > 0) {
+                    memcpy(&res[offset], &chars[offset], start);
+                }
                 offset += start;
             } else {
-                if (n < len) memcpy(&res[offset + n], &chars[offset + n], len - n);
+                if (n < len) {
+                    memcpy(&res[offset + n], &chars[offset + n], len - n);
+                }
             }
 
             len = std::min(n, len);
@@ -767,8 +776,6 @@ public:
         if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
             return Status::BufferAllocFailed("concat output is too large to allocate");
         }
-        // for each terminal zero
-        res_reserve_size += input_rows_count;
 
         res_data.resize(res_reserve_size);
 
@@ -905,6 +912,48 @@ public:
     }
 };
 
+class FunctionStringEltOld : public IFunction {
+public:
+    static constexpr auto name = "elt";
+    static FunctionPtr create() { return std::make_shared<FunctionStringEltOld>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        int arguent_size = arguments.size();
+        auto pos_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
+            pos_col = nullable->get_nested_column_ptr();
+        }
+        auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
+        auto pos = pos_data[0];
+        int num_children = arguent_size - 1;
+        if (pos < 1 || num_children == 0 || pos > num_children) {
+            auto null_map = ColumnUInt8::create(input_rows_count, 1);
+            auto res = ColumnString::create();
+            auto& res_data = res->get_chars();
+            auto& res_offset = res->get_offsets();
+            res_offset.resize(input_rows_count);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                res_offset[i] = res_data.size();
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+            return Status::OK();
+        }
+        block.get_by_position(result).column = block.get_by_position(arguments[pos]).column;
+        return Status::OK();
+    }
+};
 // concat_ws (string,string....) or (string, Array)
 // TODO: avoid use fmtlib
 class FunctionStringConcatWs : public IFunction {
@@ -1114,7 +1163,7 @@ private:
         }
     }
 };
-
+template <bool use_old_function>
 class FunctionStringRepeat : public IFunction {
 public:
     static constexpr auto name = "repeat";
@@ -1146,8 +1195,13 @@ public:
                 return Status::OK();
             } else if (auto* col2_const = check_and_get_column<ColumnConst>(*argument_ptr[1])) {
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat =
-                        std::min<int>(col2_const->get_int(0), context->state()->repeat_max_num());
+                int repeat = 0;
+                if constexpr (use_old_function) {
+                    repeat = col2_const->get_int(0);
+                } else {
+                    repeat = std::min<int>(col2_const->get_int(0),
+                                           context->state()->repeat_max_num());
+                }
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1178,8 +1232,12 @@ public:
             buffer.clear();
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t size = offsets[i] - offsets[i - 1];
-            int repeat = std::min<int>(repeats[i], repeat_max_num);
-
+            int repeat = 0;
+            if constexpr (use_old_function) {
+                repeat = repeats[i];
+            } else {
+                repeat = std::min<int>(repeats[i], repeat_max_num);
+            }
             if (repeat <= 0) {
                 StringOP::push_empty_string(i, res_data, res_offsets);
             } else if (repeat * size > DEFAULT_MAX_STRING_SIZE) {
@@ -2179,9 +2237,13 @@ static StringRef do_money_format(FunctionContext* context, const string& value) 
     }
     for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
         *(result_data + j) = *(value.data() + i);
-        if (i - 1 < 0) break;
+        if (i - 1 < 0) {
+            break;
+        }
         *(result_data + j - 1) = *(value.data() + i - 1);
-        if (i - 2 < 0) break;
+        if (i - 2 < 0) {
+            break;
+        }
         *(result_data + j - 2) = *(value.data() + i - 2);
         if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
             *(result_data + j - 3) = ',';
@@ -2693,7 +2755,7 @@ public:
                     "character argument to convert function must be constant.");
         }
         const auto& character_data = context->get_constant_col(1)->column_ptr->get_data_at(0);
-        if (!doris::iequal(character_data.to_string(), "gbk")) {
+        if (!iequal(character_data.to_string(), "gbk")) {
             return Status::RuntimeError(
                     "Illegal second argument column of function convert. now only support "
                     "convert to character set of gbk");

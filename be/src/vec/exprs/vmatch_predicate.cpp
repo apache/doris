@@ -93,10 +93,9 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VMatchPredicate::close(RuntimeState* state, VExprContext* context,
-                            FunctionContext::FunctionStateScope scope) {
+void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result_column_id) {

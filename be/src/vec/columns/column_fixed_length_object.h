@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
+#include <cstddef>
+
 #include "vec/columns/column.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -45,6 +49,8 @@ private:
 public:
     const char* get_family_name() const override { return "ColumnFixedLengthObject"; }
 
+    bool can_be_inside_nullable() const override { return true; }
+
     size_t size() const override { return _item_count; }
 
     const Container& get_data() const { return _data; }
@@ -68,7 +74,9 @@ public:
             size_t count = std::min(this->size(), size);
             memcpy(new_data, _data.data(), count * _item_size);
 
-            if (size > count) memset(new_data + count * _item_size, 0, (size - count) * _item_size);
+            if (size > count) {
+                memset(new_data + count * _item_size, 0, (size - count) * _item_size);
+            }
         }
 
         return res;
@@ -107,8 +115,8 @@ public:
 
     void get(size_t n, Field& res) const override { LOG(FATAL) << "get not supported"; }
 
-    [[noreturn]] StringRef get_data_at(size_t n) const override {
-        LOG(FATAL) << "get_data_at not supported";
+    StringRef get_data_at(size_t n) const override {
+        return StringRef(reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size);
     }
 
     void insert(const Field& x) override { LOG(FATAL) << "insert not supported"; }
@@ -132,6 +140,15 @@ public:
         resize(old_size + length);
         memcpy(&_data[old_size * _item_size], &src_col._data[start * _item_size],
                length * _item_size);
+    }
+
+    void insert_from(const IColumn& src, size_t n) override {
+        const ColumnFixedLengthObject& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        DCHECK(_item_size == src_col._item_size) << "dst and src should have the same _item_size  "
+                                                 << _item_size << " " << src_col._item_size;
+        size_t old_size = size();
+        resize(old_size + 1);
+        memcpy(&_data[old_size * _item_size], &src_col._data[n * _item_size], _item_size);
     }
 
     void insert_data(const char* pos, size_t length) override {
@@ -189,8 +206,27 @@ public:
         LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
     }
 
-    [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
-        LOG(FATAL) << "replicate not supported";
+    ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
+        size_t size = _item_count;
+        column_match_offsets_size(size, offsets.size());
+        auto res = doris::vectorized::ColumnFixedLengthObject::create(_item_size);
+        if (0 == size) {
+            return res;
+        }
+        res->resize(offsets.back());
+        typename Self::Container& res_data = res->get_data();
+
+        IColumn::Offset prev_offset = 0;
+        for (size_t i = 0; i < size; ++i) {
+            size_t size_to_replicate = offsets[i] - prev_offset;
+            for (size_t j = 0; j < size_to_replicate; ++j) {
+                memcpy(&res_data[(prev_offset + j) * _item_size], &_data[i * _item_size],
+                       _item_size);
+            }
+            prev_offset = offsets[i];
+        }
+
+        return res;
     }
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
@@ -200,7 +236,7 @@ public:
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
-        LOG(FATAL) << "append_data_by_selector is not supported!";
+        this->template append_data_by_selector_impl<Self>(res, selector);
     }
 
     void get_extremes(Field& min, Field& max) const override {
@@ -219,12 +255,30 @@ public:
 
     size_t allocated_bytes() const override { return _data.allocated_bytes(); }
 
-    void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data not supported";
+    //NOTICE: here is replace: this[self_row] = rhs[row]
+    //But column string is replaced all when self_row = 0
+    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
+        DCHECK(size() > self_row);
+        DCHECK(_item_size == assert_cast<const Self&>(rhs)._item_size)
+                << _item_size << " " << assert_cast<const Self&>(rhs)._item_size;
+        auto obj = assert_cast<const Self&>(rhs).get_data_at(row);
+        memcpy(&_data[self_row * _item_size], obj.data, _item_size);
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "replace_column_data_default not supported";
+    }
+
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                            const size_t num) override {
+        if (UNLIKELY(num == 0)) {
+            return;
+        }
+        const auto old_size = size();
+        const auto begin_offset = offsets[0];
+        const size_t total_mem_size = offsets[num] - begin_offset;
+        resize(old_size + num);
+        memcpy(_data.data() + old_size, data + begin_offset, total_mem_size);
     }
 
 protected:

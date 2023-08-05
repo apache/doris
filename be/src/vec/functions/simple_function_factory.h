@@ -85,6 +85,7 @@ void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
+void register_function_struct_element(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -94,8 +95,10 @@ void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
+void register_function_tokenize(SimpleFunctionFactory& factory);
 
 void register_function_url(SimpleFunctionFactory& factory);
+void register_function_ip(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -260,12 +263,15 @@ public:
             register_function_array(instance);
             register_function_map(instance);
             register_function_struct(instance);
+            register_function_struct_element(instance);
             register_function_geo(instance);
             register_function_url(instance);
             register_function_multi_string_position(instance);
             register_function_multi_string_search(instance);
             register_function_width_bucket(instance);
             register_function_match(instance);
+            register_function_ip(instance);
+            register_function_tokenize(instance);
         });
         return instance;
     }

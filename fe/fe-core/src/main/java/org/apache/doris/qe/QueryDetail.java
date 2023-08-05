@@ -31,9 +31,9 @@ public class QueryDetail {
     // After query finished, endTime and latency will
     // be set and state will be updated to be FINISHED/FAILED/CANCELLED
     // according to the query execution results.
-    // So, one query will be inserted into as a item and
-    // be updated upon finished. To indicate the two event,
-    // a extra field named eventTime is added.
+    // So, one query will be inserted into as an item and
+    // be updated upon finished. To indicate the two events,
+    // an extra field named eventTime is added.
     private long eventTime;
     private String queryId;
     private long startTime;

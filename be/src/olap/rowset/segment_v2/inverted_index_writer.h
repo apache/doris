@@ -52,7 +52,9 @@ public:
 
     virtual Status finish() = 0;
 
-    virtual uint64_t size() const = 0;
+    virtual int64_t size() const = 0;
+
+    virtual int64_t file_size() const = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);

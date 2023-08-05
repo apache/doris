@@ -60,6 +60,7 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
 #include "util/doris_metrics.h"
+#include "util/load_util.h"
 #include "util/metrics.h"
 #include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -77,65 +78,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
-
-static void parse_format(const std::string& format_str, const std::string& compress_type_str,
-                         TFileFormatType::type* format_type,
-                         TFileCompressType::type* compress_type) {
-    if (format_str.empty()) {
-        parse_format("CSV", compress_type_str, format_type, compress_type);
-        return;
-    }
-    *compress_type = TFileCompressType::PLAIN;
-    *format_type = TFileFormatType::FORMAT_UNKNOWN;
-    if (iequal(format_str, "CSV")) {
-        if (compress_type_str.empty()) {
-            *format_type = TFileFormatType::FORMAT_CSV_PLAIN;
-        } else if (iequal(compress_type_str, "GZ")) {
-            *format_type = TFileFormatType::FORMAT_CSV_GZ;
-            *compress_type = TFileCompressType::GZ;
-        } else if (iequal(compress_type_str, "LZO")) {
-            *format_type = TFileFormatType::FORMAT_CSV_LZO;
-            *compress_type = TFileCompressType::LZO;
-        } else if (iequal(compress_type_str, "BZ2")) {
-            *format_type = TFileFormatType::FORMAT_CSV_BZ2;
-            *compress_type = TFileCompressType::BZ2;
-        } else if (iequal(compress_type_str, "LZ4")) {
-            *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
-            *compress_type = TFileCompressType::LZ4FRAME;
-        } else if (iequal(compress_type_str, "LZOP")) {
-            *format_type = TFileFormatType::FORMAT_CSV_LZOP;
-            *compress_type = TFileCompressType::LZO;
-        } else if (iequal(compress_type_str, "DEFLATE")) {
-            *format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
-            *compress_type = TFileCompressType::DEFLATE;
-        }
-    } else if (iequal(format_str, "JSON")) {
-        if (compress_type_str.empty()) {
-            *format_type = TFileFormatType::FORMAT_JSON;
-        }
-    } else if (iequal(format_str, "PARQUET")) {
-        *format_type = TFileFormatType::FORMAT_PARQUET;
-    } else if (iequal(format_str, "ORC")) {
-        *format_type = TFileFormatType::FORMAT_ORC;
-    }
-    return;
-}
-
-static bool is_format_support_streaming(TFileFormatType::type format) {
-    switch (format) {
-    case TFileFormatType::FORMAT_CSV_PLAIN:
-    case TFileFormatType::FORMAT_CSV_BZ2:
-    case TFileFormatType::FORMAT_CSV_DEFLATE:
-    case TFileFormatType::FORMAT_CSV_GZ:
-    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-    case TFileFormatType::FORMAT_CSV_LZO:
-    case TFileFormatType::FORMAT_CSV_LZOP:
-    case TFileFormatType::FORMAT_JSON:
-        return true;
-    default:
-        return false;
-    }
-}
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
     _stream_load_entity =
@@ -290,8 +232,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         //treat as CSV
         format_str = BeConsts::CSV;
     }
-    parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
-                 &ctx->compress_type);
+    LoadUtil::parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
+                           &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
         return Status::InternalError("unknown data format, format={}",
                                      http_req->header(HTTP_FORMAT_KEY));
@@ -334,7 +276,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         try {
             ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid timeout format");
+            return Status::InvalidArgument("Invalid timeout format, {}", e.what());
         }
     }
     if (!http_req->header(HTTP_COMMENT).empty()) {
@@ -392,7 +334,7 @@ void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
 Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                       std::shared_ptr<StreamLoadContext> ctx) {
     // Now we use stream
-    ctx->use_streaming = is_format_support_streaming(ctx->format);
+    ctx->use_streaming = LoadUtil::is_format_support_streaming(ctx->format);
 
     // put request
     TStreamLoadPutRequest request;
@@ -466,11 +408,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
         request.__set_timezone(http_req->header(HTTP_TIMEZONE));
     }
+    if (!http_req->header(HTTP_TIME_ZONE).empty()) {
+        request.__set_timezone(http_req->header(HTTP_TIME_ZONE));
+    }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {
             request.__set_execMemLimit(std::stoll(http_req->header(HTTP_EXEC_MEM_LIMIT)));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid mem limit format");
+            return Status::InvalidArgument("Invalid mem limit format, {}", e.what());
         }
     }
     if (!http_req->header(HTTP_JSONPATHS).empty()) {
@@ -527,7 +472,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_send_batch_parallelism(
                     std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid send_batch_parallelism format");
+            return Status::InvalidArgument("Invalid send_batch_parallelism format, {}", e.what());
         }
     }
 
@@ -613,7 +558,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
 #else
     ctx->put_result = k_stream_load_put_result;
 #endif
-    Status plan_status(ctx->put_result.status);
+    Status plan_status(Status::create(ctx->put_result.status));
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;

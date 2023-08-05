@@ -50,7 +50,7 @@ ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/
 ```sql
 ALTER RESOURCE 'remote_s3' PROPERTIES ("s3.connection.maximum" = "100");
 ```
-3. 修改冷热分离S3资源相关信息
+3. 修改冷热分层S3资源相关信息
 - 支持修改项
   - `s3.access_key` s3的ak信息
   - `s3.secret_key` s3的sk信息

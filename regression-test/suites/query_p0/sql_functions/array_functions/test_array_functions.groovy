@@ -116,12 +116,17 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_enumerate_uniq(k8) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate_uniq(k10) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate_uniq(k12) from ${tableName} ORDER BY k1"
+
+    // Here disable the cases about `array_shuffle` since the result of `array_shuffle` is not stable.
+    // FYI: the result of `array_shuffle` depends on the row position in the column.
+    /*
     qt_select_array_shuffle1 "SELECT k1, k2, array_sum(k2), array_sum(array_shuffle(k2)), array_shuffle(k2, 0), shuffle(k2, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle2 "SELECT k1, k5, array_size(k5), array_size(array_shuffle(k5)), array_shuffle(k5, 0), shuffle(k5, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle3 "SELECT k1, k6, array_size(k6), array_size(array_shuffle(k6)), array_shuffle(k6, 0), shuffle(k6, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle4 "SELECT k1, k7, array_size(k7), array_size(array_shuffle(k7)), array_shuffle(k7, 0), shuffle(k7, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle5 "SELECT k1, k10, array_size(k10), array_size(array_shuffle(k10)), array_shuffle(k10, 0), shuffle(k10, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle6 "SELECT k1, k12, array_sum(k12), array_sum(array_shuffle(k12)), array_shuffle(k12, 1), shuffle(k12, 1) from ${tableName} ORDER BY k1"
+    */
     qt_select "SELECT k1, array_popback(k2) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popback(k5) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_popback(k6) from ${tableName} ORDER BY k1"
@@ -224,6 +229,19 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_pushfront(k10, cast('2023-03-08 10:30:00.999' as datetimev2(3))) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_pushfront(k10, null) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_pushfront(k12, null) FROM ${tableName} ORDER BY k1"
+
+    qt_select "SELECT k1, array_pushback(k2, k1) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k2, 1) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k3, 'a') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k3, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k4, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k5, 'hi') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k5, 'hi222') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k6, null) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k8, cast('2023-03-05' as datev2)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k10, cast('2023-03-08 10:30:00.999' as datetimev2(3))) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k10, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k12, null) FROM ${tableName} ORDER BY k1"
 
     qt_select "select k2, bitmap_to_string(bitmap_from_array(k2)) from ${tableName} order by k1;"
     

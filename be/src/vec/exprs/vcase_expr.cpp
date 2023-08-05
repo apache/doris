@@ -84,10 +84,9 @@ Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VCaseExpr::close(RuntimeState* state, VExprContext* context,
-                      FunctionContext::FunctionStateScope scope) {
+void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {

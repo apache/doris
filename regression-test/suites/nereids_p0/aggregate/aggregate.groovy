@@ -173,7 +173,7 @@ suite("aggregate") {
     qt_aggregate """ select any(c_bigint), any(c_double),any(c_string), any(c_date), any(c_timestamp),any_value(c_date_1), any(c_timestamp_1), 
                  any_value(c_timestamp_2), any(c_timestamp_3) , any(c_boolean), any(c_short_decimal), any(c_long_decimal)from ${tableName2} """
 
-    sql 'use test_query_db'
+    sql 'use nereids_test_query_db'
     List<String> fields = ["k1", "k2", "k3", "k4", "k5", "k6", "k10", "k11", "k7", "k8", "k9"]
     // test_query_normal_aggression
     String k1 = fields[1]

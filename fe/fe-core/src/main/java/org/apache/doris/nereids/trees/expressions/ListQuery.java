@@ -33,6 +33,7 @@ import java.util.Optional;
  * just for subquery.
  */
 public class ListQuery extends SubqueryExpr implements LeafExpression {
+
     public ListQuery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
@@ -44,7 +45,7 @@ public class ListQuery extends SubqueryExpr implements LeafExpression {
     @Override
     public DataType getDataType() {
         Preconditions.checkArgument(queryPlan.getOutput().size() == 1);
-        return queryPlan.getOutput().get(0).getDataType();
+        return typeCoercionExpr.orElse(queryPlan.getOutput().get(0)).getDataType();
     }
 
     @Override

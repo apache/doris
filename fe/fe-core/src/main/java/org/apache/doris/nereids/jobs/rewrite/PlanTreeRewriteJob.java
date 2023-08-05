@@ -32,6 +32,7 @@ import java.util.List;
 
 /** PlanTreeRewriteJob */
 public abstract class PlanTreeRewriteJob extends Job {
+
     public PlanTreeRewriteJob(JobType type, JobContext context) {
         super(type, context);
     }
@@ -91,20 +92,6 @@ public abstract class PlanTreeRewriteJob extends Job {
             }
         }
         return changed ? plan.withChildren(newChildren) : plan;
-    }
-
-    private String getCurrentPlanTreeString() {
-        return context.getCascadesContext()
-                .getCurrentRootRewriteJobContext().get()
-                .getNewestPlan()
-                .treeString();
-    }
-
-    private void printTraceLog(Rule rule, String traceBefore, String traceAfter) {
-        System.out.println("========== " + getClass().getSimpleName() + " " + rule.getRuleType()
-                + " ==========\nbefore:\n" + traceBefore + "\n\nafter:\n" + traceAfter + "\n");
-        // LOGGER.info("========== {} {} ==========\nbefore:\n{}\n\nafter:\n{}\n",
-        //         getClass().getSimpleName(), rule.getRuleType(), traceBefore, traceAfter);
     }
 
     static class RewriteResult {

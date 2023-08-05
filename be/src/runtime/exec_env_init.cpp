@@ -36,6 +36,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/fs/file_meta_cache.h"
+#include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
@@ -54,7 +56,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/memory/chunk_allocator.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -64,6 +66,7 @@
 #include "runtime/small_file_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
@@ -117,6 +120,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
+    TimezoneUtils::load_timezone_names();
+
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
             .set_max_threads(config::send_batch_thread_pool_thread_num)
@@ -146,6 +151,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .build(&_join_node_thread_pool);
 
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
+    _task_group_manager = new taskgroup::TaskGroupManager();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -162,6 +168,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
+    _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+    _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -178,6 +186,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     _init_mem_env();
 
+    RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
@@ -223,6 +232,8 @@ Status ExecEnv::_init_mem_env() {
     }
 
     // 3. init storage page cache
+    CacheManager::create_global_instance();
+
     int64_t storage_cache_limit =
             ParseUtil::parse_mem_spec(config::storage_page_cache_limit, MemInfo::mem_limit(),
                                       MemInfo::physical_mem(), &is_percent);
@@ -275,12 +286,14 @@ Status ExecEnv::_init_mem_env() {
     }
     // SegmentLoader caches segments in rowset granularity. So the size of
     // opened files will greater than segment_cache_capacity.
-    uint64_t segment_cache_capacity = fd_number / 3 * 2;
-    LOG(INFO) << "segment_cache_capacity = fd_number / 3 * 2, fd_number: " << fd_number
+    uint64_t segment_cache_capacity = fd_number * 2 / 5;
+    LOG(INFO) << "segment_cache_capacity = fd_number * 2 / 5, fd_number: " << fd_number
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
     SchemaCache::create_global_instance(config::schema_cache_capacity);
+
+    LookupConnectionCache::create_global_instance(config::lookup_connection_cache_bytes_limit);
 
     // use memory limit
     int64_t inverted_index_cache_limit =
@@ -303,30 +316,13 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
-    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 10);
+    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // 4. init other managers
     RETURN_IF_ERROR(_block_spill_mgr->init());
-
-    // 5. init chunk allocator
-    if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {
-        ss << "Config min_chunk_reserved_bytes must be a power-of-two: "
-           << config::min_chunk_reserved_bytes;
-        return Status::InternalError(ss.str());
-    }
-
-    int64_t chunk_reserved_bytes_limit =
-            ParseUtil::parse_mem_spec(config::chunk_reserved_bytes_limit, MemInfo::mem_limit(),
-                                      MemInfo::physical_mem(), &is_percent);
-    chunk_reserved_bytes_limit =
-            BitUtil::RoundDown(chunk_reserved_bytes_limit, config::min_chunk_reserved_bytes);
-    ChunkAllocator::init_instance(chunk_reserved_bytes_limit);
-    LOG(INFO) << "Chunk allocator memory limit: "
-              << PrettyPrinter::print(chunk_reserved_bytes_limit, TUnit::BYTES)
-              << ", origin config value: " << config::chunk_reserved_bytes_limit;
     return Status::OK();
 }
 
@@ -338,6 +334,8 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
     _page_no_cache_mem_tracker =
             std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
+    _brpc_iobuf_block_memory_tracker =
+            std::make_shared<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
 }
 
 void ExecEnv::init_download_cache_buf() {
@@ -393,6 +391,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_load_path_mgr);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_pipeline_task_group_scheduler);
+    SAFE_DELETE(_task_group_manager);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
@@ -403,18 +402,26 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
+    SAFE_DELETE(_file_meta_cache);
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
     // access master_info.backend id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
 
+    _new_load_stream_mgr.reset();
+    _memtable_memory_limiter.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _join_node_thread_pool.reset(nullptr);
     _serial_download_cache_thread_token.reset(nullptr);
     _download_cache_thread_pool.reset(nullptr);
+    _orphan_mem_tracker.reset();
+    _experimental_mem_tracker.reset();
+    _page_no_cache_mem_tracker.reset();
+    _brpc_iobuf_block_memory_tracker.reset();
+    InvertedIndexSearcherCache::reset_global_instance();
 
     _is_init = false;
 }

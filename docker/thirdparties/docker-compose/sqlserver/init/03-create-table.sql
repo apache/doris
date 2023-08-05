@@ -86,4 +86,14 @@ CREATE TABLE dbo.test_binary (
     varbinary_value varbinary(20) NULL
 );
 
+CREATE TABLE dbo.DateAndTime
+(
+    DateColumn DATE,
+    TimeColumn TIME,
+    DateTimeColumn DATETIME,
+    SmallDateTimeColumn SMALLDATETIME,
+    DateTime2Column DATETIME2,
+    DateTimeOffsetColumn DATETIMEOFFSET
+);
+
 

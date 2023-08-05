@@ -34,7 +34,7 @@ under the License.
 
 ### description
     JSON类型
-        二进制JSON类型，采用二进制JSON格式存储，通过json函数访问JSON内部字段。
+        二进制JSON类型，采用二进制JSON格式存储，通过json函数访问JSON内部字段。最大（默认）支持1048576 字节（1MB），JSONB类型还受be配置`jsonb_type_length_soft_limit_bytes`限制
 
 ### note
     与普通STRING类型存储的JSON字符串相比，JSON类型有两点优势

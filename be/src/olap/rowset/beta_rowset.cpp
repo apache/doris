@@ -122,7 +122,7 @@ Status BetaRowset::do_load(bool /*use_cache*/) {
 Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         auto seg_path = segment_file_path(seg_id);
@@ -140,7 +140,7 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments) {
     auto fs = _rowset_meta->fs();
     if (!fs || _schema == nullptr) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     int64_t seg_id = seg_id_begin;
     while (seg_id < seg_id_end) {
@@ -177,7 +177,7 @@ Status BetaRowset::remove() {
                 << ", tabletid:" << _rowset_meta->tablet_id();
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     bool success = true;
     Status st;
@@ -209,8 +209,8 @@ Status BetaRowset::remove() {
         }
     }
     if (!success) {
-        LOG(WARNING) << "failed to remove files in rowset " << unique_id();
-        return Status::Error<ROWSET_DELETE_FILE_FAILED>();
+        return Status::Error<ROWSET_DELETE_FILE_FAILED>("failed to remove files in rowset {}",
+                                                        unique_id());
     }
     return Status::OK();
 }
@@ -221,11 +221,11 @@ void BetaRowset::do_close() {
 
 Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id,
-                                 std::set<int32_t>* without_index_column_uids) {
+                                 std::set<int32_t>* without_index_uids) {
     DCHECK(is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     if (fs->type() != io::FileSystemType::LOCAL) {
         return Status::InternalError("should be local file system");
@@ -235,55 +235,48 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
         auto dst_path = segment_file_path(dir, new_rowset_id, i + new_rowset_start_seg_id);
         bool dst_path_exist = false;
         if (!fs->exists(dst_path, &dst_path_exist).ok() || dst_path_exist) {
-            LOG(WARNING) << "failed to create hard link, file already exist: " << dst_path;
-            return Status::Error<FILE_ALREADY_EXIST>();
+            return Status::Error<FILE_ALREADY_EXIST>(
+                    "failed to create hard link, file already exist: {}", dst_path);
         }
         auto src_path = segment_file_path(i);
         // TODO(lingbin): how external storage support link?
         //     use copy? or keep refcount to avoid being delete?
         if (!local_fs->link_file(src_path, dst_path).ok()) {
-            LOG(WARNING) << "fail to create hard link. from=" << src_path << ", "
-                         << "to=" << dst_path << ", errno=" << Errno::no();
-            return Status::Error<OS_ERROR>();
+            return Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
+                                           src_path, dst_path);
         }
-        for (auto& column : _schema->columns()) {
-            if (without_index_column_uids != nullptr &&
-                without_index_column_uids->count(column.unique_id())) {
+        for (auto& index : _schema->indexes()) {
+            if (index.index_type() != IndexType::INVERTED) {
                 continue;
             }
-            const TabletIndex* index_meta = _schema->get_inverted_index(column.unique_id());
-            if (index_meta) {
-                std::string inverted_index_src_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(src_path,
-                                                                     index_meta->index_id());
-                std::string inverted_index_dst_file_path =
-                        InvertedIndexDescriptor::get_index_file_name(dst_path,
-                                                                     index_meta->index_id());
 
-                bool need_to_link = true;
-                if (_schema->skip_write_index_on_load()) {
-                    local_fs->exists(inverted_index_src_file_path, &need_to_link);
-                    if (!need_to_link) {
-                        LOG(INFO) << "skip create hard link to not existed file="
-                                  << inverted_index_src_file_path;
-                    }
+            auto index_id = index.index_id();
+            if (without_index_uids != nullptr && without_index_uids->count(index_id)) {
+                continue;
+            }
+            std::string inverted_index_src_file_path =
+                    InvertedIndexDescriptor::get_index_file_name(src_path, index_id);
+            std::string inverted_index_dst_file_path =
+                    InvertedIndexDescriptor::get_index_file_name(dst_path, index_id);
+            bool need_to_link = true;
+            if (_schema->skip_write_index_on_load()) {
+                local_fs->exists(inverted_index_src_file_path, &need_to_link);
+                if (!need_to_link) {
+                    LOG(INFO) << "skip create hard link to not existed file="
+                              << inverted_index_src_file_path;
                 }
-
-                if (need_to_link) {
-                    if (!local_fs->link_file(inverted_index_src_file_path,
-                                             inverted_index_dst_file_path)
-                                 .ok()) {
-                        LOG(WARNING)
-                                << "fail to create hard link. from=" << inverted_index_src_file_path
-                                << ", "
-                                << "to=" << inverted_index_dst_file_path
-                                << ", errno=" << Errno::no();
-                        return Status::Error<OS_ERROR>();
-                    }
-                    LOG(INFO) << "success to create hard link. from="
-                              << inverted_index_src_file_path << ", "
-                              << "to=" << inverted_index_dst_file_path;
+            }
+            if (need_to_link) {
+                if (!local_fs->link_file(inverted_index_src_file_path, inverted_index_dst_file_path)
+                             .ok()) {
+                    return Status::Error<OS_ERROR>(
+                            "fail to create hard link. from={}, to={}, errno={}",
+                            inverted_index_src_file_path, inverted_index_dst_file_path,
+                            Errno::no());
                 }
+                LOG(INFO) << "success to create hard link. from=" << inverted_index_src_file_path
+                          << ", "
+                          << "to=" << inverted_index_dst_file_path;
             }
         }
     }
@@ -297,8 +290,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
         auto dst_path = segment_file_path(dir, new_rowset_id, i);
         RETURN_IF_ERROR(io::global_local_filesystem()->exists(dst_path, &exists));
         if (exists) {
-            LOG(WARNING) << "file already exist: " << dst_path;
-            return Status::Error<FILE_ALREADY_EXIST>();
+            return Status::Error<FILE_ALREADY_EXIST>("file already exist: {}", dst_path);
         }
         auto src_path = segment_file_path(i);
         RETURN_IF_ERROR(io::global_local_filesystem()->copy_dirs(src_path, dst_path));
@@ -416,7 +408,7 @@ Status BetaRowset::add_to_binlog() {
     DCHECK(is_local());
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     if (fs->type() != io::FileSystemType::LOCAL) {
         return Status::InternalError("should be local file system");
@@ -447,9 +439,8 @@ Status BetaRowset::add_to_binlog() {
                         .string();
         VLOG_DEBUG << "link " << seg_file << " to " << binlog_file;
         if (!local_fs->link_file(seg_file, binlog_file).ok()) {
-            LOG(WARNING) << "fail to create hard link. from=" << seg_file << ", "
-                         << "to=" << binlog_file << ", errno=" << Errno::no();
-            return Status::Error<OS_ERROR>();
+            return Status::Error<OS_ERROR>("fail to create hard link. from={}, to={}, errno={}",
+                                           seg_file, binlog_file, Errno::no());
         }
     }
 

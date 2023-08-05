@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.jobs.RewriteJob;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -36,8 +35,8 @@ import java.util.function.Supplier;
  * You can check the 'CustomRewriter' interface to see which rules use this way to do rewrite.
  */
 public class CustomRewriteJob implements RewriteJob {
-    private final RuleType ruleType;
 
+    private final RuleType ruleType;
     private final Supplier<CustomRewriter> customRewriter;
 
     /**

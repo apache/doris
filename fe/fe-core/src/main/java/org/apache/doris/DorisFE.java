@@ -114,6 +114,7 @@ public class DorisFE {
             }
 
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
+            Runtime.getRuntime().addShutdownHook(new Thread(LogManager::shutdown));
 
             // set dns cache ttl
             java.security.Security.setProperty("networkaddress.cache.ttl", "60");
@@ -186,6 +187,9 @@ public class DorisFE {
                 Thread.sleep(2000);
             }
         } catch (Throwable e) {
+            // Some exception may thrown before LOG is inited.
+            // So need to print to stdout
+            e.printStackTrace();
             LOG.warn("", e);
         }
     }

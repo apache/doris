@@ -36,19 +36,19 @@ under the License.
 ### example
 
 ```
-mysql> select bitmap_has_all(bitmap_from_string("0, 1, 2"), bitmap_from_string("1, 2")) cnt;
-+------+
-| cnt  |
-+------+
-|    1 |
-+------+
+mysql> select bitmap_has_all(bitmap_from_string("0, 1, 2"), bitmap_from_string("1, 2"));
++---------------------------------------------------------------------------+
+| bitmap_has_all(bitmap_from_string('0, 1, 2'), bitmap_from_string('1, 2')) |
++---------------------------------------------------------------------------+
+|                                                                         1 |
++---------------------------------------------------------------------------+
 
-mysql> select bitmap_has_all(bitmap_empty(), bitmap_from_string("1, 2")) cnt;
-+------+
-| cnt  |
-+------+
-|    0 |
-+------+
+mysql> select bitmap_has_all(bitmap_empty(), bitmap_from_string("1, 2"));
++------------------------------------------------------------+
+| bitmap_has_all(bitmap_empty(), bitmap_from_string('1, 2')) |
++------------------------------------------------------------+
+|                                                          0 |
++------------------------------------------------------------+
 ```
 
 ### keywords

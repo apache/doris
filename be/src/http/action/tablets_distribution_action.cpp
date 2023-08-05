@@ -59,8 +59,8 @@ void TabletsDistributionAction::handle(HttpRequest* req) {
             try {
                 partition_id = std::stoull(req_partition_id);
             } catch (const std::exception& e) {
-                LOG(WARNING) << "invalid argument. partition_id:" << req_partition_id;
-                Status status = Status::InternalError("invalid argument: {}", req_partition_id);
+                Status status = Status::InternalError("invalid argument: {}, reason:{}",
+                                                      req_partition_id, e.what());
                 std::string status_result = status.to_json();
                 HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
                 return;

@@ -46,7 +46,7 @@ public:
         if (_init) flush_untracked_mem();
     }
 
-    void init();
+    bool init();
 
     // After attach, the current thread Memory Hook starts to consume/release task mem_tracker
     void attach_limiter_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
@@ -76,17 +76,17 @@ public:
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     // Returns whether the memory exceeds limit, and will consume mem trcker no matter whether the limit is exceeded.
-    void consume(int64_t size);
-    bool flush_untracked_mem();
+    void consume(int64_t size, bool large_memory_check = false);
+    void flush_untracked_mem();
 
     bool is_attach_query() { return _fragment_instance_id != TUniqueId(); }
 
     std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
-        init();
+        CHECK(init());
         return _limiter_tracker;
     }
     MemTrackerLimiter* limiter_mem_tracker_raw() {
-        init();
+        CHECK(init());
         return _limiter_tracker_raw;
     }
 
@@ -130,16 +130,18 @@ private:
     TUniqueId _fragment_instance_id = TUniqueId();
 };
 
-inline void ThreadMemTrackerMgr::init() {
+inline bool ThreadMemTrackerMgr::init() {
     // 1. Initialize in the thread context when the thread starts
     // 2. ExecEnv not initialized when thread start, initialized in limiter_mem_tracker().
-    if (!_init) {
-        DCHECK(_limiter_tracker == nullptr);
+    if (_init) return true;
+    if (ExecEnv::GetInstance()->orphan_mem_tracker() != nullptr) {
         _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
         _limiter_tracker_raw = ExecEnv::GetInstance()->orphan_mem_tracker_raw();
         _wait_gc = true;
         _init = true;
+        return true;
     }
+    return false;
 }
 
 inline bool ThreadMemTrackerMgr::push_consumer_tracker(MemTracker* tracker) {
@@ -158,32 +160,37 @@ inline void ThreadMemTrackerMgr::pop_consumer_tracker() {
     _consumer_tracker_stack.pop_back();
 }
 
-inline void ThreadMemTrackerMgr::consume(int64_t size) {
+inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) {
     _untracked_mem += size;
+    if (!ExecEnv::GetInstance()->initialized()) {
+        return;
+    }
     // When some threads `0 < _untracked_mem < config::mem_tracker_consume_min_size_bytes`
     // and some threads `_untracked_mem <= -config::mem_tracker_consume_min_size_bytes` trigger consumption(),
     // it will cause tracker->consumption to be temporarily less than 0.
     // After the jemalloc hook is loaded, before ExecEnv init, _limiter_tracker=nullptr.
     if ((_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
          _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) &&
-        !_stop_consume && ExecEnv::GetInstance()->initialized()) {
+        !_stop_consume) {
         flush_untracked_mem();
     }
     // Large memory alloc should use allocator.h
     // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
-    if (size > 4294967296) { // 4G
+    if (large_memory_check && size > doris::config::large_memory_check_bytes) {
         _stop_consume = true;
-        LOG(WARNING) << fmt::format("MemHook alloc large memory: {}, stacktrace:\n{}", size,
-                                    get_stack_trace());
+        LOG(WARNING) << fmt::format(
+                "malloc or new large memory: {}, looking forward to using Allocator, this is just "
+                "a warning, not prevent memory alloc, stacktrace:\n{}",
+                size, get_stack_trace());
         _stop_consume = false;
     }
 }
 
-inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
+inline void ThreadMemTrackerMgr::flush_untracked_mem() {
     // Temporary memory may be allocated during the consumption of the mem tracker, which will lead to entering
     // the Memory Hook again, so suspend consumption to avoid falling into an infinite loop.
+    if (!init()) return;
     _stop_consume = true;
-    init();
     DCHECK(_limiter_tracker_raw);
 
     old_untracked_mem = _untracked_mem;
@@ -194,7 +201,6 @@ inline bool ThreadMemTrackerMgr::flush_untracked_mem() {
     }
     _untracked_mem -= old_untracked_mem;
     _stop_consume = false;
-    return true;
 }
 
 } // namespace doris

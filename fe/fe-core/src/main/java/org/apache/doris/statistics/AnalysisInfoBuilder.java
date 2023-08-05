@@ -23,16 +23,21 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
+import org.quartz.CronExpression;
+
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public class AnalysisInfoBuilder {
     private long jobId;
     private long taskId;
+    private List<Long> taskIds;
     private String catalogName;
     private String dbName;
     private String tblName;
     private Map<String, Set<String>> colToPartitions;
+    private Set<String> partitionNames;
     private String colName;
     private long indexId = -1L;
     private JobType jobType;
@@ -44,10 +49,15 @@ public class AnalysisInfoBuilder {
     private int sampleRows;
     private long periodTimeInMs;
     private long lastExecTimeInMs;
+    private long timeCostInMs;
     private AnalysisState state;
     private ScheduleType scheduleType;
     private String message = "";
     private boolean externalTableLevelTask;
+    private boolean partitionOnly;
+    private boolean samplingPartition;
+
+    private CronExpression cronExpression;
 
     public AnalysisInfoBuilder() {
     }
@@ -55,10 +65,12 @@ public class AnalysisInfoBuilder {
     public AnalysisInfoBuilder(AnalysisInfo info) {
         jobId = info.jobId;
         taskId = info.taskId;
+        taskIds = info.taskIds;
         catalogName = info.catalogName;
         dbName = info.dbName;
         tblName = info.tblName;
         colToPartitions = info.colToPartitions;
+        partitionNames = info.partitionNames;
         colName = info.colName;
         indexId = info.indexId;
         jobType = info.jobType;
@@ -71,8 +83,12 @@ public class AnalysisInfoBuilder {
         maxBucketNum = info.maxBucketNum;
         message = info.message;
         lastExecTimeInMs = info.lastExecTimeInMs;
+        timeCostInMs = info.timeCostInMs;
         state = info.state;
         scheduleType = info.scheduleType;
+        externalTableLevelTask = info.externalTableLevelTask;
+        partitionOnly = info.partitionOnly;
+        samplingPartition = info.samplingPartition;
     }
 
     public AnalysisInfoBuilder setJobId(long jobId) {
@@ -82,6 +98,11 @@ public class AnalysisInfoBuilder {
 
     public AnalysisInfoBuilder setTaskId(long taskId) {
         this.taskId = taskId;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setTaskIds(List<Long> taskIds) {
+        this.taskIds = taskIds;
         return this;
     }
 
@@ -107,6 +128,11 @@ public class AnalysisInfoBuilder {
 
     public AnalysisInfoBuilder setColName(String colName) {
         this.colName = colName;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setPartitionNames(Set<String> partitionNames) {
+        this.partitionNames = partitionNames;
         return this;
     }
 
@@ -165,6 +191,11 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setTimeCostInMs(long timeCostInMs) {
+        this.timeCostInMs = timeCostInMs;
+        return this;
+    }
+
     public AnalysisInfoBuilder setState(AnalysisState state) {
         this.state = state;
         return this;
@@ -180,17 +211,32 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setPartitionOnly(boolean isPartitionOnly) {
+        this.partitionOnly = isPartitionOnly;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setSamplingPartition(boolean samplingPartition) {
+        this.samplingPartition = samplingPartition;
+        return this;
+    }
+
+    public void setCronExpression(CronExpression cronExpression) {
+        this.cronExpression = cronExpression;
+    }
+
     public AnalysisInfo build() {
-        return new AnalysisInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions,
+        return new AnalysisInfo(jobId, taskId, taskIds, catalogName, dbName, tblName, colToPartitions, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
-                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, state, scheduleType,
-                externalTableLevelTask);
+                sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
+                externalTableLevelTask, partitionOnly, samplingPartition, cronExpression);
     }
 
     public AnalysisInfoBuilder copy() {
         return new AnalysisInfoBuilder()
                 .setJobId(jobId)
                 .setTaskId(taskId)
+                .setTaskIds(taskIds)
                 .setCatalogName(catalogName)
                 .setDbName(dbName)
                 .setTblName(tblName)
@@ -207,8 +253,9 @@ public class AnalysisInfoBuilder {
                 .setMaxBucketNum(maxBucketNum)
                 .setMessage(message)
                 .setLastExecTimeInMs(lastExecTimeInMs)
+                .setTimeCostInMs(timeCostInMs)
                 .setState(state)
                 .setScheduleType(scheduleType)
-                .setExternalTableLevelTask(false);
+                .setExternalTableLevelTask(externalTableLevelTask);
     }
 }

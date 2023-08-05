@@ -63,7 +63,7 @@ public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
                         LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.left();
                         Plan newLeft = pushdownProject(project);
                         return topJoin.withChildren(newLeft, topJoin.right());
-                    }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN),
+                    }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_SEMI_JOIN),
 
                 logicalJoin(group(), logicalProject(logicalJoin()))
                     .when(j -> j.right().child().getJoinType().isLeftSemiOrAntiJoin())
@@ -74,7 +74,7 @@ public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
                         LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topJoin.right();
                         Plan newRight = pushdownProject(project);
                         return topJoin.withChildren(topJoin.left(), newRight);
-                    }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_SEMI_JOIN)
+                    }).toRule(RuleType.PUSHDOWN_PROJECT_THROUGH_SEMI_JOIN)
                 );
     }
 
@@ -90,6 +90,6 @@ public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
         Plan newLeft = CBOUtils.projectOrSelf(newProject, join.left());
 
         Plan newJoin = join.withChildren(newLeft, join.right());
-        return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
+        return CBOUtils.projectOrSelf(ImmutableList.copyOf(project.getOutput()), newJoin);
     }
 }

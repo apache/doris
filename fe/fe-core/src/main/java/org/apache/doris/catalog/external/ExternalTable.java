@@ -19,6 +19,7 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -33,6 +34,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.gson.annotations.SerializedName;
@@ -45,6 +47,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -66,6 +69,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long timestamp;
     @SerializedName(value = "dbName")
     protected String dbName;
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
 
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
@@ -317,6 +322,21 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 1;
     }
 
+    @Override
+    public DatabaseIf getDatabase() {
+        return catalog.getDbNullable(dbName);
+    }
+
+    @Override
+    public List<Column> getColumns() {
+        return getFullSchema();
+    }
+
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        return Optional.empty();
+    }
+
     /**
      * Should only be called in ExternalCatalog's getSchema(),
      * which is called from schema cache.
@@ -324,6 +344,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @return
      */
+    public List<Column> initSchemaAndUpdateTime() {
+        lastUpdateTime = System.currentTimeMillis();
+        return initSchema();
+    }
+
     public List<Column> initSchema() {
         throw new NotImplementedException("implement in sub class");
     }

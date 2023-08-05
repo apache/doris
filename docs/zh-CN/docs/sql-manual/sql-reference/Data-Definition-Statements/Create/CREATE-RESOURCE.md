@@ -129,7 +129,7 @@ Spark 用于 ETL 时需要指定 working_dir 和 broker。说明如下：
    );
    ```
 
-   如果 s3 reource 在[冷热分离](../../../../../docs/advanced/cold_hot_separation.md)中使用，需要添加额外的字段。
+   如果 s3 reource 在[冷热分层](../../../../../docs/advanced/cold_hot_separation.md)中使用，需要添加额外的字段。
    ```sql
    CREATE RESOURCE "remote_s3"
    PROPERTIES

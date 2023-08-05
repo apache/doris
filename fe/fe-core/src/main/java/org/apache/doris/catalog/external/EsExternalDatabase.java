@@ -20,12 +20,11 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 
 /**
  * Elasticsearch metastore external database.
  */
-public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> implements GsonPostProcessable {
+public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
 
     /**
      * Create Elasticsearch external database.

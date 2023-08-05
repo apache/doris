@@ -39,6 +39,7 @@ public class InitDatabaseLog implements Writable {
         JDBC,
         MAX_COMPUTE,
         HUDI,
+        PAIMON,
         TEST,
         UNKNOWN;
     }
@@ -66,6 +67,9 @@ public class InitDatabaseLog implements Writable {
 
     @SerializedName(value = "type")
     private Type type;
+
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
 
     public InitDatabaseLog() {
         refreshCount = 0;

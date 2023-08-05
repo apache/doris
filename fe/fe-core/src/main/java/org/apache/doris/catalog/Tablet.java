@@ -154,6 +154,10 @@ public class Tablet extends MetaObject implements Writable {
         cooldownConfLock.writeLock().unlock();
     }
 
+    public long getCooldownReplicaId() {
+        return cooldownReplicaId;
+    }
+
     public Pair<Long, Long> getCooldownConf() {
         cooldownConfLock.readLock().lock();
         try {
@@ -207,19 +211,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public List<Long> getNormalReplicaBackendIds() {
-        List<Long> beIds = Lists.newArrayList();
-        SystemInfoService infoService = Env.getCurrentSystemInfo();
-        for (Replica replica : replicas) {
-            if (replica.isBad()) {
-                continue;
-            }
-
-            ReplicaState state = replica.getState();
-            if (infoService.checkBackendAlive(replica.getBackendId()) && state.canLoad()) {
-                beIds.add(replica.getBackendId());
-            }
-        }
-        return beIds;
+        return Lists.newArrayList(getNormalReplicaBackendPathMap().keySet());
     }
 
     // return map of (BE id -> path hash) of normal replicas
@@ -228,12 +220,17 @@ public class Tablet extends MetaObject implements Writable {
         Multimap<Long, Long> map = HashMultimap.create();
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         for (Replica replica : replicas) {
+            if (!infoService.checkBackendAlive(replica.getBackendId())) {
+                continue;
+            }
+
             if (replica.isBad()) {
                 continue;
             }
 
             ReplicaState state = replica.getState();
-            if (infoService.checkBackendLoadAvailable(replica.getBackendId()) && state.canLoad()) {
+            if (state.canLoad()
+                    || (state == ReplicaState.DECOMMISSION && replica.getPostWatermarkTxnId() < 0)) {
                 map.put(replica.getBackendId(), replica.getPathHash());
             }
         }
@@ -243,6 +240,7 @@ public class Tablet extends MetaObject implements Writable {
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
+        List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -258,7 +256,15 @@ public class Tablet extends MetaObject implements Writable {
                 if (replica.checkVersionCatchUp(visibleVersion, false)) {
                     allQueryableReplica.add(replica);
                 }
+            } else if (state == ReplicaState.DECOMMISSION) {
+                if (replica.checkVersionCatchUp(visibleVersion, false)) {
+                    auxiliaryReplica.add(replica);
+                }
             }
+        }
+
+        if (allQueryableReplica.isEmpty()) {
+            allQueryableReplica = auxiliaryReplica;
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
@@ -492,10 +498,14 @@ public class Tablet extends MetaObject implements Writable {
             }
             alive++;
 
+            // this replica is alive but version incomplete
             if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
-                // this replica is alive but version incomplete
+                if (replica.needFurtherRepair() && backend.isScheduleAvailable()) {
+                    needFurtherRepairReplica = replica;
+                }
                 continue;
             }
+
             aliveAndVersionComplete++;
 
             if (!backend.isScheduleAvailable()) {
@@ -686,8 +696,21 @@ public class Tablet extends MetaObject implements Writable {
      * NORMAL:  delay Config.tablet_repair_delay_factor_second * 2;
      * LOW:     delay Config.tablet_repair_delay_factor_second * 3;
      */
-    public boolean readyToBeRepaired(TabletSchedCtx.Priority priority) {
+    public boolean readyToBeRepaired(SystemInfoService infoService, TabletSchedCtx.Priority priority) {
         if (priority == Priority.VERY_HIGH) {
+            return true;
+        }
+
+        boolean allBeAliveOrDecommissioned = true;
+        for (Replica replica : replicas) {
+            Backend backend = infoService.getBackend(replica.getBackendId());
+            if (backend == null || (!backend.isAlive() && !backend.isDecommissioned())) {
+                allBeAliveOrDecommissioned = false;
+                break;
+            }
+        }
+
+        if (allBeAliveOrDecommissioned) {
             return true;
         }
 

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_inlineview_with_project") {
+    sql "set enable_nereids_planner=false"
     sql """
         drop table if exists cir_1756_t1;
     """
@@ -320,5 +321,65 @@ suite("test_inlineview_with_project") {
 
     sql """
         drop table if exists ods_table4;
+    """
+
+    sql """
+        drop table if exists cir2824_table;
+    """
+
+    sql """
+        CREATE TABLE `cir2824_table` (
+        `id` BIGINT(20) NULL,
+        `create_user` BIGINT(20) NULL,
+        `event_content` TEXT NULL,
+        `dest_farm_id` BIGINT(20) NULL,
+        `weight` DOUBLE NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 48
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "function_column.sequence_type" = "BIGINT",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        drop view if exists cir2824_view;
+    """
+
+    sql """
+        CREATE VIEW `cir2824_view` COMMENT 'VIEW' AS
+        select `ev`.`id` AS `id`,
+                CAST(`ev`.`create_user` AS BIGINT) AS `create_user`,
+                `ev`.`event_content` AS `event_content`,
+                `ev`.`dest_farm_id` AS `dest_farm_id`
+        FROM `cir2824_table` ev;
+    """
+
+    explain {
+        sql("""
+            WITH cir2824_temp1 AS( SELECT
+                    CASE
+                    WHEN dest_farm_id IS NULL
+                        AND get_json_string(t.event_content,'\$.destFarmId') != '' THEN
+                    0
+                    ELSE 1
+                    END AS is_trans
+                FROM cir2824_view t )
+            SELECT 1
+            FROM cir2824_temp1;
+        """)
+    }
+
+    sql """
+        drop view if exists cir2824_view;
+    """
+
+    sql """
+        drop table if exists cir2824_table;
     """
 }

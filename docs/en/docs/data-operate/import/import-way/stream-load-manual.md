@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Stream load",
+    "title": "Stream Load",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Stream load
+# Stream Load
 
 Stream load is a synchronous way of importing. Users import local files or data streams into Doris by sending HTTP protocol requests. Stream load synchronously executes the import and returns the import result. Users can directly determine whether the import is successful by the return body of the request.
 
@@ -182,7 +182,7 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
 + enable_profile
-  <version since="1.2.4">
+  <version since="1.2.7">
   </version>
 
   When `enable_profile` is true, the Stream Load profile will be printed to the log. Otherwise it won't print.
@@ -381,6 +381,22 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
     ```
     curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8030/api/bj_sales/store_sales/_stream_load
     ```
+
+### Coding with StreamLoad
+
+You can initiate HTTP requests for Stream Load using any language. Before initiating HTTP requests, you need to set several necessary headers:
+
+```http
+Content-Type: text/plain; charset=UTF-8
+Expect: 100-continue
+Authorization: Basic <Base64 encoded username and password>
+```
+
+`<Base64 encoded username and password>`: a string consist with Doris's `username`, `:` and `password` and then do a base64 encode.
+
+Additionally, it should be noted that if you directly initiate an HTTP request to FE, as Doris will redirect to BE, some frameworks will remove the `Authorization` HTTP header during this process, which requires manual processing.
+
+Doris provides StreamLoad examples in three languages: [Java](https://github.com/apache/doris/tree/master/samples/stream_load/java), [Go](https://github.com/apache/doris/tree/master/samples/stream_load/go), and [Python](https://github.com/apache/doris/tree/master/samples/stream_load/python) for reference.
 
 ## Common Questions
 

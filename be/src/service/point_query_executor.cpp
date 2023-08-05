@@ -46,20 +46,19 @@
 
 namespace doris {
 
-Reusable::~Reusable() {
-    for (auto& ctx : _output_exprs_ctxs) {
-        ctx->close(_runtime_state.get());
-    }
-}
-
+Reusable::~Reusable() {}
+constexpr static int s_preallocted_blocks_num = 64;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {
+    SCOPED_MEM_COUNT(&_mem_size);
     _runtime_state = RuntimeState::create_unique();
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     _block_pool.resize(block_size);
     for (int i = 0; i < _block_pool.size(); ++i) {
-        _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 10);
+        _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
+        // Name is useless but cost space
+        _block_pool[i]->clear_names();
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
@@ -77,7 +76,10 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
 std::unique_ptr<vectorized::Block> Reusable::get_block() {
     std::lock_guard lock(_block_mutex);
     if (_block_pool.empty()) {
-        return vectorized::Block::create_unique(tuple_desc()->slots(), 4);
+        auto block = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
+        // Name is useless but cost space
+        block->clear_names();
+        return block;
     }
     auto block = std::move(_block_pool.back());
     CHECK(block != nullptr);
@@ -87,11 +89,23 @@ std::unique_ptr<vectorized::Block> Reusable::get_block() {
 
 void Reusable::return_block(std::unique_ptr<vectorized::Block>& block) {
     std::lock_guard lock(_block_mutex);
-    if (_block_pool.size() > 128) {
+    if (_block_pool.size() > s_preallocted_blocks_num) {
         return;
     }
     block->clear_column_data();
     _block_pool.push_back(std::move(block));
+    _block_pool.resize(s_preallocted_blocks_num);
+}
+
+int64_t Reusable::mem_size() const {
+    return _mem_size;
+}
+
+LookupConnectionCache* LookupConnectionCache::_s_instance = nullptr;
+void LookupConnectionCache::create_global_instance(size_t capacity) {
+    DCHECK(_s_instance == nullptr);
+    static LookupConnectionCache instance(capacity);
+    _s_instance = &instance;
 }
 
 RowCache* RowCache::_s_instance = nullptr;
@@ -145,9 +159,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     SCOPED_TIMER(&_profile_metrics.init_ns);
     _response = response;
     // using cache
-    uint128 uuid {static_cast<uint64_t>(request->uuid().uuid_high()),
-                  static_cast<uint64_t>(request->uuid().uuid_low())};
-    auto cache_handle = LookupCache::instance().get(uuid);
+    __int128_t uuid =
+            static_cast<__int128_t>(request->uuid().uuid_high()) << 64 | request->uuid().uuid_low();
+    auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
     if (cache_handle != nullptr) {
         _reusable = cache_handle;
@@ -168,8 +182,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         _reusable = reusable_ptr;
         if (uuid != 0) {
             // could be reused by requests after, pre allocte more blocks
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 128));
-            LookupCache::instance().add(uuid, reusable_ptr);
+            RETURN_IF_ERROR(
+                    reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, s_preallocted_blocks_num));
+            LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         } else {
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
         }
@@ -249,6 +264,12 @@ Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     // 2. lookup row location
     Status st;
+    std::vector<RowsetSharedPtr> specified_rowsets;
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
+    }
+    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
         if (!config::disable_storage_row_cache) {
@@ -263,8 +284,9 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, nullptr, &location,
-                                      INT32_MAX /*rethink?*/, rowset_ptr.get()));
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, specified_rowsets,
+                                      &location, INT32_MAX /*rethink?*/, segment_caches,
+                                      rowset_ptr.get()));
         if (st.is_not_found()) {
             continue;
         }

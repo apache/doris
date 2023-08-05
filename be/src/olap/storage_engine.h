@@ -37,6 +37,7 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
+#include "olap/calc_delete_bitmap_executor.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -54,7 +55,7 @@ class DataDir;
 class EngineTask;
 class MemTableFlushExecutor;
 class TaskWorkerPool;
-class BetaRowsetWriter;
+class SegcompactionWorker;
 class BaseCompaction;
 class CumulativeCompaction;
 class SingleReplicaCompaction;
@@ -143,6 +144,9 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
+    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
+        return _calc_delete_bitmap_executor.get();
+    }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -204,7 +208,7 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                   bool force);
-    Status submit_seg_compaction_task(BetaRowsetWriter* writer,
+    Status submit_seg_compaction_task(SegcompactionWorker* worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
@@ -214,6 +218,18 @@ public:
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
+
+    void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
+
+    void add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
+                                int64_t transaction_id, bool is_recover);
+    int64_t get_pending_publish_min_version(int64_t tablet_id);
+
+    void add_quering_rowset(RowsetSharedPtr rs);
+
+    RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
+
+    void evict_querying_rowset(RowsetId rs_id);
 
 private:
     // Instance should be inited from `static open()`
@@ -238,6 +254,12 @@ private:
 
     void _clean_unused_rowset_metas();
 
+    void _clean_unused_binlog_metas();
+
+    void _clean_unused_delete_bitmap();
+
+    void _clean_unused_pending_publish_info();
+
     Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
 
@@ -261,12 +283,12 @@ private:
 
     void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
 
+    void _tablet_path_check_callback();
+
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
 
     void _start_clean_cache();
-
-    void _start_clean_lookup_cache();
 
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
@@ -304,11 +326,14 @@ private:
 
     void _cache_file_cleaner_tasks_producer_callback();
 
-    Status _handle_seg_compaction(BetaRowsetWriter* writer,
+    Status _handle_seg_compaction(SegcompactionWorker* worker,
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
-    void _gc_binlogs();
+
+    void _gc_binlogs(int64_t tablet_id, int64_t version);
+
+    void _async_publish_callback();
 
 private:
     struct CompactionCandidate {
@@ -356,6 +381,10 @@ private:
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
+    // Hold reference of quering rowsets
+    std::mutex _quering_rowsets_mutex;
+    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _querying_rowsets;
+
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
@@ -378,6 +407,8 @@ private:
     std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
+    // thread to check tablet path
+    scoped_refptr<Thread> _tablet_path_check_thread;
     // thread to clean tablet lookup cache
     scoped_refptr<Thread> _lookup_cache_clean_thread;
 
@@ -393,6 +424,7 @@ private:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
+    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
@@ -430,7 +462,9 @@ private:
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    // we use unordered_map to store all cumulative compaction policy sharded ptr
+    std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
+            _cumulative_compaction_policies;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;
@@ -442,6 +476,12 @@ private:
 
     std::mutex _running_cooldown_mutex;
     std::unordered_set<int64_t> _running_cooldown_tablets;
+
+    // tablet_id, publish_version, transaction_id, partition_id
+    std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
+    // aync publish for discontinuous versions of merge_on_write table
+    scoped_refptr<Thread> _async_publish_thread;
+    std::mutex _async_publish_mutex;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

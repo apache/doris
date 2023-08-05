@@ -88,9 +88,11 @@ template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
     T val = 0;
-    if (!read_decimal_text_impl<T>(val, rb, precision, scale)) {
-        return Status::InvalidArgument("parse decimal fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (!read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), T>(
+                val, rb, precision, scale)) {
+        return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                       std::string(rb.position(), rb.count()).c_str(),
+                                       DataTypeDecimalSerDe<T>::get_primitive_type());
     }
     column_data.emplace_back(val);
     return Status::OK();
@@ -156,21 +158,24 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
 template <typename T>
 bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    *res = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
-                                                     &result);
+    *res = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type(), __int128>(
+            str.c_str(), str.size(), precision, scale, &result);
     return result == StringParser::PARSE_SUCCESS;
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
     if (precision_value < min_decimal_precision() ||
         precision_value > max_decimal_precision<Decimal128>()) {
-        LOG(WARNING) << "Wrong precision " << precision_value;
-        return nullptr;
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Wrong precision {}, min: {}, max: {}", precision_value,
+                               min_decimal_precision(), max_decimal_precision<Decimal128>());
     }
 
     if (static_cast<UInt64>(scale_value) > precision_value) {
-        LOG(WARNING) << "Negative scales and scales larger than precision are not supported";
-        return nullptr;
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Negative scales and scales larger than precision are not "
+                               "supported, scale_value: {}, precision_value: {}",
+                               scale_value, precision_value);
     }
 
     if (use_v2) {

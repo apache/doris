@@ -60,6 +60,7 @@ public class PrintableMap<K, V> {
         HIDDEN_KEY = Sets.newHashSet();
         HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
         HIDDEN_KEY.addAll(GlueProperties.META_KEYS);
+        HIDDEN_KEY.addAll(DLFProperties.META_KEYS);
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSeparator,

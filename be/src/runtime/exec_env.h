@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
 
@@ -37,6 +38,9 @@ class ScannerScheduler;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
+}
+namespace taskgroup {
+class TaskGroupManager;
 }
 class BfdParser;
 class BrokerMgr;
@@ -66,6 +70,7 @@ template <class T>
 class ClientCache;
 class HeartbeatFlags;
 class FrontendServiceClient;
+class FileMetaCache;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -106,6 +111,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_group_scheduler() {
         return _pipeline_task_group_scheduler;
     }
+    taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
 
     // using template to simplify client cache management
     template <typename T>
@@ -118,6 +124,7 @@ public:
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
     MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
     MemTracker* page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker.get(); }
+    MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
@@ -169,6 +176,8 @@ public:
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
+    FileMetaCache* file_meta_cache() { return _file_meta_cache; }
+    MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -211,6 +220,7 @@ private:
     std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
     // page size not in cache, data page/index page/etc.
     std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
+    std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
@@ -229,6 +239,7 @@ private:
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
     pipeline::TaskScheduler* _pipeline_task_group_scheduler = nullptr;
+    taskgroup::TaskGroupManager* _task_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
@@ -250,6 +261,9 @@ private:
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     BlockSpillManager* _block_spill_mgr = nullptr;
+    // To save meta info of external file, such as parquet footer.
+    FileMetaCache* _file_meta_cache = nullptr;
+    std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
 };
 
 template <>

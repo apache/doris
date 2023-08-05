@@ -23,6 +23,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 
@@ -32,11 +33,6 @@ import java.util.List;
 @Developing
 //TODO: memory cost and network cost should be estimated by byte size.
 public class CostCalculator {
-    private static boolean enableNewCostModel = false;
-
-    public static void setEnableNewCostModel(boolean enableNewCostModel) {
-        CostCalculator.enableNewCostModel = enableNewCostModel;
-    }
 
     /**
      * Calculate cost for groupExpression
@@ -47,7 +43,7 @@ public class CostCalculator {
                 && childrenProperties.get(1).getDistributionSpec() instanceof DistributionSpecReplicated) {
             planContext.setBroadcastJoin();
         }
-        if (enableNewCostModel) {
+        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
             CostModelV2 costModelV2 = new CostModelV2();
             return groupExpression.getPlan().accept(costModelV2, planContext);
         } else {
@@ -60,7 +56,7 @@ public class CostCalculator {
      * Calculate cost without groupExpression
      */
     public static Cost calculateCost(Plan plan, PlanContext planContext) {
-        if (enableNewCostModel) {
+        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
             CostModelV2 costModel = new CostModelV2();
             return plan.accept(costModel, planContext);
         } else {
@@ -70,9 +66,9 @@ public class CostCalculator {
     }
 
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
-        if (!enableNewCostModel) {
-            return CostModelV1.addChildCost(plan, planCost, childCost, index);
+        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+            return CostModelV2.addChildCost(plan, planCost, childCost, index);
         }
-        return CostModelV2.addChildCost(plan, planCost, childCost, index);
+        return CostModelV1.addChildCost(plan, planCost, childCost, index);
     }
 }

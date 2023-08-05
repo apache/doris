@@ -320,9 +320,8 @@ VDataStreamRecvr::VDataStreamRecvr(
     }
 
     // Initialize the counters
-    auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
-    _profile->add_child(memory_usage, false, nullptr);
-    _blocks_memory_usage = memory_usage->AddHighWaterMarkCounter("Blocks", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
+    _blocks_memory_usage = _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
     _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);
     _local_bytes_received_counter = ADD_COUNTER(_profile, "LocalBytesReceived", TUnit::BYTES);
 
@@ -354,13 +353,14 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
                                                      _sender_queues[i], std::placeholders::_1,
                                                      std::placeholders::_2));
     }
+    _merger->set_pipeline_engine_enabled(_enable_pipeline);
     RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
     return Status::OK();
 }
 
 void VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                  int64_t packet_seq, ::google::protobuf::Closure** done) {
-    SCOPED_ATTACH_TASK(_query_mem_tracker, _query_id, _fragment_instance_id);
+    SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id, _fragment_instance_id);
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
 }

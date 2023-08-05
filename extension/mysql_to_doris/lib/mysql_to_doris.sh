@@ -1,3 +1,4 @@
+#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -14,48 +15,72 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#!/bin/bash
-path=$1
-sed -i 's/AUTO_INCREMENT//g' $path
-sed -i 's/CHARACTER SET utf8 COLLATE utf8_bin//g' $path
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci//g' $path
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_bin//g' $path
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci//g'  $path
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8_general_ci//g' $path
-sed -i 's/CHARACTER SET utf8 COLLATE utf8_general_ci//g' $path
-sed -i 's/DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP//g' $path
-sed -i 's/DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP//g' $path
-sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_bin//g' $path
-sed -i 's/DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP//g' $path
-sed -i 's/DEFAULT CURRENT_TIMESTAMP//g' $path
-sed -i 's/CHARACTER SET utf8mb4//g' $path
-sed -i 's/CHARACTER SET utf8//g' $path
-sed -i 's/COLLATE utf8mb4_general_ci//g' $path
-sed -i 's/COLLATE utf8_general_ci//g'  $path
-sed -i 's/COLLATE utf8_bin//g'  $path
-sed -i 's/\<tinytext\>/varchar(65533)/g' $path
-sed -i 's/\<text\>/varchar(65533)/g' $path
-sed -i 's/\<mediumtext\>/varchar(65533)/g' $path
-sed -i 's/\<longtext\>/varchar(65533)/g' $path
-sed -i 's/\<tinyblob\>/varchar(65533)/g' $path
-sed -i 's/\<blob\>/varchar(65533)/g' $path
-sed -i 's/\<mediumblob\>/varchar(65533)/g' $path
-sed -i 's/\<longblob\>/varchar(65533)/g' $path
-sed -i 's/\<tinystring\>/varchar(65533)/g' $path
-sed -i 's/\<mediumstring\>/varchar(65533)/g' $path
-sed -i 's/\<longstring\>/varchar(65533)/g' $path
-sed -i 's/\<timestamp\>/datetime/g' $path
-sed -i 's/\<unsigned\>//g' $path
-sed -i 's/\<zerofill\>//g' $path
-sed -i 's/\<json\>/varchar(65533)/g' $path
-sed -i 's/enum([^)]*)/varchar(65533)/g' $path
-sed -i 's/\<set\>/varchar(65533)/g' $path
-sed -i 's/\<bit\>/varchar(65533)/g' $path
-sed -i 's/\<string\>/varchar(65533)/g' $path
-sed -i 's/\<binary\>/varchar(65533)/g' $path
-sed -i 's/\<varbinary\>/varchar(65533)/g' $path
-sed -i 's/decimal([^)]*)/double/g' $path
-sed -i 's/varbinary([^)]*)/varchar(65533)/g' $path
-sed -i 's/binary([^)]*)/varchar(65533)/g' $path
-sed -i 's/string([^)]*)/varchar(65533)/g' $path
-sed -i 's/datetime([^)]*)/varchar(65533)/g' $path
+
+cur_dir="$(cd "$(dirname "$0")" && pwd)"
+home_dir=$(cd "${cur_dir}"/.. && pwd)
+
+source ${home_dir}/conf/env.conf
+
+#mkdir files to store tables and tables.sql
+mkdir -p ${home_dir}/result/mysql
+
+#The default path is ${home_dir}/result/mysql_to_doris.sql for create table sql
+path=${1:-${home_dir}/result/mysql/mysql_to_doris.sql}
+
+#delete sql file if it is exists
+rm -f $path
+
+#get create table sql for mysql
+for table in $(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk -F '\n' '{print $1}' | sed 's/ //g' | sed '/^$/d'); do
+  m_d=$(echo $table | awk -F '.' '{print $1}')
+  m_t=$(echo $table | awk -F '.' '{print $2}')
+  echo "show create table \`$m_d\`.\`$m_t\`;" | mysql -h$mysql_host -P$mysql_port -u$mysql_username -p$mysql_password >>$path
+done
+
+#adjust sql
+awk -F '\t' '{print $2}' $path | awk '!(NR%2)' | awk '{print $0 ";"}' >${home_dir}/result/mysql/tmp1.sql
+sed -i 's/\\n/\n/g' ${home_dir}/result/mysql/tmp1.sql
+sed -n '/CREATE TABLE/,/ENGINE\=/p' ${home_dir}/result/mysql/tmp1.sql >${home_dir}/result/mysql/tmp2.sql
+
+#delete tables special struct
+sed -i '/^  CON/d' ${home_dir}/result/mysql/tmp2.sql
+sed -i '/^  KEY/d' ${home_dir}/result/mysql/tmp2.sql
+rm -rf $path
+rm -rf ${home_dir}/result/mysql/tmp1.sql
+mv ${home_dir}/result/mysql/tmp2.sql $path
+
+#start transform tables struct
+sed -i '/ENGINE=/a) ENGINE=OLAP\nDUPLICATE KEY(APACHEDORISID1)\n COMMENT "OLAP"\nDISTRIBUTED BY HASH(APACHEDORISID2) BUCKETS 10\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 3"\n);' $path
+
+#delete match line
+sed -i '/PRIMARY KEY/d' $path
+sed -i '/UNIQUE KEY/d' $path
+#delete , at the beginning (
+sed -i '/,\s*$/{:loop; N; /,\(\s*\|\n\))/! bloop; s/,\s*[\n]\?\s*)/\n)/}' $path
+
+#delete a line on keyword
+sed -i -e '$!N;/\n.*ENGINE=OLAP/!P;D' $path
+#replace mysql password、database、table、host
+
+for t_name in $(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk -F '\n' '{print $1}' | sed 's/ //g' | awk -F '.' '{print $2}' | sed '/^$/d' | sed 's/^/`/g' | sed 's/$/`/g'); do
+  id=$(cat $path | grep -A 1 "$t_name" | grep -v "$t_name" | awk -F ' ' '{print $1}')
+  sed -i "0,/APACHEDORISID1/s/APACHEDORISID1/$id/" $path
+  sed -i "0,/APACHEDORISID2/s/APACHEDORISID2/$id/" $path
+done
+
+#do transfrom from mysql to doris external
+sh ${home_dir}/lib/mysql_type_convert.sh $path
+
+#get an orderly table name and add if not exists statement
+x=0
+for table in $(cat ${home_dir}/conf/doris_tables | grep -v '#' | sed 's/ //g' | sed '/^$/d'); do
+  let x++
+  d_t=$(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk "NR==$x{print}" | awk -F '.' '{print $2}' | sed 's/ //g')
+  table=$(echo ${table} | sed 's/\./`.`/g')
+  sed -i "s/TABLE \`$d_t\`/TABLE IF NOT EXISTS \`$table\`/g" $path
+done
+
+#create database
+for d_doris in $(cat ${home_dir}/conf/doris_tables | grep -v '#' | awk -F '\n' '{print $1}' | awk -F '.' '{print $1}' | sed 's/ //g' | sed '/^$/d' | sort -u); do
+  sed -i "1i CREATE DATABASE IF NOT EXISTS $d_doris;" $path
+done

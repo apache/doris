@@ -177,6 +177,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
 
+* `have_query_cache`
+
+  Used for compatibility with MySQL clients. No practical effect.
+
 * `default_order_by_limit`
 
   Used to control the default number of items returned after OrderBy. The default value is -1, and the maximum number of records after the query is returned by default, and the upper limit is the MAX_VALUE of the long data type.
@@ -614,6 +618,10 @@ Translated with www.DeepL.com/Translator (free version)
 
     Specify the storage path of the block file cache on BE, default 'random', and randomly select the storage path configured by BE.
 
+* `enable_inverted_index_query`
+
+    Set wether to use inverted index query, default true.
+
 * `topn_opt_limit_threshold`
 
     Set threshold for limit of topn query (eg. SELECT * FROM t ORDER BY k LIMIT n). If n <= threshold, topn optimizations(runtime predicate pushdown, two phase result fetch and read order by key) will enable automatically, otherwise disable. Default value is 1024.
@@ -629,6 +637,8 @@ Translated with www.DeepL.com/Translator (free version)
     Controls whether to show each user's implicit roles in the results of `show roles`. Default is false.
 
 * `use_fix_replica`
+
+    <version since="1.2.0"></version>
 
     Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
 
@@ -656,6 +666,10 @@ Translated with www.DeepL.com/Translator (free version)
 * `enable_orc_lazy_materialization`
 
   Controls whether to use lazy materialization technology in orc reader. The default value is true.
+
+* `enable_strong_consistency_read`
+
+  Used to enable strong consistent reading. By default, Doris supports strong consistency within the same session, that is, changes to data within the same session are visible in real time. If you want strong consistent reads between sessions, set this variable to true. 
 
 ***
 

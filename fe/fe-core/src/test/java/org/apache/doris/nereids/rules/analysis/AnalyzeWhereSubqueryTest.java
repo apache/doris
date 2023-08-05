@@ -26,15 +26,15 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
-import org.apache.doris.nereids.rules.rewrite.logical.ExistsApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.logical.PullUpCorrelatedFilterUnderApplyAggregateProject;
-import org.apache.doris.nereids.rules.rewrite.logical.PullUpProjectUnderApply;
-import org.apache.doris.nereids.rules.rewrite.logical.ScalarApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyAggregateFilter;
-import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyFilter;
-import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyProjectFilter;
+import org.apache.doris.nereids.rules.rewrite.ExistsApplyToJoin;
+import org.apache.doris.nereids.rules.rewrite.InApplyToJoin;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.PullUpCorrelatedFilterUnderApplyAggregateProject;
+import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
+import org.apache.doris.nereids.rules.rewrite.ScalarApplyToJoin;
+import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyAggregateFilter;
+import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyFilter;
+import org.apache.doris.nereids.rules.rewrite.UnCorrelatedApplyProjectFilter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -374,37 +374,39 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         PlanChecker.from(connectContext)
                 .analyze(sql10)
                 .matchesFromRoot(
-                    logicalProject(
-                        logicalFilter(
-                            logicalProject(
-                                logicalApply(
-                                    any(),
-                                    logicalAggregate(
-                                        logicalSubQueryAlias(
-                                            logicalProject(
-                                                logicalFilter()
-                                            ).when(p -> p.getProjects().equals(ImmutableList.of(
-                                                new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE,
-                                                        true,
-                                                        ImmutableList.of("default_cluster:test", "t7")), "aa")
+                    logicalResultSink(
+                        logicalProject(
+                            logicalFilter(
+                                logicalProject(
+                                    logicalApply(
+                                        any(),
+                                        logicalAggregate(
+                                            logicalSubQueryAlias(
+                                                logicalProject(
+                                                    logicalFilter()
+                                                ).when(p -> p.getProjects().equals(ImmutableList.of(
+                                                    new Alias(new ExprId(7), new SlotReference(new ExprId(5), "v1", BigIntType.INSTANCE,
+                                                            true,
+                                                            ImmutableList.of("default_cluster:test", "t7")), "aa")
+                                                )))
+                                            )
+                                            .when(a -> a.getAlias().equals("t2"))
+                                            .when(a -> a.getOutput().equals(ImmutableList.of(
+                                                    new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                            true, ImmutableList.of("t2"))
                                             )))
-                                        )
-                                        .when(a -> a.getAlias().equals("t2"))
-                                        .when(a -> a.getOutput().equals(ImmutableList.of(
-                                                new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
-                                                        true, ImmutableList.of("t2"))
+                                        ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
+                                            new Alias(new ExprId(8),
+                                                    (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
+                                                            true,
+                                                            ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)")
                                         )))
-                                    ).when(agg -> agg.getOutputExpressions().equals(ImmutableList.of(
-                                        new Alias(new ExprId(8),
-                                                (new Max(new SlotReference(new ExprId(7), "aa", BigIntType.INSTANCE,
-                                                        true,
-                                                        ImmutableList.of("t2")))).withAlwaysNullable(true), "max(aa)")
-                                    )))
-                                    .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
+                                        .when(agg -> agg.getGroupByExpressions().equals(ImmutableList.of()))
+                                    )
+                                    .when(apply -> apply.getCorrelationSlot().equals(ImmutableList.of(
+                                            new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
+                                                    ImmutableList.of("default_cluster:test", "t6")))))
                                 )
-                                .when(apply -> apply.getCorrelationSlot().equals(ImmutableList.of(
-                                        new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
-                                                ImmutableList.of("default_cluster:test", "t6")))))
                             )
                         )
                     )

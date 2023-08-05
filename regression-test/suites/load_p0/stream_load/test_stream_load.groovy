@@ -14,6 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.util.Date
+import java.text.SimpleDateFormat
 
 suite("test_stream_load", "p0") {
     sql "show tables"
@@ -89,6 +91,7 @@ suite("test_stream_load", "p0") {
         }
     }
 
+    sql "sync"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -177,6 +180,7 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberFilteredRows)
         }
     }
+    sql "sync"
     order_qt_sql1 " SELECT * FROM ${tableName2}"
 
     // test common case
@@ -289,7 +293,7 @@ suite("test_stream_load", "p0") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
-    sql """ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true');"""
+
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName10} (
       `k1` INT(11) NULL COMMENT "",
@@ -358,6 +362,7 @@ suite("test_stream_load", "p0") {
             assertEquals(0, json.NumberLoadedRows)
         }
     }
+    sql "sync"
 
     // load with skip 2 columns, with gzip
     streamLoad {
@@ -828,5 +833,114 @@ suite("test_stream_load", "p0") {
     
     sql "sync"
     order_qt_sql1 "select * from ${tableName9} order by k1, k2"
+
+    // test common user
+    def tableName13 = "test_common_user"
+    sql """ DROP TABLE IF EXISTS ${tableName13} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName13} (
+            `k1` bigint(20) NULL,
+            `k2` bigint(20) NULL,
+            `v1` tinyint(4) SUM NULL,
+            `v2` tinyint(4) REPLACE NULL,
+            `v3` tinyint(4) REPLACE_IF_NOT_NULL NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`, `k2`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`k1`)
+        (PARTITION partition_a VALUES [("-9223372036854775808"), ("10")),
+        PARTITION partition_b VALUES [("10"), ("20")),
+        PARTITION partition_c VALUES [("20"), ("30")),
+        PARTITION partition_d VALUES [("30"), ("40")))
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+    
+    sql """create USER common_user@'%' IDENTIFIED BY '123456'"""
+    sql """GRANT LOAD_PRIV ON *.* TO 'common_user'@'%';"""
+
+    streamLoad {
+        table "${tableName13}"
+
+        set 'column_separator', '|'
+        set 'columns', 'k1, k2, v1, v2, v3'
+        set 'strict_mode', 'true'
+        set 'Authorization', 'Basic  Y29tbW9uX3VzZXI6MTIzNDU2'
+
+        file 'test_auth.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    
+    sql "sync"
+    sql """DROP USER 'common_user'@'%'"""
+
+    // test default value
+    def tableName14 = "test_default_value"
+    sql """ DROP TABLE IF EXISTS ${tableName14} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName14} (
+            `k1` bigint(20) NULL DEFAULT "1",
+            `k2` bigint(20) NULL ,
+            `v1` tinyint(4) NULL,
+            `v2` tinyint(4) NULL,
+            `v3` tinyint(4) NULL,
+            `v4` DATETIME NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    streamLoad {
+        table "${tableName14}"
+
+        set 'column_separator', '|'
+        set 'columns', 'k2, v1, v2, v3'
+        set 'strict_mode', 'true'
+
+        file 'test_default_value.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    
+    sql "sync"
+    def res = sql "select * from ${tableName14}"
+    def time = res[0][5].toString().split("T")[0].split("-")
+    def year = time[0].toString()
+    SimpleDateFormat sdf= new SimpleDateFormat("yyyy-MM-dd")
+    def now = sdf.format(new Date()).toString().split("-")
+
+    // parse time is correct
+    // Due to the time difference in parsing, should deal with three situations:
+    // 2023-6-29 -> 2023-6-30
+    // 2023-6-30 -> 2023-7-1
+    // 2023-12-31 -> 2024-1-1
+    // now only compare year simply, you can retry if this test is error.
+    assertEquals(year, now[0])
+    // parse k1 default value
+    assertEquals(res[0][0], 1)
+    assertEquals(res[1][0], 1)
 }
 

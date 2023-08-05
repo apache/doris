@@ -191,7 +191,7 @@ check_be_status() {
         doris_note "EntryPoint Check - Verify that BE is registered to FE successfully"
         BE_ALREADY_EXISTS=true
       fi
-      break
+      return
     fi
     if [[ $(( $i % 20 )) == 1 ]]; then
       if [[ $1 == true ]]; then

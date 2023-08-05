@@ -261,7 +261,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `thrift_rpc_timeout_ms`
 
 * 描述：thrift默认超时时间
-* 默认值：10000
+* 默认值：60000
 
 #### `thrift_client_retry_interval_ms`
 
@@ -286,7 +286,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `txn_commit_rpc_timeout_ms`
 
 * 描述：txn 提交 rpc 超时
-* 默认值：10000 (ms)
+* 默认值：60000 (ms)
 
 #### `txn_map_shard_size`
 
@@ -326,12 +326,18 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：当使用odbc外表时，如果odbc源表的某一列类型不是HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
 * 默认值：100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* 类型: int32
+* 描述: JSONB 类型最大长度的软限，单位是字节
+* 默认值: 1048576
+
 ### 查询
 
 #### `fragment_pool_queue_size`
 
 * 描述：单节点上能够处理的查询请求上限
-* 默认值：2048
+* 默认值：4096
 
 #### `fragment_pool_thread_num_min`
 
@@ -341,7 +347,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 #### `fragment_pool_thread_num_max`
 
 * 描述：后续查询请求动态创建线程，最大创建512个线程。
-* 默认值：512
+* 默认值：2048
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -567,7 +573,18 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 base compaction是一个耗时较长的后台操作，为了跟踪其运行信息，可以调整这个阈值参数来控制trace日志的打印。打印信息如下：
 
 ```
-W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] execute base compaction cost 0.00319222
+BaseCompaction:546859:
+  - filtered_rows: 0
+   - input_row_num: 10
+   - input_rowsets_count: 10
+   - input_rowsets_data_size: 2.17 KB
+   - input_segments_num: 10
+   - merge_rowsets_latency: 100000.510ms
+   - merged_rows: 0
+   - output_row_num: 10
+   - output_rowset_data_size: 224.00 B
+   - output_segments_num: 1
 0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
 0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
 0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
@@ -580,7 +597,6 @@ W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
 0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
 0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
 0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
-Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
 ```
 
 #### `cumulative_compaction_trace_threshold`
@@ -594,13 +610,13 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 类型：int32
 * 描述：每个磁盘（HDD）可以并发执行的compaction任务数量。
-* 默认值：2
+* 默认值：4
 
 #### `compaction_task_num_per_fast_disk`
 
 * 类型：int32
 * 描述：每个高速磁盘（SSD）可以并发执行的compaction任务数量。
-* 默认值：4
+* 默认值：8
 
 #### `cumulative_compaction_rounds_for_each_base_compaction_round`
 
@@ -627,17 +643,53 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
 * 默认值：true
 
-#### `segcompaction_threshold_segment_num`
+#### `segcompaction_batch_size`
 
 * 类型：int32
 * 描述：当 segment 数量超过此阈值时触发 segment compaction
 * 默认值：10
 
-#### `segcompaction_small_threshold`
+#### `segcompaction_candidate_max_rows`
 
 * 类型：int32
-* 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
+* 描述：当 segment 的行数超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
+
+#### `segcompaction_batch_size`
+
+* 类型: int32
+* 描述: 单个 segment compaction 任务中的最大原始 segment 数量。
+* 默认值: 10
+
+#### `segcompaction_candidate_max_rows`
+
+* 类型: int32
+* 描述: segment compaction 任务中允许的单个原始 segment 行数，过大的 segment 将被跳过。
+* 默认值: 1048576
+
+#### `segcompaction_candidate_max_bytes`
+
+* 类型: int64
+* 描述: segment compaction 任务中允许的单个原始 segment 大小（字节），过大的 segment 将被跳过。
+* 默认值: 104857600
+
+#### `segcompaction_task_max_rows`
+
+* 类型: int32
+* 描述: 单个 segment compaction 任务中允许的原始 segment 总行数。
+* 默认值: 1572864
+
+#### `segcompaction_task_max_bytes`
+
+* 类型: int64
+* 描述: 单个 segment compaction 任务中允许的原始 segment 总大小（字节）。
+* 默认值: 157286400
+
+#### `segcompaction_num_threads`
+
+* 类型: int32
+* 描述: segment compaction 线程池大小。
+* 默认值: 5
 
 #### `disable_compaction_trace_log`
 
@@ -661,7 +713,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `update_replica_infos_interval_seconds`
 
 * 描述：更新 peer replica infos 的最小间隔时间
-* 默认值：10（s）
+* 默认值：60（s）
 
 
 ### 导入
@@ -731,6 +783,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：int32
 * 描述：routine load 所使用的 data consumer 的缓存数量。
 * 默认值：10
+
+#### `multi_table_batch_plan_threshold`
+
+* 类型：int32
+* 描述：一流多表使用该配置，表示攒多少条数据再进行规划。过小的值会导致规划频繁，多大的值会增加内存压力和导入延迟。
+* 默认值：200
 
 #### `single_replica_load_download_num_workers`
 * 类型: int32
@@ -921,6 +979,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 描述：是否使用mmap分配内存
 * 默认值：false
+
+#### `memtable_mem_tracker_refresh_interval_ms`
+
+* 描述：memtable主动下刷时刷新内存统计的周期（毫秒）
+* 默认值：100
 
 #### `download_cache_buffer_size`
 
@@ -1242,12 +1305,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
   - 当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
 * 默认值：false
 
-#### `enable_lazy_open_partition`
-
-* 类型：bool
-* 描述：导入时大部分partition可能都不需要写入，可以使用延迟打开的方式只打开需要写入的partition。升级版本出现混合部署的时候，需要设置为false。
-* 默认值：false
-
 #### `streaming_load_rpc_max_alive_time_sec`
 
 * 描述：TabletsChannel 的存活时间。如果此时通道没有收到任何数据， 通道将被删除。
@@ -1256,6 +1313,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `alter_tablet_worker_count`
 
 * 描述：进行schema change的线程数
+* 默认值：3
+
+### `alter_index_worker_count`
+
+* 描述：进行index change的线程数
 * 默认值：3
 
 #### `ignore_load_tablet_failure`
@@ -1394,7 +1456,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 #### `max_runnings_transactions_per_txn_map`
 
 * 描述: txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
-* 默认值: 100
+* 默认值: 2000
 
 #### `max_download_speed_kbps`
 
@@ -1436,7 +1498,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 #### `enable_simdjson_reader`
 
 * 描述: 是否在导入json数据时用simdjson来解析。
-* 默认值: false
+* 默认值: true
 
 </version>
 

@@ -23,7 +23,9 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
+import org.quartz.CronExpression;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +43,18 @@ public class AnalyzeProperties {
     public static final String PROPERTY_ANALYSIS_TYPE = "analysis.type";
     public static final String PROPERTY_PERIOD_SECONDS = "period.seconds";
 
+    public static final AnalyzeProperties DEFAULT_PROP = new AnalyzeProperties(new HashMap<String, String>() {
+        {
+            put(AnalyzeProperties.PROPERTY_SYNC, "false");
+            put(AnalyzeProperties.PROPERTY_AUTOMATIC, "false");
+            put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisType.FUNDAMENTALS.toString());
+        }
+    });
+
+    public static final String PROPERTY_PERIOD_CRON = "period.cron";
+
+    private CronExpression cronExpression;
+
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(PROPERTY_SYNC)
             .add(PROPERTY_INCREMENTAL)
@@ -50,6 +64,7 @@ public class AnalyzeProperties {
             .add(PROPERTY_NUM_BUCKETS)
             .add(PROPERTY_ANALYSIS_TYPE)
             .add(PROPERTY_PERIOD_SECONDS)
+            .add(PROPERTY_PERIOD_CRON)
             .build();
 
     public AnalyzeProperties(Map<String, String> properties) {
@@ -72,6 +87,7 @@ public class AnalyzeProperties {
         checkAnalysisMode(msgTemplate);
         checkAnalysisType(msgTemplate);
         checkScheduleType(msgTemplate);
+        checkPeriod();
     }
 
     public boolean isSync() {
@@ -113,6 +129,10 @@ public class AnalyzeProperties {
         }
         int minutes = Integer.parseInt(properties.get(PROPERTY_PERIOD_SECONDS));
         return TimeUnit.SECONDS.toMillis(minutes);
+    }
+
+    public CronExpression getCron() {
+        return cronExpression;
     }
 
     private void checkPeriodSeconds() throws AnalysisException {
@@ -204,6 +224,22 @@ public class AnalyzeProperties {
         if (properties.containsKey(PROPERTY_AUTOMATIC)
                 && properties.containsKey(PROPERTY_PERIOD_SECONDS)) {
             throw new AnalysisException(PROPERTY_PERIOD_SECONDS + " is invalid when analyze automatically statistics");
+        }
+    }
+
+    private void checkPeriod() throws AnalysisException {
+        if (properties.containsKey(PROPERTY_PERIOD_SECONDS)
+                && properties.containsKey(PROPERTY_PERIOD_CRON)) {
+            throw new AnalysisException(PROPERTY_PERIOD_SECONDS + " and " + PROPERTY_PERIOD_CRON
+                    + " couldn't be set simultaneously");
+        }
+        String cronExprStr = properties.get(PROPERTY_PERIOD_CRON);
+        if (cronExprStr != null) {
+            try {
+                cronExpression = new CronExpression(cronExprStr);
+            } catch (java.text.ParseException e) {
+                throw new AnalysisException("Invalid cron expression: " + cronExprStr);
+            }
         }
     }
 

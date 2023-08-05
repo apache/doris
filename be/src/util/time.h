@@ -74,6 +74,13 @@ inline int64_t GetCurrentTimeMicros() {
     return ts.tv_sec * MICROS_PER_SEC + ts.tv_nsec / NANOS_PER_MICRO;
 }
 
+// Returns the time since the Epoch measured in nanoseconds.
+inline int64_t GetCurrentTimeNanos() {
+    timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return ts.tv_sec * NANOS_PER_SEC + ts.tv_nsec;
+}
+
 /// Returns the number of milliseconds that have passed since the Unix epoch. This is
 /// affected by manual changes to the system clock but is more suitable for use across
 /// a cluster. For more accurate timings on the local host use the monotonic functions

@@ -50,13 +50,6 @@ class TaskGroup;
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 } // namespace taskgroup
 
-class MemTrackerLimiter;
-
-struct TrackerLimiterGroup {
-    std::list<MemTrackerLimiter*> trackers;
-    std::mutex group_lock;
-};
-
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.
 //
@@ -74,6 +67,11 @@ public:
         CLONE = 5, // Count the memory consumption of all EngineCloneTask. Note: Memory that does not contain make/release snapshots.
         EXPERIMENTAL =
                 6 // Experimental memory statistics, usually inaccurate, used for debugging, and expect to add other types in the future.
+    };
+
+    struct TrackerLimiterGroup {
+        std::list<MemTrackerLimiter*> trackers;
+        std::mutex group_lock;
     };
 
     inline static std::unordered_map<Type, std::shared_ptr<RuntimeProfile::HighWaterMarkCounter>>
@@ -142,8 +140,6 @@ public:
 
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
 
-    static void disable_oom_avoidance() { _oom_avoidance = false; }
-
 public:
     // If need to consume the tracker frequently, use it
     void cache_consume(int64_t bytes);
@@ -168,45 +164,53 @@ public:
     static std::string type_detail_usage(const std::string& msg, Type type);
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
+    // process memory changes more than 256M, or the GC ends
     static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
-    static std::string log_process_usage_str(const std::string& msg, bool with_stacktrace = true);
-    static void print_log_process_usage(const std::string& msg, bool with_stacktrace = true);
+    static std::string log_process_usage_str();
+    static void print_log_process_usage();
 
     // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
     // vm_rss_str and mem_available_str recorded when gc is triggered, for log printing.
     static int64_t free_top_memory_query(int64_t min_free_mem, const std::string& vm_rss_str,
                                          const std::string& mem_available_str,
-                                         Type type = Type::QUERY);
+                                         RuntimeProfile* profile, Type type = Type::QUERY);
 
     template <typename TrackerGroups>
     static int64_t free_top_memory_query(
             int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
-            const std::function<std::string(int64_t, const std::string&)>& cancel_msg);
+            const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
+            RuntimeProfile* profile);
 
     static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
-                                        const std::string& mem_available_str) {
-        return free_top_memory_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
+                                        const std::string& mem_available_str,
+                                        RuntimeProfile* profile) {
+        return free_top_memory_query(min_free_mem, vm_rss_str, mem_available_str, profile,
+                                     Type::LOAD);
     }
     // Start canceling from the query with the largest memory overcommit ratio until the memory
     // of min_free_mem size is freed.
     static int64_t free_top_overcommit_query(int64_t min_free_mem, const std::string& vm_rss_str,
                                              const std::string& mem_available_str,
-                                             Type type = Type::QUERY);
+                                             RuntimeProfile* profile, Type type = Type::QUERY);
 
     template <typename TrackerGroups>
     static int64_t free_top_overcommit_query(
             int64_t min_free_mem, Type type, std::vector<TrackerGroups>& tracker_groups,
-            const std::function<std::string(int64_t, const std::string&)>& cancel_msg);
+            const std::function<std::string(int64_t, const std::string&)>& cancel_msg,
+            RuntimeProfile* profile);
 
     static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
-                                            const std::string& mem_available_str) {
-        return free_top_overcommit_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
+                                            const std::string& mem_available_str,
+                                            RuntimeProfile* profile) {
+        return free_top_overcommit_query(min_free_mem, vm_rss_str, mem_available_str, profile,
+                                         Type::LOAD);
     }
 
     static int64_t tg_memory_limit_gc(
             int64_t request_free_memory, int64_t used_memory, uint64_t id, const std::string& name,
             int64_t memory_limit,
-            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups);
+            std::vector<taskgroup::TgTrackerLimiterGroup>& tracker_limiter_groups,
+            RuntimeProfile* profile);
 
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
@@ -221,6 +225,7 @@ public:
 
     static std::string process_mem_log_str();
     static std::string process_limit_exceeded_errmsg_str();
+    static std::string process_soft_limit_exceeded_errmsg_str();
     // Log the memory usage when memory limit is exceeded.
     std::string query_tracker_limit_exceeded_str(const std::string& tracker_limit_exceeded,
                                                  const std::string& last_consumer_tracker,
@@ -264,7 +269,8 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
-    static bool _oom_avoidance;
+
+    static std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
     std::list<MemTrackerLimiter*>::iterator _tracker_limiter_group_it;

@@ -42,4 +42,8 @@ suite("explode_split") {
                          lateral view explode_split(k2, ',') tmp as  e1 """
 
     qt_explode_split """ select e1 from (select 1 k1) as t lateral view explode_split("啊，啊，额，啊","，") tmp1 as e1; """
+    test {
+        sql """ select e1 from (select 1 k1) as t lateral view explode_split("aaa","") tmp1 as e1; """
+        exception "INVALID_ARGUMENT"
+    }
 }
