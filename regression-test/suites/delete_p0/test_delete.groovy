@@ -219,6 +219,8 @@ suite("test_delete") {
     sql """ delete from  delete_test_tb2 where k1 is null and k2 = 4.45; """
     qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
     
+    sql """ DROP TABLE IF EXISTS test1 """
+
     sql '''
         CREATE TABLE test1 (
             x varchar NOT NULL,
