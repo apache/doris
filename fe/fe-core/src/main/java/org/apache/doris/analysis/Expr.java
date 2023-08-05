@@ -934,7 +934,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             // being cast to a non-NULL type, the type doesn't matter and we can cast it
             // arbitrarily.
             Preconditions.checkState(this instanceof NullLiteral || this instanceof SlotRef);
-            return NullLiteral.create(ScalarType.BOOLEAN).treeToThrift();
+            type = ScalarType.BOOLEAN;
         }
         TExpr result = new TExpr();
         treeToThriftHelper(result);
