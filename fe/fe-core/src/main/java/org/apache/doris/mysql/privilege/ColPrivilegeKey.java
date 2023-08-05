@@ -85,10 +85,10 @@ public class ColPrivilegeKey {
             return false;
         }
         ColPrivilegeKey that = (ColPrivilegeKey) o;
-        return privilegeIdx == that.privilegeIdx &&
-                Objects.equal(ctl, that.ctl) &&
-                Objects.equal(db, that.db) &&
-                Objects.equal(tbl, that.tbl);
+        return privilegeIdx == that.privilegeIdx
+                && Objects.equal(ctl, that.ctl)
+                && Objects.equal(db, that.db)
+                && Objects.equal(tbl, that.tbl);
     }
 
     @Override

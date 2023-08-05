@@ -34,7 +34,7 @@ public class PrivPredicate {
             Privilege.USAGE_PRIV),
             Operator.OR);
     public static final PrivPredicate SHOW_WORKLOAD_GROUP = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
-                    Privilege.USAGE_PRIV),
+            Privilege.USAGE_PRIV),
             Operator.OR);
     // create/drop/alter/show user
     public static final PrivPredicate GRANT = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
@@ -111,9 +111,10 @@ public class PrivPredicate {
     }
 
     // Determine which column Privilege correspond to PrivPredicate
-    //The current logic is to include a SELECT_ PRIV returns SELECT_ PRIV, if load is included_ PRIV returns LOAD_ PRIV, the order cannot be reversed
+    //The current logic is to include a SELECT_ PRIV returns SELECT_ PRIV, if load is included_ PRIV returns LOAD_ PRIV,
+    // the order cannot be reversed
     public Privilege getColPrivilege() {
-        if(privs.get(Privilege.SELECT_PRIV.getIdx())) {
+        if (privs.get(Privilege.SELECT_PRIV.getIdx())) {
             return Privilege.SELECT_PRIV;
         } else if (privs.get(Privilege.LOAD_PRIV.getIdx())) {
             return Privilege.LOAD_PRIV;

@@ -333,7 +333,8 @@ public class Auth implements Writable {
     }
 
     // ==== Column ====
-    // The reason why this method throws an exception instead of returning a boolean is to indicate which col does not have permission
+    // The reason why this method throws an exception instead of returning a boolean is to
+    // indicate which col does not have permission
     public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
             PrivPredicate wanted) throws AuthorizationException {
         Set<Role> roles = getRolesByUserWithLdap(currentUser);
@@ -1172,7 +1173,7 @@ public class Auth implements Writable {
         List<String> colPrivs = Lists.newArrayList();
         for (Entry<ColPrivilegeKey, Set<String>> entry : getUserColPrivMap(userIdent).entrySet()) {
             colPrivs.add(String.format("%s.%s.%s: %s%s", entry.getKey().getCtl(), entry.getKey().getDb(),
-                    entry.getKey().getTbl(),entry.getKey().getPrivilege(),entry.getValue()));
+                    entry.getKey().getTbl(), entry.getKey().getPrivilege(), entry.getValue()));
         }
 
         if (colPrivs.isEmpty()) {
