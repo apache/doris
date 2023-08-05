@@ -151,10 +151,13 @@ public class GrantStmt extends DdlStmt {
             }
         }
 
-        checkAccessPrivileges(accessPrivileges);
 
-        for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
-            accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tblPattern);
+        if (!CollectionUtils.isEmpty(accessPrivileges)) {
+            checkAccessPrivileges(accessPrivileges);
+
+            for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
+                accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tblPattern);
+            }
         }
 
         if (CollectionUtils.isEmpty(privileges) && CollectionUtils.isEmpty(roles) && MapUtils.isEmpty(colPrivileges)) {

@@ -137,13 +137,13 @@ public class RevokeStmt extends DdlStmt {
                 roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
             }
         }
+        if (!CollectionUtils.isEmpty(accessPrivileges)) {
+            GrantStmt.checkAccessPrivileges(accessPrivileges);
 
-        GrantStmt.checkAccessPrivileges(accessPrivileges);
-
-        for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
-            accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tblPattern);
+            for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
+                accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tblPattern);
+            }
         }
-
         if (CollectionUtils.isEmpty(privileges) && CollectionUtils.isEmpty(roles) && MapUtils.isEmpty(colPrivileges)) {
             throw new AnalysisException("No privileges or roles in revoke statement.");
         }

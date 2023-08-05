@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.TablePattern;
@@ -94,6 +95,8 @@ public class CheckRowPolicyTest extends TestWithFeService {
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
+        grantStmt.analyze(analyzer);
         Env.getCurrentEnv().getAuth().grant(grantStmt);
     }
 
