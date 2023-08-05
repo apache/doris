@@ -80,6 +80,7 @@ public enum AccessPrivilege {
         }
     }
 
+    // Used to restrict which permissions support column permissions
     public boolean canHasColPriv() {
         return this == SELECT_PRIV || this == LOAD_PRIV;
     }
