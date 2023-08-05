@@ -483,7 +483,9 @@ public class Role implements Writable, GsonPostProcessable {
 
 
     private void grantPrivs(ResourcePattern resourcePattern, PrivBitSet privs) throws DdlException {
-
+        if (privs.isEmpty()) {
+            return;
+        }
         // grant privs to user
         switch (resourcePattern.getPrivLevel()) {
             case GLOBAL:
@@ -499,6 +501,9 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     private void grantPrivs(WorkloadGroupPattern workloadGroupPattern, PrivBitSet privs) throws DdlException {
+        if (privs.isEmpty()) {
+            return;
+        }
         if (workloadGroupPattern.getPrivLevel().equals(PrivLevel.WORKLOAD_GROUP)) {
             grantWorkloadGroupPrivs(workloadGroupPattern.getworkloadGroupName(), privs);
         }
@@ -518,6 +523,9 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     private void grantPrivs(TablePattern tblPattern, PrivBitSet privs) throws DdlException {
+        if (privs.isEmpty()) {
+            return;
+        }
         // grant privs to user
         switch (tblPattern.getPrivLevel()) {
             case GLOBAL:
