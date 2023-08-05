@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "util/blocking_priority_queue.hpp"
+#include "util/blocking_queue.hpp"
 #include "util/lock.h"
 #include "util/thread.h"
 #include "util/thread_group.h"
@@ -29,7 +30,8 @@ namespace doris {
 
 // Simple threadpool which processes items (of type T) in parallel which were placed on a
 // blocking queue by Offer(). Each item is processed by a single user-supplied method.
-class PriorityThreadPool {
+template <bool Priority = false>
+class WorkThreadPool {
 public:
     // Signature of a work-processing function. Takes the integer id of the thread which is
     // calling it (ids run from 0 to num_threads - 1) and a reference to the item to
@@ -49,22 +51,25 @@ public:
         }
     };
 
+    using WorkQueue =
+            std::conditional_t<Priority, BlockingPriorityQueue<Task>, BlockingQueue<Task>>;
+
     // Creates a new thread pool and start num_threads threads.
     //  -- num_threads: how many threads are part of this pool
     //  -- queue_size: the maximum size of the queue on which work items are offered. If the
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
-    PriorityThreadPool(uint32_t num_threads, uint32_t queue_size, const std::string& name)
+    WorkThreadPool(uint32_t num_threads, uint32_t queue_size, const std::string& name)
             : _work_queue(queue_size), _shutdown(false), _name(name), _active_threads(0) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
-                    std::bind<void>(std::mem_fn(&PriorityThreadPool::work_thread), this, i));
+                    std::bind<void>(std::mem_fn(&WorkThreadPool::work_thread), this, i));
         }
     }
 
     // Destructor ensures that all threads are terminated before this object is freed
     // (otherwise they may continue to run and reference member variables)
-    virtual ~PriorityThreadPool() {
+    virtual ~WorkThreadPool() {
         shutdown();
         join();
     }
@@ -83,12 +88,12 @@ public:
     virtual bool offer(Task task) { return _work_queue.blocking_put(task); }
 
     virtual bool offer(WorkFunction func) {
-        PriorityThreadPool::Task task = {0, func, 0};
+        WorkThreadPool::Task task = {0, func, 0};
         return _work_queue.blocking_put(task);
     }
 
     virtual bool try_offer(WorkFunction func) {
-        PriorityThreadPool::Task task = {0, func, 0};
+        WorkThreadPool::Task task = {0, func, 0};
         return _work_queue.try_put(task);
     }
 
@@ -126,8 +131,8 @@ public:
         return fmt::format(
                 "PriorityThreadPool(name={}, queue_size={}/{}, active_thread={}/{}, "
                 "total_get_wait_time={}, total_put_wait_time={})",
-                _name, get_queue_size(), _work_queue.get_size(), _work_queue.get_max_size(),
-                _active_threads, _threads.size(), _work_queue.total_get_wait_time(),
+                _name, get_queue_size(), _work_queue.get_capacity(), _active_threads,
+                _threads.size(), _work_queue.total_get_wait_time(),
                 _work_queue.total_put_wait_time());
     }
 
@@ -161,14 +166,15 @@ private:
         }
     }
 
-    // Queue on which work items are held until a thread is available to process them in
-    // FIFO order.
-    BlockingPriorityQueue<Task> _work_queue;
+    WorkQueue _work_queue;
 
     // Set to true when threads should stop doing work and terminate.
     std::atomic<bool> _shutdown;
     std::string _name;
     std::atomic<int> _active_threads;
 };
+
+using PriorityThreadPool = WorkThreadPool<true>;
+using FifoThreadPool = WorkThreadPool<false>;
 
 } // namespace doris
