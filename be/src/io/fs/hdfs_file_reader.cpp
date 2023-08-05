@@ -115,6 +115,7 @@ Status HdfsFileReader::close() {
     return Status::OK();
 }
 
+#ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
@@ -141,7 +142,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     return Status::OK();
 }
 
-#if 0
+#else
 // The hedged read only support hdfsPread().
 // TODO: rethink here to see if there are some difference betwenn hdfsPread() and hdfsRead()
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
