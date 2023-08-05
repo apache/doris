@@ -82,6 +82,8 @@ suite("test_primary_key_partial_update_parallel", "p0") {
         }
     }
 
+    sql "sync"
+
     sql """
         select * from ${tableName} order by id;
     """
