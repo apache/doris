@@ -475,7 +475,6 @@ set(DORIS_LINK_LIBS
     Gutil
     IO
     Olap
-    Rowset
     Runtime
     Service
     Udf
