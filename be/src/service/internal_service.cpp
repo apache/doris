@@ -172,7 +172,7 @@ template <typename T>
 concept CanCancel = requires(T* response) { response->mutable_status(); };
 
 template <CanCancel T>
-void offer_failed(T* response, google::protobuf::Closure* done, const PriorityThreadPool& pool) {
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
     brpc::ClosureGuard closure_guard(done);
     response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
     response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
@@ -180,7 +180,7 @@ void offer_failed(T* response, google::protobuf::Closure* done, const PriorityTh
 }
 
 template <typename T>
-void offer_failed(T* response, google::protobuf::Closure* done, const PriorityThreadPool& pool) {
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
     brpc::ClosureGuard closure_guard(done);
     LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
 }
@@ -983,7 +983,14 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
-    PriorityThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
+
+    if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
+        // under high concurrency, thread pool will have a lot of lock contention.
+        _transmit_block(controller, request, response, done, Status::OK());
+        return;
+    }
+
+    FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
     bool ret = pool.try_offer([this, controller, request, response, done]() {
         _transmit_block(controller, request, response, done, Status::OK());
     });

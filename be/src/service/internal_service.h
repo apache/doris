@@ -23,7 +23,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/priority_thread_pool.hpp"
+#include "util/work_thread_pool.hpp"
 
 namespace google {
 namespace protobuf {
@@ -227,8 +227,8 @@ private:
     // the reason see issue #16634
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
-    PriorityThreadPool _heavy_work_pool;
-    PriorityThreadPool _light_work_pool;
+    FifoThreadPool _heavy_work_pool;
+    FifoThreadPool _light_work_pool;
 };
 
 } // namespace doris
