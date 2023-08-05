@@ -18,9 +18,12 @@
 #pragma once
 
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -53,6 +56,83 @@ namespace vectorized {
 
 struct ScannerCounter;
 class Block;
+
+class LineFieldSplitterIf {
+public:
+    virtual ~LineFieldSplitterIf() = default;
+
+    virtual void split_line(const Slice& line, std::vector<Slice>* splitted_values) = 0;
+};
+
+class CsvProtoFieldSplitter final : public LineFieldSplitterIf {
+public:
+    inline void split_line(const Slice& line, std::vector<Slice>* splitted_values) override {
+        PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+        PDataRow* row = *row_ptr;
+        for (const PDataColumn& col : row->col()) {
+            splitted_values->emplace_back(col.value());
+        }
+    }
+};
+
+class CsvTextFieldSplitter final : public LineFieldSplitterIf {
+    // using a function ptr to decrease the overhead (found very effective during test).
+    using ProcessValueFunc = void (*)(const char*, size_t*, size_t*, char);
+
+public:
+    explicit CsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                  std::shared_ptr<CsvLineReaderContext> line_reader_ctx,
+                                  size_t value_sep_len = 1, char trimming_char = 0)
+            : _trimming_char(trimming_char),
+              _value_sep_len(value_sep_len),
+              _text_line_reader_ctx(line_reader_ctx) {
+        if (trim_tailing_space) {
+            if (trim_ends) {
+                _process_value_func = &CsvTextFieldSplitter::_process_value<true, true>;
+            } else {
+                _process_value_func = &CsvTextFieldSplitter::_process_value<true, false>;
+            }
+        } else {
+            if (trim_ends) {
+                _process_value_func = &CsvTextFieldSplitter::_process_value<false, true>;
+            } else {
+                _process_value_func = &CsvTextFieldSplitter::_process_value<false, false>;
+            }
+        }
+    }
+
+    void split_line(const Slice& line, std::vector<Slice>* splitted_values) override;
+
+    inline void split_field(const char* data, size_t start_offset, size_t value_len,
+                            std::vector<Slice>* splitted_values) {
+        _process_value_func(data, &start_offset, &value_len, _trimming_char);
+        splitted_values->emplace_back(data + start_offset, value_len);
+    }
+
+private:
+    template <bool TrimTailingSpace, bool TrimEnds>
+    inline static void _process_value(const char* data, size_t* start_offset, size_t* value_len,
+                                      char trimming_char) {
+        if constexpr (TrimTailingSpace) {
+            while (*value_len > 0 && *(data + *start_offset + *value_len - 1) == ' ') {
+                --*value_len;
+            }
+        }
+        if constexpr (TrimEnds) {
+            const bool trim_cond = *value_len > 1 && *(data + *start_offset) == trimming_char &&
+                                   *(data + *start_offset + *value_len - 1) == trimming_char;
+            if (trim_cond) {
+                ++(*start_offset);
+                *value_len -= 2;
+            }
+        }
+    }
+
+    const char _trimming_char;
+    const size_t _value_sep_len;
+    ProcessValueFunc _process_value_func;
+    std::shared_ptr<CsvLineReaderContext> _text_line_reader_ctx;
+};
 
 class CsvReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(CsvReader);
@@ -103,8 +183,6 @@ private:
     Status _parse_col_names(std::vector<std::string>* col_names);
     // TODO(ftw): parse type
     Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
-    void _process_value_field(const char* data, size_t start_offset, size_t value_len);
-    void _trim_ends(const char* data, size_t* start_offset, size_t* value_len, const char c) const;
 
     RuntimeState* _state;
     RuntimeProfile* _profile;
@@ -161,6 +239,7 @@ private:
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
+    std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
 };
 } // namespace vectorized
 } // namespace doris

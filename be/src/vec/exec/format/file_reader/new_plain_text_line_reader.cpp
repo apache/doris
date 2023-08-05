@@ -44,7 +44,6 @@ namespace doris {
 
 const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_t length) {
     _total_len = length;
-    _curr_data = start;
     size_t bound = update_reading_bound(start);
     read_line_impl(start, bound);
     return _result;
@@ -65,20 +64,14 @@ void CsvLineReaderContext::read_line_impl(const uint8_t* start, size_t& bound) {
         }
         break;
     } while (true);
-    if (_result != nullptr) {
-        // endl, process the last field.
-        _field_splitter->split_field(start, _latest_field_start_offset,
-                                     bound - line_delimiter_len - _latest_field_start_offset);
-    }
-    _idx = bound;
 }
 
 void CsvLineReaderContext::on_col_sep_found(const uint8_t* start, const uint8_t* col_sep_pos) {
-    const uint8_t* field_start = start + _latest_field_start_offset;
-    _field_splitter->split_field(field_start, 0, col_sep_pos - field_start);
-    const size_t forward_distance = col_sep_pos + _column_sep_len - (start + _idx);
+    const uint8_t* field_start = start + _idx;
+    // record column separator's position
+    _column_sep_positions.push_back(col_sep_pos - start);
+    const size_t forward_distance = col_sep_pos + _column_sep_len - field_start;
     _idx += forward_distance;
-    _latest_field_start_offset = _idx;
 }
 
 size_t CsvLineReaderContext::update_reading_bound(const uint8_t* start) {
@@ -99,12 +92,14 @@ const uint8_t* CsvLineReaderContext::look_for_column_sep_pos(const uint8_t* curr
 
     if constexpr (SingleChar) {
         char sep = column_sep[0];
+        // note(tsy): tests show that simple `for + if` performs better than native memchr or memmem under normal `short feilds` case.
         for (size_t i = 0; i < curr_len; ++i) {
             if (curr_start[i] == sep) {
                 return curr_start + i;
             }
         }
     } else {
+        // note(tsy): can be optimized, memmem has relatively large overhaed when used multiple times in short pattern.
         col_sep_pos = (uint8_t*)memmem(curr_start, curr_len, column_sep, column_sep_len);
     }
     return col_sep_pos;
@@ -159,11 +154,7 @@ void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) 
         _state.forward_to(ReaderState::START);
         return;
     }
-    if (_result != nullptr) {
-        // endl, process the last field.
-        _field_splitter->split_field(start, _latest_field_start_offset,
-                                     len - line_delimiter_len - _latest_field_start_offset);
-    }
+    // TODO(tsy): maybe potential bug when a multi-char is not read completely
     _idx = len;
 }
 
@@ -200,12 +191,6 @@ void EncloseCsvLineReaderContext::_on_match_enclose(const uint8_t* start, size_t
         on_col_sep_found(start, delim_pos);
         _state.forward_to(ReaderState::START);
         return;
-    }
-    delim_pos = find_line_delim_func(curr_start, line_delimiter_len, line_delimiter.c_str(),
-                                     line_delimiter_len);
-    if (delim_pos != nullptr) {
-        _field_splitter->split_field(start, _latest_field_start_offset,
-                                     len - line_delimiter_len - _latest_field_start_offset);
     }
     // corner case(suppose `,` is delimiter and `"` is enclose): ,"part1"part2 will be treated as incompleted enclose
     _idx = len;
@@ -423,7 +408,6 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                         // last loop we meet stream end,
                         // and now we finished reading file, so we are finished
                         // break this loop to see if there is data in buffer
-                        _line_reader_ctx->on_line_finished();
                         break;
                     }
                 }

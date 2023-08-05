@@ -48,9 +48,6 @@ public:
     /// @return line delimiter pos if found, otherwise return nullptr.
     virtual const uint8_t* read_line(const uint8_t* start, const size_t len) = 0;
 
-    /// @brief call back for finishing reading on line
-    virtual void on_line_finished() = 0;
-
     /// @return length of line delimiter
     [[nodiscard]] virtual size_t line_delimiter_length() const = 0;
 
@@ -72,67 +69,11 @@ public:
         return line_delimiter_len;
     }
 
-    inline void on_line_finished() override {}
-
     inline void refresh() override {}
 
 protected:
     const std::string line_delimiter;
     const size_t line_delimiter_len;
-};
-
-class CsvFieldSplitter {
-    // using a function ptr to decrease the overhead (found very effective during test).
-    using ProcessValueFunc = void (*)(const uint8_t*, size_t*, size_t*, char);
-
-public:
-    explicit CsvFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                              std::vector<Slice>* split_values, char trimming_char = 0)
-            : _trimming_char(trimming_char), _split_values(split_values) {
-        if (trim_tailing_space) {
-            if (trim_ends) {
-                _process_value_func = &CsvFieldSplitter::_process_value<true, true>;
-            } else {
-                _process_value_func = &CsvFieldSplitter::_process_value<true, false>;
-            }
-        } else {
-            if (trim_ends) {
-                _process_value_func = &CsvFieldSplitter::_process_value<false, true>;
-            } else {
-                _process_value_func = &CsvFieldSplitter::_process_value<false, false>;
-            }
-        }
-    }
-
-    inline void split_field(const uint8_t* data, size_t start_offset, size_t value_len) {
-        _process_value_func(data, &start_offset, &value_len, _trimming_char);
-        _split_values->emplace_back(data + start_offset, value_len);
-    }
-
-    inline void refresh() { _split_values->clear(); }
-
-private:
-    template <bool TrimTailingSpace, bool TrimEnds>
-    inline static void _process_value(const uint8_t* data, size_t* start_offset, size_t* value_len,
-                                      char trimming_char) {
-        if constexpr (TrimTailingSpace) {
-            while (*value_len > 0 && *(data + *start_offset + *value_len - 1) == ' ') {
-                --*value_len;
-            }
-        }
-        if constexpr (TrimEnds) {
-            const bool trim_cond = *value_len > 1 && *(data + *start_offset) == trimming_char &&
-                                   *(data + *start_offset + *value_len - 1) == trimming_char;
-            if (trim_cond) {
-                ++(*start_offset);
-                *value_len -= 2;
-            }
-        }
-    }
-
-    const char _trimming_char;
-    ProcessValueFunc _process_value_func;
-    std::vector<Slice>* _split_values;
 };
 
 class CsvLineReaderContext : public PlainTexLineReaderCtx {
@@ -142,12 +83,11 @@ class CsvLineReaderContext : public PlainTexLineReaderCtx {
 public:
     explicit CsvLineReaderContext(const std::string& line_delimiter_,
                                   const size_t line_delimiter_len_, const std::string& column_sep_,
-                                  const size_t column_sep_len_,
-                                  std::unique_ptr<CsvFieldSplitter> field_splitter)
+                                  const size_t column_sep_len_, size_t col_sep_num)
             : PlainTexLineReaderCtx(line_delimiter_, line_delimiter_len_),
               _column_sep(column_sep_),
               _column_sep_len(column_sep_len_),
-              _field_splitter(std::move(field_splitter)) {
+              _column_sep_num(col_sep_num) {
         if (column_sep_len_ == 1) {
             find_col_sep_func = &CsvLineReaderContext::look_for_column_sep_pos<true>;
         } else {
@@ -158,6 +98,7 @@ public:
         } else {
             find_line_delim_func = &CsvLineReaderContext::look_for_line_delimiter<false>;
         }
+        _column_sep_positions.reserve(col_sep_num);
     }
 
     const uint8_t* read_line(const uint8_t* start, const size_t length) override;
@@ -165,14 +106,11 @@ public:
     inline void refresh() override {
         _idx = 0;
         _result = nullptr;
-        _field_splitter->refresh();
-        _latest_field_start_offset = 0;
+        _column_sep_positions.clear();
     }
 
-    //HACK: process the last field (cuz last field may not be read if meet eof without line delimiter)
-    inline void on_line_finished() override {
-        _field_splitter->split_field(_curr_data, _latest_field_start_offset,
-                                     _total_len - _latest_field_start_offset);
+    [[nodiscard]] inline const std::vector<size_t> column_sep_positions() const {
+        return _column_sep_positions;
     }
 
 protected:
@@ -203,12 +141,11 @@ protected:
     const size_t _column_sep_len;
 
     size_t _total_len;
-    size_t _latest_field_start_offset = 0;
-    const uint8_t* _curr_data;
+    const size_t _column_sep_num;
 
     size_t _idx = 0;
     const uint8_t* _result = nullptr;
-    std::unique_ptr<CsvFieldSplitter> _field_splitter;
+    std::vector<size_t> _column_sep_positions;
 };
 
 enum class ReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
@@ -234,11 +171,10 @@ public:
     explicit EncloseCsvLineReaderContext(const std::string& line_delimiter_,
                                          const size_t line_delimiter_len_,
                                          const std::string& column_sep_,
-                                         const size_t column_sep_len_,
-                                         std::unique_ptr<CsvFieldSplitter> field_splitter,
+                                         const size_t column_sep_len_, size_t col_sep_num,
                                          const char enclose, const char escape)
             : CsvLineReaderContext(line_delimiter_, line_delimiter_len_, column_sep_,
-                                   column_sep_len_, std::move(field_splitter)),
+                                   column_sep_len_, col_sep_num),
               _enclose(enclose),
               _escape(escape) {}
 
