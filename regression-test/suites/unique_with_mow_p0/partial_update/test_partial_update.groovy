@@ -172,7 +172,7 @@ suite("test_primary_key_partial_update", "p0") {
             assertEquals(2, json.NumberFilteredRows)
         }
     }
-
+    sql "sync"
     qt_partial_update_in_one_stream_load """
         select * from ${tableName} order by id;
     """
