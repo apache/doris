@@ -118,7 +118,7 @@ public:
         return _list.size();
     }
 
-    uint32_t get_max_size() const { return _max_elements; }
+    uint32_t get_capacity() const { return _max_elements; }
 
     // Returns the total amount of time threads have blocked in BlockingGet.
     uint64_t total_get_wait_time() const { return _total_get_wait_time; }

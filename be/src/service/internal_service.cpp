@@ -985,6 +985,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     response->set_receive_time(receive_time);
 
     if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
+        // under high concurrency, thread pool will have a lot of lock contention.
         _transmit_block(controller, request, response, done, Status::OK());
         return;
     }
