@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "agent/utils.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/hdfs.h"
 #include "util/string_util.h"
