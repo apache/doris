@@ -45,7 +45,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 @Getter
 public class JdbcClient {
@@ -110,23 +109,10 @@ public class JdbcClient {
             // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
             // it may cause the thrift rpc timeout.
             dataSource.setMaxWait(5000);
-            dataSource.setTestWhileIdle(true);
-            dataSource.setTestOnBorrow(false);
-            setValidationQuery(dataSource, dbType);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
-        }
-    }
-
-    private void setValidationQuery(DruidDataSource ds, String tableType) {
-        if (Objects.equals(tableType, JdbcResource.ORACLE)) {
-            ds.setValidationQuery("SELECT 1 FROM dual");
-        } else if (Objects.equals(tableType, JdbcResource.SAP_HANA)) {
-            ds.setValidationQuery("SELECT 1 FROM DUMMY");
-        } else {
-            ds.setValidationQuery("SELECT 1");
         }
     }
 
@@ -139,7 +125,7 @@ public class JdbcClient {
         try {
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            throw new JdbcClientException("Can not connect to jdbc due to error: %s", e, e.getMessage());
+            throw new JdbcClientException("Can not connect to jdbc", e);
         }
         return conn;
     }
