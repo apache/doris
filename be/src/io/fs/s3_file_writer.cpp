@@ -131,12 +131,13 @@ void S3FileWriter::_wait_until_finish(std::string_view task_name) {
     // We don't need high accuracy here, so we use time(nullptr)
     // since it's the fastest way to get current time(second)
     auto current_time_second = time(nullptr);
-    current_time.tv_sec = current_time_second;
+    current_time.tv_sec = current_time_second + 300;
     current_time.tv_nsec = 0;
     // bthread::countdown_event::timed_wait() should use absolute time
-    do {
+    while (0 != _countdown_event.timed_wait(current_time)) {
         current_time.tv_sec += 300;
-    } while (0 != _countdown_event.timed_wait(current_time));
+        LOG(WARNING) << msg;
+    }
 }
 
 Status S3FileWriter::abort() {
@@ -266,11 +267,9 @@ void S3FileWriter::_upload_one_part(int64_t part_num, S3FileBuffer& buf) {
     upload_request.WithBucket(_bucket).WithKey(_key).WithPartNumber(part_num).WithUploadId(
             _upload_id);
 
-    const auto& _stream_ptr = buf.get_stream();
-
     upload_request.SetBody(buf.get_stream());
 
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*_stream_ptr));
+    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*buf.get_stream()));
     upload_request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
 
     upload_request.SetContentLength(buf.get_size());
@@ -364,8 +363,7 @@ void S3FileWriter::_put_object(S3FileBuffer& buf) {
     DCHECK(!_closed) << "closed " << _closed;
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(_bucket).WithKey(_key);
-    const auto& _stream_ptr = buf.get_stream();
-    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*_stream_ptr));
+    Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*buf.get_stream()));
     request.SetContentMD5(Aws::Utils::HashingUtils::Base64Encode(part_md5));
     request.SetBody(buf.get_stream());
     request.SetContentLength(buf.get_size());
