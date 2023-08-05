@@ -1138,7 +1138,7 @@ using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
 using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
 
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
-using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromUnhex>;
+using FunctionBitmapFromUnhex = FunctionBitmapAlwaysNull<BitmapFromUnhex>;
 using FunctionBitmapFromArray = FunctionBitmapAlwaysNull<BitmapFromArray>;
 using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash<32>>;
 using FunctionBitmapHash64 = FunctionAlwaysNotNullable<BitmapHash<64>>;
@@ -1167,6 +1167,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToBitmap>();
     factory.register_function<FunctionToBitmapWithCheck>();
     factory.register_function<FunctionBitmapFromString>();
+    factory.register_function<FunctionBitmapFromUnhex>();
     factory.register_function<FunctionBitmapFromArray>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapHash64>();
