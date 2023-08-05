@@ -423,10 +423,12 @@ private:
                                          const StringRef& rdata, PaddedPODArray<ArgType>& res,
                                          NullMap& null_map, size_t input_rows_count) {
         res.resize(input_rows_count);
+        std::string lower_str(rdata.data, rdata.size);
+        std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = binary_cast<ArgType, DateValueType>(ldata[i]);
-            const char* str_data = rdata.data;
-            _execute_inner_loop(dt, str_data, res, null_map, i);
+            _execute_inner_loop(dt, lower_str.data(), res, null_map, i);
         }
     }
     template <typename T>
