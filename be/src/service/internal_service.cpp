@@ -983,6 +983,12 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
+
+    if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
+        _transmit_block(controller, request, response, done, Status::OK());
+        return;
+    }
+
     FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
     bool ret = pool.try_offer([this, controller, request, response, done]() {
         _transmit_block(controller, request, response, done, Status::OK());
