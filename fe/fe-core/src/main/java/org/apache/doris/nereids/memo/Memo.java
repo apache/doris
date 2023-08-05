@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -48,7 +49,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.stream.Collectors;
@@ -187,7 +187,7 @@ public class Memo {
         for (Pair<Integer, Integer> child : children) {
             maxJoinCount = Math.max(maxJoinCount, child.second);
         }
-        if (group.isValidJoinGroup()) {
+        if (group.getLogicalExpression().getPlan() instanceof LogicalJoin) {
             for (Pair<Integer, Integer> child : children) {
                 continuousJoinCount += child.first;
             }
