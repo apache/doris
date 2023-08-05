@@ -27,7 +27,6 @@
 
 namespace doris {
 class ExecEnv;
-class PriorityThreadPool;
 
 namespace vectorized {
 class VScanner;
