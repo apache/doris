@@ -57,6 +57,13 @@ HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
                 _profile, "TotalShortCircuitBytesRead", TUnit::BYTES, hdfs_profile_name);
         _hdfs_profile.total_total_zero_copy_bytes_read = ADD_CHILD_COUNTER(
                 _profile, "TotalZeroCopyBytesRead", TUnit::BYTES, hdfs_profile_name);
+
+        _hdfs_profile.total_hedged_read =
+                ADD_CHILD_COUNTER(_profile, "TotalHedgedRead", TUnit::UNIT, hdfs_profile_name);
+        _hdfs_profile.hedged_read_in_cur_thread = ADD_CHILD_COUNTER(
+                _profile, "HedgedReadInCurThread", TUnit::UNIT, hdfs_profile_name);
+        _hdfs_profile.hedged_read_wins =
+                ADD_CHILD_COUNTER(_profile, "HedgedReadWins", TUnit::UNIT, hdfs_profile_name);
 #endif
     }
 }
@@ -85,6 +92,22 @@ Status HdfsFileReader::close() {
             COUNTER_UPDATE(_hdfs_profile.total_total_zero_copy_bytes_read,
                            hdfs_statistics->totalZeroCopyBytesRead);
             hdfsFileFreeReadStatistics(hdfs_statistics);
+
+            struct hdfsHedgedReadMetrics* hdfs_hedged_read_statistics = nullptr;
+            r = hdfsGetHedgedReadMetrics(_handle->fs(), &hdfs_hedged_read_statistics);
+            if (r != 0) {
+                return Status::InternalError(
+                        fmt::format("Failed to run hdfsGetHedgedReadMetrics(): {}", r));
+            }
+
+            COUNTER_UPDATE(_hdfs_profile.total_hedged_read,
+                           hdfs_hedged_read_statistics->hedgedReadOps);
+            COUNTER_UPDATE(_hdfs_profile.hedged_read_in_cur_thread,
+                           hdfs_hedged_read_statistics->hedgedReadOpsInCurThread);
+            COUNTER_UPDATE(_hdfs_profile.hedged_read_wins,
+                           hdfs_hedged_read_statistics->hedgedReadOpsWin);
+
+            hdfsFreeHedgedReadMetrics(hdfs_hedged_read_statistics);
             hdfsFileClearReadStatistics(_handle->file());
 #endif
         }
@@ -92,6 +115,36 @@ Status HdfsFileReader::close() {
     return Status::OK();
 }
 
+#ifdef USE_HADOOP_HDFS
+Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                    const IOContext* /*io_ctx*/) {
+    DCHECK(!closed());
+    if (offset > _handle->file_size()) {
+        return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
+                               offset, _handle->file_size(), _path.native());
+    }
+
+    size_t bytes_req = result.size;
+    char* to = result.data;
+    bytes_req = std::min(bytes_req, (size_t)(_handle->file_size() - offset));
+    *bytes_read = 0;
+    if (UNLIKELY(bytes_req == 0)) {
+        return Status::OK();
+    }
+
+    tSize r = hdfsPread(_handle->fs(), _handle->file(), offset, to, bytes_req);
+    if (r == -1) {
+        return Status::InternalError(
+                "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
+                BackendOptions::get_localhost(), _name_node, _path.string(), hdfs_error());
+    }
+    *bytes_read = bytes_req;
+    return Status::OK();
+}
+
+#else
+// The hedged read only support hdfsPread().
+// TODO: rethink here to see if there are some difference betwenn hdfsPread() and hdfsRead()
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
     DCHECK(!closed());
@@ -131,5 +184,6 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     *bytes_read = has_read;
     return Status::OK();
 }
+#endif
 } // namespace io
 } // namespace doris

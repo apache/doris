@@ -1089,6 +1089,16 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 // enable window_funnel_function with different modes
 DECLARE_mBool(enable_window_funnel_function_v2);
 
+// whether to enable hdfs hedged read.
+// If set to true, it will be enabled even if user not enable it when creating catalog
+DECLARE_Bool(enable_hdfs_hedged_read);
+// hdfs hedged read thread pool size, for "dfs.client.hedged.read.threadpool.size"
+// Maybe overwritten by the value specified when creating catalog
+DECLARE_Int32(hdfs_hedged_read_thread_num);
+// the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
+// Maybe overwritten by the value specified when creating catalog
+DECLARE_Int32(hdfs_hedged_read_threshold_time);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
