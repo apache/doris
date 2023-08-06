@@ -28,6 +28,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * MetastoreEvent for ALTER_TABLE event type
@@ -64,6 +65,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
                     (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getAlterTableMessage(event.getMessage());
             tableAfter = Preconditions.checkNotNull(alterTableMessage.getTableObjAfter());
+            tableAfter.setTableName(tableAfter.getTableName().toLowerCase(Locale.ROOT));
             tableBefore = Preconditions.checkNotNull(alterTableMessage.getTableObjBefore());
         } catch (Exception e) {
             throw new MetastoreNotificationException(
