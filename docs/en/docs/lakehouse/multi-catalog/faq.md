@@ -189,3 +189,43 @@ under the License.
         'hive.version' = '2.x.x'
     );
     ```
+19. Use Hedged Read to optimize the problem of slow HDFS reading.
+
+     In some cases, the high load of HDFS may lead to a long time to read the data on HDFS, thereby slowing down the overall query efficiency. HDFS Client provides Hedged Read.
+     This function can start another read thread to read the same data when a read request exceeds a certain threshold and is not returned, and whichever is returned first will use the result.
+
+     This feature can be enabled in two ways:
+
+     - Specify in the parameters to create the Catalog:
+
+         ```
+         create catalog regression properties (
+             'type'='hms',
+             'hive.metastore.uris' = 'thrift://172.21.16.47:7004',
+             'dfs.client.hedged.read.threadpool.size' = '128',
+             'dfs.client.hedged.read.threshold.millis' = "500"
+         );
+         ```
+
+         `dfs.client.hedged.read.threadpool.size` indicates the number of threads used for Hedged Read, which are shared by one HDFS Client. Usually, for an HDFS cluster, BE nodes will share an HDFS Client.
+
+         `dfs.client.hedged.read.threshold.millis` is the read threshold in milliseconds. When a read request exceeds this threshold and is not returned, Hedged Read will be triggered.
+
+     - Configure parameters in be.conf
+
+         ```
+         enable_hdfs_hedged_read = true
+         hdfs_hedged_read_thread_num = 128
+         hdfs_hedged_read_threshold_time = 500
+         ```
+
+         This method will enable Hedged Read globally on BE nodes (not enabled by default). And ignore the Hedged Read property set when creating the Catalog.
+
+     After enabling it, you can see related parameters in Query Profile:
+
+     `TotalHedgedRead`: The number of Hedged Reads initiated.
+
+     `HedgedReadWins`: The number of successful Hedged Reads (numbers initiated and returned faster than the original request)
+
+     Note that the value here is the cumulative value of a single HDFS Client, not the value of a single query. The same HDFS Client will be reused by multiple queries.
+
