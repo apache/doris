@@ -94,7 +94,7 @@ class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
-        schema_buffer = new char[config::stream_tvf_buffer_size];
+        std::unique_ptr<char[]> schema_buffer(new char[config::stream_tvf_buffer_size]);
     }
 
     ~StreamLoadContext() {
