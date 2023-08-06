@@ -531,14 +531,6 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
     return Status::OK();
 }
 
-void CsvReader::_split_line_for_proto_format(const Slice& line) {
-    PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
-    PDataRow* row = *row_ptr;
-    for (const PDataColumn& col : row->col()) {
-        _split_values.emplace_back(col.value());
-    }
-}
-
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
     _fields_splitter->split_line(line, &_split_values);
