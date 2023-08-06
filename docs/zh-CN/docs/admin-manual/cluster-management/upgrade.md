@@ -267,18 +267,20 @@ admin set frontend config("disable_tablet_scheduler" = "true");
    sh ${DORIS_OLD_HOME}/fe/bin/stop_fe.sh
    ```
 
-2. 重命名 FE 目录下的 `/bin`，`/lib` 目录
+2. 重命名 FE 目录下的 `/bin`，`/lib`，`/mysql_ssl_default_certificate` 目录
 
    ```shell
    mv ${DORIS_OLD_HOME}/fe/bin ${DORIS_OLD_HOME}/fe/bin_back
    mv ${DORIS_OLD_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib_back
+   mv ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate_back
    ```
 
-3. 复制新版本的  `/bin`，`/lib` 目录到原 FE 目录下
+3. 复制新版本的  `/bin`，`/lib`，`/mysql_ssl_default_certificate` 目录到原 FE 目录下
 
    ```shell
    cp ${DORIS_NEW_HOME}/fe/bin ${DORIS_OLD_HOME}/fe/bin
    cp ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
+   cp -r ${DORIS_NEW_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate
    ```
 
 4. 启动该 FE 节点
