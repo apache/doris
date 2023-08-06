@@ -1,0 +1,487 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.carrotsearch</groupId>
+    <artifactId>hppc-parent</artifactId>
+    <version>0.7.2</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>hppc</artifactId>
+  <packaging>bundle</packaging>
+
+  <name>HPPC Collections</name>
+  <description>High Performance Primitive Collections. 
+  Fundamental data structures (maps, sets, lists, stacks, queues) generated for
+  combinations of object and primitive types to conserve JVM memory and speed
+  up execution.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.carrotsearch</groupId>
+      <artifactId>hppc-template-processor</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
+      <optional>true</optional>
+    </dependency>
+
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.carrotsearch.randomizedtesting</groupId>
+      <artifactId>randomizedtesting-runner</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <type>jar</type>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <properties>
+    <template.processor.incremental>true</template.processor.incremental>
+  </properties>
+
+  <build>
+    <defaultGoal>install</defaultGoal>
+
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>2.4</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+            <configuration>
+              <excludes>
+                <exclude>**/ByteByte*</exclude>
+                <exclude>**/ByteChar*</exclude>
+                <exclude>**/ByteShort*</exclude>
+                <exclude>**/ByteInt*</exclude>
+                <exclude>**/ByteFloat*</exclude>
+                <exclude>**/ByteLong*</exclude>
+                <exclude>**/ByteDouble*</exclude>
+                <exclude>**/ByteObject*</exclude>
+
+                <exclude>**/ByteHashSet*</exclude>
+                <exclude>**/ByteScatterSet*</exclude>
+                <exclude>**/ByteSet*</exclude>
+
+                <exclude>**/FloatByte*</exclude>
+                <exclude>**/FloatChar*</exclude>
+                <exclude>**/FloatShort*</exclude>
+                <exclude>**/FloatInt*</exclude>
+                <exclude>**/FloatFloat*</exclude>
+                <exclude>**/FloatLong*</exclude>
+                <exclude>**/FloatDouble*</exclude>
+                <exclude>**/FloatObject*</exclude>
+
+                <exclude>**/FloatHashSet*</exclude>
+                <exclude>**/FloatScatterSet*</exclude>
+                <exclude>**/FloatSet*</exclude>
+
+                <exclude>**/DoubleByte*</exclude>
+                <exclude>**/DoubleChar*</exclude>
+                <exclude>**/DoubleShort*</exclude>
+                <exclude>**/DoubleInt*</exclude>
+                <exclude>**/DoubleFloat*</exclude>
+                <exclude>**/DoubleLong*</exclude>
+                <exclude>**/DoubleDouble*</exclude>
+                <exclude>**/DoubleObject*</exclude>
+
+                <exclude>**/DoubleHashSet*</exclude>
+                <exclude>**/DoubleScatterSet*</exclude>
+                <exclude>**/DoubleSet*</exclude>
+              </excludes>
+            </configuration>
+          </execution>
+          <execution>
+            <id>attach-sources-esoteric</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+            <configuration>
+              <classifier>esoteric-sources</classifier>
+              <includes>
+                <include>**/ByteByte*</include>
+                <include>**/ByteChar*</include>
+                <include>**/ByteShort*</include>
+                <include>**/ByteInt*</include>
+                <include>**/ByteFloat*</include>
+                <include>**/ByteLong*</include>
+                <include>**/ByteDouble*</include>
+                <include>**/ByteObject*</include>
+
+                <include>**/ByteHashSet*</include>
+                <include>**/ByteScatterSet*</include>
+                <include>**/ByteSet*</include>
+
+                <include>**/FloatByte*</include>
+                <include>**/FloatChar*</include>
+                <include>**/FloatShort*</include>
+                <include>**/FloatInt*</include>
+                <include>**/FloatFloat*</include>
+                <include>**/FloatLong*</include>
+                <include>**/FloatDouble*</include>
+                <include>**/FloatObject*</include>
+
+                <include>**/FloatHashSet*</include>
+                <include>**/FloatScatterSet*</include>
+                <include>**/FloatSet*</include>
+
+                <include>**/DoubleByte*</include>
+                <include>**/DoubleChar*</include>
+                <include>**/DoubleShort*</include>
+                <include>**/DoubleInt*</include>
+                <include>**/DoubleFloat*</include>
+                <include>**/DoubleLong*</include>
+                <include>**/DoubleDouble*</include>
+                <include>**/DoubleObject*</include>
+
+                <include>**/DoubleHashSet*</include>
+                <include>**/DoubleScatterSet*</include>
+                <include>**/DoubleSet*</include>
+              </includes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>default-jar</id>
+            <phase>package</phase>
+            <configuration>
+                <!-- HPPC-144: esoteric combinations. -->
+              <excludes>
+                <exclude>**/ByteByte*</exclude>
+                <exclude>**/ByteChar*</exclude>
+                <exclude>**/ByteShort*</exclude>
+                <exclude>**/ByteInt*</exclude>
+                <exclude>**/ByteFloat*</exclude>
+                <exclude>**/ByteLong*</exclude>
+                <exclude>**/ByteDouble*</exclude>
+                <exclude>**/ByteObject*</exclude>
+
+                <exclude>**/ByteHashSet*</exclude>
+                <exclude>**/ByteScatterSet*</exclude>
+                <exclude>**/ByteSet*</exclude>
+
+                <exclude>**/FloatByte*</exclude>
+                <exclude>**/FloatChar*</exclude>
+                <exclude>**/FloatShort*</exclude>
+                <exclude>**/FloatInt*</exclude>
+                <exclude>**/FloatFloat*</exclude>
+                <exclude>**/FloatLong*</exclude>
+                <exclude>**/FloatDouble*</exclude>
+                <exclude>**/FloatObject*</exclude>
+
+                <exclude>**/FloatHashSet*</exclude>
+                <exclude>**/FloatScatterSet*</exclude>
+                <exclude>**/FloatSet*</exclude>
+
+                <exclude>**/DoubleByte*</exclude>
+                <exclude>**/DoubleChar*</exclude>
+                <exclude>**/DoubleShort*</exclude>
+                <exclude>**/DoubleInt*</exclude>
+                <exclude>**/DoubleFloat*</exclude>
+                <exclude>**/DoubleLong*</exclude>
+                <exclude>**/DoubleDouble*</exclude>
+                <exclude>**/DoubleObject*</exclude>
+
+                <exclude>**/DoubleHashSet*</exclude>
+                <exclude>**/DoubleScatterSet*</exclude>
+                <exclude>**/DoubleSet*</exclude>
+              </excludes>
+            </configuration>
+          </execution>
+          <execution>
+            <id>esoteric-jar</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <classifier>esoteric</classifier>
+              <includes>
+                <include>**/ByteByte*</include>
+                <include>**/ByteChar*</include>
+                <include>**/ByteShort*</include>
+                <include>**/ByteInt*</include>
+                <include>**/ByteFloat*</include>
+                <include>**/ByteLong*</include>
+                <include>**/ByteDouble*</include>
+                <include>**/ByteObject*</include>
+
+                <include>**/ByteHashSet*</include>
+                <include>**/ByteScatterSet*</include>
+                <include>**/ByteSet*</include>
+
+                <include>**/FloatByte*</include>
+                <include>**/FloatChar*</include>
+                <include>**/FloatShort*</include>
+                <include>**/FloatInt*</include>
+                <include>**/FloatFloat*</include>
+                <include>**/FloatLong*</include>
+                <include>**/FloatDouble*</include>
+                <include>**/FloatObject*</include>
+
+                <include>**/FloatHashSet*</include>
+                <include>**/FloatScatterSet*</include>
+                <include>**/FloatSet*</include>
+
+                <include>**/DoubleByte*</include>
+                <include>**/DoubleChar*</include>
+                <include>**/DoubleShort*</include>
+                <include>**/DoubleInt*</include>
+                <include>**/DoubleFloat*</include>
+                <include>**/DoubleLong*</include>
+                <include>**/DoubleDouble*</include>
+                <include>**/DoubleObject*</include>
+
+                <include>**/DoubleHashSet*</include>
+                <include>**/DoubleScatterSet*</include>
+                <include>**/DoubleSet*</include>
+              </includes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>esoteric-bundle</id>
+            <phase>package</phase>
+            <goals>
+              <goal>bundle</goal>
+            </goals>
+            <configuration>
+              <classifier>esoteric</classifier>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>com.carrotsearch</groupId>
+        <artifactId>hppc-template-processor</artifactId>
+        <version>${project.version}</version>
+        <executions>
+          <execution>
+            <id>generate-sources</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>template-processor</goal>
+            </goals>
+            <configuration>
+              <incremental>${template.processor.incremental}</incremental>
+              <attachSources>main</attachSources>
+              <templatesDir>${project.basedir}/src/main/templates</templatesDir>
+              <outputDir>${project.build.directory}/generated-sources/main/java</outputDir>
+            </configuration>
+          </execution>
+          <execution>
+            <id>generate-test-sources</id>
+            <phase>generate-test-sources</phase>
+            <goals>
+              <goal>template-processor</goal>
+            </goals>
+            <configuration>
+              <incremental>${template.processor.incremental}</incremental>
+              <attachSources>test</attachSources>
+              <templatesDir>${project.basedir}/src/test/templates</templatesDir>
+              <outputDir>${project.build.directory}/generated-sources/test/java</outputDir>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>com.carrotsearch.randomizedtesting</groupId>
+        <artifactId>junit4-maven-plugin</artifactId>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>make-release-assembly</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/main/assembly/bin.xml</descriptor>
+              </descriptors>
+              <tarLongFileMode>gnu</tarLongFileMode>
+              <attach>false</attach>
+              <appendAssemblyId>false</appendAssemblyId>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>de.thetaphi</groupId>
+        <artifactId>forbiddenapis</artifactId>
+
+        <executions>
+          <execution>
+            <id>check-forbidden-apis</id>
+            <configuration>
+              <excludes><!-- Override in subprojects. -->
+              </excludes>
+              <signaturesFiles>
+                <signaturesFile>${project.parent.basedir}/etc/forbidden-apis/intrinsics.txt</signaturesFile>
+                <signaturesFile>${project.parent.basedir}/etc/forbidden-apis/time-relative.txt</signaturesFile>
+              </signaturesFiles>
+              <suppressAnnotations>
+                <suppressAnnotation>com.carrotsearch.hppc.SuppressForbidden</suppressAnnotation>
+              </suppressAnnotations>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>eclipse</id>
+      <activation>
+        <property>
+          <name>m2e.version</name>
+        </property>
+      </activation>
+      <properties>
+        <!-- Skip compilation. -->
+        <maven.test.skip>true</maven.test.skip>
+        <maven.main.skip>true</maven.main.skip>
+        <maven.install.skip>true</maven.install.skip>
+        <forbiddenapis.skip>true</forbiddenapis.skip>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>com.carrotsearch</groupId>
+            <artifactId>hppc-template-processor</artifactId>
+            <version>${project.version}</version>
+            <executions>
+              <execution>
+                <id>add-templates</id>
+                <phase>generate-sources</phase>
+                <goals>
+                  <goal>add-source</goal>
+                </goals>
+                <configuration>
+                  <sources>
+                    <source>src/main/templates</source>
+                  </sources>
+                </configuration>
+              </execution>
+              <execution>
+                <id>add-templates-tests</id>
+                <phase>generate-test-sources</phase>
+                <goals>
+                  <goal>add-test-source</goal>
+                </goals>
+                <configuration>
+                  <sources>
+                    <source>src/test/templates</source>
+                  </sources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>sonatype-oss-release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <configuration>
+                  <encoding>${project.build.sourceEncoding}</encoding>
+                  <windowtitle>HPPC v${project.version} API Documentation</windowtitle>
+                  <doctitle>HPPC v${project.version} API Documentation</doctitle>
+                  <header><![CDATA[<div id='header'><a class='logo' target='_top' href='http://labs.carrotsearch.com'></a>High Performance Primitive Collections (HPPC) v${project.version} <br>API Documentation</div>]]></header>
+                  <failOnError>true</failOnError>
+                  <docfilessubdirs>true</docfilessubdirs>
+                  <use>false</use>
+                  <noindex>true</noindex>
+                  <notree>true</notree>
+                  <groups>
+                    <group>
+                      <title>HPPC</title>
+                      <packages>com.carrotsearch.hppc*</packages>
+                    </group>
+                  </groups>
+                  <stylesheetfile>css/1.7/stylesheet.css</stylesheetfile>
+                </configuration>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    
+    <profile>
+      <id>jdk18</id>
+      <activation>
+        <jdk>[1.8,)</jdk>
+      </activation>
+
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <configuration>
+                  <additionalparam>-Xdoclint:-missing</additionalparam>
+                  <stylesheetfile>css/1.8/stylesheet.css</stylesheetfile>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

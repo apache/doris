@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:02 CST 2023
+https\://repo.huaweicloud.com/repository/maven/huaweicloudsdk/.error=
+http\://maven.aliyun.com/nexus/content/groups/public/.lastUpdated=1691351282556
+https\://repo.huaweicloud.com/repository/maven/huaweicloudsdk/.lastUpdated=1691351282436

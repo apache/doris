@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:47:25 CST 2023
+plexus-utils-3.0.pom>gcs-maven-central-mirror=
+plexus-utils-3.0.jar>allmaven=
+plexus-utils-3.0.jar>gcs-maven-central-mirror=

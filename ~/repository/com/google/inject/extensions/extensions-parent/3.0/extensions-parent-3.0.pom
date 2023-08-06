@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.google.inject</groupId>
+    <artifactId>guice-parent</artifactId>
+    <version>3.0</version>
+  </parent>
+
+  <packaging>pom</packaging>
+
+  <groupId>com.google.inject.extensions</groupId>
+  <artifactId>extensions-parent</artifactId>
+
+  <name>Google Guice - Extensions</name>
+
+  <modules>
+    <module>assistedinject</module>
+    <module>grapher</module>
+    <module>jmx</module>
+    <module>jndi</module>
+    <module>multibindings</module>
+    <module>persist</module>
+    <module>servlet</module>
+    <module>spring</module>
+    <module>struts2</module>
+    <module>throwingproviders</module>
+<!--
+ |  not yet promoted...
+- -
+    <module>mini</module>
+    <module>service</module>
+-->
+  </modules>
+
+  <dependencies>
+    <!--
+     | All extensions depend on the core
+    -->
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!--
+     | Some extension tests depend on the core tests
+    -->
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <version>${project.version}</version>
+      <classifier>tests</classifier>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+       | Add standard LICENSE and NOTICE files
+      -->
+      <plugin>
+        <artifactId>maven-remote-resources-plugin</artifactId>
+      </plugin>
+      <!--
+       | Enable Java5 conformance checks
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>animal-sniffer-maven-plugin</artifactId>
+      </plugin>
+      <!--
+       | Add OSGi manifest: extensions are fragments that attach to the core
+      -->
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <configuration>
+          <instructions>
+            <Fragment-Host>com.google.inject</Fragment-Host>
+          </instructions>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <!--
+       | JarJar build profile: re-package ASM and CGLIB references under the Guice namespace
+      -->
+      <id>guice.with.jarjar</id>
+      <activation>
+        <property>
+          <name>guice.with.jarjar</name>
+          <value>!false</value>
+        </property>
+      </activation>
+      <dependencies>
+        <!--
+         | Extensions compile first against the non-JarJar'd core - and are then JarJar'd themselves
+         | (optional dependency so it doesn't leak to client projects that depend on Guice artifacts)
+        -->
+        <dependency>
+          <groupId>com.google.inject</groupId>
+          <artifactId>guice</artifactId>
+          <version>${project.version}</version>
+          <classifier>no_deps</classifier>
+          <optional>true</optional>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.sonatype.plugins</groupId>
+            <artifactId>jarjar-maven-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <exclude>*:*</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>

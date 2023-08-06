@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright (c) 2018 Oracle and/or its affiliates. All rights reserved.
+
+    This program and the accompanying materials are made available under the
+    terms of the Eclipse Distribution License v. 1.0, which is available at
+    http://www.eclipse.org/org/documents/edl-v10.php.
+
+    SPDX-License-Identifier: BSD-3-Clause
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>jakarta.xml.bind-api-parent</artifactId>
+        <groupId>jakarta.xml.bind</groupId>
+        <version>2.3.2</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>jakarta.xml.bind-api</artifactId>
+    <packaging>jar</packaging>
+
+    <properties>
+        <config.dir>${project.basedir}/../etc/config</config.dir>
+        <legal.doc.source>${project.basedir}/..</legal.doc.source>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>jakarta.activation</groupId>
+            <artifactId>jakarta.activation-api</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <configuration>
+                        <rules>
+                            <requireJavaVersion>
+                                <version>[1.8,)</version>
+                            </requireJavaVersion>
+                            <requireMavenVersion>
+                                <version>[3.0.3,)</version>
+                            </requireMavenVersion>
+                            <DependencyConvergence />
+                        </rules>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>cobertura-maven-plugin</artifactId>
+                    <version>2.7</version>
+                    <configuration>
+                        <formats>
+                            <format>xml</format>
+                        </formats>
+                        <check>
+                            <totalLineRate>45</totalLineRate>
+                            <packageLineRate>45</packageLineRate>
+                            <haltOnFailure>true</haltOnFailure>
+                        </check>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.glassfish.copyright</groupId>
+                    <artifactId>glassfish-copyright-maven-plugin</artifactId>
+                    <configuration>
+                        <templateFile>${project.basedir}/copyright.txt</templateFile>
+                        <excludeFile>${project.basedir}/copyright-exclude</excludeFile>
+                        <!-- skip files not under SCM-->
+                        <scmOnly>true</scmOnly>
+                        <!-- turn off warnings -->
+                        <warn>true</warn>
+                        <!-- for use with repair -->
+                        <update>false</update>
+                        <!-- check that year is correct -->
+                        <ignoreYear>false</ignoreYear>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.1.0</version>
+                    <configuration>
+                        <archive>
+                            <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+                        </archive>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>buildnumber-maven-plugin</artifactId>
+                    <version>1.4</version>
+                    <configuration>
+                        <getRevisionOnlyOnce>true</getRevisionOnlyOnce>
+                        <timestampFormat>{0,date,yyyy-MM-dd'T'HH:mm:ssZ}</timestampFormat>
+                        <shortRevisionLength>7</shortRevisionLength>
+                        <revisionOnScmFailure>false</revisionOnScmFailure>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.felix</groupId>
+                    <artifactId>maven-bundle-plugin</artifactId>
+                    <version>3.5.1</version>
+                    <configuration>
+                        <archive>
+                            <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+                        </archive>
+                        <instructions>
+                            <_noee>true</_noee>
+                            <Bundle-Version>${project.version}</Bundle-Version>  <!-- 2.2.99.bnull -->
+                            <Extension-Name>${extension.name}</Extension-Name>
+                            <Implementation-Version>${spec.version}.${impl.version}</Implementation-Version>
+                            <Specification-Version>${spec.version}</Specification-Version>
+                            <Export-Package>${api.package}.*; version=${spec.version}.${impl.version}</Export-Package>
+                            <Import-Package>
+                                javax.activation;version=!,
+                                javax.xml.bind;version="[${spec.version},3)",
+                                javax.xml.bind.annotation;version="[${spec.version},3)",
+                                javax.xml.bind.annotation.adapters;version="[${spec.version},3)",
+                                javax.xml.bind.attachment;version="[${spec.version},3)",
+                                javax.xml.bind.helpers;version="[${spec.version},3)",
+                                javax.xml.bind.util;version="[${spec.version},3)",
+                                javax.xml.datatype,
+                                javax.xml.namespace,
+                                javax.xml.parsers,
+                                javax.xml.stream,
+                                javax.xml.transform,
+                                javax.xml.transform.dom,
+                                javax.xml.transform.sax,
+                                javax.xml.transform.stream,
+                                javax.xml.validation,
+                                org.w3c.dom,
+                                org.xml.sax,
+                                org.xml.sax.ext,
+                                org.xml.sax.helpers
+                            </Import-Package>
+                            <Bundle-SymbolicName>${extension.name}-api</Bundle-SymbolicName>
+                            <DynamicImport-Package>org.glassfish.hk2.osgiresourcelocator</DynamicImport-Package>
+                            <Specification-Vendor>${vendor.name}</Specification-Vendor>
+                            <Implementation-Build-Id>${scmBranch}-${buildNumber}, ${timestamp}</Implementation-Build-Id>
+                            <Multi-Release>true</Multi-Release>
+                        </instructions>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>findbugs-maven-plugin</artifactId>
+                    <version>3.0.5</version>
+                    <configuration>
+                        <skip>${findbugs.skip}</skip>
+                        <threshold>${findbugs.threshold}</threshold>
+                        <findbugsXmlWithMessages>true</findbugsXmlWithMessages>
+                        <excludeFilterFile>
+                            ${findbugs.exclude}
+                        </excludeFilterFile>
+                        <fork>true</fork>
+                        <jvmArgs>-Xms64m -Xmx256m</jvmArgs>
+                    </configuration>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.glassfish.findbugs</groupId>
+                            <artifactId>findbugs</artifactId>
+                            <version>1.0</version>
+                        </dependency>
+                    </dependencies>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <configuration>
+                        <doclint>none</doclint>
+                        <nodeprecated>false</nodeprecated>
+                        <use>false</use>
+                        <author>true</author>
+                        <version>true</version>
+                        <doctitle><![CDATA[<br>
+JAXB ${project.version} API Library</h2>
+${project.name} specification, ${release.spec.date}<br>
+Comments to: <i><a href='mailto:${release.spec.feedback}'>${release.spec.feedback}</a></i><br>
+More information at: <i><a target='_top'
+href='https://projects.eclipse.org/projects/ee4j.jaxb'>https://projects.eclipse.org/projects/ee4j.jaxb</a></i><br>
+&nbsp;<br>&nbsp;<br><hr width='65%'><h1>${project.name}</h1><hr width='75%'>
+<br>&nbsp;<br>]]>
+                        </doctitle>
+                        <header><![CDATA[JAXB<br>v${project.version}]]>
+                        </header>
+                        <bottom>
+                        <![CDATA[<br>Copyright &#169; {inceptionYear}&#x2013;{currentYear} Oracle and/or its affiliates.
+                        All rights reserved.<br>Comments to : <a href="mailto:${release.spec.feedback}">${release.spec.feedback}</a>.]]>
+                        </bottom>
+                        <detectJavaApiLink>false</detectJavaApiLink>
+                        <tags>
+                            <tag>
+                                <name>apiNote</name>
+                                <!-- todo tag for all places -->
+                                <placement>a</placement>
+                                <head>API Note:</head>
+                            </tag>
+                            <tag>
+                                <name>implSpec</name>
+                                <!-- todo tag for all places -->
+                                <placement>a</placement>
+                                <head>Implementation Requirements:</head>
+                            </tag>
+                            <tag>
+                                <name>implNote</name>
+                                <!-- todo tag for all places -->
+                                <placement>a</placement>
+                                <head>Implementation Note:</head>
+                            </tag>
+                        </tags>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-legal-resource</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>add-resource</goal>
+                        </goals>
+                        <configuration>
+                            <resources>
+                                <resource>
+                                    <directory>${legal.doc.source}</directory>
+                                    <includes>
+                                        <include>NOTICE.md</include>
+                                        <include>LICENSE.md</include>
+                                    </includes>
+                                    <targetPath>META-INF</targetPath>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>add-mr-resource</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>add-resource</goal>
+                        </goals>
+                        <configuration>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/src/main/mr-jar</directory>
+                                    <targetPath>META-INF/versions/9</targetPath>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-versions</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>buildnumber-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>validate</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>create</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <release>8</release>
+                            <excludes>
+                                <exclude>module-info.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>module-info-compile</id>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <release>9</release>
+                            <includes>
+                                <include>module-info.java</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>default-compile-mr</id>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <release>9</release>
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.basedir}/src/main/mr-jar</compileSourceRoot>
+                            </compileSourceRoots>
+                            <outputDirectory>${project.build.outputDirectory}/META-INF/versions/9</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

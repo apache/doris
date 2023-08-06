@@ -1,0 +1,440 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                      http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.apache.hadoop</groupId>
+    <artifactId>hadoop-project</artifactId>
+    <version>2.6.0</version>
+    <relativePath>../hadoop-project</relativePath>
+  </parent>
+  <groupId>org.apache.hadoop</groupId>
+  <artifactId>hadoop-project-dist</artifactId>
+  <version>2.6.0</version>
+  <description>Apache Hadoop Project Dist POM</description>
+  <name>Apache Hadoop Project Dist POM</name>
+  <packaging>pom</packaging>
+
+  <properties>
+    <hadoop.tmp.dir>${project.build.directory}/test</hadoop.tmp.dir>
+    <test.build.data>${project.build.directory}/test/data</test.build.data>
+    <hadoop.log.dir>${project.build.directory}/log</hadoop.log.dir>
+    <test.build.webapps>${project.build.directory}/test-classes/webapps</test.build.webapps>
+    <test.cache.data>${project.build.directory}/test-classes</test.cache.data>
+    <test.build.classes>${project.build.directory}/test-classes</test.build.classes>
+
+    <hadoop.component>UNDEF</hadoop.component>
+    <bundle.snappy>false</bundle.snappy>
+    <bundle.snappy.in.bin>false</bundle.snappy.in.bin>
+    <bundle.openssl>false</bundle.openssl>
+    <bundle.openssl.in.bin>false</bundle.openssl.in.bin>
+  </properties>
+  
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-annotations</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-jar</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>prepare-test-jar</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+            <configuration>
+              <includes>
+                <include>**/*.class</include>
+                <include>webapps/**</include>
+              </includes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>jar</goal>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <attach>true</attach>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <configuration>
+          <excludeFilterFile>${basedir}/dev-support/findbugsExcludeFile.xml</excludeFilterFile>
+          <fork>true</fork>
+          <maxHeap>2048</maxHeap>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <configuration>
+          <configLocation>file://${basedir}/dev-support/checkstyle.xml</configLocation>
+          <failOnViolation>false</failOnViolation>
+          <format>xml</format>
+          <format>html</format>
+          <outputFile>${project.build.directory}/test/checkstyle-errors.xml</outputFile>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <linksource>true</linksource>
+          <maxmemory>512m</maxmemory>
+          <quiet>true</quiet>
+          <verbose>false</verbose>
+          <source>${maven.compile.source}</source>
+          <charset>${maven.compile.encoding}</charset>
+          <reportOutputDirectory>${project.build.directory}/site</reportOutputDirectory>
+          <destDir>api</destDir>
+          <groups>
+            <group>
+              <title>${project.name} API</title>
+              <packages>org.apache.hadoop*</packages>
+            </group>
+          </groups>
+          <doclet>org.apache.hadoop.classification.tools.ExcludePrivateAnnotationsStandardDoclet</doclet>
+          <docletArtifacts>
+            <docletArtifact>
+              <groupId>org.apache.hadoop</groupId>
+              <artifactId>hadoop-annotations</artifactId>
+              <version>${project.version}</version>
+            </docletArtifact>
+          </docletArtifacts>
+          <useStandardDocletOptions>true</useStandardDocletOptions>
+
+          <!-- switch on dependency-driven aggregation -->
+          <includeDependencySources>false</includeDependencySources>
+
+          <dependencySourceIncludes>
+            <!-- include ONLY dependencies I control -->
+            <dependencySourceInclude>org.apache.hadoop:hadoop-annotations</dependencySourceInclude>
+          </dependencySourceIncludes>
+
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>docs</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <properties>
+        <jdiff.stable.api>0.20.2</jdiff.stable.api>
+        <jdiff.stability>-unstable</jdiff.stability>
+        <jdiff.compatibility></jdiff.compatibility>
+        <jdiff.javadoc.maxmemory>512m</jdiff.javadoc.maxmemory>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>javadoc</goal>
+                </goals>
+                <phase>prepare-package</phase>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>findbugs-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>findbugs</goal>
+                </goals>
+                <phase>prepare-package</phase>
+              </execution>
+            </executions>
+            <configuration>
+              <excludeFilterFile>${basedir}/dev-support/findbugsExcludeFile.xml</excludeFilterFile>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>site</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>jdiff</groupId>
+                      <artifactId>jdiff</artifactId>
+                      <version>${jdiff.version}</version>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                      <destFileName>jdiff.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.apache.hadoop</groupId>
+                      <artifactId>hadoop-annotations</artifactId>
+                      <version>${project.version}</version>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                      <destFileName>hadoop-annotations.jar</destFileName>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>site</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target if="is.hadoop.component">
+
+                    <mkdir dir="${project.build.directory}/docs-src"/>
+
+                    <copy todir="${project.build.directory}/docs-src">
+                      <fileset dir="${basedir}/src/main/docs"/>
+                    </copy>
+
+                    <!-- Docs -->
+                    <copy file="${project.build.directory}/docs-src/releasenotes.html"
+                          todir="${project.build.directory}/site"/>
+                    <style basedir="${basedir}/src/main/resources"
+                           destdir="${project.build.directory}/site"
+                           includes="core-default.xml"
+                           style="${basedir}/src/main/xsl/configuration.xsl"/>
+
+                    <!-- Convert 'CHANGES.txt' to 'changes.html" -->
+                    <exec executable="perl" input="${basedir}/../CHANGES.txt"
+                          output="${project.build.directory}/site/changes.html"
+                          failonerror="true">
+                      <arg value="${project.build.directory}/docs-src/changes/changes2html.pl"/>
+                    </exec>
+                    <copy todir="${project.build.directory}/site">
+                      <fileset dir="${project.build.directory}/docs-src/changes" includes="*.css"/>
+                    </copy>
+
+                    <!-- Jdiff -->
+                    <mkdir dir="${project.build.directory}/site/jdiff/xml"/>
+
+                    <javadoc maxmemory="${jdiff.javadoc.maxmemory}" verbose="yes">
+                      <doclet name="org.apache.hadoop.classification.tools.ExcludePrivateAnnotationsJDiffDoclet"
+                              path="${project.build.directory}/hadoop-annotations.jar:${project.build.directory}/jdiff.jar">
+                        <param name="-apidir" value="${project.build.directory}/site/jdiff/xml"/>
+                        <param name="-apiname" value="hadoop-core ${project.version}"/>
+                        <param name="${jdiff.stability}"/>
+                      </doclet>
+                      <packageset dir="${basedir}/src/main/java"/>
+                      <classpath>
+                        <path refid="maven.compile.classpath"/>
+                      </classpath>
+                    </javadoc>
+                    <javadoc sourcepath="${basedir}/src/main/java"
+                             destdir="${project.build.directory}/site/jdiff/xml"
+                             sourceFiles="${basedir}/dev-support/jdiff/Null.java"
+                             maxmemory="${jdiff.javadoc.maxmemory}">
+                      <doclet name="org.apache.hadoop.classification.tools.ExcludePrivateAnnotationsJDiffDoclet"
+                              path="${project.build.directory}/hadoop-annotations.jar:${project.build.directory}/jdiff.jar">
+                        <param name="-oldapi" value="hadoop-core ${jdiff.stable.api}"/>
+                        <param name="-newapi" value="hadoop-core ${project.version}"/>
+                        <param name="-oldapidir" value="${basedir}/dev-support/jdiff"/>
+                        <param name="-newapidir" value="${project.build.directory}/site/jdiff/xml"/>
+                        <param name="-javadocold"
+                               value="http://hadoop.apache.org/docs/${jdiff.stable.api}/api/"/>
+                        <param name="-javadocnew" value="${project.build.directory}/site/api"/>
+                        <param name="-stats"/>
+                        <param name="${jdiff.stability}"/>
+                        <param name="${jdiff.compatibility}"/>
+                      </doclet>
+                      <classpath>
+                        <path refid="maven.compile.classpath"/>
+                      </classpath>
+                    </javadoc>
+
+                    <xslt style="${env.FINDBUGS_HOME}/src/xsl/default.xsl"
+                          in="${project.build.directory}/findbugsXml.xml"
+                          out="${project.build.directory}/site/findbugs.html"/>
+
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>dist</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>pre-dist</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <!-- Using Unix script to preserve symlinks -->
+                    <echo file="${project.build.directory}/dist-copynativelibs.sh">
+                      BUILD_DIR="${project.build.directory}"
+                      TAR='tar cf -'
+                      UNTAR='tar xfBp -'
+                      LIB_DIR="${BUILD_DIR}/native/target/usr/local/lib"
+                      if [ -d $${LIB_DIR} ] ; then
+                        TARGET_DIR="${BUILD_DIR}/${project.artifactId}-${project.version}/lib/native"
+                        mkdir -p $${TARGET_DIR}
+                        cd $${LIB_DIR}
+                        $$TAR lib* | (cd $${TARGET_DIR}/; $$UNTAR)
+                        if [ "${bundle.snappy}" = "true" ] ; then
+                          cd "${snappy.lib}"
+                          $$TAR *snappy* | (cd $${TARGET_DIR}/; $$UNTAR)
+                        fi
+                        if [ "${bundle.openssl}" = "true" ] ; then
+                          cd "${openssl.lib}"
+                          $$TAR *crypto* | (cd $${TARGET_DIR}/; $$UNTAR)
+                        fi
+                      fi
+                      BIN_DIR="${BUILD_DIR}/bin"
+                      if [ -d $${BIN_DIR} ] ; then
+                        TARGET_BIN_DIR="${BUILD_DIR}/${project.artifactId}-${project.version}/bin"
+                        mkdir -p $${TARGET_BIN_DIR}
+                        cd $${BIN_DIR}
+                        $$TAR * | (cd $${TARGET_BIN_DIR}/; $$UNTAR)
+                        if [ "${bundle.snappy.in.bin}" = "true" ] ; then
+                          if [ "${bundle.snappy}" = "true" ] ; then
+                            cd "${snappy.lib}"
+                            $$TAR *snappy* | (cd $${TARGET_BIN_DIR}/; $$UNTAR)
+                          fi
+                        fi
+                        if [ "${bundle.openssl.in.bin}" = "true" ] ; then
+                          if [ "${bundle.openssl}" = "true" ] ; then
+                            cd "${openssl.lib}"
+                            $$TAR *crypto* | (cd $${TARGET_BIN_DIR}/; $$UNTAR)
+                          fi
+                        fi
+                      fi
+                    </echo>
+                    <exec executable="sh" dir="${project.build.directory}" failonerror="true">
+                      <arg line="./dist-copynativelibs.sh"/>
+                    </exec>
+                  </target>
+                </configuration>
+              </execution>
+              <execution>
+                <id>tar</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target if="tar">
+                    <!-- Using Unix script to preserve symlinks -->
+                    <echo file="${project.build.directory}/dist-maketar.sh">
+                      cd "${project.build.directory}"
+                      tar cf - ${project.artifactId}-${project.version} | gzip > ${project.artifactId}-${project.version}.tar.gz
+                    </echo>
+                    <exec executable="sh" dir="${project.build.directory}" failonerror="true">
+                      <arg line="./dist-maketar.sh"/>
+                    </exec>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-assembly-plugin</artifactId>
+            <dependencies>
+              <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-assemblies</artifactId>
+                <version>${project.version}</version>
+              </dependency>
+            </dependencies>
+            <executions>
+              <execution>
+                <id>dist</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+                <configuration>
+                  <appendAssemblyId>false</appendAssemblyId>
+                  <attach>false</attach>
+                  <finalName>${project.artifactId}-${project.version}</finalName>
+                  <descriptorRefs>
+                    <descriptorRef>hadoop-dist</descriptorRef>
+                  </descriptorRefs>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

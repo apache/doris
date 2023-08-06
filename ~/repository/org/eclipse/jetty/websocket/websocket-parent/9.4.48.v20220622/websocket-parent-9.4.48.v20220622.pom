@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <artifactId>jetty-project</artifactId>
+    <groupId>org.eclipse.jetty</groupId>
+    <version>9.4.48.v20220622</version>
+  </parent>
+
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.eclipse.jetty.websocket</groupId>
+  <artifactId>websocket-parent</artifactId>
+  <name>Jetty :: Websocket :: Parent</name>
+  <packaging>pom</packaging>
+  <modules>
+    <module>websocket-common</module>
+    <module>websocket-api</module>
+    <module>websocket-client</module>
+    <module>websocket-server</module>
+    <module>websocket-servlet</module>
+    <module>jetty-websocket-tests</module>
+    <module>javax-websocket-client-impl</module>
+    <module>javax-websocket-server-impl</module>
+  </modules>
+  <properties>
+    <spotbugs.onlyAnalyze>org.eclipse.jetty.websocket.*</spotbugs.onlyAnalyze>
+  </properties>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

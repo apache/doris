@@ -1,0 +1,6 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:24 CST 2023
+hadoop-hdfs-client-3.3.5.jar>gcs-maven-central-mirror=
+hadoop-hdfs-client-3.3.5.pom>allmaven=
+hadoop-hdfs-client-3.3.5.jar>allmaven=
+hadoop-hdfs-client-3.3.5.pom>gcs-maven-central-mirror=

@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+--><project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.apache.hadoop</groupId>
+    <artifactId>hadoop-project</artifactId>
+    <version>3.1.0</version>
+    <relativePath>../../hadoop-project</relativePath>
+  </parent>
+  <artifactId>hadoop-yarn</artifactId>
+  <version>3.1.0</version>
+  <packaging>pom</packaging>
+  <name>Apache Hadoop YARN</name>
+
+  <properties>
+    <test.logs>true</test.logs>
+    <test.timeout>600000</test.timeout>
+    <yarn.basedir>${basedir}</yarn.basedir>
+    <!-- Used by jdiff -->
+    <!-- Antrun cannot resolve yarn.basedir, so we need to setup something else -->
+    <dev-support.relative.dir>dev-support</dev-support.relative.dir>
+    <hadoop.common.build.dir>${basedir}/../../../hadoop-common-project/hadoop-common/target</hadoop.common.build.dir>
+  </properties>
+
+  <!-- Do not add dependencies here, add them to the POM of the leaf module -->
+
+  <build>
+    <plugins>
+       <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+         <configuration>
+          <findbugsXmlOutput>true</findbugsXmlOutput>
+          <xmlOutput>true</xmlOutput>
+          <excludeFilterFile>${yarn.basedir}/dev-support/findbugs-exclude.xml</excludeFilterFile>
+          <effort>Max</effort>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.rat</groupId>
+        <artifactId>apache-rat-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>conf/workers</exclude>
+            <exclude>conf/container-executor.cfg</exclude>
+            <exclude>dev-support/jdiff/**</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <properties>
+            <property>
+              <name>listener</name>
+              <value>org.apache.hadoop.test.TimedOutTestsListener</value>
+            </property>
+          </properties>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <excludePackageNames>org.apache.hadoop.yarn.proto:org.apache.hadoop.yarn.federation.proto:org.apache.hadoop.yarn.service</excludePackageNames>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <!-- avoid warning about recursion -->
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>docs</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <properties>
+        <jdiff.stable.api>2.7.2</jdiff.stable.api>
+        <jdiff.stability>-unstable</jdiff.stability>
+        <jdiff.compatibility></jdiff.compatibility>
+        <jdiff.javadoc.maxmemory>512m</jdiff.javadoc.maxmemory>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>xerces</groupId>
+          <artifactId>xercesImpl</artifactId>
+          <version>${xerces.jdiff.version}</version>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>javadoc</goal>
+                </goals>
+                <phase>prepare-package</phase>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>site</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>jdiff</groupId>
+                      <artifactId>jdiff</artifactId>
+                      <version>${jdiff.version}</version>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                      <destFileName>jdiff.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>org.apache.hadoop</groupId>
+                      <artifactId>hadoop-annotations</artifactId>
+                      <version>${project.version}</version>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                      <destFileName>hadoop-annotations.jar</destFileName>
+                    </artifactItem>
+                    <artifactItem>
+                      <groupId>xerces</groupId>
+                      <artifactId>xercesImpl</artifactId>
+                      <version>${xerces.version.jdiff}</version>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                      <destFileName>xerces.jar</destFileName>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>site</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target if="should.run.jdiff">
+
+                    <!-- Jdiff -->
+                    <mkdir dir="${project.build.directory}/site/jdiff/xml"/>
+
+                    <javadoc maxmemory="${jdiff.javadoc.maxmemory}" verbose="yes">
+                      <doclet name="org.apache.hadoop.classification.tools.IncludePublicAnnotationsJDiffDoclet"
+                              path="${project.build.directory}/hadoop-annotations.jar:${project.build.directory}/jdiff.jar">
+                        <param name="-apidir" value="${project.build.directory}/site/jdiff/xml"/>
+                        <param name="-apiname" value="${project.name} ${project.version}"/>
+                        <param name="${jdiff.stability}"/>
+                      </doclet>
+                      <packageset dir="${basedir}/src/main/java"/>
+                      <classpath>
+                        <path refid="maven.compile.classpath"/>
+                      </classpath>
+                    </javadoc>
+                    <javadoc sourcepath="${basedir}/src/main/java"
+                      destdir="${project.build.directory}/site/jdiff/xml"
+                      sourceFiles="${dev-support.relative.dir}/jdiff/Null.java"
+                             maxmemory="${jdiff.javadoc.maxmemory}">
+                      <doclet name="org.apache.hadoop.classification.tools.IncludePublicAnnotationsJDiffDoclet"
+                              path="${project.build.directory}/hadoop-annotations.jar:${project.build.directory}/jdiff.jar:${project.build.directory}/xerces.jar">
+                        <param name="-oldapi" value="${project.name} ${jdiff.stable.api}"/>
+                        <param name="-newapi" value="${project.name} ${project.version}"/>
+                        <param name="-oldapidir" value="${basedir}/${dev-support.relative.dir}/jdiff"/>
+                        <param name="-newapidir" value="${project.build.directory}/site/jdiff/xml"/>
+                        <param name="-javadocold"
+                               value="http://hadoop.apache.org/docs/r${jdiff.stable.api}/api/"/>
+                        <param name="-javadocnew" value="${project.build.directory}/site/apidocs/"/>
+                        <param name="-stats"/>
+                        <param name="${jdiff.stability}"/>
+                        <!--param name="${jdiff.compatibility}"/-->
+                      </doclet>
+                      <classpath>
+                        <path refid="maven.compile.classpath"/>
+                      </classpath>
+                    </javadoc>
+
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+  <modules>
+    <module>hadoop-yarn-api</module>
+    <module>hadoop-yarn-common</module>
+    <module>hadoop-yarn-server</module>
+    <module>hadoop-yarn-applications</module>
+    <module>hadoop-yarn-site</module>
+    <module>hadoop-yarn-client</module>
+    <module>hadoop-yarn-registry</module>
+    <module>hadoop-yarn-ui</module>
+  </modules>
+</project>

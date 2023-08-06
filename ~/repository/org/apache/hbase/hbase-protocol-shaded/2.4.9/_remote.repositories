@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:35:38 CST 2023
+hbase-protocol-shaded-2.4.9.jar>allmaven=
+hbase-protocol-shaded-2.4.9.pom>allmaven=

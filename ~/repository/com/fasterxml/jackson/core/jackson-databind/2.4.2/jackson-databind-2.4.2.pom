@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.fasterxml.jackson</groupId>
+    <artifactId>jackson-parent</artifactId>
+    <version>2.4</version>
+  </parent>
+
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-databind</artifactId>
+  <version>2.4.2</version>
+  <name>jackson-databind</name>
+  <packaging>bundle</packaging>
+  <description>General data-binding functionality for Jackson: works on core streaming API</description>
+  <url>http://wiki.fasterxml.com/JacksonHome</url>
+
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/jackson-databind.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/jackson-databind.git</developerConnection>
+    <url>http://github.com/FasterXML/jackson-databind</url>
+    <tag>jackson-databind-2.4.2</tag>
+  </scm>
+
+  <properties>
+    <osgi.export>
+com.fasterxml.jackson.databind,
+com.fasterxml.jackson.databind.annotation,
+com.fasterxml.jackson.databind.cfg,
+com.fasterxml.jackson.databind.deser,
+com.fasterxml.jackson.databind.deser.impl,
+com.fasterxml.jackson.databind.deser.std,
+com.fasterxml.jackson.databind.exc,
+com.fasterxml.jackson.databind.ext,
+com.fasterxml.jackson.databind.introspect,
+com.fasterxml.jackson.databind.jsonschema,
+com.fasterxml.jackson.databind.jsonFormatVisitors,
+com.fasterxml.jackson.databind.jsontype,
+com.fasterxml.jackson.databind.jsontype.impl,
+com.fasterxml.jackson.databind.module,
+com.fasterxml.jackson.databind.node,
+com.fasterxml.jackson.databind.ser,
+com.fasterxml.jackson.databind.ser.impl,
+com.fasterxml.jackson.databind.ser.std,
+com.fasterxml.jackson.databind.type,
+com.fasterxml.jackson.databind.util
+    </osgi.export>
+    <osgi.import>
+com.fasterxml.jackson.annotation,
+com.fasterxml.jackson.core,
+com.fasterxml.jackson.core.base,
+com.fasterxml.jackson.core.format,
+com.fasterxml.jackson.core.json,
+com.fasterxml.jackson.core.io,
+com.fasterxml.jackson.core.util,
+com.fasterxml.jackson.core.type,
+org.xml.sax,org.w3c.dom, org.w3c.dom.bootstrap, org.w3c.dom.ls,
+javax.xml.datatype, javax.xml.namespace, javax.xml.parsers
+</osgi.import>
+
+    <!-- Generate PackageVersion.java into this directory. -->
+    <packageVersion.dir>com/fasterxml/jackson/databind/cfg</packageVersion.dir>
+    <packageVersion.package>com.fasterxml.jackson.databind.cfg</packageVersion.package>
+  </properties>
+
+  <dependencies>
+    <!-- Builds on core streaming API; also needs core annotations -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <version>2.4.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <version>2.4.2</version>
+    </dependency>
+
+    <!-- and for testing we need a few libraries
+         libs for which we use reflection for code, but direct dep for testing
+      -->
+    <dependency>
+      <groupId>cglib</groupId>
+      <artifactId>cglib</artifactId>
+      <version>2.2.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.codehaus.groovy</groupId>
+      <artifactId>groovy</artifactId>
+      <version>1.7.9</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency> <!--  from core we just test for repackaged cglib, not hibernate proper -->
+      <groupId>org.hibernate</groupId>
+      <artifactId>hibernate-cglib-repack</artifactId>
+      <version>2.1_3</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+     <plugins>
+       <plugin> <!-- parent uses 2.4.2 -->
+         <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-release-plugin</artifactId>
+          <version>2.5</version>
+       </plugin>
+     <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${surefire.version}</version>
+        <configuration>
+          <excludes>
+            <exclude>com/fasterxml/jackson/failing/*.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>${javadoc.version}</version>
+        <configuration>
+          <links>
+            <link>http://docs.oracle.com/javase/6/docs/api/</link>
+            <link>http://fasterxml.github.com/jackson-annotations/javadoc/2.4/</link>
+            <link>http://fasterxml.github.com/jackson-core/javadoc/2.4/</link>
+          </links>
+        </configuration>
+      </plugin>
+
+      <!-- May want to configure debug info -->
+      <plugin>
+        <!-- Inherited from oss-base. Generate PackageVersion.java.-->
+        <groupId>com.google.code.maven-replacer-plugin</groupId>
+        <artifactId>replacer</artifactId>
+        <executions>
+          <execution>
+            <id>process-packageVersion</id>
+            <phase>process-sources</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>cobertura-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </reporting>
+
+  <profiles>
+    <profile>
+      <id>release</id>
+      <properties>
+        <maven.test.skip>true</maven.test.skip>
+        <skipTests>true</skipTests>
+      </properties>
+    </profile>
+  </profiles>
+
+</project>

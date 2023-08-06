@@ -1,0 +1,6 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:04 CST 2023
+velocity-engine-core-2.3.jar>allmaven=
+velocity-engine-core-2.3.jar>gcs-maven-central-mirror=
+velocity-engine-core-2.3.pom>allmaven=
+velocity-engine-core-2.3.pom>gcs-maven-central-mirror=

@@ -1,0 +1,113 @@
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>commons-codec</groupId>
+  <artifactId>commons-codec</artifactId>
+  <name>Codec</name>
+  <version>1.2</version>
+  <description>The codec package contains simple encoder and decoders for
+   various formats such as Base64 and Hexadecimal.  In addition to these
+   widely used encoders and decoders, the codec package also maintains a
+   collection of phonetic encoding utilities.</description>
+  <issueManagement>
+    <url>http://nagoya.apache.org/bugzilla/buglist.cgi?bug_status=NEW&amp;bug_status=ASSIGNED&amp;bug_status=REOPENED&amp;email1=&amp;emailtype1=substring&amp;emailassigned_to1=1&amp;email2=&amp;emailtype2=substring&amp;emailreporter2=1&amp;bugidtype=include&amp;bug_id=&amp;changedin=&amp;votes=&amp;chfieldfrom=&amp;chfieldto=Now&amp;chfieldvalue=&amp;product=Commons&amp;component=Codec&amp;short_desc=&amp;short_desc_type=allwordssubstr&amp;long_desc=&amp;long_desc_type=allwordssubstr&amp;bug_file_loc=&amp;bug_file_loc_type=allwordssubstr&amp;keywords=&amp;keywords_type=anywords&amp;field0-0-0=noop&amp;type0-0-0=noop&amp;value0-0-0=&amp;cmdtype=doit&amp;newqueryname=&amp;order=Reuse+same+sort+as+last+time</url>
+  </issueManagement>
+  <inceptionYear>2002</inceptionYear>
+  <developers>
+    <developer>
+      <id>bayard</id>
+      <name>Henri Yandell</name>
+      <email>bayard@generationjava.com</email>
+    </developer>
+    <developer>
+      <id>tobrien</id>
+      <name>Tim OBrien</name>
+      <email>tobrien@apache.org</email>
+      <timezone>-6</timezone>
+    </developer>
+    <developer>
+      <id>sanders</id>
+      <name>Scott Sanders</name>
+      <email>sanders@totalsync.com</email>
+    </developer>
+    <developer>
+      <id>rwaldhoff</id>
+      <name>Rodney Waldhoff</name>
+      <email>rwaldhoff@apache.org</email>
+    </developer>
+    <developer>
+      <id>dlr</id>
+      <name>Daniel Rall</name>
+      <email>dlr@finemaltcoding.com</email>
+    </developer>
+    <developer>
+      <id>jon</id>
+      <name>Jon S. Stevens</name>
+      <email>jon@collab.net</email>
+    </developer>
+    <developer>
+      <id>ggregory</id>
+      <name>Gary D. Gregory</name>
+      <email>ggregory@seagullsw.com</email>
+      <organization>SEAGULL Software</organization>
+      <roles>
+        <role>Java Developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>dgraham</id>
+      <name>David Graham</name>
+      <email>dgraham@apache.org</email>
+    </developer>
+  </developers>
+  <contributors>
+    <contributor>
+      <name>Christopher O'Brien</name>
+      <email>siege@preoccupied.net</email>
+    </contributor>
+    <contributor>
+      <name>Martin Redington</name>
+    </contributor>
+    <contributor>
+      <name>Jeffery Dever</name>
+    </contributor>
+    <contributor>
+      <name>Steve Zimmermann</name>
+      <email>steve.zimmermann@heii.com</email>
+    </contributor>
+    <contributor>
+      <name>Benjamin Walstrum</name>
+      <email>ben@walstrum.com</email>
+    </contributor>
+    <contributor>
+      <name>Oleg Kalnichevski</name>
+      <email>oleg@ural.ru</email>
+    </contributor>
+    <contributor>
+      <name>Dave Dribin</name>
+      <email>apache@dave.dribin.org</email>
+    </contributor>
+  </contributors>
+  <build>
+    <testResources>
+      <testResource>
+        <directory>${pom.build.unitTestSourceDirectory}</directory>
+        <includes>
+          <include>**/*.xml</include>
+        </includes>
+      </testResource>
+    </testResources>
+    <plugins>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/*Test.java</include>
+          </includes>
+          <excludes>
+            <exclude>**/*AbstractTest.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

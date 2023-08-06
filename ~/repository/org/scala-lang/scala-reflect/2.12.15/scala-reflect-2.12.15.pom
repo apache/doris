@@ -1,0 +1,51 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.scala-lang</groupId>
+    <artifactId>scala-reflect</artifactId>
+    <packaging>jar</packaging>
+    <description>Compiler for the Scala Programming Language</description>
+    <url>https://www.scala-lang.org/</url>
+    <version>2.12.15</version>
+    <licenses>
+        <license>
+            <name>Apache-2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <name>Scala Compiler</name>
+    <inceptionYear>2002</inceptionYear>
+    <organization>
+        <name>LAMP/EPFL</name>
+        <url>https://lamp.epfl.ch/</url>
+    </organization>
+    <scm>
+        <connection>scm:git:git://github.com/scala/scala.git</connection>
+        <url>https://github.com/scala/scala.git</url>
+    </scm>
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/scala/bug/issues</url>
+    </issueManagement>
+    <developers>
+        <developer>
+            <id>lamp</id>
+            <name>LAMP/EPFL</name>
+        </developer>
+        <developer>
+            <id>Lightbend</id>
+            <name>Lightbend, Inc.</name>
+        </developer>
+    </developers>
+    <properties>
+        <info.apiURL>https://www.scala-lang.org/api/2.12.15/</info.apiURL>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>2.12.15</version>
+        </dependency>
+    </dependencies>
+</project>

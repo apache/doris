@@ -1,0 +1,112 @@
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>stax</groupId>
+  <artifactId>stax</artifactId>
+  <name>StAX</name>
+  <version>1.2.0</version>
+  <description>StAX is the reference implementation of the StAX API</description>
+  <url>http://stax.codehaus.org/</url>
+  <issueManagement>
+    <url>http://jira.codehaus.org/browse/STAX</url>
+  </issueManagement>
+  <ciManagement>
+    <notifiers>
+      <notifier>
+        <configuration>
+          <address>dev@stax.codehaus.org</address>
+        </configuration>
+      </notifier>
+    </notifiers>
+  </ciManagement>
+  <inceptionYear>2002</inceptionYear>
+  <mailingLists>
+    <mailingList>
+      <name>StAX Builders List</name>
+      <subscribe>stax_builders-subscribe@yahoogroups.com</subscribe>
+      <unsubscribe>stax_builders-unsubscribe@yahoogroups.com</unsubscribe>
+      <archive>http://groups.yahoo.com/group/stax_builders/</archive>
+    </mailingList>
+  </mailingLists>
+  <developers>
+    <developer>
+      <id>aslom</id>
+      <name>Aleksander Slominski</name>
+      <email></email>
+      <organization>Indiana University</organization>
+    </developer>
+    <developer>
+      <id>chris</id>
+      <name>Chris Fry</name>
+      <email></email>
+      <organization></organization>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:cvs:pserver:anonymous@cvs.stax.codehaus.org:/home/projects/stax/scm:stax</connection>
+    <developerConnection>scm:cvs:ext:${maven.username}@cvs.stax.codehaus.org:/home/projects/stax/scm:stax</developerConnection>
+    <url>http://cvs.stax.codehaus.org/stax/</url>
+  </scm>
+  <build>
+    <sourceDirectory>src</sourceDirectory>
+    <testSourceDirectory>test</testSourceDirectory>
+    <resources>
+      <resource>
+        <directory>src/conf</directory>
+        <includes>
+          <include>**/*</include>
+        </includes>
+      </resource>
+    </resources>
+    <testResources>
+      <testResource>
+        <directory>test</directory>
+        <includes>
+          <include>**/*.properties</include>
+          <include>**/*.xml</include>
+        </includes>
+      </testResource>
+    </testResources>
+    <plugins>
+      <plugin>
+        <artifactId>surefire</artifactId>
+        <configuration>
+          <includes>
+            <include>**/*Test.*</include>
+          </includes>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <dependencies>
+<!--
+    <dependency>
+      <groupId>xmlbeans</groupId>
+      <artifactId>xmlbeans-jsr173-api</artifactId>
+      <version>2.0-dev</version>
+    </dependency>
+-->
+    <dependency>
+      <groupId>stax</groupId>
+      <artifactId>stax-api</artifactId>
+      <version>1.0.1</version>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>3.8.1</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <distributionManagement>
+    <repository>
+      <id>default</id>
+      <name>Default Repository</name>
+      <url>file:///home/projects/stax/dist</url>
+    </repository>
+    <site>
+      <id>default</id>
+      <name>Default Site</name>
+      <url>scp://stax.codehaus.org//home/projects/stax/public_html/maven</url>
+    </site>
+  </distributionManagement>
+</project>

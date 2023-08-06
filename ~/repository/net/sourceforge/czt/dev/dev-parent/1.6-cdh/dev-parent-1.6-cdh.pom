@@ -1,0 +1,149 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>net.sourceforge.czt</groupId>
+    <artifactId>czt-parent</artifactId>
+    <version>1.6-cdh</version>
+  </parent>
+
+  <groupId>net.sourceforge.czt.dev</groupId>
+  <artifactId>dev-parent</artifactId>
+  <packaging>pom</packaging>
+
+  <name>CZT Developer Tools</name>
+  <description>
+    Generic libraries and Maven plug-ins for building CZT and similar tools.
+  </description>
+
+  <modules>
+    <module>gnast</module>
+    <module>gnast-maven-plugin</module>
+
+    <module>parsergen-maven-plugin</module>
+
+    <module>java-cup-runtime</module>
+    <module>java-cup</module>
+    <module>cup-maven-plugin</module>
+
+    <module>checkstyle</module>
+  </modules>
+
+  <dependencyManagement>
+    <dependencies>
+
+      <!-- Plexus Build API -->
+      <dependency>
+        <groupId>org.sonatype.plexus</groupId>
+        <artifactId>plexus-build-api</artifactId>
+        <version>0.0.7</version>
+      </dependency>
+      <dependency>
+        <groupId>org.codehaus.plexus</groupId>
+        <artifactId>plexus-container-default</artifactId>
+        <version>1.5.5</version>
+      </dependency>
+      <dependency>
+        <groupId>org.codehaus.plexus</groupId>
+        <artifactId>plexus-utils</artifactId>
+        <version>3.0.4</version>
+      </dependency>
+      <dependency>
+        <groupId>org.codehaus.plexus</groupId>
+        <artifactId>plexus-resources</artifactId>
+        <version>1.0-alpha-7</version>
+      </dependency>
+
+    </dependencies>
+  </dependencyManagement>
+
+  <!-- Build the development plug-ins using Java 7 compatibility. -->
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <source>1.7</source>
+          <target>1.7</target>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+
+  <profiles>
+    <profile>
+      <!-- A special profile to regenerate composite p2 repository for m2e plugins, which are
+           required to build CZT. This should be done when the repositories change - it will
+           generate repository which will be committed to repository.
+
+           Running the script requires having an Eclipse installation. Run it with the following
+           command:
+
+           mvn generate-sources -P regenerate-p2-repo -N -Declipse.dir=ECLIPSE_DIR
+
+           -->
+      <id>regenerate-p2-repo</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <properties>
+        <p2exec.dir>${project.basedir}/src/site/eclipse-dev-p2</p2exec.dir>
+        <repo.targetDir>${project.basedir}/src/site/resources/eclipse/updates/</repo.targetDir>
+        <repo.name>CZT m2e Support</repo.name>
+      </properties>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-antrun-plugin</artifactId>
+              <version>1.7</version>
+              <executions>
+                <execution>
+                  <id>regenerate-p2-repo</id>
+                  <phase>generate-sources</phase>
+                  <configuration>
+                    <tasks>
+                      <delete dir="${repo.targetDir}"/>
+                      <mkdir dir="${repo.targetDir}"/>
+                      <fail unless="eclipse.dir">Eclipse path property 'eclipse.dir' not set. Indicate path to Eclipse directory using -Declipse.dir=ECLIPSE_DIR</fail>
+                      <exec executable="${p2exec.dir}/comp-repo.sh"
+                            dir="${p2exec.dir}">
+                        <arg value="${repo.targetDir}"/>
+                        <arg value="--eclipse"/>
+                        <arg value="${eclipse.dir}"/>
+                        <arg value="--name"/>
+                        <arg value="${repo.name}"/>
+                        <arg value="add"/>
+                        <arg value="http://objectledge.github.io/maven-extensions/connectors/updates/development"/>
+                        <arg value="add"/>
+                        <arg value="http://mwensveen-nl.github.io/nl-mwensveen-m2e-extras/p2/release"/>
+                      </exec>
+                    </tasks>
+                  </configuration>
+                  <goals>
+                    <goal>run</goal>
+                  </goals>
+                </execution>
+              </executions>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+  </profiles>
+
+
+  <!-- Put site under /dev -->
+  <url>${site.url}/dev</url>
+
+  <distributionManagement>
+    <site>
+      <id>${site.deploy.id}</id>
+      <url>${site.deploy.url}/dev</url>
+    </site>
+  </distributionManagement>
+
+</project>

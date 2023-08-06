@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.ehcache</groupId>
+  <artifactId>ehcache</artifactId>
+  <version>3.3.1</version>
+  <name>Ehcache</name>
+  <description>End-user ehcache3 jar artifact</description>
+  <url>http://ehcache.org</url>
+  <organization>
+    <name>Terracotta Inc., a wholly-owned subsidiary of Software AG USA, Inc.</name>
+    <url>http://terracotta.org</url>
+  </organization>
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>Terracotta Engineers</name>
+      <email>tc-oss@softwareag.com</email>
+      <organization>Terracotta Inc., a wholly-owned subsidiary of Software AG USA, Inc.</organization>
+      <organizationUrl>http://ehcache.org</organizationUrl>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/ehcache/ehcache3.git</connection>
+    <developerConnection>scm:git:git@github.com:ehcache/ehcache3.git</developerConnection>
+    <url>https://github.com/ehcache/ehcache3</url>
+  </scm>
+  <issueManagement>
+    <system>Github</system>
+    <url>https://github.com/ehcache/ehcache3/issues</url>
+  </issueManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>1.7.7</version>
+      <scope>compile</scope>
+    </dependency>
+  </dependencies>
+</project>

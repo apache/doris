@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.hamcrest</groupId>
+  <artifactId>hamcrest-parent</artifactId>
+  <version>1.3</version>
+  <packaging>pom</packaging>
+
+  <name>Hamcrest Maven Parent</name>
+  <url>https://github.com/hamcrest/JavaHamcrest</url>
+  <description>General parent POM for all hamcrest libraries.</description>
+
+  <licenses>
+    <license>
+      <name>New BSD License</name>
+      <url>http://www.opensource.org/licenses/bsd-license.php</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <scm>
+    <url>https://github.com/hamcrest/JavaHamcrest</url>
+    <connection>scm:git:git@github.com:hamcrest/JavaHamcrest.git</connection>
+  </scm>
+
+  <developers>
+    <developer>
+      <id>joe.walnes</id>
+      <name>Joe Walnes</name>
+      <roles>
+        <role>Developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>nat.pryce</id>
+      <name>Nat Pryce</name>
+      <roles>
+        <role>Developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>smgfreeman</id>
+      <name>Steve Freeman</name>
+      <roles>
+        <role>Developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>neildunn</id>
+      <name>Neil Dunn</name>
+      <roles>
+        <role>Developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>scarytom</id>
+      <name>Tom Denley</name>
+      <roles>
+        <role>Developer</role>
+      </roles>
+    </developer>
+  </developers>
+
+  <modules>
+    <module>hamcrest-core</module>
+    <module>hamcrest-generator</module>
+    <module>hamcrest-library</module>
+    <module>hamcrest-integration</module>
+  </modules>
+</project>

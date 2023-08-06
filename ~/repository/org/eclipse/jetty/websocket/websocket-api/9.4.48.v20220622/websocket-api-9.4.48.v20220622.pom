@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <groupId>org.eclipse.jetty.websocket</groupId>
+    <artifactId>websocket-parent</artifactId>
+    <version>9.4.48.v20220622</version>
+  </parent>
+
+  <modelVersion>4.0.0</modelVersion>
+  <artifactId>websocket-api</artifactId>
+  <name>Jetty :: Websocket :: API</name>
+
+  <properties>
+    <bundle-symbolic-name>${project.groupId}.api</bundle-symbolic-name>
+  </properties>
+
+  <dependencies>
+    <!-- NOTE: It is important that this websocket-api module NOT depend on any other jetty modules,
+               for WebAppClassloader isolation reasons
+               - Joakim
+      -->
+    <dependency>
+      <groupId>org.eclipse.jetty.toolchain</groupId>
+      <artifactId>jetty-test-helper</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>ban-java-servlet-api</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <includes>
+                    <include>javax.servlet</include>
+                    <include>servletapi</include>
+                    <include>org.eclipse.jetty.orbit:javax.servlet</include>
+                    <include>org.mortbay.jetty:servlet-api</include>
+                    <include>jetty:servlet-api</include>
+                  </includes>
+                </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <extensions>true</extensions>
+        <configuration>
+          <instructions>
+            <Require-Capability>osgi.serviceloader; filter:="(osgi.serviceloader=org.eclipse.jetty.websocket.api.extensions.Extension)";resolution:=optional;cardinality:=multiple, osgi.extender; filter:="(osgi.extender=osgi.serviceloader.processor)";resolution:=optional</Require-Capability>
+          </instructions>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

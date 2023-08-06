@@ -1,0 +1,334 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The ASF licenses this file
+  to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<project xmlns="https://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="https://maven.apache.org/POM/4.0.0
+                      https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.apache</groupId>
+    <artifactId>apache</artifactId>
+    <version>21</version>
+    <relativePath/>
+    <!-- no parent resolution -->
+  </parent>
+  <groupId>org.apache.yetus</groupId>
+  <artifactId>yetus-project</artifactId>
+  <version>0.12.0</version>
+  <description>Project-wide definitions for Apache Yetus</description>
+  <name>Apache Yetus Project</name>
+  <packaging>pom</packaging>
+
+  <url>https://yetus.apache.org</url>
+  <inceptionYear>2015</inceptionYear>
+  <mailingLists>
+    <mailingList>
+      <name>Apache Yetus Dev List</name>
+      <subscribe>dev-subscribe@yetus.apache.org</subscribe>
+      <unsubscribe>dev-unsubscribe@yetus.apache.org</unsubscribe>
+      <post>dev@yetus.apache.org</post>
+      <archive>https://mail-archives.apache.org/mod_mbox/yetus-dev/</archive>
+    </mailingList>
+  </mailingLists>
+
+  <distributionManagement>
+    <site>
+      <id>Apache Yetus</id>
+      <name>site</name>
+      <url>https://yetus.apache.org/</url>
+    </site>
+  </distributionManagement>
+
+  <properties>
+    <maven.min.version>3.2.0</maven.min.version>
+    <maven.api.version>3.2</maven.api.version>
+    <maven.plugin.api.version>3.5.4</maven.plugin.api.version>
+    <java.min.version>1.8</java.min.version>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+
+    <build-helper-maven-plugin.version>3.0.0</build-helper-maven-plugin.version>
+    <checkstyle.version>8.29</checkstyle.version>
+    <commons.io.version>2.6</commons.io.version>
+    <exec-maven-plugin.version>1.6.0</exec-maven-plugin.version>
+    <jdiff.version>1.0.9</jdiff.version>
+    <jython-compile-maven-plugin.version>2.0</jython-compile-maven-plugin.version>
+    <jython-shaded.version>2.7.1.1</jython-shaded.version>
+    <maven-checkstyle-plugin.version>3.1.1</maven-checkstyle-plugin.version>
+    <maven-project-info-reports-plugin.version>3.0.0</maven-project-info-reports-plugin.version>
+    <spotbugs-maven-plugin.version>3.1.11</spotbugs-maven-plugin.version>
+
+    <sourceReleaseAssemblyDescriptor>source-release-tar</sourceReleaseAssemblyDescriptor>
+
+  </properties>
+
+  <scm>
+    <connection>scm:git:https://github.com/apache/yetus.git</connection>
+    <developerConnection>scm:git:https://gitbox.apache.org/repos/asf/yetus.git</developerConnection>
+    <url>https://github.com/apache/yetus.git</url>
+  </scm>
+  <issueManagement>
+    <system>JIRA</system>
+    <url>https://issues.apache.org/jira/browse/YETUS</url>
+  </issueManagement>
+
+  <build>
+
+    <pluginManagement>
+      <plugins>
+
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>exec-maven-plugin</artifactId>
+          <version>${exec-maven-plugin.version}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>com.github.spotbugs</groupId>
+          <artifactId>spotbugs-maven-plugin</artifactId>
+          <version>${spotbugs-maven-plugin.version}</version>
+        </plugin>
+
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-checkstyle-plugin</artifactId>
+          <version>${maven-checkstyle-plugin.version}</version>
+          <dependencies>
+            <dependency>
+              <groupId>com.puppycrawl.tools</groupId>
+              <artifactId>checkstyle</artifactId>
+              <version>${checkstyle.version}</version>
+            </dependency>
+          </dependencies>
+          <executions>
+            <execution>
+              <id>validate</id>
+              <phase>validate</phase>
+              <configuration>
+                <configLocation>checkstyle.xml</configLocation>
+                <encoding>UTF-8</encoding>
+                <consoleOutput>true</consoleOutput>
+                <failsOnError>true</failsOnError>
+                <linkXRef>false</linkXRef>
+              </configuration>
+              <goals>
+                <goal>check</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+
+        <plugin>
+          <artifactId>maven-clean-plugin</artifactId>
+          <configuration>
+            <failOnError>false</failOnError>
+          </configuration>
+        </plugin>
+
+        <!-- plugin>
+          <groupId>org.apache.rat</groupId>
+          <artifactId>apache-rat-plugin</artifactId>
+          <version>${apache-rat-plugin.version}</version>
+          <executions>
+            <execution>
+              <phase>verify</phase>
+              <goals>
+                <goal>check</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin -->
+
+
+      </plugins>
+    </pluginManagement>
+
+
+    <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <!-- version set by parent -->
+        <executions>
+          <execution>
+            <id>enforce</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <!-- The earliest maven version we verify builds for via ASF Jenkins -->
+                <!-- Might be obviated by move to gradle -->
+                <requireMavenVersion>
+                  <version>[${maven.min.version},)</version>
+                  <message>Maven is out of date.
+  Yetus requires at least version ${maven.min.version} of Maven to properly build from source.
+  You appear to be using an older version. You can use either "mvn -version" or
+  "mvn enforcer:display-info" to verify what version is active.
+  See the contributor guide on building for more information: ${project.url}/contribute/
+                  </message>
+                </requireMavenVersion>
+                <!-- The earliest JVM version we verify builds for via ASF Jenkins -->
+                <requireJavaVersion>
+                  <version>[${java.min.version},)</version>
+                  <message>Java is out of date.
+  Yetus requires at least version ${java.min.version} of the JDK to properly build from source.
+  You appear to be using an older version. You can use either "mvn -version" or
+  "mvn enforcer:display-info" to verify what version is active.
+  See the contributor guide on building for more information: ${project.url}/contribute/
+                  </message>
+                </requireJavaVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.rat</groupId>
+        <artifactId>apache-rat-plugin</artifactId>
+        <version>0.13</version>
+        <configuration>
+          <excludeSubprojects>false</excludeSubprojects>
+          <excludes>
+            <exclude>.rubocop.yml</exclude>
+            <exclude>Formula/.rubocop.yml</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>gpg2</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <configuration>
+              <executable>gpg2</executable>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>jdk1.8</id>
+      <activation>
+        <jdk>1.8</jdk>
+      </activation>
+      <dependencyManagement>
+        <dependencies>
+          <dependency>
+            <groupId>jdk.tools</groupId>
+            <artifactId>jdk.tools</artifactId>
+            <version>1.8</version>
+            <scope>system</scope>
+            <systemPath>${java.home}/../lib/tools.jar</systemPath>
+          </dependency>
+        </dependencies>
+      </dependencyManagement>
+    </profile>
+  </profiles>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <reportSets>
+          <reportSet>
+            <configuration>
+              <skip>true</skip>
+            </configuration>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <inherited>false</inherited>
+        <reportSets>
+          <reportSet>
+            <id>aggregate</id>
+            <configuration>
+              <maxmemory>1024m</maxmemory>
+              <quiet>true</quiet>
+              <verbose>false</verbose>
+              <source>${maven.compile.source}</source>
+              <charset>${maven.compile.encoding}</charset>
+              <reportOutputDirectory>${project.build.directory}/site</reportOutputDirectory>
+              <destDir>documentation/in-progress/javadocs</destDir>
+              <doclet>org.apache.yetus.audience.tools.ExcludePrivateAnnotationsStandardDoclet</doclet>
+              <docletArtifacts>
+                <docletArtifact>
+                  <groupId>org.apache.yetus</groupId>
+                  <artifactId>audience-annotations</artifactId>
+                  <version>${project.version}</version>
+                </docletArtifact>
+              </docletArtifacts>
+              <useStandardDocletOptions>true</useStandardDocletOptions>
+              <includeDependencySources>false</includeDependencySources>
+              <dependencySourceIncludes>
+                <dependencySourceInclude>org.apache.yetus:audience-annotations</dependencySourceInclude>
+              </dependencySourceIncludes>
+
+            </configuration>
+            <reports>
+              <report>aggregate</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+
+      <!-- plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>${maven-checkstyle-plugin.version}</version>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>checkstyle</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin -->
+    </plugins>
+  </reporting>
+
+  <modules>
+    <module>yetus-minimaven-plugin</module>
+    <module>yetus-assemblies</module>
+    <module>audience-annotations-component</module>
+    <module>precommit</module>
+    <module>releasedocmaker</module>
+    <module>shelldocs</module>
+    <module>asf-site-src</module>
+    <module>yetus-dist</module>
+    <module>yetus-maven-plugin</module>
+  </modules>
+
+</project>

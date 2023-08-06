@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson.module</groupId>
+    <artifactId>jackson-modules-base</artifactId>
+    <version>2.7.9</version>
+  </parent>
+  <artifactId>jackson-module-paranamer</artifactId>
+  <name>Jackson module: Paranamer</name>
+  <packaging>bundle</packaging>
+  <description>AnnotationIntrospectors that use Paranamer (http://paranamer.codehaus.org)
+to introspect names of constructor (and factory method) parameters.
+  </description>
+  <url>https://github.com/FasterXML/jackson-modules-base</url>
+
+  <properties>
+    <packageVersion.dir>com/fasterxml/jackson/module/paranamer</packageVersion.dir>
+    <packageVersion.package>${project.groupId}.paranamer</packageVersion.package>
+
+    <!--
+     | Configuration properties for the OSGi maven-bundle-plugin
+    -->
+    <osgi.export>${project.groupId}.paranamer.*</osgi.export>
+    <osgi.private>com.thoughtworks.paranamer.*</osgi.private>
+  </properties>
+
+  <dependencies>
+    <!-- Extends Jackson databind, core only transitively -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${version.jackson.core}</version>
+    </dependency>
+
+    <!-- and paranamer for introspection -->
+    <dependency>
+      <groupId>com.thoughtworks.paranamer</groupId>
+      <artifactId>paranamer</artifactId>
+      <version>2.8</version>
+    </dependency>
+
+     <!-- and for testing, annotations -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+   <plugins>
+     <plugin>
+       <!-- Inherited from oss-base. Generate PackageVersion.java.-->
+        <groupId>com.google.code.maven-replacer-plugin</groupId>
+        <artifactId>replacer</artifactId>
+        <executions>
+          <execution>
+            <id>process-packageVersion</id>
+            <phase>generate-sources</phase>
+          </execution>
+        </executions>
+     </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <optimize>true</optimize>
+          <debug>true</debug>
+     <!-- Also: tests fail without argument name metadata, so override this
+          to ensure "vars" is included too
+       -->
+          <debuglevel>lines,source,vars</debuglevel>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <!--  We will shade Paranamer, to simplify deployment, avoid version conflicts -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>${version.plugin.shade}</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <artifactSet>
+                <includes>
+                  <!--
+                  trick to avoid warnings from shade plugin because package
+                  is already embedded by private-package instruction from bundle plugin
+                  -->
+                  <include>null:null</include>
+                </includes>
+              </artifactSet>
+              <relocations>
+                <relocation>
+                  <pattern>com.thoughtworks.paranamer</pattern>
+                  <shadedPattern>com.fasterxml.jackson.module.paranamer.shaded</shadedPattern>
+                </relocation>
+              </relocations>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+   </plugins>
+  </build>
+
+</project>

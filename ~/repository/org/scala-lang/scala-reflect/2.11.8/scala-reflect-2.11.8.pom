@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.scala-lang</groupId>
+  <artifactId>scala-reflect</artifactId>
+  <packaging>jar</packaging>
+  <version>2.11.8</version>
+  <name>Scala Compiler</name>
+  <description>Compiler for the Scala Programming Language</description>
+  <url>http://www.scala-lang.org/</url>
+  <inceptionYear>2002</inceptionYear>
+  <organization>
+    <name>LAMP/EPFL</name>
+    <url>http://lamp.epfl.ch/</url>
+  </organization>
+  <licenses>
+    <license>
+      <name>BSD 3-Clause</name>
+      <url>http://www.scala-lang.org/license.html</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <scm>
+    <connection>scm:git:git://github.com/scala/scala.git</connection>
+    <url>https://github.com/scala/scala.git</url>
+  </scm>
+  <issueManagement>
+    <system>JIRA</system>
+    <url>https://issues.scala-lang.org/</url>
+  </issueManagement>
+  <properties>
+    <info.apiURL>http://www.scala-lang.org/api/2.11.8/</info.apiURL>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>org.scala-lang</groupId>
+      <artifactId>scala-library</artifactId>
+      <version>2.11.8</version>
+    </dependency>
+  </dependencies>
+  <developers>
+    <developer>
+      <id>lamp</id>
+      <name>EPFL LAMP</name>
+    </developer>
+    <developer>
+      <id>Lightbend</id>
+      <name>Lightbend, Inc.</name>
+    </developer>
+  </developers>
+</project>

@@ -1,0 +1,581 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.apache</groupId>
+    <artifactId>apache</artifactId>
+    <version>16</version>
+  </parent>
+
+  <groupId>org.apache.parquet</groupId>
+  <artifactId>parquet</artifactId>
+  <version>1.10.1</version>
+  <packaging>pom</packaging>
+
+  <name>Apache Parquet MR</name>
+  <url>https://parquet.apache.org</url>
+  <description>Parquet is a columnar storage format that supports nested data. This provides the java implementation.</description>
+
+  <scm>
+    <connection>scm:git:git@github.com:apache/parquet-mr.git</connection>
+    <url>scm:git:git@github.com:apache/parquet-mr.git</url>
+    <developerConnection>scm:git:https://github.com/apache/parquet-mr.git</developerConnection>
+    <tag>apache-parquet-1.10.1</tag>
+  </scm>
+
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <issueManagement>
+    <system>JIRA</system>
+    <url>https://issues.apache.org/jira/browse/PARQUET</url>
+  </issueManagement>
+
+  <mailingLists>
+    <mailingList>
+      <name>Dev Mailing List</name>
+      <post>dev@parquet.apache.org</post>
+      <subscribe>dev-subscribe@parquet.apache.org</subscribe>
+      <unsubscribe>dev-unsubscribe@parquet.apache.org</unsubscribe>
+    </mailingList>
+    <mailingList>
+      <name>Commits Mailing List</name>
+      <post>commits@parquet.apache.org</post>
+      <subscribe>commits-subscribe@parquet.apache.org</subscribe>
+      <unsubscribe>commits-unsubscribe@parquet.apache.org</unsubscribe>
+    </mailingList>
+  </mailingLists>
+
+  <repositories>
+    <repository>
+      <id>jitpack.io</id>
+      <url>https://jitpack.io</url>
+      <name>Jitpack.io repository</name>
+      <!-- needed for brotli-codec -->
+    </repository>
+  </repositories>
+
+  <developers>
+    <developer>
+      <name>Julien Le Dem</name>
+      <email>julien@twitter.com</email>
+    </developer>
+  </developers>
+
+  <properties>
+    <targetJavaVersion>1.8</targetJavaVersion>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>${targetJavaVersion}</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <github.global.server>github</github.global.server>
+    <maven-jar-plugin.version>2.4</maven-jar-plugin.version>
+    <jackson.groupId>org.codehaus.jackson</jackson.groupId>
+    <jackson.version>1.9.13</jackson.version>
+    <jackson.package>org.codehaus.jackson</jackson.package>
+    <shade.prefix>shaded.parquet</shade.prefix>
+    <hadoop.version>2.7.3</hadoop.version>
+    <hadoop1.version>1.2.1</hadoop1.version>
+    <cascading.version>2.7.1</cascading.version>
+    <cascading3.version>3.1.2</cascading3.version>
+    <parquet.format.version>2.4.0</parquet.format.version>
+    <previous.version>1.7.0</previous.version>
+    <thrift.executable>thrift</thrift.executable>
+    <scala.version>2.10.6</scala.version>
+    <!-- scala.binary.version is used for projects that fetch dependencies that are in scala -->
+    <scala.binary.version>2.10</scala.binary.version>
+    <scala.maven.test.skip>false</scala.maven.test.skip>
+    <pig.version>0.16.0</pig.version>
+    <pig.classifier>h2</pig.classifier>
+    <thrift-maven-plugin.version>0.10.0</thrift-maven-plugin.version>
+    <thrift.version>0.9.3</thrift.version>
+    <fastutil.version>7.0.13</fastutil.version>
+    <semver.api.version>0.9.33</semver.api.version>
+    <slf4j.version>1.7.22</slf4j.version>
+    <avro.version>1.8.2</avro.version>
+    <guava.version>20.0</guava.version>
+    <brotli-codec.version>0.1.1</brotli-codec.version>
+    <mockito.version>1.10.19</mockito.version>
+
+    <!-- parquet-cli dependencies -->
+    <opencsv.version>2.3</opencsv.version>
+    <jackson2.version>2.3.1</jackson2.version>
+    <jcommander.version>1.35</jcommander.version>
+    <commons-codec.version>1.10</commons-codec.version>
+  </properties>
+
+  <modules>
+    <module>parquet-arrow</module>
+    <module>parquet-avro</module>
+    <module>parquet-benchmarks</module>
+    <module>parquet-cascading</module>
+    <module>parquet-cascading3</module>
+    <module>parquet-cli</module>
+    <module>parquet-column</module>
+    <module>parquet-common</module>
+    <module>parquet-encoding</module>
+    <module>parquet-generator</module>
+    <module>parquet-hadoop</module>
+    <module>parquet-jackson</module>
+    <module>parquet-pig</module>
+    <module>parquet-pig-bundle</module>
+    <module>parquet-protobuf</module>
+    <module>parquet-scala</module>
+    <module>parquet-scrooge</module>
+    <module>parquet-thrift</module>
+    <module>parquet-hadoop-bundle</module>
+    <module>parquet-hive</module>
+    <module>parquet-hive-bundle</module>
+    <module>parquet-tools</module>
+  </modules>
+
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.12</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.easymock</groupId>
+      <artifactId>easymock</artifactId>
+      <version>3.4</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- hadoop-1 requires the old httpclient for testing -->
+    <dependency>
+      <groupId>commons-httpclient</groupId>
+      <artifactId>commons-httpclient</artifactId>
+      <version>3.1</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.9</version>
+        <reportSets>
+          <reportSet><!-- by default, id = "default" -->
+            <reports><!-- select non-aggregate reports -->
+              <report>javadoc</report>
+              <report>test-javadoc</report>
+            </reports>
+          </reportSet>
+          <reportSet><!-- aggregate reportSet, to define in poms having modules -->
+            <id>aggregate</id>
+            <inherited>false</inherited><!-- don't run aggregate in child modules -->
+            <reports>
+              <report>aggregate</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>cobertura-maven-plugin</artifactId>
+        <version>2.5.2</version>
+        <configuration>
+          <formats>
+            <format>html</format>
+          </formats>
+          <aggregate>true</aggregate>
+          <instrumentation>
+            <ignores>
+              <ignore>java.lang.UnsupportedOperationException.*</ignore>
+            </ignores>
+            <excludes>
+              <exclude>parquet/Log.class</exclude>
+              <exclude>**/*Exception.class</exclude>
+              <exclude>parquet/example/**/*.class</exclude>
+            </excludes>
+          </instrumentation>
+        </configuration>
+      </plugin>
+    </plugins>
+  </reporting>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <!-- Disable the source artifact from ASF parent -->
+          <artifactId>maven-assembly-plugin</artifactId>
+          <executions>
+            <execution>
+              <id>source-release-assembly</id>
+              <phase>none</phase>
+            </execution>
+          </executions>
+        </plugin>
+        
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>2.7</version>
+        </plugin>
+              
+        <plugin>
+          <artifactId>maven-enforcer-plugin</artifactId>
+          <version>1.3.1</version>
+          <dependencies>
+            <dependency>
+              <groupId>org.semver</groupId>
+              <artifactId>enforcer-rule</artifactId>
+              <version>0.9.28</version>
+            </dependency>
+         </dependencies>
+         <executions>
+           <execution>
+             <id>check</id>
+             <phase>verify</phase>
+             <goals>
+               <goal>enforce</goal>
+             </goals>
+             <configuration>
+               <rules>
+                 <requireBackwardCompatibility implementation="org.semver.enforcer.RequireSemanticVersioningConformance">
+                   <dumpDetails>true</dumpDetails>
+                   <previousVersion>${previous.version}</previousVersion>
+                   <excludes>
+                     <exclude>org/apache/parquet/hadoop/util/**</exclude>
+                     <exclude>org/apache/parquet/thrift/projection/**</exclude>
+                     <exclude>org/apache/parquet/thrift/ThriftSchemaConverter</exclude>
+                     <exclude>org/apache/parquet/filter2/**</exclude>
+                     <exclude>org/apache/parquet/column/**</exclude>
+                     <exclude>org/apache/parquet/hadoop/ParquetInputSplit</exclude>
+                     <exclude>org/apache/parquet/hadoop/CodecFactory**</exclude>
+                     <exclude>shaded/**</exclude> <!-- shaded by parquet -->
+                     <exclude>org/apache/parquet/it/unimi/dsi/fastutil/**</exclude> <!-- Another shaded dependency from parquet-column -->
+                     <exclude>org/apache/parquet/benchmarks/**</exclude>
+                     <exclude>org/openjdk/**</exclude>
+                     <!-- temporary exclusions for false-positives -->
+                     <exclude>org/apache/parquet/Version</exclude>
+                     <exclude>org/apache/parquet/schema/**</exclude> <!-- methods moved to new superclass -->
+                     <exclude>org/apache/parquet/thrift/ThriftSchemaConvertVisitor</exclude> <!-- not public -->
+                     <exclude>org/apache/parquet/avro/AvroParquetReader</exclude> <!-- returns subclass of old return class -->
+                     <exclude>org/apache/parquet/avro/SpecificDataSupplier</exclude> <!-- made public -->
+                     <exclude>org/apache/parquet/io/ColumnIOFactory$ColumnIOCreatorVisitor</exclude> <!-- removed non-API class -->
+                     <exclude>org/apache/parquet/io/ColumnIOFactory/**</exclude> <!-- removed non-API class and methods-->
+                     <exclude>org/apache/parquet/hadoop/codec/SnappyCompressor</exclude> <!-- added synchronized modifier -->
+                     <exclude>org/apache/parquet/bytes/BytesInput</exclude> <!-- moved to parquet-common -->
+                     <exclude>org/apache/parquet/bytes/CapacityByteArrayOutputStream</exclude> <!-- moved to parquet-common -->
+                     <exclude>org/apache/parquet/bytes/ConcatenatingByteArrayCollector</exclude> <!-- moved to parquet-common -->
+                     <exclude>org/apache/parquet/bytes/LittleEndianDataInputStream</exclude> <!-- moved to parquet-common -->
+                     <exclude>org/apache/parquet/bytes/LittleEndianDataOutputStream</exclude> <!-- moved to parquet-common -->
+                     <exclude>org/apache/parquet/hadoop/metadata/CompressionCodecName</exclude> <!-- moved to parquet-common -->
+                     <exclude>org/apache/parquet/hadoop/codec/CompressionCodecNotSupportedException</exclude> <!-- moved to parquet-common -->
+                   </excludes>
+                 </requireBackwardCompatibility>
+               </rules>
+             </configuration>
+           </execution>
+           <execution>
+            <id>enforce-banned-dependencies</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <excludes>
+                    <exclude>org.slf4j:slf4j-log4j12</exclude>
+                  </excludes>
+                </bannedDependencies>
+              </rules>
+              <fail>true</fail>
+            </configuration>
+          </execution>
+         </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>2.1</version>
+          <executions>
+            <execution>
+              <phase>package</phase>
+              <goals>
+                <goal>shade</goal>
+              </goals>
+              <configuration>
+                <minimizeJar>true</minimizeJar>
+                <artifactSet>
+                  <includes>
+                    <include>${jackson.groupId}:*</include>
+                    <include>it.unimi.dsi:fastutil</include>
+                  </includes>
+                </artifactSet>
+                <!-- Shade jackson but do not include any class. Let parquet-jackson handle this -->
+                <filters>
+                  <filter>
+                    <artifact>${jackson.groupId}:*</artifact>
+                    <excludes>
+                      <exclude>**</exclude>
+                    </excludes>
+                  </filter>
+                </filters>
+                <relocations>
+                  <relocation>
+                    <pattern>${jackson.package}</pattern>
+                    <shadedPattern>${shade.prefix}.${jackson.package}</shadedPattern>
+                  </relocation>
+                  <relocation>
+                    <pattern>it.unimi.dsi</pattern>
+                    <shadedPattern>${shade.prefix}.it.unimi.dsi</shadedPattern>
+                  </relocation>
+                </relocations>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>${maven-jar-plugin.version}</version>
+          <configuration>
+            <archive>
+              <manifestEntries>
+                <git-SHA-1>${buildNumber}</git-SHA-1>
+              </manifestEntries>
+            </archive>
+          </configuration>
+          <executions>
+            <execution>
+              <goals>
+                <goal>test-jar</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>com.mycila.maven-license-plugin</groupId>
+        <artifactId>maven-license-plugin</artifactId>
+        <version>1.10.b1</version>
+        <configuration>
+          <header>src/license.txt</header>
+          <strictCheck>true</strictCheck>
+        </configuration>
+        <!--executions>
+          <execution>
+            <phase>test</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions-->
+      </plugin>
+      
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>2.7</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-remote-resources-plugin</artifactId>
+          <version>1.5</version>
+          <configuration>
+            <skip>true</skip>
+          </configuration>
+      </plugin>
+      
+            
+      <plugin>
+        <!-- Override source and target from the ASF parent -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <argLine>-XX:MaxPermSize=256m</argLine>
+          <source>${maven.compiler.source}</source>
+          <target>${maven.compiler.target}</target>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>2.10</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.10</version>
+        <configuration>
+          <argLine>-Xmx512m</argLine>
+          <systemPropertyVariables>
+            <!-- Configure Parquet logging during tests
+                 See http://www.slf4j.org/api/org/slf4j/impl/SimpleLogger.html
+                 -->
+            <org.slf4j.simpleLogger.defaultLogLevel>info</org.slf4j.simpleLogger.defaultLogLevel>
+            <org.slf4j.simpleLogger.showDateTime>true</org.slf4j.simpleLogger.showDateTime>
+            <org.slf4j.simpleLogger.dateTimeFormat>YYYY-MM-dd HH:mm:ss</org.slf4j.simpleLogger.dateTimeFormat>
+            <org.slf4j.simpleLogger.showThreadName>false</org.slf4j.simpleLogger.showThreadName>
+            <org.slf4j.simpleLogger.showShortLogName>true</org.slf4j.simpleLogger.showShortLogName>
+          </systemPropertyVariables>
+          <excludes>
+            <exclude>**/benchmark/*.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>buildnumber-maven-plugin</artifactId>
+        <version>1.1</version>
+        <executions>
+          <execution>
+            <phase>validate</phase>
+            <goals>
+              <goal>create</goal>
+            </goals>
+         </execution>
+       </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.rat</groupId>
+        <artifactId>apache-rat-plugin</artifactId>
+        <version>0.12</version>
+        <executions>
+          <execution>
+            <phase>test</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <consoleOutput>true</consoleOutput>
+          <excludes>
+            <exclude>**/*.parquet</exclude>
+            <exclude>**/*.avro</exclude>
+            <exclude>**/*.json</exclude>
+            <exclude>**/names.txt</exclude> <!-- parquet-cascading test data -->
+            <exclude>**/*.avsc</exclude>
+            <exclude>**/*.iml</exclude>
+            <exclude>**/*.log</exclude>
+            <exclude>**/*.md.vm</exclude>
+            <exclude>**/.classpath</exclude>
+            <exclude>**/.project</exclude>
+            <exclude>**/.settings/**</exclude>
+            <exclude>**/build/**</exclude>
+            <exclude>**/target/**</exclude>
+            <exclude>.git/**</exclude>
+            <exclude>.gitignore</exclude>
+            <exclude>.idea/**</exclude>
+            <exclude>*/jdiff/*.xml</exclude>
+            <exclude>.travis.yml</exclude>
+            <exclude>licenses/**</exclude>
+            <exclude>protobuf_install/**</exclude>
+            <exclude>thrift-${thrift.version}/**</exclude>
+            <exclude>thrift-${thrift.version}.tar.gz</exclude>
+            <exclude>**/dependency-reduced-pom.xml</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>update-github-site</id>
+      <reporting>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-project-info-reports-plugin</artifactId>
+            <version>2.7</version>
+            <reportSets>
+              <reportSet>
+                <reports>
+                  <report>index</report>
+                  <report>mailing-list</report>
+                  <report>dependency-info</report>
+                  <report>project-team</report>
+                  <report>dependencies</report>
+                  <report>license</report>
+                  <report>scm</report>
+                </reports>
+              </reportSet>
+            </reportSets>
+          </plugin>
+        </plugins>
+      </reporting>
+      <distributionManagement>
+        <site>
+          <id>github-pages-site</id>
+          <name>Deployment through GitHub's site deployment plugin</name>
+          <url>site/${project.version}</url>
+        </site>
+      </distributionManagement>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-site-plugin</artifactId>
+            <version>3.3</version>
+            <configuration>
+              <skipDeploy>true</skipDeploy>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>com.github.github</groupId>
+            <artifactId>site-maven-plugin</artifactId>
+            <version>0.8</version>
+            <configuration>
+              <message>Creating site for ${project.version}</message>
+              <path>${project.distributionManagement.site.url}</path>
+              <merge>true</merge>
+            </configuration>
+            <executions>
+              <execution>
+                <id>github-site</id>
+                <goals>
+                  <goal>site</goal>
+                </goals>
+                <phase>site-deploy</phase>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>hadoop-1</id>
+      <activation>
+        <property>
+          <name>hadoop.profile</name>
+          <value>hadoop1</value>
+        </property>
+      </activation>
+      <properties>
+        <!-- test hadoop-1 with the same jars that were produced for default profile -->
+        <maven.main.skip>true</maven.main.skip>
+        <hadoop.version>${hadoop1.version}</hadoop.version>
+        <pig.classifier />
+      </properties>
+    </profile>
+    <profile>
+      <id>thrift9</id>
+      <properties>
+        <thrift.version>0.9.0</thrift.version>
+      </properties>
+    </profile>
+  </profiles>
+</project>

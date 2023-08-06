@@ -1,0 +1,6 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:14 CST 2023
+listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.pom>gcs-maven-central-mirror=
+listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.pom>allmaven=
+listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar>allmaven=
+listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar>gcs-maven-central-mirror=

@@ -1,0 +1,484 @@
+<!--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  ~ Copyright (c) 2015 Voyager Search and others
+  ~ All rights reserved. This program and the accompanying materials
+  ~ are made available under the terms of the Apache License, Version 2.0 which
+  ~ accompanies this distribution and is available at
+  ~    http://www.apache.org/licenses/LICENSE-2.0.txt
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  
+  <groupId>org.locationtech.spatial4j</groupId>
+  <artifactId>spatial4j</artifactId>
+  <version>0.7</version>
+  <packaging>bundle</packaging><!-- an OSGi thing; basically same as 'jar' -->
+
+  <name>Spatial4J</name>
+  <description>
+    Spatial4j is a general purpose spatial / geospatial ASL licensed open-source Java library. It's
+    core capabilities are 3-fold: to provide common geospatially-aware shapes, to provide distance
+    calculations and other math, and to read shape formats like WKT and GeoJSON.
+  </description>
+
+  <url>https://projects.eclipse.org/projects/locationtech.spatial4j</url>
+
+  <organization>
+    <name>LocationTech</name>
+    <url>http://www.locationtech.org/</url>
+  </organization>
+
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <issueManagement>
+    <system>GitHub</system>
+    <url>https://github.com/locationtech/spatial4j/issues</url>
+  </issueManagement>
+
+  <ciManagement>
+    <system>Hudson</system>
+    <url>https://ci.locationtech.org/spatial4j/job/Spatial4j/</url>
+  </ciManagement>
+  <!-- also:
+  <ciManagement>
+    <system>Travis-CI</system>
+    <url>https://travis-ci.org/locationtech/spatial4j</url>
+  </ciManagement>
+   -->
+
+  <mailingLists>
+    <mailingList>
+      <name>spatial4j-dev</name>
+      <archive>http://locationtech.org/mhonarc/lists/spatial4j-dev</archive>
+      <otherArchives>
+        <!-- pre-LocationTech traffic -->
+        <otherArchive>http://spatial4j.16575.x6.nabble.com</otherArchive>
+      </otherArchives>
+      <post>spatial4j-dev@locationtech.org</post>
+      <subscribe>https://locationtech.org/mailman/listinfo/spatial4j-dev</subscribe>
+    </mailingList>
+  </mailingLists>
+
+  <developers>
+    <developer>
+      <name>David Smiley</name>
+    </developer>
+    <developer>
+      <name>Ryan McKinley</name>
+      <organization>Voyager Search</organization>
+    </developer>
+    <developer>
+      <name>Justin Deoliveira</name>
+      <organization>Voyager Search</organization>
+    </developer>
+  </developers>
+  <!-- Contributors: See for yourself: https://github.com/locationtech/spatial4j/graphs/contributors -->
+  <!-- The official intellectual property log (IP Log); people & dependencies/code is tracked with the Eclipse foundation -->
+
+  <scm>
+    <connection>scm:git:git@github.com:locationtech/spatial4j.git</connection>
+    <developerConnection>scm:git:git@github.com:locationtech/spatial4j.git</developerConnection>
+    <url>https://github.com/locationtech/spatial4j</url>
+    <tag>spatial4j-0.7</tag>
+  </scm>
+
+  <properties>
+    <!-- this magic system property is honored by many plugins: http://docs.codehaus.org/display/MAVENUSER/POM+Element+for+Source+File+Encoding -->
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <!-- To check for new plugins and dependencies:
+  mvn org.codehaus.mojo:versions-maven-plugin:2.5:display-plugin-updates
+  mvn org.codehaus.mojo:versions-maven-plugin:2.5:display-dependency-updates
+  -->
+  <prerequisites>
+    <maven>3.0.1</maven>
+  </prerequisites>
+
+  <dependencies>
+    <!-- Used for GeoJSON parsing -->
+    <dependency>
+      <groupId>org.noggit</groupId>
+      <artifactId>noggit</artifactId>
+      <version>0.8</version>
+      <optional>true</optional>
+    </dependency>
+    
+    <!-- Used for optional Jackson support -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.7.9.2</version>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- JTS is essentially only used for polygons. -->
+    <dependency>
+      <groupId>org.locationtech.jts</groupId>
+      <artifactId>jts-core</artifactId>
+      <version>1.15.0</version>
+      <optional>true</optional>
+    </dependency>
+    
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.12</version>
+      <scope>test</scope>
+    </dependency>
+    
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <version>2.13.0</version>
+      <scope>test</scope>
+    </dependency>
+    
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>1.7.25</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>com.carrotsearch.randomizedtesting</groupId>
+      <artifactId>randomizedtesting-runner</artifactId>
+      <version>2.5.3</version>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+  
+  <build>
+
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-release-plugin</artifactId>
+          <version>2.5.3</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.3</version>
+        <configuration>
+          <source>1.7</source>
+          <target>1.7</target>
+          <optimize>true</optimize>
+          <showDeprecation>true</showDeprecation>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.18.1</version>
+      </plugin>
+
+      <plugin>
+        <groupId>de.thetaphi</groupId>
+        <artifactId>forbiddenapis</artifactId>
+        <version>1.8</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <!-- disallow undocumented classes like sun.misc.Unsafe: -->
+          <internalRuntimeForbidden>true</internalRuntimeForbidden>
+          <bundledSignatures>
+            <bundledSignature>jdk-system-out</bundledSignature>
+            <bundledSignature>jdk-unsafe</bundledSignature>
+            <bundledSignature>jdk-deprecated</bundledSignature>
+          </bundledSignatures>
+          <!--
+            This is the default setting, we don't support too new Java versions.
+            The checker simply passes by default and only prints a warning.
+           -->
+          <failOnUnsupportedJava>false</failOnUnsupportedJava>
+          <targetVersion>1.7</targetVersion>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>2.5.3</version>
+        <configuration>
+          <instructions>
+            <Export-Package>org.locationtech.spatial4j*;version=${project.version}</Export-Package>
+          </instructions>
+        </configuration>
+        <extensions>true</extensions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <version>3.4</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.7.5.201505241946</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Instructions: http://blog.progs.be/517/publishing-javadoc-to-github-using-maven
+       Alternative plugin: https://github.github.com/maven-plugins/site-plugin/index.html -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-scm-publish-plugin</artifactId>
+        <version>1.1</version>
+        <configuration>
+          <checkinComment>Publishing maven generated site for ${project.artifactId}:${project.version}</checkinComment>
+          <content>${project.reporting.outputDirectory}</content>
+          <skipDeletedFiles>true</skipDeletedFiles>
+          <pubScmUrl>scm:git:https://github.com/locationtech/spatial4j.git</pubScmUrl>
+          <scmBranch>gh-pages</scmBranch> <!-- branch with static site -->
+        </configuration>
+      </plugin>
+
+
+
+      <plugin>
+        <!-- Generate PackageVersion.java for Jackson-->
+        <groupId>com.google.code.maven-replacer-plugin</groupId>
+        <artifactId>replacer</artifactId>
+        <version>1.5.3</version>
+        <executions>
+          <execution>
+            <id>process-packageVersion</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>replace</goal>
+            </goals>                    
+          </execution>
+        </executions>
+        <configuration>
+                <file>${basedir}/src/main/java/org/locationtech/spatial4j/io/jackson/PackageVersion.java.in</file>
+          <outputFile>${basedir}/src/main/java/org/locationtech/spatial4j/io/jackson/PackageVersion.java</outputFile>
+          <replacements>
+            <replacement>
+              <token>@package@</token>
+              <value>${packageVersion.package}</value>
+            </replacement>
+            <replacement>
+              <token>@projectversion@</token>
+              <value>${project.version}</value>
+            </replacement>
+            <replacement>
+              <token>@projectgroupid@</token>
+              <value>${project.groupId}</value>
+            </replacement>
+            <replacement>
+              <token>@projectartifactid@</token>
+              <value>${project.artifactId}</value>
+            </replacement>
+          </replacements>
+        </configuration>
+      </plugin>
+
+    </plugins>
+
+  </build>
+
+
+  <reporting>
+    <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>2.8</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>3.5</version>
+        <configuration>
+          <linkXRef>true</linkXRef>
+          <minimumTokens>100</minimumTokens>
+          <targetJdk>1.7</targetJdk>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <version>3.0.3</version>
+        <configuration>
+          <xmlOutput>true</xmlOutput>
+        </configuration>
+      </plugin>
+
+      <!-- It would be nice if there was a JXR substitute that linked to GitHub hosted source. No big deal. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jxr-plugin</artifactId>
+        <version>2.5</version>
+        <!-- we exclude tests: -->
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>jxr</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-report-plugin</artifactId>
+        <version>2.18.1</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.10.3</version>
+        <configuration>
+          <header>Spatial4j, ${project.version}</header>
+          <footer>Spatial4j, ${project.version}</footer>
+          <doctitle>Spatial4j, ${project.version}</doctitle>
+          <links>
+            <link>http://locationtech.github.io/jts/javadoc/</link>
+          </links>
+        </configuration>
+        <!-- we exclude tests: -->
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>javadoc</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+
+    </plugins>
+  </reporting>
+
+  <profiles>
+
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>2.4</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-jar-plugin</artifactId>
+            <version>2.6</version>
+            <executions>
+              <execution>
+                <id>attach-test-sources</id>
+                <goals>
+                  <goal>test-jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>2.10.3</version>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!-- For signing artifacts to eventually be used in a release.  Should be used in conjunction with the
+    "release" profile.
+    Note this plugin only works from Eclipse infrastructure (e.g. Hudson) -->
+    <profile>
+      <id>eclipse-sign</id>
+      <build>
+        <plugins>
+          <!--
+          https://www.eclipse.org/cbi/maven-plugins/documentation/latest/eclipse-jarsigner-plugin/sign-mojo.html
+          -->
+          <plugin>
+            <groupId>org.eclipse.cbi.maven.plugins</groupId>
+            <artifactId>eclipse-jarsigner-plugin</artifactId>
+            <version>1.1.4</version>
+            <!--<configuration>-->
+              <!--<signerUrl>http://locationtech.org:31338/sign</signerUrl>-->
+            <!--</configuration>-->
+            <executions>
+              <execution>
+                <id>sign</id>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+                <phase>verify</phase>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>cbi-releases</id>
+          <url>https://repo.eclipse.org/content/repositories/cbi-releases/</url>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+
+  </profiles>
+
+  <distributionManagement>
+    <snapshotRepository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+    </snapshotRepository>
+    <repository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+    </repository>
+  </distributionManagement>
+
+</project>

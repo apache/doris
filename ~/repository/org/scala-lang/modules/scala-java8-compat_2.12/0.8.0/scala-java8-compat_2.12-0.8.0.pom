@@ -1,0 +1,66 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.scala-lang.modules</groupId>
+    <artifactId>scala-java8-compat_2.12</artifactId>
+    <packaging>bundle</packaging>
+    <description>scala-java8-compat</description>
+    <url>http://www.scala-lang.org/</url>
+    <version>0.8.0</version>
+    <licenses>
+        <license>
+            <name>BSD 3-clause</name>
+            <url>http://opensource.org/licenses/BSD-3-Clause</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <name>scala-java8-compat</name>
+    <inceptionYear>2002</inceptionYear>
+    <organization>
+        <name>org.scala-lang.modules</name>
+        <url>http://www.scala-lang.org/</url>
+    </organization>
+    <scm>
+        <url>https://github.com/scala/scala-java8-compat</url>
+        <connection>scm:git:git://github.com/scala/scala-java8-compat.git</connection>
+    </scm>
+    <issueManagement>
+        <system>JIRA</system>
+        <url>https://issues.scala-lang.org/</url>
+    </issueManagement>
+    <developers>
+        <developer>
+            <id>epfl</id>
+            <name>EPFL</name>
+        </developer>
+        <developer>
+            <id>Typesafe</id>
+            <name>Typesafe, Inc.</name>
+        </developer>
+    </developers>
+    <dependencies>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>2.12.0</version>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.11</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.4</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.novocode</groupId>
+            <artifactId>junit-interface</artifactId>
+            <version>0.10</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

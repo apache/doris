@@ -1,0 +1,7 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:49:21 CST 2023
+slf4j-reload4j-1.7.36.jar>gcs-maven-central-mirror=
+slf4j-reload4j-1.7.36.pom>huawei-obs-sdk=
+slf4j-reload4j-1.7.36.jar>allmaven=
+slf4j-reload4j-1.7.36.pom>allmaven=
+slf4j-reload4j-1.7.36.pom>gcs-maven-central-mirror=

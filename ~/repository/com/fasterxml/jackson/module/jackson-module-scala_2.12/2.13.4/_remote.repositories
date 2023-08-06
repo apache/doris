@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:04:20 CST 2023
+jackson-module-scala_2.12-2.13.4.jar>gcs-maven-central-mirror=
+jackson-module-scala_2.12-2.13.4.pom>gcs-maven-central-mirror=

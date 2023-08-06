@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.prometheus</groupId>
+        <artifactId>parent</artifactId>
+        <version>0.15.0</version>
+    </parent>
+
+    <artifactId>simpleclient</artifactId>
+    <packaging>bundle</packaging>
+
+    <name>Prometheus Java Simpleclient</name>
+    <description>
+        Core instrumentation library for the simpleclient.
+    </description>
+
+    <licenses>
+        <license>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>brian-brazil</id>
+            <name>Brian Brazil</name>
+            <email>brian.brazil@boxever.com</email>
+        </developer>
+    </developers>
+
+
+  <dependencies>
+    <!-- The simpleclient has no required 3rd party runtime dependencies by design, so that
+         it can be included into any other project without having to worry about conflicts.
+         All transitive dependencies of tracer libraries are scoped as provided and optional at runtime. -->
+    <dependency>
+      <groupId>io.prometheus</groupId>
+      <artifactId>simpleclient_tracer_otel</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.prometheus</groupId>
+      <artifactId>simpleclient_tracer_otel_agent</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- Test Dependencies Follow -->
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
+    </dependency>
+      <dependency>
+          <groupId>org.apache.commons</groupId>
+          <artifactId>commons-math3</artifactId>
+          <version>3.6.1</version>
+          <scope>test</scope>
+      </dependency>
+  </dependencies>
+</project>

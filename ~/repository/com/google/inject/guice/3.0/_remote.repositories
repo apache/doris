@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:26:26 CST 2023
+guice-3.0.jar>allmaven=
+guice-3.0.pom>gcs-maven-central-mirror=

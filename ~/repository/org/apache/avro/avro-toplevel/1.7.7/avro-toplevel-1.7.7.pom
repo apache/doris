@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.apache</groupId>
+    <artifactId>apache</artifactId>
+    <version>10</version>
+  </parent>
+
+  <groupId>org.apache.avro</groupId>
+  <artifactId>avro-toplevel</artifactId>
+  <version>1.7.7</version>
+  <packaging>pom</packaging>
+
+  <name>Apache Avro Toplevel</name>
+  <url>http://avro.apache.org</url>
+  <description>Avro toplevel pom</description>
+
+  <!-- This project is used for top level build tasks and artifact copying.
+       The RAT task is run to validate licenses.  The Enforcer plugin is used
+       to validate that java projects are the correct version.
+       Java artifacts are copied to the final build destination with a custom profile.
+       -->
+  <properties>
+    <avro.distDir>dist</avro.distDir>
+    <avro.docDir>build/avro-doc-${project.version}/api</avro.docDir>
+    <!-- dependency plugin versions -->
+    <apache-rat-tasks.version>0.7</apache-rat-tasks.version>
+
+    <!-- plugin versions -->
+    <antrun-plugin.version>1.7</antrun-plugin.version>
+    <enforcer-plugin.version>1.0.1</enforcer-plugin.version>
+  </properties>
+
+  <modules>
+    <module>lang/java</module>
+  </modules>
+
+  <scm>
+    <connection>scm:svn:http://svn.apache.org/repos/asf/avro/trunk</connection>
+    <developerConnection>scm:svn:https://svn.apache.org/repos/asf/avro/trunk</developerConnection>
+    <url>http://svn.apache.org/viewvc/avro/trunk</url>
+  </scm>
+
+  <issueManagement>
+    <system>jira</system>
+    <url>http://issues.apache.org/jira/browse/AVRO</url>
+  </issueManagement>
+
+  <inceptionYear>2009</inceptionYear>
+
+  <mailingLists>
+    <mailingList>
+      <name>Avro Developer List</name>
+      <subscribe>dev-subscribe@avro.apache.org</subscribe>
+      <unsubscribe>dev-unsubscribe@avro.apache.org</unsubscribe>
+      <post>dev@avro.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/avro-dev/</archive>
+    </mailingList>
+    <mailingList>
+      <name>Avro Users List</name>
+      <subscribe>users-subscribe@avro.apache.org</subscribe>
+      <unsubscribe>users-unsubscribe@avro.apache.org</unsubscribe>
+      <post>users@avro.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/avro-users/</archive>
+    </mailingList>
+    <mailingList>
+      <name>Avro Commits List</name>
+      <subscribe>commits-subscribe@avro.apache.org</subscribe>
+      <unsubscribe>commits-unsubscribe@avro.apache.org</unsubscribe>
+      <post>commits@avro.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/avro-commits/</archive>
+    </mailingList>
+  </mailingLists>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${enforcer-plugin.version}</version>
+        <configuration>
+          <rules>
+            <requireProperty>
+              <property>avro.version</property>
+              <message>*****!!!!!! Must have property avro.version set to enforce version. !!!!!!*****</message>
+            </requireProperty>
+            <requireProperty>
+              <property>project.version</property>
+              <regex>${avro.version}</regex>
+              <regexMessage>*****!!!!! Version of project must be ${avro.version} !!!!!*****</regexMessage>
+            </requireProperty>
+          </rules>
+          <fail>true</fail>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>dist</id>
+      <!-- Profile for generating all maven artifacts and documentation. -->
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <!-- build javadoc jars per jar for publishing to maven -->
+                <id>module-javadocs</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+              <execution>
+                <!-- build aggregate javadoc in parent only -->
+                <id>default-cli</id>
+                <goals>
+                  <goal>aggregate</goal>
+                </goals>
+                <inherited>false</inherited>
+                <configuration>
+                  <overview>avro/src/main/java/overview.html</overview>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <!-- builds source jars and attaches them to the project for publishing -->
+                <id>avro-java-sources</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <executions>
+              <execution>
+                <phase>package</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>sign</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>rat</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>${antrun-plugin.version}</version>
+            <configuration>
+              <target name="rat">
+                <rat:report xmlns:rat="antlib:org.apache.rat.anttasks"
+                            reportFile="build/rat-report.log">
+                  <fileset dir="build/avro-src-${project.version}/"
+                           excludesfile="share/rat-excludes.txt"/>
+                </rat:report>
+                <condition property="rat.passed">
+                  <isfileselected file="build/rat-report.log">
+                    <containsregexp expression="^0 Unknown Licenses"/>
+                  </isfileselected>
+                </condition>
+                <fail unless="rat.passed">Unknown licenses: See build/rat-report.log.</fail>
+              </target>
+            </configuration>
+            <dependencies>
+              <dependency>
+                <groupId>org.apache.rat</groupId>
+                <artifactId>apache-rat-tasks</artifactId>
+                <version>${apache-rat-tasks.version}</version>
+              </dependency>
+            </dependencies>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>copy-artifacts</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>${antrun-plugin.version}</version>
+            <configuration>
+              <target name="copy-java-artifacts">
+                <mkdir dir="${avro.distDir}/java"/>
+                <copy todir="${avro.distDir}/java" verbose="true">
+                  <flattenmapper/>
+                  <fileset dir="lang/java/"
+                           includes="**/target/*${project.version}*.jar"
+                           excludes="**/original-*.jar **/*tests.jar"/>
+                </copy>
+
+                <mkdir dir="${avro.docDir}"/>
+                <copy todir="${avro.docDir}/java">
+                  <fileset dir="lang/java/target/site/apidocs"/>
+                </copy>
+                <copy todir="build/avro-doc-${project.version}/trevni">
+                  <fileset dir="lang/java/trevni/doc/target/site"/>
+                </copy>
+              </target>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>

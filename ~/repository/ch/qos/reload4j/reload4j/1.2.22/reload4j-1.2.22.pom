@@ -1,0 +1,500 @@
+<!--
+ Licensed to the Apache Software Foundation (ASF) under one or more
+ contributor license agreements.  See the NOTICE file distributed with
+ this work for additional information regarding copyright ownership.
+ The ASF licenses this file to You under the Apache License, Version 2.0
+ (the "License"); you may not use this file except in compliance with
+ the License.  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>ch.qos.reload4j</groupId>
+  <artifactId>reload4j</artifactId>
+  <packaging>jar</packaging>
+  <name>reload4j</name>
+  <version>1.2.22</version>
+  <description>Reload4j revives EOLed log4j 1.x</description> 
+
+  <url>https://reload4j.qos.ch</url>
+  <inceptionYear>1999</inceptionYear>
+
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <organization>
+    <name>QOS.CH Sarl (Switzerland)</name>
+    <url>https://reload4j.qos.ch</url>
+  </organization>
+
+  <scm>
+    <url>https://github.com/qos-ch/reload4j</url>
+    <connection>scm:git@github.com:qos-ch/reload4j.git</connection>
+  </scm>
+
+  
+  <properties>
+    <!-- yyyy-MM-dd'T'HH:mm:ss'Z' -->
+    <project.build.outputTimestamp>2022-07-21T11:17:00Z</project.build.outputTimestamp>    
+    <jdk.version>1.5</jdk.version>
+    <maven.compiler.source>${jdk.version}</maven.compiler.source>
+    <maven.compiler.target>${jdk.version}</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.build.resourceEncoding>UTF-8</project.build.resourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <junit.version>4.13</junit.version>
+    <maven-toolchains-plugin.version>3.0.0</maven-toolchains-plugin.version>
+    <maven-site-plugin.version>3.7.1</maven-site-plugin.version>
+    <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
+    <maven-surefire-plugin.version>3.0.0-M5</maven-surefire-plugin.version>
+    <maven-javadoc-plugin.version>3.1.0</maven-javadoc-plugin.version>
+    <maven-source-plugin.version>3.2.0</maven-source-plugin.version>
+    <maven-deploy-plugin.version>3.0.0-M1</maven-deploy-plugin.version>    
+    <maven-jar-plugin.version>3.2.0</maven-jar-plugin.version>
+    <maven-bundle-plugin.version>5.1.4</maven-bundle-plugin.version>
+    <maven-release-plugin.version>3.0.0-M4</maven-release-plugin.version>
+    <maven-gpg-plugin.version>1.6</maven-gpg-plugin.version>
+  </properties>
+
+  <developers>
+
+    <developer>
+      <id>anders</id>
+      <name>Anders Kristensen</name>
+      <email>anders@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>ceki</id>
+      <name>Ceki Gulcu</name>
+      <email>ceki@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>grobmeier</id>
+      <name>Christian Grobmeier</name>
+      <email>grobmeier@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>carnold</id>
+      <name>Curtis William Arnold</name>
+      <email>carnold@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>eross</id>
+      <name>Elias Nathan Ross</name>
+      <email>eross@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>ggregory</id>
+      <name>Gary D. Gregory</name>
+      <email>ggregory@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>hoju</id>
+      <name>Jacob Kjome</name>
+      <email>hoju@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>jmoore</id>
+      <name>Jim Moore</name>
+      <email>jmoore@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>jon</id>
+      <name>Jon Scott Stevens</name>
+      <email>jon@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id></id>
+      <name>Mark Wayne Womack</name>
+      <email>mwomack@apache.org</email>
+    </developer>
+           
+
+    <developer>
+      <id>psmith</id>
+      <name>Paul Jeffrey Smith</name>
+      <email>psmith@apache.org</email>
+    </developer>
+
+    <developer>
+      <id>pier</id>
+      <name>Pier Fumagalli</name>
+      <email>pier@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>rgoers</id>
+      <name>Ralph Goers</name>
+      <email>rgoers@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>sdeboy</id>
+      <name>Scott Deboy</name>
+      <email>sdeboy@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>yoavs</id>
+      <name>Yoav Shapira</name>
+      <email>yoavs@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>bradm</id>
+      <name>bradm</name>
+      <email>bradm@apache.org</email>
+    </developer>
+
+
+    <developer>
+      <id>oburn</id>
+      <name>Oliver Bburn</name>
+      <email>oburn@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>pathos</id>
+      <name>Mathias Bogaert</name>
+      <email>pathos@apache.org</email>
+    </developer>
+    
+    <developer>
+      <id>pglezen</id>
+      <name>Paul Glezen</name>
+      <email>pglezen@apache.org</email>
+    </developer>
+
+  </developers>
+  
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-toolchains-plugin</artifactId>
+        <version>${maven-toolchains-plugin.version}</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>        
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>${maven-jar-plugin.version}</version>
+        <configuration>
+          <archive>
+           <manifest>
+             <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+           </manifest>
+            <manifestEntries>
+              <X-Compile-Source-JDK>${maven.compiler.source}</X-Compile-Source-JDK>	
+              <X-Compile-Target-JDK>${maven.compiler.target}</X-Compile-Target-JDK>
+            </manifestEntries>
+            <!-- Add to output produced by bundle-plugin -->
+            <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+          </archive>
+        </configuration>
+
+        <executions>
+          <execution>
+            <id>bundle-test-jar</id>
+            <phase>package</phase>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+ 
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>        
+        <artifactId>maven-source-plugin</artifactId>
+        <version>${maven-source-plugin.version}</version>
+        <configuration>
+          <archive>
+            <manifestSections>
+              <manifestSection>
+                <name>org.apache.log4j</name>
+                <manifestEntries>
+                  <DynamicImport-Package>*</DynamicImport-Package>
+                  <Implementation-Title>reload4j</Implementation-Title>
+                  <Implementation-Version>${project.version}</Implementation-Version>
+                  <Implementation-Vendor>"QOS.CH Sarl (Switzerland)"</Implementation-Vendor>
+                </manifestEntries>
+              </manifestSection>
+            </manifestSections>
+          </archive>
+        </configuration>          
+        <executions>
+          <execution>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution> 
+        </executions>          
+      </plugin>
+      <plugin>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>${maven-javadoc-plugin.version}</version>
+        <configuration>
+          <encoding>${project.build.sourceEncoding}</encoding>
+          <additionalOptions>
+            <additionalOption>-Xdoclint:none</additionalOption>
+          </additionalOptions>
+          <header><![CDATA[<a href="https://reload4j.qos.ch">
+          <img src="https://reload4j.qos.ch/images/logos/reload4j.jpg" height="40"/></a>]]></header>
+          <top><![CDATA[<b><span style="color: #ff8844">&nbsp;&nbsp;You can also support SLF4J/logback/reload4j projects via <a href="https://github.com/sponsors/qos-ch">Github donations and sponsorship</a>.<span></b>]]></top>
+          <notimestamp>true</notimestamp>
+          <failOnError>false</failOnError>
+          <failOnWarnings>false</failOnWarnings>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven-compiler-plugin.version}</version>
+        <configuration>
+          <source>${jdk.version}</source>
+          <target>${jdk.version}</target>
+          <encoding>${project.build.sourceEncoding}</encoding>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven-surefire-plugin.version}</version>
+        <configuration>
+          <reportFormat>plain</reportFormat>
+          <forkCount>1</forkCount>
+          <forkMode>pertest</forkMode><!-- deprecated, but tests fail when changing the setting -->
+          <!-- <argLine>-Djava.library.path=${project.basedir}</argLine> -->
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <version>${maven-deploy-plugin.version}</version>
+      </plugin>
+
+      
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>${maven-bundle-plugin.version}</version>        
+        <extensions>true</extensions>
+        <executions>
+          <execution>
+            <id>bundle-manifest</id>
+            <phase>process-classes</phase>
+            <goals>
+              <goal>manifest</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <instructions>
+            <Export-Package>
+              <!-- omit chainsaw  -->
+              !org.apache.log4j.chainsaw.*,
+              org.apache.log4j.*;version=${project.version};-noimport:=true
+            </Export-Package>
+            <Import-Package>
+              javax.jmdns;resolution:=optional,
+              javax.jms;resolution:=optional,
+              javax.mail;version="[1.4,2)";resolution:=optional,
+              javax.mail.internet;version="[1.4,2)";resolution:=optional,
+              javax.naming,
+              <!-- swing packages are needed only by chainsaw -->
+              !javax.swing.*,
+              javax.xml.parsers,
+              org.w3c.dom,
+              org.xml.sax,
+              org.xml.sax.helpers
+            </Import-Package>
+            <Bundle-DocURL>https://reload4j.qos.ch/</Bundle-DocURL>
+            <Bundle-SymbolicName>org.apache.log4j</Bundle-SymbolicName>
+          </instructions>
+        </configuration>
+      </plugin>
+     
+    </plugins>
+  </build>
+
+
+  <reporting>
+    <plugins>
+      <!--
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>        
+        <configuration>                                
+          <linkJavadoc>true</linkJavadoc>
+          <linksource>true</linksource>
+          <failOnError>false</failOnError>
+          <links>
+            <link>
+              https://docs.oracle.com/javase/8/docs/api/
+            </link>
+          </links>
+        </configuration>
+      </plugin>
+      -->
+    </plugins>
+  </reporting>
+
+
+  <dependencies>
+    <dependency>
+      <groupId>javax.mail</groupId>
+      <artifactId>mail</artifactId>
+      <version>1.4.7</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.geronimo.specs</groupId>
+      <artifactId>geronimo-jms_1.1_spec</artifactId>
+      <version>1.0</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <version>2.1.210</version>
+      <scope>test</scope>
+    </dependency>
+ </dependencies>
+
+ <distributionManagement>
+    <site>
+      <id>qos_ch</id>
+      <url>scp://yvo.qos.ch/var/www/reload4j.qos.ch/htdocs/</url>
+    </site>
+
+    <repository>
+      <id>sonatype-nexus-staging</id>
+      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+    </repository>
+
+  </distributionManagement>
+
+  <profiles>
+    <profile>
+      <id>javadocjar</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>${maven-javadoc-plugin.version}</version>
+            <configuration>
+              <doclint>none</doclint>
+              <links>
+                <link>
+                  https://docs.oracle.com/javase/8/docs/api/
+                </link>
+              </links>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>sign-artifacts</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>${maven-gpg-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>toolchains</id>
+      <activation>
+        <jdk>(8,]</jdk>
+      </activation>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-surefire-plugin</artifactId>
+              <configuration>
+                <!-- Ignore toolchains for test execution, so tests use Maven JVM -->
+                <jvm>${env.JAVA_HOME}/bin/java</jvm>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-toolchains-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>toolchain</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <toolchains>
+                <jdk>
+                  <version>[1.5, 8]</version>
+                </jdk>
+              </toolchains>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+
+
+</project>
+

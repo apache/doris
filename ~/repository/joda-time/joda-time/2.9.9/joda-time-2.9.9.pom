@@ -1,0 +1,973 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project
+    xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>joda-time</groupId>
+  <artifactId>joda-time</artifactId>
+  <packaging>jar</packaging>
+  <name>Joda-Time</name>
+  <version>2.9.9</version>
+  <description>Date and time library to replace JDK date handling</description>
+  <url>http://www.joda.org/joda-time/</url>
+
+  <!-- ==================================================================== -->
+  <issueManagement>
+    <system>GitHub</system>
+    <url>https://github.com/JodaOrg/joda-time/issues</url>
+  </issueManagement>
+  <inceptionYear>2002</inceptionYear>
+  <mailingLists>
+    <mailingList>
+      <name>Joda Interest list</name>
+      <subscribe>https://lists.sourceforge.net/lists/listinfo/joda-interest</subscribe>
+      <unsubscribe>https://lists.sourceforge.net/lists/listinfo/joda-interest</unsubscribe>
+      <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=joda-interest</archive>
+    </mailingList>
+  </mailingLists>
+
+  <!-- ==================================================================== -->
+  <developers>
+    <developer>
+      <id>jodastephen</id>
+      <name>Stephen Colebourne</name>
+      <roles>
+        <role>Project Lead</role>
+      </roles>
+      <timezone>0</timezone>
+      <url>https://github.com/jodastephen</url>
+    </developer>
+    <developer>
+      <id>broneill</id>
+      <name>Brian S O'Neill</name>
+      <email></email>
+      <roles>
+        <role>Senior Developer</role>
+      </roles>
+      <url>https://github.com/broneill</url>
+    </developer>
+  </developers>
+  <contributors>
+    <contributor>
+      <name>Adrian Acala</name>
+      <url>https://github.com/AdrianAcala</url>
+    </contributor>
+    <contributor>
+      <name>Afif Ahmed</name>
+      <url>https://github.com/a7i7</url>
+    </contributor>
+    <contributor>
+      <name>Guy Allard</name>
+    </contributor>
+    <contributor>
+      <name>Oren Benjamin</name>
+      <url>https://github.com/oby1</url>
+    </contributor>
+    <contributor>
+      <name>Fredrik Borgh</name>
+    </contributor>
+    <contributor>
+      <name>Dave Brosius</name>
+      <url>https://github.com/mebigfatguy</url>
+    </contributor>
+    <contributor>
+      <name>Dan Cavallaro</name>
+      <url>https://github.com/dancavallaro</url>
+    </contributor>
+    <contributor>
+      <name>Luc Claes</name>
+      <url>https://github.com/lucclaes</url>
+    </contributor>
+    <contributor>
+      <name>Emiliano Claria</name>
+      <url>https://github.com/emilianogc</url>
+    </contributor>
+    <contributor>
+      <name>Dan Cojocar</name>
+      <url>https://github.com/dancojocar</url>
+    </contributor>
+    <contributor>
+      <name>Evgeniy Devyatykh</name>
+      <url>https://github.com/john9x</url>
+    </contributor>
+    <contributor>
+      <name>dspitfire</name>
+      <url>https://github.com/dspitfire</url>
+    </contributor>
+    <contributor>
+      <name>Christopher Elkins</name>
+      <url>https://github.com/celkins</url>
+    </contributor>
+    <contributor>
+      <name>emopers</name>
+      <url>https://github.com/emopers</url>
+    </contributor>
+    <contributor>
+      <name>Jeroen van Erp</name>
+    </contributor>
+    <contributor>
+      <name>Gwyn Evans</name>
+    </contributor>
+    <contributor>
+      <name>John Fletcher</name>
+    </contributor>
+    <contributor>
+      <name>Sean Geoghegan</name>
+    </contributor>
+    <contributor>
+      <name>Jim Gough</name>
+      <url>https://github.com/jpgough</url>
+    </contributor>
+    <contributor>
+      <name>Craig Gidney</name>
+      <url>https://github.com/Strilanc</url>
+    </contributor>
+    <contributor>
+      <name>haguenau</name>
+      <url>https://github.com/haguenau</url>
+    </contributor>
+    <contributor>
+      <name>Kaj Hejer</name>
+      <url>https://github.com/kajh</url>
+    </contributor>
+    <contributor>
+      <name>Rowan Hill</name>
+      <url>https://github.com/rowanhill</url>
+    </contributor>
+    <contributor>
+      <name>LongHua Huang</name>
+      <url>https://github.com/longhua</url>
+    </contributor>
+    <contributor>
+      <name>Brendan Humphreys</name>
+      <url>https://github.com/pandacalculus</url>
+    </contributor>
+    <contributor>
+      <name>Vsevolod Ivanov</name>
+      <url>https://github.com/seva-ask</url>
+    </contributor>
+    <contributor>
+      <name>Ing. Jan Kalab</name>
+      <url>https://github.com/Pitel</url>
+    </contributor>
+    <contributor>
+      <name>Ashish Katyal</name>
+    </contributor>
+    <contributor>
+      <name>Martin Kneissl</name>
+      <url>https://github.com/mkneissl</url>
+    </contributor>
+    <contributor>
+      <name>Sebastian Kurten</name>
+      <url>https://github.com/sebkur</url>
+    </contributor>
+    <contributor>
+      <name>Fabian Lange</name>
+      <url>https://github.com/CodingFabian</url>
+    </contributor>
+    <contributor>
+      <name>Vidar Larsen</name>
+      <url>https://github.com/vlarsen</url>
+    </contributor>
+    <contributor>
+      <name>Kasper Laudrup</name>
+    </contributor>
+    <contributor>
+      <name>Jeff Lavallee</name>
+      <url>https://github.com/jlavallee</url>
+    </contributor>
+    <contributor>
+      <name>Chung-yeol Lee</name>
+      <url>https://github.com/chungyeol</url>
+    </contributor>
+    <contributor>
+      <name>Antonio Leitao</name>
+    </contributor>
+    <contributor>
+      <name>Kostas Maistrelis</name>
+    </contributor>
+    <contributor>
+      <name>mjunginger</name>
+      <url>https://github.com/mjunginger</url>
+    </contributor>
+    <contributor>
+      <name>Al Major</name>
+    </contributor>
+    <contributor>
+      <name>Pete Marsh</name>
+      <url>https://github.com/petedmarsh</url>
+    </contributor>
+    <contributor>
+      <name>Blair Martin</name>
+    </contributor>
+    <contributor>
+      <name>Paul Martin</name>
+      <url>https://github.com/pgpx</url>
+    </contributor>
+    <contributor>
+      <name>Katy P</name>
+      <url>https://github.com/katyp</url>
+    </contributor>
+    <contributor>
+      <name>Amling Palantir</name>
+      <url>https://github.com/AmlingPalantir</url>
+    </contributor>
+    <contributor>
+      <name>Julen Parra</name>
+    </contributor>
+    <contributor>
+      <name>Jorge Perez</name>
+      <url>https://github.com/jperezalv</url>
+    </contributor>
+    <contributor>
+      <name>Rok Piltaver</name>
+      <url>https://github.com/Rok-Piltaver</url>
+    </contributor>
+    <contributor>
+      <name>Michael Plump</name>
+    </contributor>
+    <contributor>
+      <name>Bjorn Pollex</name>
+      <url>https://github.com/bjoernpollex</url>
+    </contributor>
+    <contributor>
+      <name>Ryan Propper</name>
+    </contributor>
+    <contributor>
+      <name>Mike Schrag</name>
+    </contributor>
+    <contributor>
+      <name>Hajime Senuma</name>
+      <url>https://github.com/hajimes</url>
+    </contributor>
+    <contributor>
+      <name>Kandarp Shah</name>
+    </contributor>
+    <contributor>
+      <name>Francois Staes</name>
+    </contributor>
+    <contributor>
+      <name>Grzegorz Swierczynski</name>
+      <url>https://github.com/gswierczynski</url>
+    </contributor>
+    <contributor>
+      <name>Jason Tedor</name>
+      <url>https://github.com/jasontedor</url>
+    </contributor>
+    <contributor>
+      <name>trejkaz</name>
+      <url>https://github.com/trejkaz</url>
+    </contributor>
+    <contributor>
+      <name>Ricardo Trindade</name>
+    </contributor>
+    <contributor>
+      <name>Bram Van Dam</name>
+      <url>https://github.com/codematters</url>
+    </contributor>
+    <contributor>
+      <name>Ed Wagstaff</name>
+      <url>https://github.com/edwag</url>
+    </contributor>
+    <contributor>
+      <name>Can Yapan</name>
+      <url>https://github.com/canyapan</url>
+    </contributor>
+    <contributor>
+      <name>Maxim Zhao</name>
+    </contributor>
+    <contributor>
+      <name>Alex</name>
+      <url>https://github.com/nyrk</url>
+    </contributor>
+  </contributors>
+
+  <!-- ==================================================================== -->
+  <licenses>
+    <license>
+      <name>Apache 2</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <scm>
+    <connection>scm:git:https://github.com/JodaOrg/joda-time.git</connection>
+    <developerConnection>scm:git:git@github.com:JodaOrg/joda-time.git</developerConnection>
+    <url>https://github.com/JodaOrg/joda-time</url>
+  </scm>
+  <organization>
+    <name>Joda.org</name>
+    <url>http://www.joda.org</url>
+  </organization>
+
+  <!-- ==================================================================== -->
+  <build>
+    <resources>
+      <resource>
+        <targetPath>META-INF</targetPath>
+        <directory>${project.basedir}</directory>
+        <includes>
+          <include>LICENSE.txt</include>
+          <include>NOTICE.txt</include>
+        </includes>
+      </resource>
+      <resource>
+        <directory>${project.basedir}/src/main/java</directory>
+        <includes>
+          <include>**/*.properties</include>
+        </includes>
+      </resource>
+    </resources>
+    <!-- define build -->
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.4.0</version>
+        <executions>
+          <execution>
+            <id>compile-tzdb</id>
+            <phase>compile</phase>
+            <goals>
+              <goal>java</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <mainClass>org.joda.time.tz.ZoneInfoCompiler</mainClass>
+          <classpathScope>compile</classpathScope>
+          <verbose>true</verbose>
+          <systemProperties>
+            <systemProperty>
+              <key>org.joda.time.DateTimeZone.Provider</key>
+              <value>org.joda.time.tz.UTCProvider</value>
+            </systemProperty>
+          </systemProperties>
+          <arguments>
+            <argument>-src</argument>
+            <argument>${project.build.sourceDirectory}/org/joda/time/tz/src</argument>
+            <argument>-dst</argument>
+            <argument>${project.build.outputDirectory}/org/joda/time/tz/data</argument>
+            <argument>africa</argument>
+            <argument>antarctica</argument>
+            <argument>asia</argument>
+            <argument>australasia</argument>
+            <argument>europe</argument>
+            <argument>northamerica</argument>
+            <argument>southamerica</argument>
+            <argument>pacificnew</argument>
+            <argument>etcetera</argument>
+            <argument>backward</argument>
+            <argument>systemv</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/TestAllPackages.java</include>
+          </includes>
+          <!--argLine>-Djava.security.manager -Djava.security.policy=${basedir}/src/test/resources/java.policy</argLine-->
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>default-jar</id>
+            <configuration>
+              <archive>
+                <manifestFile>src/conf/MANIFEST.MF</manifestFile>
+                <manifestEntries>
+                  <Time-Zone-Database-Version>${tz.database.version}</Time-Zone-Database-Version>
+                  <Implementation-Title>org.joda.time</Implementation-Title>
+                </manifestEntries>
+              </archive>
+            </configuration>
+          </execution>
+          <execution>
+            <id>no-tzdb</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <classifier>no-tzdb</classifier>
+              <archive>
+                <manifestEntries>
+                  <Implementation-Title>Joda-Time-No-TZDB</Implementation-Title>
+                </manifestEntries>
+              </archive>
+              <excludes>
+                <exclude>org/joda/time/tz/data/**</exclude>
+                <exclude>org/joda/time/tz/ZoneInfoCompiler*</exclude>
+              </excludes>
+            </configuration>
+          </execution>
+        </executions>
+        <configuration>
+          <archive>
+            <manifest>
+              <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+              <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+            </manifest>
+          </archive>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <groups>
+            <group>
+              <title>User packages</title>
+              <packages>org.joda.time:org.joda.time.format:org.joda.time.chrono</packages>
+            </group>
+            <group>
+              <title>Implementation packages</title>
+              <packages>org.joda.time.base:org.joda.time.convert:org.joda.time.field:org.joda.time.tz</packages>
+            </group>
+          </groups>
+        </configuration>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>attach-no-tztb-sources</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+            <configuration>
+              <classifier>no-tzdb-sources</classifier>
+              <excludes>
+                <exclude>org/joda/time/tz/data/**</exclude>
+                <exclude>org/joda/time/tz/ZoneInfoCompiler*</exclude>
+              </excludes>
+            </configuration>
+          </execution>
+        </executions>
+        <!-- work around maven bug where properties files added twice -->
+        <configuration>
+          <excludes>
+            <exclude>**/*.properties</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <configuration>
+          <skipDeploy>true</skipDeploy>
+        </configuration>
+        <dependencies>
+          <dependency>
+            <groupId>lt.velykis.maven.skins</groupId>
+            <artifactId>reflow-velocity-tools</artifactId>
+            <version>1.1.1</version>
+          </dependency>
+          <dependency>
+            <groupId>org.apache.velocity</groupId>
+            <artifactId>velocity</artifactId>
+            <version>1.7</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+      <plugin><!-- invoke with mvn site-deploy -->
+        <groupId>com.github.github</groupId>
+        <artifactId>site-maven-plugin</artifactId>
+        <version>0.12</version>
+        <executions>
+          <execution>
+            <id>github-site</id>
+            <goals>
+              <goal>site</goal>
+            </goals>
+            <phase>site-deploy</phase>
+          </execution>
+        </executions>
+        <configuration>
+          <message>Create website for ${project.artifactId} v${project.version}</message>
+          <path>${project.artifactId}</path>
+          <merge>true</merge>
+          <server>github</server>
+          <repositoryOwner>JodaOrg</repositoryOwner>
+          <repositoryName>jodaorg.github.io</repositoryName>
+          <branch>refs/heads/master</branch>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>clirr-maven-plugin</artifactId>
+        <version>2.6.1</version>
+        <configuration>
+          <comparisonVersion>2.7</comparisonVersion>
+          <minSeverity>info</minSeverity>
+          <logResults>true</logResults>
+        </configuration>
+      </plugin>
+    </plugins>
+    <!-- Manage plugin versions -->
+    <pluginManagement>
+      <plugins>
+        <!-- Maven build and reporting plugins (alphabetical) -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>${maven-assembly-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-checkstyle-plugin</artifactId>
+          <version>${maven-checkstyle-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-changes-plugin</artifactId>
+          <version>${maven-changes-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>${maven-clean-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${maven-compiler-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-deploy-plugin</artifactId>
+          <version>${maven-deploy-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>${maven-dependency-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-gpg-plugin</artifactId>
+          <version>${maven-gpg-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>${maven-install-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>${maven-jar-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${maven-javadoc-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jxr-plugin</artifactId>
+          <version>${maven-jxr-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-plugin-plugin</artifactId>
+          <version>${maven-plugin-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-pmd-plugin</artifactId>
+          <version>${maven-pmd-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-project-info-reports-plugin</artifactId>
+          <version>${maven-project-info-reports-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-repository-plugin</artifactId>
+          <version>${maven-repository-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>${maven-resources-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-site-plugin</artifactId>
+          <version>${maven-site-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>${maven-source-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${maven-surefire-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-report-plugin</artifactId>
+          <version>${maven-surefire-report-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-toolchains-plugin</artifactId>
+          <version>${maven-toolchains-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>${build-helper-maven-plugin.version}</version>
+        </plugin>
+        <!--This plugin's configuration is used to store Eclipse m2e settings only. It has no influence on the Maven build itself.-->
+        <plugin>
+          <groupId>org.eclipse.m2e</groupId>
+          <artifactId>lifecycle-mapping</artifactId>
+          <version>1.0.0</version>
+          <configuration>
+            <lifecycleMappingMetadata>
+              <pluginExecutions>
+                <pluginExecution>
+                  <pluginExecutionFilter>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>
+                      exec-maven-plugin
+                    </artifactId>
+                    <versionRange>[1.2.1,)</versionRange>
+                    <goals>
+                      <goal>java</goal>
+                    </goals>
+                  </pluginExecutionFilter>
+                  <action>
+                    <ignore></ignore>
+                  </action>
+                </pluginExecution>
+              </pluginExecutions>
+            </lifecycleMappingMetadata>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+  <!-- ==================================================================== -->
+  <prerequisites>
+    <maven>3.0.4</maven>
+  </prerequisites>
+  <dependencies>
+    <dependency>
+      <groupId>org.joda</groupId>
+      <artifactId>joda-convert</artifactId>
+      <version>1.2</version>
+      <scope>compile</scope>
+      <optional>true</optional><!-- mandatory in Scala -->
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>3.8.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <!-- ==================================================================== -->
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>${maven-project-info-plugin.version}</version>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>dependencies</report>
+              <report>dependency-info</report>
+              <report>issue-tracking</report>
+              <report>license</report>
+              <report>mailing-list</report>
+              <report>project-team</report>
+              <report>scm</report>
+              <report>summary</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>${maven-javadoc-plugin.version}</version>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>javadoc</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-report-plugin</artifactId>
+        <version>${maven-surefire-report-plugin.version}</version>
+        <configuration>
+          <showSuccess>true</showSuccess>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-changes-plugin</artifactId>
+        <version>${maven-changes-plugin.version}</version>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>changes-report</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+    </plugins>
+  </reporting>
+
+  <!-- ==================================================================== -->
+  <distributionManagement>
+    <repository>
+      <id>sonatype-joda-staging</id>
+      <name>Sonatype OSS staging repository</name>
+      <url>http://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+      <layout>default</layout>
+    </repository>
+    <snapshotRepository>
+      <uniqueVersion>false</uniqueVersion>
+      <id>sonatype-joda-snapshot</id>
+      <name>Sonatype OSS snapshot repository</name>
+      <url>http://oss.sonatype.org/content/repositories/joda-snapshots</url>
+      <layout>default</layout>
+    </snapshotRepository>
+    <downloadUrl>http://oss.sonatype.org/content/repositories/joda-releases</downloadUrl>
+  </distributionManagement>
+
+  <!-- ==================================================================== -->
+  <profiles>
+    <profile>
+      <id>java8</id>
+      <activation>
+        <jdk>1.8</jdk>
+      </activation>
+      <properties>
+        <additionalparam>-Xdoclint:none</additionalparam>
+      </properties>
+    </profile>
+    <profile>
+      <id>repo-sign-artifacts</id>
+      <activation>
+        <property>
+          <name>oss.repo</name>
+          <value>true</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <!-- Use Java 5 -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-toolchains-plugin</artifactId>
+            <executions>
+              <execution>
+                <phase>validate</phase>
+                <goals>
+                  <goal>toolchain</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <toolchains>
+                <jdk>
+                  <version>1.5</version>
+                  <vendor>sun</vendor>
+                </jdk>
+              </toolchains>
+            </configuration>
+          </plugin>
+          <!-- Sign artifacts -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <!-- Create dist files -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-assembly-plugin</artifactId>
+            <configuration>
+              <attach>false</attach>
+              <descriptors>
+                <descriptor>src/main/assembly/dist.xml</descriptor>
+              </descriptors>
+              <tarLongFileMode>gnu</tarLongFileMode>
+            </configuration>
+            <executions>
+              <execution>
+                <id>make-assembly</id>
+                <phase>install</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <!-- Release dist files to GitHub -->
+          <plugin>
+            <groupId>de.jutzig</groupId>
+            <artifactId>github-release-plugin</artifactId>
+            <version>1.1.1</version>
+            <configuration>
+              <releaseName>Release v${project.version}</releaseName>
+              <description>See the [change notes](http://www.joda.org/joda-time/changes-report.html) for more information.</description>
+              <tag>v${project.version}</tag>
+              <overwriteArtifact>true</overwriteArtifact>
+              <fileSets>
+                <fileSet>
+                  <directory>${project.build.directory}</directory>
+                  <includes>
+                    <include>${project.artifactId}*-dist.tar.gz</include>
+                    <include>${project.artifactId}*-dist.zip</include>
+                  </includes>
+                </fileSet>
+              </fileSets>
+            </configuration>
+            <executions>
+              <execution>
+                <id>github-releases</id>
+                <phase>deploy</phase>
+                <goals>
+                  <goal>release</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+      <properties>
+        <additionalparam></additionalparam>
+      </properties>
+    </profile>
+    <profile>
+      <id>attach-additional-javadoc</id>
+      <activation>
+        <property>
+          <name>maven.javadoc.skip</name>
+          <value>!true</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-no-tzdb-javadoc</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>attach-artifact</goal>
+                </goals>
+                <configuration>
+                  <artifacts>
+                    <artifact>
+                      <file>${project.build.directory}/${project.artifactId}-${project.version}-javadoc.jar</file>
+                      <type>jar</type>
+                      <classifier>no-tzdb-javadoc</classifier>
+                    </artifact>
+                  </artifacts>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+  <!-- ==================================================================== -->
+  <properties>
+    <!-- Plugin version numbers -->
+    <build-helper-maven-plugin.version>1.12</build-helper-maven-plugin.version>
+    <maven-assembly-plugin.version>2.5.5</maven-assembly-plugin.version>
+    <maven-changes-plugin.version>2.11</maven-changes-plugin.version>
+    <maven-checkstyle-plugin.version>2.16</maven-checkstyle-plugin.version>
+    <maven-clean-plugin.version>2.6.1</maven-clean-plugin.version>
+    <maven-compiler-plugin.version>3.3</maven-compiler-plugin.version>
+    <maven-deploy-plugin.version>2.8.2</maven-deploy-plugin.version>
+    <maven-dependency-plugin.version>2.10</maven-dependency-plugin.version>
+    <maven-gpg-plugin.version>1.6</maven-gpg-plugin.version>
+    <maven-install-plugin.version>2.5.2</maven-install-plugin.version>
+    <maven-jar-plugin.version>2.6</maven-jar-plugin.version>
+    <maven-javadoc-plugin.version>2.10.3</maven-javadoc-plugin.version>
+    <maven-jxr-plugin.version>2.5</maven-jxr-plugin.version>
+    <maven-plugin-plugin.version>3.4</maven-plugin-plugin.version>
+    <maven-pmd-plugin.version>3.5</maven-pmd-plugin.version>
+    <maven-project-info-reports-plugin.version>2.8</maven-project-info-reports-plugin.version>
+    <maven-repository-plugin.version>2.4</maven-repository-plugin.version>
+    <maven-resources-plugin.version>2.7</maven-resources-plugin.version>
+    <maven-site-plugin.version>3.4</maven-site-plugin.version>
+    <maven-source-plugin.version>2.4</maven-source-plugin.version>
+    <maven-surefire-plugin.version>2.18.1</maven-surefire-plugin.version>
+    <maven-surefire-report-plugin.version>2.18.1</maven-surefire-report-plugin.version>
+    <maven-toolchains-plugin.version>1.1</maven-toolchains-plugin.version>
+    <!-- Properties for maven-compiler-plugin -->
+    <maven.compiler.compilerVersion>1.5</maven.compiler.compilerVersion>
+    <maven.compiler.source>1.5</maven.compiler.source>
+    <maven.compiler.target>1.5</maven.compiler.target>
+    <maven.compiler.fork>true</maven.compiler.fork>
+    <maven.compiler.verbose>true</maven.compiler.verbose>
+    <maven.compiler.optimize>true</maven.compiler.optimize>
+    <maven.compiler.debug>true</maven.compiler.debug>
+    <maven.compiler.debuglevel>lines,source</maven.compiler.debuglevel>
+    <!-- Properties for maven-javadoc-plugin -->
+    <author>false</author>
+    <notimestamp>true</notimestamp>
+    <!-- Properties for maven-checkstyle-plugin -->
+    <checkstyle.config.location>${project.basedir}/src/main/checkstyle/checkstyle.xml</checkstyle.config.location>
+    <!-- Other properties -->
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <tz.database.version>2017b</tz.database.version>
+  </properties>
+</project>

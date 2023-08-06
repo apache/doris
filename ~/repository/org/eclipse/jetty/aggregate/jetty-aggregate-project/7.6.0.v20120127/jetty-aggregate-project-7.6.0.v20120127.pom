@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.eclipse.jetty</groupId>
+    <artifactId>jetty-project</artifactId>
+    <version>7.6.0.v20120127</version>
+  </parent>
+  <groupId>org.eclipse.jetty.aggregate</groupId>
+  <artifactId>jetty-aggregate-project</artifactId>
+  <name>Jetty :: Aggregate Project</name>
+  <packaging>pom</packaging>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <configuration>
+          <!-- No Point running PMD on aggregate projects -->
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <configuration>
+          <!-- No Point running Findbugs on aggregate projects -->
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <modules>
+    <module>jetty-server</module>
+    <module>jetty-client</module>
+    <module>jetty-servlet</module>
+    <module>jetty-webapp</module>
+    <module>jetty-websocket</module>
+    <module>jetty-plus</module>
+    <module>jetty-all-server</module>
+    <module>jetty-all</module>
+  </modules>
+</project>

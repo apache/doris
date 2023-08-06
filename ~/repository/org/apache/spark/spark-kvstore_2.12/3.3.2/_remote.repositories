@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:04:20 CST 2023
+spark-kvstore_2.12-3.3.2.jar>gcs-maven-central-mirror=
+spark-kvstore_2.12-3.3.2.pom>gcs-maven-central-mirror=

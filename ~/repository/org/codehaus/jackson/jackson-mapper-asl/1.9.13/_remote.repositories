@@ -1,0 +1,6 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:17 CST 2023
+jackson-mapper-asl-1.9.13.pom>gcs-maven-central-mirror=
+jackson-mapper-asl-1.9.13.pom>allmaven=
+jackson-mapper-asl-1.9.13.jar>gcs-maven-central-mirror=
+jackson-mapper-asl-1.9.13.jar>allmaven=

@@ -1,0 +1,149 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.qcloud</groupId>
+    <artifactId>chdfs_hadoop_plugin_network</artifactId>
+    <version>2.7</version>
+    <packaging>jar</packaging>
+
+    <name>chdfs_hadoop_plugin_network</name>
+    <description>Tencent Qcloud chdfs hadoop plugins.</description>
+    <url>https://cloud.tencent.com/document/product/1105/36368</url>
+
+    <licenses>
+        <license>
+            <name>chdfs-hadoop-plugin</name>
+            <url>https://github.com/tencentyun/chdfs-hadoop-plugin</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>chengwu</name>
+            <email>chengwu@tencent.com</email>
+        </developer>
+    </developers>
+
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.7</maven.compiler.source>
+        <maven.compiler.target>1.7</maven.compiler.target>
+        <hadoop.version>2.8.5</hadoop.version>
+    </properties>
+
+    <scm>
+        <connection>scm:git:https://github.com/tencentyun/chdfs-hadoop-plugin.git
+    </connection>
+    <developerConnection>
+            scm:git:https://github.com/tencentyun/chdfs-hadoop-plugin.git
+    </developerConnection>
+    <url>https://github.com/tencentyun/chdfs-hadoop-plugin</url>
+    </scm>
+
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <distributionManagement>
+        <repository>
+            <id>oss</id>
+            <name>chdfs_hadoop_plugin_network</name>
+            <url>
+                    https://oss.sonatype.org/service/local/staging/deploy/maven2
+            </url>
+        </repository>
+
+        <snapshotRepository>
+            <id>oss</id>
+            <name>chdfs_hadoop_plugin_network</name>
+            <url>
+                    https://oss.sonatype.org/content/repositories/snapshots
+            </url>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.2.0</version>
+                <configuration>
+                    <attach>true</attach>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>2.9.1</version>
+                <configuration>
+                    <additionalJOption>-Xdoclint:none</additionalJOption>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>javadoc-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <version>2.8.2</version>
+                <executions>
+                    <execution>
+                        <id>deploy</id>
+                        <phase>deploy</phase>
+                        <goals>
+                            <goal>deploy</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <version>1.5</version>
+                <executions>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>sign</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:37:38 CST 2023
+hk2-locator-2.6.1.jar>allmaven=
+hk2-locator-2.6.1.jar>gcs-maven-central-mirror=
+hk2-locator-2.6.1.pom>gcs-maven-central-mirror=

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.reactivestreams</groupId>
+  <artifactId>reactive-streams</artifactId>
+  <version>1.0.2</version>
+  <name>reactive-streams</name>
+  <description>A Protocol for Asynchronous Non-Blocking Data Sequence</description>
+  <url>http://www.reactive-streams.org/</url>
+  <inceptionYear>2014</inceptionYear>
+  <licenses>
+    <license>
+      <name>CC0</name>
+      <url>http://creativecommons.org/publicdomain/zero/1.0/</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>reactive-streams-sig</id>
+      <name>Reactive Streams SIG</name>
+      <url>http://www.reactive-streams.org/</url>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git@github.com:reactive-streams/reactive-streams.git</connection>
+    <url>git@github.com:reactive-streams/reactive-streams.git</url>
+  </scm>
+</project>

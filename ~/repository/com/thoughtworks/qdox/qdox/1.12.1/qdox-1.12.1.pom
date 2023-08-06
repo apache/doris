@@ -1,0 +1,536 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  
+  <parent>
+    <groupId>org.codehaus</groupId>
+    <artifactId>codehaus-parent</artifactId>
+    <version>4</version>
+  </parent>
+  
+  <name>QDox</name>
+  <groupId>com.thoughtworks.qdox</groupId>
+  <artifactId>qdox</artifactId>
+  <version>1.12.1</version>
+  
+  <url>http://qdox.codehaus.org</url>
+  <description>
+    QDox is a high speed, small footprint parser for extracting class/interface/method definitions from source files
+    complete with JavaDoc @tags. It is designed to be used by active code generators or documentation tools.
+  </description>
+  <inceptionYear>2002</inceptionYear>
+
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  
+  <mailingLists>
+    <mailingList>
+      <name>announce at QDox</name>
+      <post>announce@qdox.codehaus.org</post>
+      <subscribe>announce-subscribe@qdox.codehaus.org</subscribe>
+      <unsubscribe>announce-unsubscribe@qdox.codehaus.org</unsubscribe>
+      <archive>http://archive.codehaus.org/lists/org.codehaus.qdox.announce</archive>
+    </mailingList>
+    <mailingList>
+      <name>dev at QDox</name>
+      <post>dev@qdox.codehaus.org</post>
+      <subscribe>dev-subscribe@qdox.codehaus.org</subscribe>
+      <unsubscribe>dev-unsubscribe@qdox.codehaus.org</unsubscribe>
+      <archive>http://archive.codehaus.org/lists/org.codehaus.qdox.dev</archive>
+    </mailingList>
+    <mailingList>
+      <name>scm at QDox</name>
+      <subscribe>scm-subscribe@qdox.codehaus.org</subscribe>
+      <unsubscribe>scm-unsubscribe@qdox.codehaus.org</unsubscribe>
+      <archive>http://archive.codehaus.org/lists/org.codehaus.qdox.scm</archive>
+    </mailingList>
+    <mailingList>
+      <name>user at QDox</name>
+      <post>user@qdox.codehaus.org</post>
+      <subscribe>user-subscribe@qdox.codehaus.org</subscribe>
+      <unsubscribe>user-unsubscribe@qdox.codehaus.org</unsubscribe>
+      <archive>http://archive.codehaus.org/lists/org.codehaus.qdox.user</archive>
+    </mailingList>
+  </mailingLists>
+
+  <issueManagement>
+    <system>jira</system>
+    <url>http://jira.codehaus.org/browse/QDOX</url>
+  </issueManagement>
+
+  <scm>
+    <connection>scm:svn:http://svn.codehaus.org/qdox/tags/qdox-1.12.1</connection>
+    <developerConnection>scm:svn:https://svn.codehaus.org/qdox/tags/qdox-1.12.1</developerConnection>
+    <url>http://svn.qdox.codehaus.org/browse/qdox/tags/qdox-1.12.1</url>
+  </scm>
+
+  <developers>
+    <developer>
+      <id>rfscholte</id>
+      <name>Robert Scholte</name>
+      <timezone>+1</timezone>
+      <roles>
+        <role>project lead</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>joe</id>
+      <name>Joe Walnes</name>
+      <roles>
+        <role>project founder</role>
+      </roles>
+    </developer>
+    <developer>
+      <name>Aslak Hellesoy</name>
+      <id>rinkrank</id>
+      <roles>
+        <role>developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <name>Paul Hammant</name>
+      <id>paul</id>
+      <roles>
+        <role>developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <name>Mike Williams</name>
+      <id>mdub</id>
+      <roles>
+        <role>developer</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>mauro</id>
+      <name>Mauro Talevi</name>
+      <roles>
+        <role>developer</role>
+      </roles>
+    </developer>
+  </developers>
+
+  <contributors>
+    <contributor>
+      <name>Mike Royle</name>
+    </contributor>
+    <contributor>
+      <name>Peter Donald</name>
+    </contributor>
+    <contributor>
+      <name>James Strachan</name>
+    </contributor>
+    <contributor>
+      <name>Nick Pomfret</name>
+    </contributor>
+    <contributor>
+      <name>Chris Stevenson</name>
+    </contributor>
+    <contributor>
+      <name>Ben Hogan</name>
+    </contributor>
+    <contributor>
+      <name>Laurent Etiemble</name>
+    </contributor>
+    <contributor>
+      <name>Shawn Chain</name>
+    </contributor>
+    <contributor>
+      <name>Brian Slesinsky</name>
+    </contributor>
+    <contributor>
+      <name>James Lee</name>
+    </contributor>
+    <contributor>
+      <name>Eric Redmond</name>
+    </contributor>
+  </contributors>
+
+  <build>
+    <extensions>
+      <extension>
+        <groupId>org.apache.maven.wagon</groupId>
+        <artifactId>wagon-webdav</artifactId>
+        <version>1.0-beta-2</version>
+      </extension>
+    </extensions>
+    <sourceDirectory>${basedir}/src/java</sourceDirectory>
+    <testSourceDirectory>${basedir}/src/test</testSourceDirectory>
+    <testResources>
+      <testResource>
+        <directory>${basedir}/src/test-resources</directory>
+      </testResource>
+    </testResources>
+    <plugins>
+      <plugin>
+        <artifactId>maven-clean-plugin</artifactId>
+        <version>2.5</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.4.2</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>2.4</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-install-plugin</artifactId>
+        <version>2.2</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <version>2.3</version>
+      </plugin>
+      <plugin>
+        <groupId>de.jflex</groupId>
+        <artifactId>maven-jflex-plugin</artifactId>
+        <version>1.4.3</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+           <outputDirectory>${project.build.directory}/generated-sources/parser</outputDirectory>
+           <lexDefinitions>
+             <lexFile>${basedir}/src/grammar/lexer.flex</lexFile>
+           </lexDefinitions>
+           <skeleton>${basedir}/src/grammar/skeleton.inner</skeleton>
+         </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>1.3</version>
+        <configuration>
+          <tasks>
+            <echo>OS Arch = ${os.arch}</echo>
+            <exec executable="${qdox.byaccj.executable}" dir="${project.build.directory}/generated-sources/parser/com/thoughtworks/qdox/parser/impl" failonerror="true">
+              <arg value="-v" />
+              <arg value="-Jnorun" />
+              <arg value="-Jnoconstruct" />
+              <arg value="-Jclass=Parser" />
+              <arg value="-Jsemantic=Value" />
+              <arg value="-Jpackage=com.thoughtworks.qdox.parser.impl" />
+              <arg value="${basedir}/src/grammar/parser.y" />
+            </exec>
+            <move tofile="${project.build.directory}/yacc-states.txt" file="${project.build.directory}/generated-sources/parser/com/thoughtworks/qdox/parser/impl/y" failonerror="false" />
+          </tasks>
+          <sourceRoot>${project.build.directory}/generated-sources/parser</sourceRoot>
+        </configuration>
+        <executions>
+          <execution>
+            <id>generate-sources</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>2.0.2</version>
+        <configuration>
+          <source>1.4</source>
+          <target>1.4</target>
+          <encoding>UTF-8</encoding>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.4</version>
+        <executions>
+          <execution>
+            <id>attach-javadoc</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <configuration>
+              <links>
+                <link>http://java.sun.com/j2se/1.5/docs/api</link>
+              </links>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>2.2-beta-5</version>
+        <configuration>
+          <descriptorRefs>
+            <descriptorRef>project</descriptorRef>
+          </descriptorRefs>
+        </configuration>
+        <executions>
+          <execution>
+            <id>make-assembly</id> <!-- this is used for inheritance merges -->
+            <phase>package</phase> <!-- append to the packaging phase. -->
+            <goals>
+              <goal>single</goal> <!-- goals == mojos -->
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-site-plugin</artifactId>
+        <version>3.2</version>
+        <configuration>
+          <templateFile>${basedir}/src/site/templates/site-template.vm</templateFile>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.xsite</groupId>
+        <artifactId>xsite-maven-plugin</artifactId>
+        <version>1.0</version>
+        <configuration>
+          <sitemapPath>content/website.xml</sitemapPath>
+          <skinPath>templates/skin.html</skinPath>
+          <sourceDirectoryPath>${xsite.sourceDirectoryPath}</sourceDirectoryPath>
+          <outputDirectoryPath>${project.build.directory}/site</outputDirectoryPath>
+          <resourcePaths>resources</resourcePaths>
+        </configuration>
+        <executions>
+          <execution>
+            <phase>site</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+        <plugin>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>2.3</version>
+        <executions>
+          <execution>
+            <id>pre-copy-resources</id>
+            <phase>pre-site</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${xsite.sourceDirectoryPath}</outputDirectory>
+              <resources>          
+                <resource>
+                  <directory>src/site</directory>
+                  <excludes>
+                    <exclude>**/download.html</exclude>
+                    <exclude>**/skin.html</exclude>
+                  </excludes>
+                </resource>
+                <resource>
+                  <directory>src/site</directory>
+                  <includes>
+                    <include>**/download.html</include>
+                    <include>**/skin.html</include>
+                  </includes>
+                  <filtering>true</filtering>
+                </resource>
+              </resources>              
+            </configuration>            
+          </execution>
+          <execution>
+            <id>post-copy-resources</id>
+            <phase>site</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/site</outputDirectory>
+              <resources>          
+                <resource>
+                  <directory>${xsite.sourceDirectoryPath}/content</directory>
+                  <includes>
+                    <include>images/*.*</include>
+                    <include>apidocs/**/*.*</include>
+                  </includes>
+                </resource>
+              </resources>              
+            </configuration>            
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-release-plugin</artifactId>
+        <version>2.3.2</version>
+        <configuration>
+          <goals>deploy</goals> <!-- deploy-site by hand -->
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <dependencies>
+    <dependency>
+      <groupId>ant</groupId>
+      <artifactId>ant</artifactId>
+      <version>1.5.1</version>
+      <scope>compile</scope>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>3.8.1</version>
+      <scope>compile</scope>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>jmock</groupId>
+      <artifactId>jmock</artifactId>
+      <version>1.0.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <distributionManagement>
+    <site>
+      <id>codehaus.org</id>
+      <name>QDox Site</name>
+      <url>dav:https://dav.codehaus.org/qdox/</url>
+    </site>
+  </distributionManagement>
+
+  <profiles>
+    <profile>
+      <id>linux</id>
+      <activation>
+        <os>
+          <family>Linux</family>
+          <arch>i386</arch>
+        </os>
+      </activation>
+      <properties>
+        <qdox.byaccj.executable>${basedir}/bootstrap/yacc.linux</qdox.byaccj.executable>
+      </properties>
+    </profile>
+    <profile>
+      <id>linux64</id>
+      <activation>
+        <os>
+          <family>Linux</family>
+          <arch>amd64</arch>
+        </os>
+      </activation>
+      <properties>
+        <qdox.byaccj.executable>${basedir}/bootstrap/yacc.linux.x86_64</qdox.byaccj.executable>
+      </properties>
+    </profile>
+    <profile>
+      <id>solaris</id>
+      <activation>
+        <os>
+          <family>SunOS</family>
+        </os>
+      </activation>
+      <properties>
+        <qdox.byaccj.executable>${basedir}/bootstrap/yacc.solaris</qdox.byaccj.executable>
+      </properties>
+    </profile>
+    <profile>
+      <id>macosx</id>
+      <activation>
+        <os>
+          <family>Mac</family>
+        </os>
+      </activation>
+      <properties>
+        <qdox.byaccj.executable>${basedir}/bootstrap/yacc.macosx</qdox.byaccj.executable>
+      </properties>
+    </profile>
+    <profile>
+      <id>windows</id>
+      <activation>
+        <os>
+          <family>Windows</family>
+        </os>
+      </activation>
+      <properties>
+        <qdox.byaccj.executable>${basedir}/bootstrap/yacc.exe</qdox.byaccj.executable>
+      </properties>
+    </profile>
+  </profiles>
+
+  <!-- Reports -->
+  <reporting>
+    <outputDirectory>${xsite.sourceDirectoryPath}/content</outputDirectory>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>2.1</version>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>dependencies</report>
+              <report>project-team</report>
+              <report>mailing-list</report>
+              <report>issue-tracking</report>
+              <report>license</report>
+              <report>scm</report>
+              <report>summary</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>cobertura-maven-plugin</artifactId>
+        <version>2.2</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.4</version>
+        <configuration>
+          <packagenames>com.thoughtworks.qdox.*</packagenames>
+          <use>true</use>
+          <version>true</version>
+          <windowtitle>${project.name} ${project.version} API</windowtitle>
+          <tag name="noinspection" description="IntelliJ Inspection Ignore tag" enabled="false" />
+          <encoding>UTF-8</encoding>
+        </configuration>
+      </plugin>
+
+      <!-- Manual Changelist -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-changes-plugin</artifactId>
+        <version>2.1</version>
+        <configuration>
+		  <!-- changes-report -->
+          <issueLinkTemplate>%URL%/%ISSUE%</issueLinkTemplate>
+<!--           jira-report -->
+<!--          <resolutionIds>Closed</resolutionIds>-->
+<!--          <statusIds>Resolved, Closed</statusIds>-->
+<!--          <onlyCurrentVersion>false</onlyCurrentVersion>-->
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>changes-report</report>
+<!--              <report>jira-report</report>-->
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+    </plugins>
+  </reporting>
+  <properties>
+    <maven.build.timestamp.format>yyyy-MM-dd</maven.build.timestamp.format>
+    <timestamp>${maven.build.timestamp}</timestamp>
+    <xsite.sourceDirectoryPath>${project.build.directory}/generated-site</xsite.sourceDirectoryPath>
+  </properties>
+</project>

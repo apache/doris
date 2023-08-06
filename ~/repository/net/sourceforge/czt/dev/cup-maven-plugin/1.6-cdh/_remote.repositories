@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:47:19 CST 2023
+cup-maven-plugin-1.6-cdh.jar>cloudera-public=
+cup-maven-plugin-1.6-cdh.pom>cloudera-public=

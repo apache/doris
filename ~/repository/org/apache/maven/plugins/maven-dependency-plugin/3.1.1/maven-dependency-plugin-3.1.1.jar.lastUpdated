@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:39:34 CST 2023
+@default-spring-plugins-http\://repo.spring.io/plugins-release/.lastUpdated=1691350774398
+http\://repo.spring.io/plugins-release/.error=Could not transfer artifact org.apache.maven.plugins\:maven-dependency-plugin\:jar\:3.1.1 from/to spring-plugins (http\://repo.spring.io/plugins-release/)\: Failed to transfer http\://repo.spring.io/plugins-release/org/apache/maven/plugins/maven-dependency-plugin/3.1.1/maven-dependency-plugin-3.1.1.jar. Error code 405, Not Allowed
+http\://maven.aliyun.com/nexus/content/groups/public/.lastUpdated=1691350774841

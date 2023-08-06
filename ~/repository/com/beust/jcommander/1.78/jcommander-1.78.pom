@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.beust</groupId>
+  <artifactId>jcommander</artifactId>
+  <version>1.78</version>
+  <name>jcommander</name>
+  <description>Command line parser library for Java</description>
+  <url>https://jcommander.org</url>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>cbeust</id>
+      <name>Cedric Beust</name>
+      <email>cedric@beust.com</email>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git://example.com/my-library.git</connection>
+    <developerConnection>scm:git:ssh://example.com/my-library.git</developerConnection>
+    <url>http://example.com/my-library/</url>
+  </scm>
+  <issueManagement>
+    <system>Github</system>
+    <url>https://github.com/cbeust/jcommander/issues</url>
+  </issueManagement>
+</project>

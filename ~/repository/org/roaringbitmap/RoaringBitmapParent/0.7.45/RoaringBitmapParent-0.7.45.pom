@@ -1,0 +1,339 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.roaringbitmap</groupId>
+    <artifactId>RoaringBitmapParent</artifactId>
+    <version>0.7.45</version>
+
+    <!-- Trying work around * Invalid POM: /org/roaringbitmap/RoaringBitmapParent/0.6.61/RoaringBitmapParent-0.6.61.pom: Project name missing, Project description missing, Project URL missing, License information missing, Developer information missing-->
+    <name>RoaringBitmapParent</name>
+    <url>https://github.com/RoaringBitmap/RoaringBitmap</url>
+    <description>Roaring bitmaps are compressed bitmaps (also called bitsets) which tend to outperform
+     conventional compressed bitmaps such as WAH or Concise. </description>
+    <developers>
+      <developer>
+        <id>lemire</id>
+        <name>Daniel Lemire</name>
+        <email>lemire@gmail.com</email>
+        <url>http://lemire.me/en/</url>
+        <roles>
+          <role>architect</role>
+          <role>developer</role>
+          <role>maintainer</role>
+        </roles>
+        <timezone>-5</timezone>
+        <properties>
+          <picUrl>http://lemire.me/fr/images/JPG/profile2011B_152.jpg</picUrl>
+        </properties>
+      </developer>
+    </developers>
+    <issueManagement>
+      <system>GitHub Issue Tracking</system>
+      <url>https://github.com/RoaringBitmap/RoaringBitmap/issues</url>
+    </issueManagement>
+    <licenses>
+        <license>
+          <name>Apache 2</name>
+          <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+          <distribution>repo</distribution>
+          <comments>A business-friendly OSS license</comments>
+        </license>
+    </licenses>
+    <!-- end of invalid POM fix -->
+
+    <packaging>pom</packaging>
+
+    <modules>
+        <!-- The roaringbitmap module is always visible -->
+        <module>roaringbitmap</module>
+        <module>shims</module>
+    </modules>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <properties>
+                <!-- skip all tests in 'mvn release:perform' -->
+                <skipTests>true</skipTests>
+            </properties>
+
+            <distributionManagement>
+                <!-- http://central.sonatype.org/pages/apache-maven.html -->
+                <!-- The settings.xml file should contain: -->
+                <!-- <settings> -->
+                <!-- <servers> -->
+                <!-- <server> -->
+                <!-- <id>sonatype-nexus-staging</id> -->
+                <!-- <username>your-jira-id</username> -->
+                <!-- <password>your-jira-pwd</password> -->
+                <!-- </server> -->
+                <!-- </servers> -->
+                <!-- </settings> -->
+                <snapshotRepository>
+                    <id>sonatype-nexus-staging</id>
+                    <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+                </snapshotRepository>
+                <repository>
+                    <id>sonatype-nexus-staging</id>
+                    <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+                </repository>
+            </distributionManagement>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>1.6</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.0.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <!-- Activated only in 'mvn release:perform' step (and not 'mvn release:prepare' step) -->
+            <id>allModules</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+
+            <!-- We want all modules to be visible, except in 'mvn release:perform' step -->
+            <!-- Releasing only this parent pom and Roaring lib -->
+            <!-- skipNexusStagingDeployMojo is not enough because of -->
+            <!-- see https://issues.sonatype.org/browse/NEXUS-9138 -->
+            <modules>
+                <!-- <module>shims</module> --> <!-- shims is necessary -->
+                <module>real-roaring-dataset</module>
+                <module>jmh</module>
+                <module>fuzz-tests</module>
+            </modules>
+        </profile>
+    </profiles>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <javac.target>1.8</javac.target>
+        <javac.release>8</javac.release>
+
+        <!-- This location is OK for main module but not sub-modules -->
+        <checkstyle.configLocation>${basedir}/roaringbitmap/style/roaring_google_checks.xml</checkstyle.configLocation>
+        <maven.surefire.version>2.19.1</maven.surefire.version>
+    </properties>
+
+    <scm>
+        <connection>scm:git:git@github.com:RoaringBitmap/RoaringBitmap.git</connection>
+        <url>scm:git:git@github.com:RoaringBitmap/RoaringBitmap.git</url>
+        <developerConnection>scm:git:git@github.com:RoaringBitmap/RoaringBitmap.git</developerConnection>
+        <tag>RoaringBitmap-0.7.45</tag>
+    </scm>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <compilerVersion>${javac.target}</compilerVersion>
+                    <release>${javac.release}</release>
+                    <!-- for IDE convenience -->
+                    <source>${javac.target}</source>
+                    <target>${javac.target}</target>
+                    <verbose>true</verbose>
+                    <fork>true</fork>
+                    <showDeprecation>true</showDeprecation>
+                    <failOnError>true</failOnError>
+                    <showWarnings>true</showWarnings>
+                    <showDeprecation>true</showDeprecation>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>2.17</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>8.18</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jxr-plugin</artifactId>
+                        <version>2.5</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <configLocation>${checkstyle.configLocation}</configLocation>
+                    <!--<configLocation>google_checks.xml</configLocation> -->
+                    <includeTestSourceDirectory>false</includeTestSourceDirectory>
+                    <consoleOutput>true</consoleOutput>
+                    <logViolationsToConsole>true</logViolationsToConsole>
+                    <failOnViolation>true</failOnViolation>
+                    <maxAllowedViolations>0</maxAllowedViolations>
+                    <violationSeverity>warning</violationSeverity>
+                    <!-- Exclude JMH generated sources -->
+                    <!-- Seems not-working (https://stackoverflow.com/questions/2362652/excluding-classes-in-maven-checkstyle-plugin-reports) -->
+                    <!-- <excludes>**/generated-sources/**/*</excludes> -->
+                    <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>checkstyle-check</id>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <phase>test</phase>
+                        <configuration>
+                            <failOnViolation>true</failOnViolation>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-release-plugin</artifactId>
+                <version>2.5.3</version>
+                <configuration>
+                    <!-- These profiles are used only for release:perform, not release:prepare -->
+                    <!-- allModules is excluded from perform -->
+                    <releaseProfiles>release</releaseProfiles>
+                    <!-- Force -Prelease also for release:prepare, and keep ${arguments} for user input arguments -->
+                    <arguments>-DBITMAP_TYPES=ROARING_ONLY ${arguments}</arguments>
+                    <tagNameFormat>RoaringBitmap-@{project.version}</tagNameFormat>
+                </configuration>
+            </plugin>
+
+            <!-- https://github.com/sonatype/nexus-maven-plugins/tree/master/staging/maven-plugin -->
+            <!-- http://www.sonatype.org/nexus/2014/10/08/distribute-project-artifacts-in-maven-central-with-nexus-oss/ -->
+            <!-- https://mvnrepository.com/artifact/org.sonatype.plugins/nexus-staging-maven-plugin -->
+
+            <plugin>
+                <groupId>org.sonatype.plugins</groupId>
+                <artifactId>nexus-staging-maven-plugin</artifactId>
+                <version>1.6.8</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <serverId>sonatype-nexus-staging</serverId>
+                    <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+                    <autoReleaseAfterClose>true</autoReleaseAfterClose>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.2</version>
+                <configuration>
+                    <excludes>
+                        <exclude>META-INF/**</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.eluder.coveralls</groupId>
+                <artifactId>coveralls-maven-plugin</artifactId>
+                <version>4.3.0</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${maven.surefire.version}</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.0.2</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addClasspath>true</addClasspath>
+                            <classpathPrefix>lib/</classpathPrefix>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+
+        <pluginManagement>
+			<plugins>
+				<plugin>
+					<groupId>org.apache.maven.plugins</groupId>
+					<artifactId>maven-javadoc-plugin</artifactId>
+					<version>3.0.1</version><!-- release fails with 3.1.0 with "Plugin 
+          org.apache.maven.plugins:maven-javadoc-plugin:3.1.0 or one of its dependencies could not be resolved"
+          https://repo.maven.apache.org/maven2/org/apache/maven/plugins/maven-javadoc-plugin/
+        -->
+				</plugin>
+			</plugins>
+		</pluginManagement>
+    </build>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>junit</groupId>
+                <artifactId>junit</artifactId>
+                <version>4.12</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <!-- 21 relies on for Java8 -->
+                <version>20.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.4</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jxr-plugin</artifactId>
+                <version>${maven-jxr-plugin-version}</version>
+            </plugin>
+        </plugins>
+    </reporting>
+</project>

@@ -1,0 +1,297 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.xerial.snappy</groupId>
+  <artifactId>snappy-java</artifactId>
+  <version>1.0.4.1</version>
+  <name>Snappy for Java</name>
+  <description>snappy-java: A fast compression/decompression library</description>
+  <packaging>bundle</packaging>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>leo</id>
+      <name>Taro L. Saito</name>
+      <email>leo@xerial.org</email>
+      <organization>Xerial Project</organization>
+      <roles>
+        <role>Architect</role>
+        <role>Project Manager</role>
+        <role>Chief Developer</role>
+      </roles>
+      <timezone>+9</timezone>
+    </developer>
+  </developers>
+
+  <organization>
+  	<name>xerial.org</name>
+  	<url>http://www.xerial.org/</url>
+  </organization>
+
+  <build>
+    <resources>
+      <resource>
+        <directory>src/main/java</directory>
+        <includes>
+          <include>org/xerial/snappy/VERSION</include>
+        </includes>
+      </resource>
+      <resource>
+        <directory>src/main/resources</directory>
+        <includes>
+          <include>org/xerial/snappy/*.bytecode</include>
+          <include>org/xerial/snappy/native/**</include>
+        </includes>
+      </resource>
+      <resource>
+        <directory>${basedir}</directory>
+        <targetPath>META-INF/maven/${project.groupId}/${project.artifactId}</targetPath>
+        <includes>
+          <include>LICENSE*</include>
+        </includes>
+      </resource>
+    </resources>
+    <testResources>
+      <testResource>
+        <directory>src/test/java</directory>
+        <excludes>
+          <exclude>**/*.java</exclude>
+        </excludes>
+      </testResource>
+      <testResource>
+        <directory>src/test/resources</directory>
+      </testResource>
+    </testResources>
+
+
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>2.5</version>
+        <configuration>
+          <encoding>UTF-8</encoding>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>2.0.2</version>
+        <configuration>
+          <source>1.5</source>
+          <target>1.5</target>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <artifactId>maven-release-plugin</artifactId>
+        <version>2.1</version>
+        <configuration>
+          <!-- do not run site-deploy goal, included in the default settings -->
+          <goals>deploy</goals>
+          <connectionUrl>scm:hg:https://snappy-java.googlecode.com/hg/</connectionUrl>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.8</version>
+        <configuration>
+          <charset>UTF-8</charset>
+          <locale>en_US</locale>
+          <show>public</show>
+          <stylesheetfile>stylesheet.css</stylesheetfile>
+        </configuration>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>2.1.2</version>
+        <configuration>
+          <excludeResources>true</excludeResources>
+        </configuration>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>2.3.4</version>
+        <extensions>true</extensions>
+        <configuration>
+          <instructions>
+            <Bundle-SymbolicName>${project.groupId}.${project.artifactId}</Bundle-SymbolicName>
+            <Bundle-Name>${pproject.name}</Bundle-Name>
+            <Bundle-Version>${project.version}</Bundle-Version>
+            <Bundle-Activator>org.xerial.snappy.SnappyBundleActivator</Bundle-Activator>
+            <Export-Package>org.xerial.snappy</Export-Package>
+          </instructions>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>2.2.1</version>
+        <configuration>
+          <descriptors>
+            <descriptor>src/assembly/project.xml</descriptor>
+          </descriptors>
+          <appendAssemblyId>false</appendAssemblyId>
+          <attach>false</attach>
+        </configuration>
+        <executions>
+          <execution>
+            <id>make-assembly</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+
+    <extensions>
+      <extension>
+        <groupId>org.apache.maven.wagon</groupId>
+        <artifactId>wagon-ssh-external</artifactId>
+        <version>1.0-beta-7</version>
+      </extension>
+    </extensions>
+
+  </build>
+
+
+  <url>http://code.google.com/p/snappy-java/</url>
+  <issueManagement>
+  	<system>Google Code</system>
+  	<url>http://code.google.com/p/snappy-java/issues/list</url>
+  </issueManagement>
+  <inceptionYear>2011</inceptionYear>
+  <scm>
+    <connection>scm:hg:https://snappy-java.googlecode.com/hg/</connection>
+    <developerConnection>scm:hg:default</developerConnection>
+    <url>scm:hg:https://snappy-java.googlecode.com/hg/</url>
+  </scm>
+
+  <distributionManagement>
+    <!-- for development releases -->
+    <site>
+      <id>xerial.scp</id>
+      <url>scpexe://www.xerial.org/home/web/maven.xerial.org/repository/site</url>
+    </site>
+    <repository>
+      <id>xerial.scp</id>
+      <name>Xerial Maven Repository</name>
+      <url>scpexe://www.xerial.org/home/web/maven.xerial.org/repository/artifact</url>
+    </repository>
+    <snapshotRepository>
+      <id>xerial.scp</id>
+      <name>Xerial Maven Snapshot Repository</name>
+      <url>scpexe://www.xerial.org/home/web/maven.xerial.org/repository/snapshot</url>
+      <uniqueVersion>false</uniqueVersion>
+    </snapshotRepository>
+  </distributionManagement>
+
+  <profiles>
+    <!-- for directly sending artifacts to sourceforge.net repository -->
+    <profile>
+      <id>sourceforge</id>
+      <distributionManagement>
+        <repository>
+          <id>xerial.sourceforge</id>
+          <name>Xerial maven repository at sourceforge.jp</name>
+          <url>scpexe://shell.sourceforge.jp/home/groups/x/xe/xerial/htdocs/maven/release</url>
+        </repository>
+      </distributionManagement>
+    </profile>
+
+    <!-- for local updates -->
+    <profile>
+      <id>xerial.local</id>
+      <distributionManagement>
+        <repository>
+          <id>xerial.local</id>
+          <name>Xerial Maven Repository</name>
+          <url>file:///home/web/maven.xerial.org/repository/artifact</url>
+        </repository>
+        <snapshotRepository>
+          <id>xerial.local</id>
+          <name>Xerial Maven Snapshot Repository</name>
+          <url>file:///home/web/maven.xerial.org/repository/snapshot</url>
+          <uniqueVersion>false</uniqueVersion>
+        </snapshotRepository>
+        <site>
+          <id>xerial.local</id>
+          <url>file:///home/web/maven.xerial.org/repository/site</url>
+        </site>
+      </distributionManagement>
+    </profile>
+  </profiles>
+
+
+
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.8.2</version>
+      <type>jar</type>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.codehaus.plexus</groupId>
+      <artifactId>plexus-classworlds</artifactId>
+      <version>2.4</version>
+      <type>jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.osgi</groupId>
+      <artifactId>core</artifactId>
+      <version>4.3.0</version>
+      <type>jar</type>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>xerial-core</artifactId>
+      <version>1.0.21</version>
+      <type>jar</type>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:49:01 CST 2023
+commons-codec-1.11.jar>allmaven=
+commons-codec-1.11.pom>gcs-maven-central-mirror=
+commons-codec-1.11.pom>allmaven=

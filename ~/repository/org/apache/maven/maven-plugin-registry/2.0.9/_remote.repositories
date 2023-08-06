@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:47:25 CST 2023
+maven-plugin-registry-2.0.9.pom>gcs-maven-central-mirror=
+maven-plugin-registry-2.0.9.jar>gcs-maven-central-mirror=
+maven-plugin-registry-2.0.9.jar>allmaven=

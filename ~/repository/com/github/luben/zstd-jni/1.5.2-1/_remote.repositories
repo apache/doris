@@ -1,0 +1,6 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:16 CST 2023
+zstd-jni-1.5.2-1.jar>allmaven=
+zstd-jni-1.5.2-1.jar>gcs-maven-central-mirror=
+zstd-jni-1.5.2-1.pom>allmaven=
+zstd-jni-1.5.2-1.pom>gcs-maven-central-mirror=

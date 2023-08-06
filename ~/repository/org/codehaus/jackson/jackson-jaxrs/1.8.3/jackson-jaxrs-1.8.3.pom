@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+
+ <!-- General information -->
+
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.codehaus.jackson</groupId>
+  <artifactId>jackson-jaxrs</artifactId>
+  <packaging>jar</packaging>
+  <name>JAX-RS provider for JSON content type</name>
+  <version>1.8.3</version>
+  <description>Jax-RS provider for JSON content type, based on 
+Jackson JSON processor's data binding functionality.
+</description>
+
+ <!-- Contact information -->
+
+  <url>http://jackson.codehaus.org</url>
+  <issueManagement>
+    <url>http://jira.codehaus.org/browse/JACKSON</url>
+  </issueManagement>
+
+ <!-- Dependency information -->
+ 
+  <dependencies>
+    <!-- need the core Jackson core and mapper jars
+      -->
+    <dependency>
+      <groupId>org.codehaus.jackson</groupId>
+      <artifactId>jackson-core-asl</artifactId>
+      <version>1.8.3</version>
+    </dependency>
+    <dependency>
+      <groupId>org.codehaus.jackson</groupId>
+      <artifactId>jackson-mapper-asl</artifactId>
+      <version>1.8.3</version>
+    </dependency>
+  </dependencies>
+
+  <!-- Licensing: ASL or GPL -->
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+    <license>
+      <name>GNU Lesser General Public License (LGPL), Version 2.1</name>
+      <url>http://www.fsf.org/licensing/licenses/lgpl.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <organization>
+    <name>FasterXML</name>
+    <url>http://fasterxml.com</url>
+  </organization>
+
+</project>

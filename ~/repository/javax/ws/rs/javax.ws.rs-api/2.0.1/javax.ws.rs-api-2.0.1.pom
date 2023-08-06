@@ -1,0 +1,480 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
+
+    Copyright (c) 2011-2014 Oracle and/or its affiliates. All rights reserved.
+
+    The contents of this file are subject to the terms of either the GNU
+    General Public License Version 2 only ("GPL") or the Common Development
+    and Distribution License("CDDL") (collectively, the "License").  You
+    may not use this file except in compliance with the License.  You can
+    obtain a copy of the License at
+    http://glassfish.java.net/public/CDDL+GPL_1_1.html
+    or packager/legal/LICENSE.txt.  See the License for the specific
+    language governing permissions and limitations under the License.
+
+    When distributing the software, include this License Header Notice in each
+    file and include the License file at packager/legal/LICENSE.txt.
+
+    GPL Classpath Exception:
+    Oracle designates this particular file as subject to the "Classpath"
+    exception as provided by Oracle in the GPL Version 2 section of the License
+    file that accompanied this code.
+
+    Modifications:
+    If applicable, add the following below the License Header, with the fields
+    enclosed by brackets [] replaced by your own identifying information:
+    "Portions Copyright [year] [name of copyright owner]"
+
+    Contributor(s):
+    If you wish your version of this file to be governed by only the CDDL or
+    only the GPL Version 2, indicate your decision by adding "[Contributor]
+    elects to include this software in this distribution under the [CDDL or GPL
+    Version 2] license."  If you don't indicate a single choice of license, a
+    recipient has the option to distribute your version of this file under
+    either the CDDL, the GPL Version 2 or to extend the choice of license to
+    its licensees as provided above.  However, if you add GPL Version 2 code
+    and therefore, elected the GPL Version 2 license, then the option applies
+    only if the new code is made subject to such option by the copyright
+    holder.
+
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>net.java</groupId>
+        <artifactId>jvnet-parent</artifactId>
+        <version>5</version>
+    </parent>
+
+    <groupId>javax.ws.rs</groupId>
+    <artifactId>javax.ws.rs-api</artifactId>
+    <version>2.0.1</version>
+    <packaging>jar</packaging>
+    <name>javax.ws.rs-api</name>
+
+    <url>http://jax-rs-spec.java.net</url>
+
+    <organization>
+        <name>Oracle Corporation</name>
+        <url>http://www.oracle.com/</url>
+    </organization>
+
+    <issueManagement>
+        <system>jira</system>
+        <url>http://java.net/jira/browse/JAX_RS_SPEC</url>
+    </issueManagement>
+
+    <mailingLists>
+        <mailingList>
+            <name>JSR339 Expert Group List</name>
+            <archive>jsr339-experts@jax-rs-spec.java.net</archive>
+        </mailingList>
+        <mailingList>
+            <name>JAX-RS Users List</name>
+            <archive>users@jax-rs-spec.java.net</archive>
+        </mailingList>
+    </mailingLists>
+
+    <licenses>
+        <license>
+            <name>CDDL 1.1</name>
+            <url>http://glassfish.java.net/public/CDDL+GPL_1_1.html</url>
+            <distribution>repo</distribution>
+        </license>
+        <license>
+            <name>GPL2 w/ CPE</name>
+            <url>http://glassfish.java.net/public/CDDL+GPL_1_1.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <scm>
+        <connection>scm:git:git://java.net/jax-rs-spec~git</connection>
+        <developerConnection>scm:git:ssh://git.java.net/jax-rs-spec~git</developerConnection>
+        <url>http://java.net/projects/jax-rs-spec/sources/git/show</url>
+        <tag>2.0.1</tag>
+    </scm>
+
+    <developers>
+        <developer>
+            <email>m_potociar@java.net</email>
+            <id>Marek</id>
+            <name>Marek Potociar</name>
+            <organization>Oracle</organization>
+            <organizationUrl>http://jax-rs-spec.java.net</organizationUrl>
+            <roles>
+                <role>JAX-RS 2.0 Spec Lead</role>
+            </roles>
+            <timezone>CET</timezone>
+            <url>http://marek.potociar.net/topics/web-services/rest/</url>
+        </developer>
+        <developer>
+            <email>spericas@java.net</email>
+            <id>Santiago</id>
+            <name>Santiago Pericas-Geertsen</name>
+            <organization>Oracle</organization>
+            <organizationUrl>http://jax-rs-spec.java.net</organizationUrl>
+            <roles>
+                <role>JAX-RS 2.0 Spec Lead</role>
+            </roles>
+            <timezone>EST</timezone>
+            <url>http://www.java.net/blogs/spericas/</url>
+        </developer>
+    </developers>
+
+    <profiles>
+        <profile>
+            <id>final</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <properties>
+                <!-- Final API bundle version properties -->
+                <spec.version>${next.final.spec.version}</spec.version>
+                <new.spec.version />
+                <milestone.number />
+                <non.final>false</non.final>
+            </properties>
+        </profile>
+        <profile>
+            <!-- Use it with release-perform goal to skip another test run. -->
+            <id>skip-tests</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <properties>
+                <skip.release.tests>true</skip.release.tests>
+            </properties>
+        </profile>
+        <profile>
+            <id>release</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-release-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-deploy-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <build>
+        <finalName>${project.artifactId}</finalName>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.1</version>
+                    <configuration>
+                        <source>1.6</source>
+                        <target>1.6</target>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>2.5</version>
+                </plugin>
+                <plugin>
+                    <!-- This plugin generates the buildNumber property used in maven-bundle-plugin -->
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>buildnumber-maven-plugin</artifactId>
+                    <version>1.3</version>
+                    <configuration>
+                        <format>{0,date,MM/dd/yyyy hh:mm aa}</format>
+                        <items>
+                            <item>timestamp</item>
+                        </items>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>create</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <!-- This plugin generates the spec.* properties used in maven-bundle-plugin -->
+                    <groupId>org.glassfish.build</groupId>
+                    <artifactId>spec-version-maven-plugin</artifactId>
+                    <version>1.2</version>
+                    <configuration>
+                        <spec>
+                            <nonFinal>${non.final}</nonFinal>
+                            <jarType>api</jarType>
+                            <specVersion>${spec.version}</specVersion>
+                            <newSpecVersion>${new.spec.version}</newSpecVersion>
+                            <specBuild>${milestone.number}</specBuild>
+                            <specImplVersion>${project.version}</specImplVersion>
+                            <apiPackage>${project.groupId}</apiPackage>
+                        </spec>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>set-spec-properties</goal>
+                                <goal>check-module</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.felix</groupId>
+                    <artifactId>maven-bundle-plugin</artifactId>
+                    <version>2.5.0</version>
+                    <extensions>true</extensions>
+                    <configuration>
+                        <instructions>
+                            <Build-Id>${buildNumber}</Build-Id>
+                            <Bundle-Description>Java API for RESTful Web Services (JAX-RS)</Bundle-Description>
+                            <Bundle-Version>${spec.bundle.version}</Bundle-Version>
+                            <Bundle-SymbolicName>${spec.bundle.symbolic-name}</Bundle-SymbolicName>
+                            <DynamicImport-Package>*</DynamicImport-Package>
+                            <Extension-Name>${spec.extension.name}</Extension-Name>
+                            <Implementation-Version>${spec.implementation.version}</Implementation-Version>
+                            <Specification-Version>${spec.specification.version}</Specification-Version>
+                            <Specification-Vendor>Oracle Corporation</Specification-Vendor>
+                            <specversion>${spec.specification.version}</specversion>
+                            <_versionpolicy>[$(version;==;$(@)),$(version;+;$(@)))</_versionpolicy>
+                            <_nodefaultversion>false</_nodefaultversion>
+                        </instructions>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>osgi-bundle</id>
+                            <phase>package</phase>
+                            <goals>
+                                <goal>bundle</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>2.9.1</version>
+                    <configuration>
+                        <doctitle>JAX-RS ${project.version} API Specification</doctitle>
+                        <bottom>
+                            <![CDATA[Copyright &#169; 1996-2014,
+                                <a href="http://www.oracle.com">Oracle</a>
+                                and/or its affiliates. All Rights Reserved.
+                                Use is subject to
+                                <a href="{@docRoot}/doc-files/spec-license.html" target="_top">license terms</a>.]]>
+                        </bottom>
+                        <!--javaApiLinks>
+                            <property>
+                                <name>api_1.3</name>
+                                <value>http://download.oracle.com/javase/1.3/docs/api/</value>
+                            </property>
+                            <property>
+                                <name>api_1.4</name>
+                                <value>http://download.oracle.com/javase/1.4.2/docs/api/</value>
+                            </property>
+                            <property>
+                                <name>api_1.5</name>
+                                <value>http://download.oracle.com/javase/1.5.0/docs/api/</value>
+                            </property>
+                            <property>
+                                <name>api_1.6</name>
+                                <value>http://download.oracle.com/javase/6/docs/api/</value>
+                            </property>
+                        </javaApiLinks-->
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>attach-javadocs</id>
+                            <goals>
+                                <goal>jar</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>2.3</version>
+                    <executions>
+                        <execution>
+                            <id>attach-sources</id>
+                            <goals>
+                                <goal>jar-no-fork</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>2.8.1</version>
+                    <configuration>
+                        <retryFailedDeploymentCount>10</retryFailedDeploymentCount>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-release-plugin</artifactId>
+                    <version>2.4.2</version>
+                    <!--
+                        To release a non-final version:
+                        ===============================
+                        mvn release:prepare -DdryRun=false -DreleaseVersion=<release-version> \
+                                -DdevelopmentVersion=<next-dev-version> -Dtag=<release-version> -Prelease
+
+                        mvn release:perform -DconnectionUrl="scm:git:file://<path-to-local-jaxrs-repo>" -Dtag=<release-version> \
+                                -Prelease,skip-tests
+
+                        To release a final version:
+                        ===========================
+                        mvn release:prepare -DdryRun=false -DreleaseVersion=<release-version> \
+                                -DdevelopmentVersion=<next-dev-version> -Dtag=<release-version> -Prelease,final
+
+                        mvn release:perform -DconnectionUrl="scm:git:file://<path-to-local-jaxrs-repo>" -Dtag=<release-version> \
+                                -Prelease,skip-tests,final
+                    -->
+                    <configuration>
+                        <arguments>-Dmaven.test.skip=${skip.release.tests} ${release.arguments}</arguments>
+                        <autoVersionSubmodules>true</autoVersionSubmodules>
+                        <mavenExecutorId>forked-path</mavenExecutorId>
+                        <preparationGoals>clean install</preparationGoals>
+                        <pushChanges>false</pushChanges>
+                        <useReleaseProfile>false</useReleaseProfile>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jxr-plugin</artifactId>
+                    <version>2.3</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>jxr</goal>
+                            </goals>
+                            <phase>validate</phase>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>2.12.1</version>
+                    <configuration>
+                        <outputDirectory>${project.build.directory}/checkstyle</outputDirectory>
+                        <outputFile>${project.build.directory}/checkstyle/checkstyle-result.xml</outputFile>
+                        <configLocation>${basedir}/../etc/config/checkstyle.xml</configLocation>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>checkstyle</goal>
+                            </goals>
+                            <phase>validate</phase>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.glassfish.copyright</groupId>
+                    <artifactId>glassfish-copyright-maven-plugin</artifactId>
+                    <version>1.39</version>
+                    <configuration>
+                        <excludeFile>${basedir}/../etc/config/copyright-exclude</excludeFile>
+                        <!--svn|mercurial|git - defaults to svn-->
+                        <scm>git</scm>
+                        <!-- turn on/off debugging -->
+                        <debug>false</debug>
+                        <!-- skip files not under SCM-->
+                        <scmOnly>true</scmOnly>
+                        <!-- turn off warnings -->
+                        <warn>true</warn>
+                        <!-- for use with repair -->
+                        <update>false</update>
+                        <!-- check that year is correct -->
+                        <ignoreYear>false</ignoreYear>
+                        <templateFile>${basedir}/../etc/config/copyright.txt</templateFile>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>buildnumber-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jxr-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.glassfish.copyright</groupId>
+                <artifactId>glassfish-copyright-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.glassfish.build</groupId>
+                <artifactId>spec-version-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.11</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <last.final.spec.version>2.0</last.final.spec.version>
+        <milestone.number>01</milestone.number>
+        <next.final.spec.version>2.0</next.final.spec.version>
+        <new.spec.version>${next.final.spec.version}</new.spec.version>
+        <non.final>true</non.final>
+        <skip.release.tests>false</skip.release.tests>
+        <spec.version>${last.final.spec.version}</spec.version>
+    </properties>
+
+</project>

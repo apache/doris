@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.apache.thrift</groupId>
+  <artifactId>libfb303</artifactId>
+  <version>0.9.3</version>
+  <packaging>pom</packaging>
+  <name>Apache Thrift</name>
+  <description>Thrift is a software framework for scalable cross-language services development.</description>
+  <url>http://thrift.apache.org</url>
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>mcslee</id>
+      <name>Mark Slee</name>
+    </developer>
+    <developer>
+      <id>dreiss</id>
+      <name>David Reiss</name>
+    </developer>
+    <developer>
+      <id>aditya</id>
+      <name>Aditya Agarwal</name>
+    </developer>
+    <developer>
+      <id>marck</id>
+      <name>Marc Kwiatkowski</name>
+    </developer>
+    <developer>
+      <id>jwang</id>
+      <name>James Wang</name>
+    </developer>
+    <developer>
+      <id>cpiro</id>
+      <name>Chris Piro</name>
+    </developer>
+    <developer>
+      <id>bmaurer</id>
+      <name>Ben Maurer</name>
+    </developer>
+    <developer>
+      <id>kclark</id>
+      <name>Kevin Clark</name>
+    </developer>
+    <developer>
+      <id>jake</id>
+      <name>Jake Luciani</name>
+    </developer>
+    <developer>
+      <id>bryanduxbury</id>
+      <name>Bryan Duxbury</name>
+    </developer>
+    <developer>
+      <id>esteve</id>
+      <name>Esteve Fernandez</name>
+    </developer>
+    <developer>
+      <id>todd</id>
+      <name>Todd Lipcon</name>
+    </developer>
+    <developer>
+      <id>geechorama</id>
+      <name>Andrew McGeachie</name>
+    </developer>
+    <developer>
+      <id>molinaro</id>
+      <name>Anthony Molinaro</name>
+    </developer>
+    <developer>
+      <id>roger</id>
+      <name>Roger Meier</name>
+    </developer>
+    <developer>
+      <id>jfarrell</id>
+      <name>Jake Farrell</name>
+    </developer>
+    <developer>
+      <id>jensg</id>
+      <name>Jens Geyer</name>
+    </developer>
+    <developer>
+      <id>carl</id>
+      <name>Carl Yeksigian</name>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://git-wip-us.apache.org/repos/asf/thrift.git</connection>
+    <developerConnection>scm:git:https://git-wip-us.apache.org/repos/asf/thrift.git</developerConnection>
+    <url>https://git-wip-us.apache.org/repos/asf?p=thrift.git</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.thrift</groupId>
+      <artifactId>libthrift</artifactId>
+      <version>0.9.3</version>
+    </dependency>
+  </dependencies>
+</project>

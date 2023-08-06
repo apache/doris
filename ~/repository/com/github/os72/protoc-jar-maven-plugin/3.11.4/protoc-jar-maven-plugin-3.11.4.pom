@@ -1,0 +1,202 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.github.os72</groupId>
+  <artifactId>protoc-jar-maven-plugin</artifactId>
+  <packaging>maven-plugin</packaging>
+  <version>3.11.4</version>
+  <name>protoc-jar-maven-plugin</name>
+  <url>https://github.com/os72/protoc-jar-maven-plugin</url>
+  <description>Protocol Buffers codegen plugin - based on protoc-jar executable JAR</description>
+
+  <parent>
+	<groupId>org.sonatype.oss</groupId>
+	<artifactId>oss-parent</artifactId>
+	<version>9</version>
+  </parent>
+
+  <licenses>
+	<license>
+	  <name>The Apache Software License, Version 2.0</name>
+	  <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+	  <distribution>repo</distribution>
+	</license>
+  </licenses>
+
+  <developers>
+	<developer>
+	  <id>os72</id>
+	  <name>Oliver Suciu</name>
+	</developer>
+  </developers>
+
+  <scm>
+	<connection>scm:git:git@github.com:os72/protoc-jar-maven-plugin.git</connection>
+	<developerConnection>scm:git:git@github.com:os72/protoc-jar-maven-plugin.git</developerConnection>
+	<url>git@github.com:os72/protoc-jar-maven-plugin.git</url>
+  </scm>
+
+  <dependencies>
+	<dependency>
+	  <groupId>com.github.os72</groupId>
+	  <artifactId>protoc-jar</artifactId>
+	  <version>3.11.4</version>
+	</dependency>
+	<dependency>
+	  <groupId>org.apache.maven</groupId>
+	  <artifactId>maven-plugin-api</artifactId>
+	  <version>2.0.9</version>
+	</dependency>
+	<dependency>
+	  <groupId>org.apache.maven</groupId>
+	  <artifactId>maven-project</artifactId>
+	  <version>2.0.9</version>
+	</dependency>
+	<dependency>
+	  <groupId>org.sonatype.plexus</groupId>
+	  <artifactId>plexus-build-api</artifactId>
+	  <version>0.0.7</version>
+	</dependency>
+	<dependency>
+	  <groupId>org.codehaus.plexus</groupId>
+	  <artifactId>plexus-utils</artifactId>
+	  <version>3.0</version>
+	</dependency>
+	<dependency>
+	  <groupId>commons-io</groupId>
+	  <artifactId>commons-io</artifactId>
+	  <version>2.2</version>
+	</dependency>
+
+    <!-- test -->
+	<dependency>
+	  <groupId>junit</groupId>
+	  <artifactId>junit</artifactId>
+	  <version>4.12</version>
+	  <scope>test</scope>
+	</dependency>
+	<dependency>
+	  <groupId>io.takari.maven.plugins</groupId>
+	  <artifactId>takari-plugin-integration-testing</artifactId>
+	  <version>2.9.1</version>
+	  <type>pom</type>
+	  <scope>test</scope>
+	</dependency>
+  </dependencies>
+
+  <profiles>
+	<profile>
+		<id>java8-doclint-disabled</id>
+		<activation>
+			<jdk>[1.8,)</jdk>
+		</activation>
+		<properties>
+			<javadoc.opts>-Xdoclint:none</javadoc.opts>
+		</properties>
+	</profile>
+  </profiles>
+
+  <build>
+	<plugins>
+		<plugin>
+		  <groupId>org.apache.maven.plugins</groupId>
+		  <artifactId>maven-compiler-plugin</artifactId>
+		  <version>3.0</version>
+		  <configuration>
+			<source>1.5</source>
+			<target>1.5</target>
+		  </configuration>
+		</plugin>
+		<plugin>
+		  <groupId>org.apache.maven.plugins</groupId>
+		  <artifactId>maven-assembly-plugin</artifactId>
+		  <version>2.5.3</version>
+		  <configuration>
+			<appendAssemblyId>false</appendAssemblyId>
+			<archive>
+			  <manifest>
+				<mainClass>com.github.os72.protocjar.Protoc</mainClass>
+			  </manifest>
+			  <manifestEntries>
+				<Build-Id>${project.name}-${project.version}-${maven.build.timestamp}</Build-Id>
+			  </manifestEntries>
+			</archive>
+			<descriptors>
+				<descriptor>assembly.xml</descriptor>
+			</descriptors>
+		  </configuration>
+		  <executions>
+			<execution>
+				<id>make-assembly</id>
+				<phase>package</phase>
+				<goals>
+				  <goal>single</goal>
+				</goals>
+			 </execution>
+		  </executions>
+		</plugin>
+		<plugin>
+		  <groupId>org.apache.maven.plugins</groupId>
+		  <artifactId>maven-source-plugin</artifactId>
+		  <version>2.2.1</version>
+		  <executions>
+			<execution>
+				<id>attach-sources</id>
+				<goals>
+				  <goal>jar</goal>
+				</goals>
+			</execution>
+		  </executions>
+		</plugin>
+		<plugin>
+		  <groupId>org.apache.maven.plugins</groupId>
+		  <artifactId>maven-javadoc-plugin</artifactId>
+		  <version>2.9.1</version>
+		  <executions>
+			<execution>
+				<id>attach-javadoc</id>
+				<goals>
+				  <goal>jar</goal>
+				</goals>
+				<configuration>
+				  <additionalparam>${javadoc.opts}</additionalparam>
+				</configuration>
+			</execution>
+		  </executions>
+		</plugin>
+		
+		<!-- for test: takari-plugin-integration-testing -->
+		<plugin>
+		  <groupId>io.takari.maven.plugins</groupId>
+		  <artifactId>takari-lifecycle-plugin</artifactId>
+		  <version>1.11.9</version>
+		  <extensions>true</extensions>
+		  <executions>
+			<execution>
+			  <id>testProperties</id>
+			  <phase>process-test-resources</phase>
+			  <goals>
+				<goal>testProperties</goal>
+			  </goals>
+			</execution>
+		  </executions>
+		</plugin>
+
+	</plugins>
+  </build>
+
+  <reporting>
+	<plugins>
+		<plugin>
+			<groupId>org.apache.maven.plugins</groupId>
+			<artifactId>maven-project-info-reports-plugin</artifactId>
+		</plugin>
+		<plugin>
+			<groupId>org.apache.maven.plugins</groupId>
+			<artifactId>maven-plugin-plugin</artifactId>
+		</plugin>
+	</plugins>
+  </reporting>
+
+</project>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.oracle.database.security</groupId>
+  <artifactId>oraclepki</artifactId>
+  <version>21.5.0.0</version>
+  <packaging>jar</packaging>  
+
+  <!-- 
+      oraclepki.jar: The Oracle PKI provider used for Oracle Wallets.
+  	  Refer to "List of Artifacts (BOM)" section of the Maven Central Guide
+  	  https://www.oracle.com/database/technologies/maven-central-guide.html#artifacts
+    -->
+  <name>oraclepki</name>
+  <description>Oracle PKI to access Oracle Wallets from Java</description>
+  <url>https://www.oracle.com/database/technologies/maven-central-guide.html</url>
+  <inceptionYear>1997</inceptionYear>
+
+  <licenses>
+    <license>
+      <name>Oracle Free Use Terms and Conditions (FUTC)</name>
+      <url>https://www.oracle.com/downloads/licenses/oracle-free-license.html</url>
+    </license>
+  </licenses>
+ 
+  <developers>
+    <developer>
+      <organization>Oracle America, Inc.</organization>
+      <organizationUrl>http://www.oracle.com</organizationUrl>
+    </developer>
+  </developers>
+  
+  <scm>
+    <url></url>
+  </scm>
+  
+</project>

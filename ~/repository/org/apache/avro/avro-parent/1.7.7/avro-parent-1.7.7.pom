@@ -1,0 +1,486 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.apache.avro</groupId>
+    <artifactId>avro-toplevel</artifactId>
+    <version>1.7.7</version>
+    <relativePath>../../</relativePath>
+  </parent>
+
+  <artifactId>avro-parent</artifactId>
+  <packaging>pom</packaging>
+
+  <name>Apache Avro Java</name>
+  <url>http://avro.apache.org</url>
+  <description>Avro parent Java project</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- version properties for dependencies -->
+    
+    <!--
+      To build the avro-mapred module against Hadoop 2 specify
+      -Dhadoop.version=2 or leave unspecified to build against Hadoop 1
+    -->
+    <hadoop1.version>0.20.205.0</hadoop1.version>
+    <hadoop2.version>2.0.1-alpha</hadoop2.version>
+    <jackson.version>1.9.13</jackson.version>
+    <jetty.version>6.1.26</jetty.version>
+    <jetty-servlet-api.version>2.5-20081211</jetty-servlet-api.version>
+    <jopt-simple.version>4.1</jopt-simple.version>
+    <junit.version>4.10</junit.version>
+    <netty.version>3.4.0.Final</netty.version>
+    <paranamer.version>2.3</paranamer.version>
+    <protobuf.version>2.4.1</protobuf.version>
+    <thrift.version>0.7.0</thrift.version>
+    <slf4j.version>1.6.4</slf4j.version>
+    <snappy.version>1.0.5</snappy.version>
+    <velocity.version>1.7</velocity.version>
+    <maven.version>2.0.10</maven.version>
+    <ant.version>1.8.2</ant.version>
+    <commons-lang.version>2.6</commons-lang.version>
+    <commons-compress.version>1.4.1</commons-compress.version>
+    <easymock.version>3.0</easymock.version>
+    <hamcrest.version>1.1</hamcrest.version>
+    <commons-httpclient.version>3.1</commons-httpclient.version>
+
+    <!-- version properties for plugins -->
+    <checkstyle-plugin.version>2.8</checkstyle-plugin.version>
+    <bundle-plugin-version>2.1.0</bundle-plugin-version>
+    <compiler-plugin.version>2.3.2</compiler-plugin.version>
+    <exec-plugin.version>1.2.1</exec-plugin.version>
+    <jar-plugin.version>2.3.2</jar-plugin.version>
+    <javacc-plugin.version>2.6</javacc-plugin.version>
+    <javadoc-plugin.version>2.8</javadoc-plugin.version>
+    <plugin-tools-javadoc.version>3.2</plugin-tools-javadoc.version>
+    <maven-site-plugin.version>3.1</maven-site-plugin.version>
+    <plugin-plugin.version>2.9</plugin-plugin.version>
+    <source-plugin.version>2.1.2</source-plugin.version>
+    <surefire-plugin.version>2.12</surefire-plugin.version>
+    <file-management.version>1.2.1</file-management.version>
+    <shade-plugin.version>1.5</shade-plugin.version>
+    <archetype-plugin.version>2.2</archetype-plugin.version>
+  </properties>
+
+  <modules>
+    <module>avro</module>
+    <module>compiler</module>
+    <module>maven-plugin</module>
+    <module>ipc</module>
+    <module>trevni</module>
+    <module>tools</module>
+    <module>mapred</module>
+    <module>protobuf</module>
+    <module>thrift</module>
+    <module>archetypes</module>
+  </modules>
+
+  <build>
+    <!-- defines the default plugin configuration that all child projects inherit from.
+      Like dependencyManagement, this provides configuration, version, and other
+      parameters if the plugins are used by child projects -->
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.eclipse.m2e</groupId>
+          <artifactId>lifecycle-mapping</artifactId>
+          <version>1.0.0</version>
+          <configuration>
+            <lifecycleMappingMetadata>
+              <pluginExecutions>
+                <pluginExecution>
+                  <pluginExecutionFilter>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>javacc-maven-plugin</artifactId>
+                    <versionRange>[${javacc-plugin.version},)</versionRange>
+                    <goals>
+                      <goal>javacc</goal>
+                    </goals>
+                  </pluginExecutionFilter>
+                  <action>
+                    <ignore />
+                  </action>
+                </pluginExecution>
+                <pluginExecution>
+                  <pluginExecutionFilter>
+                    <groupId>com.thoughtworks.paranamer</groupId>
+                    <artifactId>paranamer-maven-plugin</artifactId>
+                    <versionRange>[${paranamer.version},)</versionRange>
+                    <goals>
+                      <goal>generate</goal>
+                    </goals>
+                  </pluginExecutionFilter>
+                  <action>
+                    <ignore />
+                  </action>
+                </pluginExecution>
+                <pluginExecution>
+                  <pluginExecutionFilter>
+                    <groupId>org.apache.avro</groupId>
+                    <artifactId>avro-maven-plugin</artifactId>
+                    <versionRange>[${project.version},)</versionRange>
+                    <goals>
+                      <goal>protocol</goal>
+                      <goal>idl-protocol</goal>
+                      <goal>schema</goal>
+                    </goals>
+                  </pluginExecutionFilter>
+                  <action>
+                    <ignore />
+                  </action>
+                </pluginExecution>
+              </pluginExecutions>
+            </lifecycleMappingMetadata>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${compiler-plugin.version}</version>
+          <configuration>
+            <source>1.6</source>
+            <target>1.6</target>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>${jar-plugin.version}</version>
+          <configuration>
+            <archive>
+              <manifest>
+                <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+                <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+              </manifest>
+            </archive>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${surefire-plugin.version}</version>
+          <configuration>
+            <includes>
+              <!-- Avro naming convention for JUnit tests -->
+              <include>**/Test**</include>
+            </includes>
+            <excludes>
+              <!-- A few innner classes are not to be tested -->
+              <exclude>**/*$*</exclude>
+              <!-- exclude the generated classes under apache.avro.test, some of
+                these match **/Test** and are not JUnit tests -->
+              <exclude>**/apache/avro/test/**</exclude>
+            </excludes>
+            <enableAssertions>false</enableAssertions>
+            <!-- some IPC tests hang if not run in a separate JVM -->
+            <forkMode>always</forkMode>
+            <!-- TestSpecificCompiler instantiates a Java compiler to test output results,
+                 this does not work with a manifest-only-jar to set the classpath for the javac.
+                 This may cause problems on some platforms.
+                 See http://maven.apache.org/plugins/maven-surefire-plugin/examples/class-loading.html
+                 for more information. -->
+            <useManifestOnlyJar>false</useManifestOnlyJar>
+            <!-- configures unit test standard error and standard out to go to a file per test
+                 rather than the console. -->
+            <redirectTestOutputToFile>true</redirectTestOutputToFile>
+            <failIfNoTests>false</failIfNoTests>
+            <argLine>-Xmx1000m -XX:MaxPermSize=200m</argLine>
+            <systemPropertyVariables>
+              <test.dir>${project.basedir}/target/</test.dir>
+            </systemPropertyVariables>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-checkstyle-plugin</artifactId>
+          <version>${checkstyle-plugin.version}</version>
+          <configuration>
+            <consoleOutput>true</consoleOutput>
+            <configLocation>checkstyle.xml</configLocation>
+          </configuration>
+          <!-- Runs by default in the verify phase  (mvn verify or later in the build cycle)
+               the 'check' goal will fail the build if it does not pass.  "mvn checkstyle:check"
+               will do this alone, or "mvn checkstyle:checkstyle" will report but not break  -->
+          <executions>
+            <execution>
+              <id>checkstyle-check</id>
+              <phase>test</phase>
+              <goals>
+                <goal>check</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${javadoc-plugin.version}</version>
+          <configuration>
+            <links>
+              <link>http://jackson.codehaus.org/1.9.4/javadoc/</link>
+              <link>http://java.sun.com/products/servlet/2.3/javadoc/</link>
+              <link>http://hadoop.apache.org/common/docs/current/api/</link>
+            </links>
+            <tagletArtifacts>
+              <tagletArtifact>
+                <groupId>org.apache.maven.plugin-tools</groupId>
+                <artifactId>maven-plugin-tools-javadoc</artifactId>
+                <version>${plugin-tools-javadoc.version}</version>
+              </tagletArtifact>
+            </tagletArtifacts>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>${source-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>javacc-maven-plugin</artifactId>
+          <version>${javacc-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>exec-maven-plugin</artifactId>
+          <version>${exec-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-plugin-plugin</artifactId>
+          <version>${plugin-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>${shade-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-antrun-plugin</artifactId>
+          <version>${antrun-plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>${bundle-plugin-version}</version>
+        <extensions>true</extensions>
+        <inherited>true</inherited>
+        <configuration>
+          <instructions>
+            <Bundle-Name>${project.name}</Bundle-Name>
+            <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
+            <Export-Package>${osgi.export}</Export-Package>
+            <Import-Package>${osgi.import}</Import-Package>
+            <DynamicImport-Package>${osgi.dynamic.import}</DynamicImport-Package>
+            <Private-Package>${osgi.private}</Private-Package>
+            <Require-Bundle>${osgi.bundles}</Require-Bundle>
+            <Bundle-Activator>${osgi.activator}</Bundle-Activator>
+          </instructions>
+          <supportedProjectTypes>
+            <supportedProjectType>bundle</supportedProjectType>
+          </supportedProjectTypes>
+          <unpackBundle>true</unpackBundle>
+        </configuration>
+        <executions>
+          <execution>
+            <id>bundle-manifest</id>
+            <phase>process-classes</phase>
+            <goals>
+              <goal>manifest</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <reporting>
+  </reporting>
+
+  <profiles>
+    <profile>
+      <id>interop-data-test</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <includes>
+                <include>**/DataFileInteropTest*</include>
+              </includes>
+              <excludes>
+              </excludes>
+              <enableAssertions>false</enableAssertions>
+              <forkMode>once</forkMode>
+              <redirectTestOutputToFile>false</redirectTestOutputToFile>
+              <systemPropertyVariables>
+                <test.dir>../../../build/interop/data/</test.dir>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>mac</id>
+      <activation>
+        <os>
+        <family>mac</family>
+        </os>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId> 
+            <configuration>
+              <systemPropertyVariables>
+                <test.dir>${project.basedir}/target/</test.dir>
+                <!-- avro-mapred will fail in tests on mac without this -->
+                <java.security.krb5.realm>OX.AC.UK</java.security.krb5.realm>
+                <java.security.krb5.kdc>kdc0.ox.ac.uk:kdc1.ox.ac.uk</java.security.krb5.kdc>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+  <!-- dependencyManagement can be used to define dependency versions, scopes, and
+    excludes to be shared by child projects. Child projects will not inherit these dependencies,
+    rather they inherit the properties of the below dependencies (such as version) if
+    the dependency is specified in the child. -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.codehaus.jackson</groupId>
+        <artifactId>jackson-core-asl</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.codehaus.jackson</groupId>
+        <artifactId>jackson-mapper-asl</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.thoughtworks.paranamer</groupId>
+        <artifactId>paranamer</artifactId>
+        <version>${paranamer.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.velocity</groupId>
+        <artifactId>velocity</artifactId>
+        <version>${velocity.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mortbay.jetty</groupId>
+        <artifactId>jetty</artifactId>
+        <version>${jetty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty</artifactId>
+        <version>${netty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.sf.jopt-simple</groupId>
+        <artifactId>jopt-simple</artifactId>
+        <version>${jopt-simple.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.hadoop</groupId>
+        <artifactId>hadoop-core</artifactId>
+        <version>${hadoop1.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.hadoop</groupId>
+        <artifactId>hadoop-client</artifactId>
+        <version>${hadoop2.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.hadoop</groupId>
+        <artifactId>hadoop-mapreduce-client-common</artifactId>
+        <version>${hadoop2.version}</version>
+      </dependency>
+      <dependency>
+        <!-- for Hadoop's LocalJobRunner -->
+        <groupId>commons-httpclient</groupId>
+        <artifactId>commons-httpclient</artifactId>
+        <version>${commons-httpclient.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.easymock</groupId>
+        <artifactId>easymock</artifactId>
+        <version>${easymock.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest-all</artifactId>
+        <version>${hamcrest.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.xerial.snappy</groupId>
+        <artifactId>snappy-java</artifactId>
+        <version>${snappy.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-compress</artifactId>
+        <version>${commons-compress.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <!-- dependencies defines dependencies that all child projects share. Child projects
+    will inherit these dependencies directly, and can opt out if necessary with <excludes> -->
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit-dep</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>${slf4j.version}</version>
+      <scope>runtime</scope>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
+
+</project>

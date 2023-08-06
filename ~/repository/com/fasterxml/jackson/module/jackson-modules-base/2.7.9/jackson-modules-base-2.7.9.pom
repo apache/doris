@@ -1,0 +1,70 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson</groupId>
+    <artifactId>jackson-parent</artifactId>
+    <version>2.7</version>
+  </parent>
+  <groupId>com.fasterxml.jackson.module</groupId>
+  <artifactId>jackson-modules-base</artifactId>
+  <name>Jackson modules: Base</name>
+  <version>2.7.9</version>
+  <packaging>pom</packaging>
+  <description>Parent pom for Jackson "base" modules: modules that build directly on databind, and are
+not datatype, data format, or JAX-RS provider modules.
+  </description>
+
+  <modules>
+    <module>afterburner</module>
+    <module>guice</module>
+    <module>mrbean</module>
+    <module>osgi</module>
+    <module>paranamer</module>
+  </modules>
+
+  <url>https://github.com/FasterXML/jackson-modules-base</url>
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/jackson-modules-base.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/jackson-modules-base.git</developerConnection>
+    <url>http://github.com/FasterXML/jackson-modules-base</url>    
+    <tag>jackson-modules-base-2.7.9</tag>
+  </scm>
+  <issueManagement>
+    <url>https://github.com/FasterXML/jackson-modules-base/issues</url>
+  </issueManagement>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <version.jackson.core>2.7.9</version.jackson.core>
+    <version.asm>5.1</version.asm>
+  </properties>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+	<plugin>
+	  <!-- Inherited from oss-base. Generate PackageVersion.java.-->
+          <groupId>com.google.code.maven-replacer-plugin</groupId>
+          <artifactId>replacer</artifactId>
+	  <executions>
+            <execution>
+              <id>process-packageVersion</id>
+              <phase>generate-sources</phase>
+            </execution>
+          </executions>
+	</plugin>
+
+	<plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <configuration>
+            <excludes>
+              <exclude>com/fasterxml/jackson/**/failing/*.java</exclude>
+            </excludes>
+          </configuration>
+	</plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+</project>

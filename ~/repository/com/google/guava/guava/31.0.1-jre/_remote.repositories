@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:26:26 CST 2023
+guava-31.0.1-jre.jar>allmaven=
+guava-31.0.1-jre.pom>gcs-maven-central-mirror=
+guava-31.0.1-jre.jar>gcs-maven-central-mirror=

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.github.spotbugs</groupId>
+  <artifactId>spotbugs-annotations</artifactId>
+  <version>3.1.9</version>
+  <name>SpotBugs Annotations</name>
+  <description>Annotations the SpotBugs tool supports</description>
+  <url>https://spotbugs.github.io/</url>
+  <licenses>
+    <license>
+      <name>GNU LESSER GENERAL PUBLIC LICENSE, Version 2.1</name>
+      <url>https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>jsotuyod</id>
+      <name>Juan Martín Sotuyo Dodero</name>
+      <url>https://github.com/jsotuyod</url>
+      <timezone>-3</timezone>
+    </developer>
+    <developer>
+      <id>mebigfatguy</id>
+      <name>Dave Brosius</name>
+      <email>dbrosius@mebigfatguy.com</email>
+      <url>http://www.jroller.com/dbrosius/</url>
+      <timezone>-5</timezone>
+    </developer>
+    <developer>
+      <id>henrik242</id>
+      <url>https://github.com/henrik242</url>
+    </developer>
+    <developer>
+      <id>KengoTODA</id>
+      <name>Kengo TODA</name>
+      <email>skypencil@gmail.com</email>
+      <url>https://github.com/KengoTODA/</url>
+      <timezone>+8</timezone>
+    </developer>
+    <developer>
+      <id>iloveeclipse</id>
+      <name>Andrey Loskutov</name>
+      <email>loskutov@gmx.de</email>
+      <url>https://plus.google.com/+AndreyLoskutov</url>
+      <timezone>+2</timezone>
+    </developer>
+    <developer>
+      <id>ThrawnCA</id>
+      <url>https://github.com/ThrawnCA</url>
+    </developer>
+    <developer>
+      <id>sewe</id>
+      <name>Andreas Sewe</name>
+      <email>andreas.sewe@codetrails.com</email>
+      <url>https://github.com/sewe</url>
+      <timezone>+1</timezone>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git@github.com:spotbugs/spotbugs.git</connection>
+    <developerConnection>scm:git:git@github.com:spotbugs/spotbugs.git</developerConnection>
+    <url>https://github.com/spotbugs/spotbugs/</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>com.google.code.findbugs</groupId>
+      <artifactId>jsr305</artifactId>
+      <version>3.0.2</version>
+      <scope>compile</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -1,0 +1,681 @@
+<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <groupId>io.debezium</groupId>
+        <artifactId>debezium-parent</artifactId>
+        <version>1.6.4.Final</version>
+	<relativePath>../debezium-parent/pom.xml</relativePath>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>debezium-connector-mysql</artifactId>
+    <name>Debezium Connector for MySQL</name>
+    <packaging>jar</packaging>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-ddl-parser</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.zendesk</groupId>
+            <artifactId>mysql-binlog-connector-java</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>mil.nga</groupId>
+            <artifactId>wkb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>connect-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.protobuf</groupId>
+                    <artifactId>protobuf-java</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-core</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-embedded</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.debezium</groupId>
+            <artifactId>debezium-embedded</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-log4j12</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>log4j</groupId>
+            <artifactId>log4j</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.easytesting</groupId>
+            <artifactId>fest-assert</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.confluent</groupId>
+            <artifactId>kafka-connect-avro-converter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Used for unit testing with Kafka -->
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka_${version.kafka.scala}</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+    <properties>
+        <!-- 
+        Specify the properties for the various Docker containers.
+        -->
+        <mysql.user>mysqluser</mysql.user>
+        <mysql.password>mysqlpw</mysql.password>
+        <mysql.replica.user>mysqlreplica</mysql.replica.user>
+        <mysql.replica.password>mysqlpw</mysql.replica.password>
+        <mysql.port>3306</mysql.port>
+        <mysql.percona.port>3306</mysql.percona.port>
+        <mysql.gtid.port>3306</mysql.gtid.port>
+        <mysql.gtid.replica.port>3306</mysql.gtid.replica.port>
+        <mysql.replica.port>3306</mysql.replica.port> <!-- by default use primary as 'replica' -->
+        <mysql.init.timeout>60000</mysql.init.timeout> <!-- 60 seconds -->
+        <!--
+        By default, we should use the docker image maintained by the MySQL team. This property is changed with different profiles.
+        However, we run one container with GTIDs and one without.
+        -->
+        <docker.filter>debezium/mysql-server-test-database</docker.filter>
+        <docker.skip>false</docker.skip>
+        <docker.initimage>rm -f /etc/localtime; ln -s /usr/share/zoneinfo/US/Samoa /etc/localtime</docker.initimage>
+    </properties>
+    <build>
+        <plugins>
+            <plugin>
+              <groupId>io.fabric8</groupId>
+              <artifactId>docker-maven-plugin</artifactId>
+              <configuration>
+                <watchInterval>500</watchInterval>
+                <logDate>default</logDate>
+                <verbose>true</verbose>
+                <imagePullPolicy>IfNotPresent</imagePullPolicy>
+                <images>
+                  <!--
+                  Images based on "mysql/mysql-server" Docker image
+                  -->
+                  <image>
+                    <!-- A Docker image using a partial MySQL installation maintained by MySQL team. -->
+                    <name>debezium/mysql-server-test-database</name>
+                    <run>
+                      <namingStrategy>none</namingStrategy>
+                      <env>
+                        <MYSQL_ROOT_PASSWORD>debezium-rocks</MYSQL_ROOT_PASSWORD>
+                        <MYSQL_DATABASE>mysql</MYSQL_DATABASE> <!-- database created upon init -->
+                        <MYSQL_USER>${mysql.user}</MYSQL_USER>
+                        <MYSQL_PASSWORD>${mysql.password}</MYSQL_PASSWORD>
+                      </env>
+                      <ports>
+                        <port>${mysql.port}:3306</port>
+                      </ports>
+                      <log>
+                        <prefix>mysql</prefix>
+                        <enabled>true</enabled>
+                        <color>yellow</color>
+                      </log>
+                      <wait>
+                        <log>MySQL init process done. Ready for start up.</log>
+                        <time>${mysql.init.timeout}</time>
+                      </wait>
+                    </run>
+                    <build>
+                      <from>mysql/mysql-server:${version.mysql.server}</from>
+                      <runCmds>
+                        <run>${docker.initimage}</run>
+                      </runCmds>
+                      <assembly>
+                        <inline>
+                          <fileSets>
+                            <fileSet>
+                              <directory>${project.basedir}/src/test/docker/server</directory>
+                              <includes>
+                                <include>my.cnf</include>
+                              </includes>
+                              <outputDirectory>etc/mysql</outputDirectory>
+                            </fileSet>
+                            <fileSet>
+                              <directory>${project.basedir}/src/test/docker/init</directory>
+                              <outputDirectory>docker-entrypoint-initdb.d</outputDirectory>
+                            </fileSet>
+                          </fileSets>
+                        </inline>
+                        <targetDir>/</targetDir>
+                      </assembly>
+                    </build>
+                  </image>
+                  <image>
+                    <!-- A Docker image using a partial MySQL installation maintained by MySQL team. -->
+                    <name>debezium/mysql-server-gtids-test-database</name>
+                    <alias>database-gtids</alias>
+                    <run>
+                      <namingStrategy>alias</namingStrategy>
+                      <env>
+                        <MYSQL_ROOT_PASSWORD>debezium-rocks</MYSQL_ROOT_PASSWORD>
+                        <MYSQL_DATABASE>mysql</MYSQL_DATABASE> <!-- database created upon init -->
+                        <MYSQL_USER>${mysql.user}</MYSQL_USER>
+                        <MYSQL_PASSWORD>${mysql.password}</MYSQL_PASSWORD>
+                      </env>
+                      <ports>
+                        <port>${mysql.gtid.port}:3306</port>
+                      </ports>
+                      <log>
+                        <prefix>mysql-gtids</prefix>
+                        <enabled>true</enabled>
+                        <color>cyan</color>
+                      </log>
+                      <wait>
+                        <log>MySQL init process done. Ready for start up.</log>
+                        <time>${mysql.init.timeout}</time>
+                      </wait>
+                    </run>
+                    <build>
+                      <from>mysql/mysql-server:${version.mysql.server}</from>
+                      <runCmds>
+                        <run>${docker.initimage}</run>
+                      </runCmds>
+                      <assembly>
+                        <inline>
+                          <fileSets>
+                            <fileSet>
+                              <directory>${project.basedir}/src/test/docker/server-gtids</directory>
+                              <includes>
+                                <include>my.cnf</include>
+                              </includes>
+                              <outputDirectory>etc/mysql</outputDirectory>
+                            </fileSet>
+                            <fileSet>
+                              <directory>${project.basedir}/src/test/docker/init</directory>
+                              <outputDirectory>docker-entrypoint-initdb.d</outputDirectory>
+                            </fileSet>
+                          </fileSets>
+                        </inline>
+                        <targetDir>/</targetDir>
+                      </assembly>
+                    </build>
+                  </image>
+                  <image>
+                    <!-- 
+                    A Docker image using a MySQL installation maintained by MySQL team
+                    that is a replica of `debezium/mysql-server-gtids-test-database`
+                    -->
+                    <name>debezium/mysql-server-gtids-test-database-replica</name>
+                    <run>
+                      <namingStrategy>none</namingStrategy>
+                      <env>
+                        <MYSQL_ROOT_PASSWORD>debezium-rocks</MYSQL_ROOT_PASSWORD>
+                        <MYSQL_USER>${mysql.replica.user}</MYSQL_USER>
+                        <MYSQL_PASSWORD>${mysql.replica.password}</MYSQL_PASSWORD>
+                      </env>
+                      <links>
+                        <link>database-gtids</link>
+                      </links>
+                      <ports>
+                        <port>${mysql.gtid.replica.port}:3306</port>
+                      </ports>
+                      <log>
+                        <prefix>mysql-gtids-replica</prefix>
+                        <enabled>true</enabled>
+                        <color>magenta</color>
+                      </log>
+                      <wait>
+                        <log>MySQL init process done. Ready for start up.</log>
+                        <time>${mysql.init.timeout}</time>
+                      </wait>
+                    </run>
+                    <build>
+                      <from>mysql/mysql-server:${version.mysql.server}</from>
+                      <runCmds>
+                        <run>${docker.initimage}</run>
+                      </runCmds>
+                      <assembly>
+                        <inline>
+                          <fileSets>
+                            <fileSet>
+                              <directory>${project.basedir}/src/test/docker/server-replica</directory>
+                              <includes>
+                                <include>my.cnf</include>
+                              </includes>
+                              <outputDirectory>etc/mysql</outputDirectory>
+                            </fileSet>
+                            <fileSet>
+                              <directory>${project.basedir}/src/test/docker/init-replica</directory>
+                              <outputDirectory>docker-entrypoint-initdb.d</outputDirectory>
+                            </fileSet>
+                          </fileSets>
+                        </inline>
+                        <targetDir>/</targetDir>
+                      </assembly>
+                    </build>
+                  </image>
+                  <image>
+                    <!--
+                    A Docker image using a Percona Server installation
+                    -->
+                    <name>debezium/percona-server-test-database</name>
+                    <run>
+                      <namingStrategy>none</namingStrategy>
+                      <env>
+                        <MYSQL_ROOT_PASSWORD>debezium-rocks</MYSQL_ROOT_PASSWORD>
+                        <MYSQL_USER>${mysql.user}</MYSQL_USER>
+                        <MYSQL_PASSWORD>${mysql.password}</MYSQL_PASSWORD>
+                        <TZ>Pacific/Pago_Pago</TZ>
+                      </env>
+                      <ports>
+                        <port>${mysql.percona.port}:3306</port>
+                      </ports>
+                      <log>
+                        <prefix>percona-server</prefix>
+                        <enabled>true</enabled>
+                        <color>magenta</color>
+                      </log>
+                      <wait>
+                        <log>MySQL init process done. Ready for start up.</log>
+                        <time>${mysql.init.timeout}</time>
+                      </wait>
+                    </run>
+                    <build>
+                      <from>percona/percona-server:${version.mysql.server}</from>
+                      <assembly>
+                        <inline>
+                          <fileSets>
+                            <fileSet>
+                              <directory>${project.basedir}/src/test/docker/server</directory>
+                              <includes>
+                                <include>my.cnf</include>
+                              </includes>
+                              <outputDirectory>etc/mysql</outputDirectory>
+                            </fileSet>
+                            <fileSet>
+                              <directory>${project.basedir}/src/test/docker/init</directory>
+                              <outputDirectory>docker-entrypoint-initdb.d</outputDirectory>
+                            </fileSet>
+                          </fileSets>
+                        </inline>
+                        <targetDir>/</targetDir>
+                      </assembly>
+                    </build>
+                  </image>
+                </images>
+              </configuration>
+              <!--
+              Connect this plugin to the maven lifecycle around the integration-test phase:
+              start the container in pre-integration-test and stop it in post-integration-test.
+              -->
+              <executions>
+                <execution>
+                  <id>start</id>
+                  <phase>pre-integration-test</phase>
+                  <goals>
+                    <goal>build</goal>
+                    <goal>start</goal>
+                  </goals>
+                </execution>
+                <execution>
+                  <id>stop</id>
+                  <phase>post-integration-test</phase>
+                  <goals>
+                    <goal>stop</goal>
+                  </goals>
+                </execution>
+              </executions>
+            </plugin>
+            <!-- 
+            Unlike surefire, the failsafe plugin ensures 'post-integration-test' phase always runs, even
+            when there are failed integration tests. We rely upon this to always shut down the Docker container
+            after the integration tests (defined as '*IT.java') are run.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <skipTests>${skipITs}</skipTests>
+                    <enableAssertions>true</enableAssertions>
+                    <systemPropertyVariables>
+                        <!-- Make these available to the tests via system properties -->
+                        <database.hostname>${docker.host.address}</database.hostname>
+                        <database.port>${mysql.port}</database.port>
+                        <database.user>${mysql.user}</database.user>
+                        <database.password>${mysql.password}</database.password>
+                        <database.replica.hostname>${docker.host.address}</database.replica.hostname>
+                        <database.replica.port>${mysql.replica.port}</database.replica.port>
+                        <skipLongRunningTests>${skipLongRunningTests}</skipLongRunningTests>
+                    </systemPropertyVariables>
+                    <runOrder>alphabetical</runOrder>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>integration-test</id>
+                        <goals>
+                            <goal>integration-test</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>verify</id>
+                        <goals>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-assembly-plugin</artifactId>
+            </plugin>
+        </plugins>
+        <resources>
+            <!-- Apply the properties set in the POM to the resource files -->
+            <resource>
+                <filtering>true</filtering>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>*</include>
+                    <include>**/*</include>
+                </includes>
+            </resource>
+        </resources>
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>*</include>
+                    <include>**/*</include>
+                </includes>
+            </testResource>
+        </testResources>
+    </build>
+    <!--
+    Define several useful profiles
+    -->
+    <profiles>
+        <!--  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+              This assembly profile is used during official builds. In addition to 
+              compiling, and running the unit and integration tests like the non-assembly
+              profiles, this profile creates additional (like the connector plugin archives),
+              starts up all three Docker containers (normal MySQL, MySQL+GTIDs, and alt-MySQL)
+              and runs the integration tests against each of them.
+
+              To use, specify "-Passembly" on the Maven command line.
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+        <profile>
+            <id>assembly</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <properties>
+              <!-- Run multiple images at the same time, but use different ports for all MySQL servers -->
+              <docker.filter>debezium/mysql-server-test-database,debezium/mysql-server-gtids-test-database,debezium/mysql-server-gtids-test-database-replica,debezium/percona-server-test-database</docker.filter>
+              <mysql.port>4301</mysql.port>
+              <mysql.gtid.port>4302</mysql.gtid.port>
+              <mysql.gtid.replica.port>4303</mysql.gtid.replica.port>
+              <mysql.percona.port>4304</mysql.percona.port>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-assembly-plugin</artifactId>
+                        <dependencies>
+                            <dependency>
+                                <groupId>io.debezium</groupId>
+                                <artifactId>debezium-assembly-descriptors</artifactId>
+                                <version>${project.version}</version>
+                            </dependency>
+                        </dependencies>
+                        <executions>
+                            <execution>
+                                <id>default</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>single</goal>
+                                </goals>
+                                <configuration>
+                                    <finalName>${project.artifactId}-${project.version}</finalName>
+                                    <attach>true</attach>  <!-- we want attach & deploy these to Maven -->
+                                    <descriptorRefs>
+                                        <descriptorRef>${assembly.descriptor}</descriptorRef>
+                                    </descriptorRefs>
+                                    <tarLongFileMode>posix</tarLongFileMode>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- 
+                    Override the failsafe plugin to run the integration tests for each set of databases. 
+                    But make sure each database server is used only once ...
+                    -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>${version.failsafe.plugin}</version>
+                        <configuration>
+                            <skipTests>${skipITs}</skipTests>
+                            <enableAssertions>true</enableAssertions>
+                            <systemPropertyVariables>
+                                <!-- Make these available to the tests via system properties -->
+                                <database.hostname>${docker.host.address}</database.hostname>
+                                <database.user>${mysql.user}</database.user>
+                                <database.password>${mysql.password}</database.password>
+                                <database.replica.hostname>${docker.host.address}</database.replica.hostname>
+                                <database.replica.user>${mysql.replica.user}</database.replica.user>
+                                <database.replica.password>${mysql.replica.password}</database.replica.password>
+                                <database.port>${mysql.port}</database.port>
+                                <database.replica.port>${mysql.port}</database.replica.port>
+                                <skipLongRunningTests>false</skipLongRunningTests>
+                                <runOrder>alphabetical</runOrder>
+                            </systemPropertyVariables>
+                        </configuration>
+                        <executions>
+                            <!-- First run the integration tests with the non-GTID server alone -->
+                            <execution>
+                                <id>integration-test-mysql</id>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                </goals>
+                                <configuration>
+                                    <systemPropertyVariables>
+                                        <!-- same port for both, since we're only running one server -->
+                                        <database.port>${mysql.port}</database.port>
+                                        <database.replica.port>${mysql.port}</database.replica.port>
+                                    </systemPropertyVariables>
+                                </configuration>
+                            </execution>
+                            <!-- Then run the integration tests with the GTID server + replica server -->
+                            <execution>
+                                <id>integration-test-mysql-gtids-with-replica</id>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                </goals>
+                                <configuration>
+                                    <systemPropertyVariables>
+                                        <database.port>${mysql.gtid.port}</database.port>
+                                        <database.replica.port>${mysql.gtid.replica.port}</database.replica.port>
+                                    </systemPropertyVariables>
+                                </configuration>
+                            </execution>
+                            <!-- Then just Percona Server -->
+                            <execution>
+                                <id>integration-test-percona-server</id>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                </goals>
+                                <configuration>
+                                    <systemPropertyVariables>
+                                        <!-- same port for both, since we're only running one server -->
+                                        <database.port>${mysql.percona.port}</database.port>
+                                        <database.replica.port>${mysql.percona.port}</database.replica.port>
+                                    </systemPropertyVariables>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>verify</id>
+                                <goals>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+      <!--  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            Do not perform any Docker-related functionality
+            To use, specify "-DskipITs" on the Maven command line.
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+      <profile>
+        <id>skip-integration-tests</id>
+        <activation>
+          <activeByDefault>false</activeByDefault>
+          <property>
+            <name>skipITs</name>
+          </property>
+        </activation>
+        <properties>
+          <docker.skip>true</docker.skip>
+        </properties>
+      </profile>
+      <profile>
+        <id>quick</id>
+        <activation>
+          <activeByDefault>false</activeByDefault>
+          <property>
+            <name>quick</name>
+          </property>
+        </activation>
+        <properties>
+          <skipITs>true</skipITs>
+          <docker.skip>true</docker.skip>
+        </properties>
+      </profile>
+      <!--  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            Use the alternative Docker image for MySQL.
+            To use, specify "-Dmysql-gtids" or -Pmysql-gtids on the Maven command line.
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+      <profile>
+        <id>mysql-gtids</id>
+        <activation>
+          <activeByDefault>false</activeByDefault>
+          <property>
+            <name>mysql-gtids</name>
+          </property>
+        </activation>
+        <properties>
+          <!-- Docker properties -->
+          <docker.filter>debezium/mysql-server-gtids-test-database</docker.filter>
+          <!-- Integration test properties -->
+          <database.port>${mysql.gtid.port}</database.port>
+          <database.replica.port>${mysql.gtid.port}</database.replica.port>
+        </properties>
+      </profile>
+      <!--  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            Use the Docker image for Percona Server.
+            To use, specify "-Dpercona-server" or -Ppercona-server on the Maven command line.
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+            <profile>
+              <id>percona-server</id>
+              <activation>
+                <activeByDefault>false</activeByDefault>
+                <property>
+                  <name>percona-server</name>
+                </property>
+              </activation>
+              <properties>
+                <!-- Docker properties -->
+                <docker.filter>debezium/percona-server-test-database</docker.filter>
+                <!-- Integration test properties -->
+                <database.port>${mysql.percona.port}</database.port>
+                <database.replica.port>${mysql.percona.port}</database.replica.port>
+                <docker.initimage>ln -s /usr/share/zoneinfo/Pacific/Pago_Pago /etc/localtime</docker.initimage>
+              </properties>
+            </profile>
+            <!--  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            Use the Docker image for a MySQL replica of another MySQL server 
+            configured to use GTIDs. To use, specify "-Dmysql-replica" 
+            or -Pmysql-replica on the Maven command line.
+            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+
+      <profile>
+        <id>mysql-replica</id>
+        <activation>
+          <activeByDefault>false</activeByDefault>
+          <property>
+            <name>mysql-replica</name>
+          </property>
+        </activation>
+        <properties>
+          <!-- Docker properties -->
+          <mysql.gtid.port>3306</mysql.gtid.port>
+          <mysql.gtid.replica.port>4306</mysql.gtid.replica.port>
+          <docker.filter>debezium/mysql-server-gtids-test-database,debezium/mysql-server-gtids-test-database-replica</docker.filter>
+          <!-- Integration test properties -->
+          <database.port>${mysql.gtid.port}</database.port>
+          <database.replica.port>${mysql.gtid.replica.port}</database.replica.port>
+        </properties>
+      </profile>
+
+    </profiles>
+</project>

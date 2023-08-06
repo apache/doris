@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.prometheus</groupId>
+    <artifactId>parent</artifactId>
+    <version>0.15.0</version>
+  </parent>
+
+  <artifactId>simpleclient_tracer</artifactId>
+  <packaging>pom</packaging>
+
+  <name>Prometheus Java Span Context Supplier - Parent</name>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.opentelemetry</groupId>
+        <artifactId>opentelemetry-api</artifactId>
+        <version>1.10.1</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <modules>
+    <module>simpleclient_tracer_common</module>
+    <module>simpleclient_tracer_otel</module>
+    <module>simpleclient_tracer_otel_agent</module>
+  </modules>
+
+</project>

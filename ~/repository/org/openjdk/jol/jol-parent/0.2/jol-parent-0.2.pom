@@ -1,0 +1,76 @@
+<!--
+Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+
+This code is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License version 2 only, as
+published by the Free Software Foundation.  Oracle designates this
+particular file as subject to the "Classpath" exception as provided
+by Oracle in the LICENSE file that accompanied this code.
+
+This code is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+version 2 for more details (a copy is included in the LICENSE file that
+accompanied this code).
+
+You should have received a copy of the GNU General Public License version
+2 along with this work; if not, write to the Free Software Foundation,
+Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+
+Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+or visit www.oracle.com if you need additional information or have any
+questions.
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.openjdk.jol</groupId>
+    <artifactId>jol-parent</artifactId>
+    <version>0.2</version>
+    <packaging>pom</packaging>
+
+    <name>Java Object Layout: Parent</name>
+
+    <description>
+        JOL is the set of tools for examining field and object layouts in JVM.
+    </description>
+
+    <url>
+        http://openjdk.java.net/projects/code-tools/jol/
+    </url>
+
+    <scm>
+        <url>http://hg.openjdk.java.net/code-tools/jol/</url>
+        <connection>scm:hg:http://hg.openjdk.java.net/code-tools/jol/</connection>
+    </scm>
+
+    <licenses>
+        <license>
+            <name>GNU General Public License (GPL), version 2, with the Classpath exception</name>
+            <url>http://openjdk.java.net/legal/gplv2+ce.html</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>shade</id>
+            <name>Aleksey Shipilev</name>
+            <organization>Oracle</organization>
+            <email>aleksey.shipilev@oracle.com</email>
+        </developer>
+    </developers>
+
+    <modules>
+        <module>jol-core</module>
+        <module>jol-cli</module>
+        <module>jol-samples</module>
+    </modules>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+</project>

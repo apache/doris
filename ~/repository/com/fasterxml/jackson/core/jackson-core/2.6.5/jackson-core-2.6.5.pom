@@ -1,0 +1,132 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson</groupId>
+    <artifactId>jackson-parent</artifactId>
+    <version>2.6.2</version>
+  </parent>
+
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-core</artifactId>
+  <name>Jackson-core</name>
+  <version>2.6.5</version>
+  <packaging>bundle</packaging>
+  <description>Core Jackson abstractions, basic JSON streaming API implementation</description>
+  <inceptionYear>2008</inceptionYear>
+
+  <url>https://github.com/FasterXML/jackson-core</url>
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/jackson-core.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/jackson-core.git</developerConnection>
+    <url>http://github.com/FasterXML/jackson-core</url>    
+    <tag>jackson-core-2.6.5</tag>
+  </scm>
+
+  <properties>
+    <osgi.export>com.fasterxml.jackson.core;version=${project.version},
+com.fasterxml.jackson.core.*;version=${project.version}
+    </osgi.export>
+
+    <!-- Generate PackageVersion.java into this directory. -->
+    <packageVersion.dir>com/fasterxml/jackson/core/json</packageVersion.dir>
+    <packageVersion.package>${project.groupId}.json</packageVersion.package>
+  </properties>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>2.8.1</version>
+          <configuration>
+            <source>${javac.src.version}</source>
+            <target>${javac.target.version}</target>
+            <encoding>UTF-8</encoding>
+            <maxmemory>512m</maxmemory>
+            <links>
+              <link>http://docs.oracle.com/javase/6/docs/api/</link>
+            </links>
+          </configuration>
+          <executions>
+            <execution>
+              <id>attach-javadocs</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>jar</goal>
+              </goals>
+            </execution>
+          </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <version>3.1</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${version.plugin.surefire}</version>
+        <configuration>
+          <redirectTestOutputToFile>${surefire.redirectTestOutputToFile}</redirectTestOutputToFile>
+          <excludes>
+            <exclude>**/failing/*.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <!-- Inherited from oss-base. Generate PackageVersion.java.-->
+        <groupId>com.google.code.maven-replacer-plugin</groupId>
+        <artifactId>replacer</artifactId>
+        <executions>
+          <execution>
+            <id>process-packageVersion</id>
+            <phase>generate-sources</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>2.8.1</version>
+          <configuration>
+              <aggregate>true</aggregate>
+              <source>1.6</source>
+              <encoding>UTF-8</encoding>
+              <maxmemory>1g</maxmemory>
+              <links>
+                  <!-- JDK, other Jackson pkgs -->
+                  <link>http://docs.oracle.com/javase/6/docs/api/</link>
+              </links>
+              <excludePackageNames>${javadoc.package.exclude}</excludePackageNames>
+              <bootclasspath>${sun.boot.class.path}</bootclasspath>
+              <doclet>com.google.doclava.Doclava</doclet>
+              <useStandardDocletOptions>false</useStandardDocletOptions>
+              <additionalJOption>-J-Xmx1024m</additionalJOption>
+              <docletArtifact>
+                  <groupId>com.google.doclava</groupId>
+                  <artifactId>doclava</artifactId>
+                  <version>1.0.3</version>
+              </docletArtifact>
+              <additionalparam>
+                  -hdf project.name "${project.name} ${project.version}"
+                  -d ${project.reporting.outputDirectory}/apidocs
+              </additionalparam>
+          </configuration>
+          <reportSets>
+              <reportSet>
+                  <id>default</id>
+                  <reports>
+                      <report>javadoc</report>
+                  </reports>
+              </reportSet>
+          </reportSets>
+      </plugin>
+    </plugins>
+  </reporting>
+
+</project>

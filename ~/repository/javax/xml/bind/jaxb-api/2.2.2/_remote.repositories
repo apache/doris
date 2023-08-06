@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:26:26 CST 2023
+jaxb-api-2.2.2.jar>gcs-maven-central-mirror=
+jaxb-api-2.2.2.pom>gcs-maven-central-mirror=
+jaxb-api-2.2.2.jar>allmaven=

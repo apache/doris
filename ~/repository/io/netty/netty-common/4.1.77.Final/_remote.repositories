@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:39:30 CST 2023
+netty-common-4.1.77.Final.jar>allmaven=
+netty-common-4.1.77.Final.pom>gcs-maven-central-mirror=
+netty-common-4.1.77.Final.jar>gcs-maven-central-mirror=

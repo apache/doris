@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:40:29 CST 2023
+esdk-obs-java-3.0.1.pom>huawei-obs-sdk=
+esdk-obs-java-3.0.1.jar>huawei-obs-sdk=

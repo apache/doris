@@ -1,0 +1,136 @@
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.abego.treelayout</groupId>
+    <artifactId>org.abego.treelayout.core</artifactId>
+    <version>1.0.3</version>
+    <packaging>bundle</packaging>
+
+    <name>abego TreeLayout Core</name>
+    <description>Efficient and customizable TreeLayout Algorithm in Java.</description>
+    <url>http://treelayout.sourceforge.net</url>
+
+    <parent>
+        <groupId>org.sonatype.oss</groupId>
+        <artifactId>oss-parent</artifactId>
+        <version>7</version>
+    </parent>
+
+    <licenses>
+        <license>
+            <name>BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)</name>
+            <url>http://www.abego-software.de/legal/apl-v10.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <scm>
+        <url>https://github.com/abego/treelayout</url>
+        <connection>scm:https://github.com/abego/treelayout.git</connection>
+    </scm>
+
+    <developers>
+        <developer>
+            <id>ub</id>
+            <name>Udo Borkowski</name>
+            <email>ub@abego.org</email>
+            <organization>abego Software GmbH, Germany</organization>
+            <organizationUrl>http://abego-software.de</organizationUrl>
+        </developer>
+    </developers>
+
+    <organization>
+        <name>abego Software GmbH, Germany</name>
+        <url>http://abego-software.de</url>
+    </organization>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- OSGi metadata -->
+        <maven-bundle-plugin.version>2.3.7</maven-bundle-plugin.version>
+        <bundle.namespace>org.abego.treelayout</bundle.namespace>
+        <osgi.embed />
+        <osgi.failok>false</osgi.failok>
+        <osgi.nouses>false</osgi.nouses>
+        <osgi.versionPolicy>${range;[===,=+);${@}}</osgi.versionPolicy>
+        <osgi.private>
+            ${bundle.namespace}.internal.*
+        </osgi.private>
+        <osgi.export>
+            !${bundle.namespace}.internal.*,${bundle.namespace}.*;version="${project.version}"
+        </osgi.export>
+        <osgi.import>
+            sun.misc;resolution:=optional,
+            *
+        </osgi.import>
+    </properties>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.felix</groupId>
+                    <artifactId>maven-bundle-plugin</artifactId>
+                    <version>${maven-bundle-plugin.version}</version>
+                    <extensions>true</extensions>
+                    <configuration>
+                        <obrRepository>NONE</obrRepository>
+                        <instructions>
+                            <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
+                            <Import-Package>${osgi.import}</Import-Package>
+                            <Export-Package>${osgi.export}</Export-Package>
+                            <Private-Package>${osgi.private}</Private-Package>
+                            <Embed-Dependency>${osgi.embed}</Embed-Dependency>
+                            <_nouses>${osgi.nouses}</_nouses>
+                            <_versionpolicy>${osgi.versionPolicy}</_versionpolicy>
+                            <_failok>${osgi.failok}</_failok>
+                        </instructions>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>2.3.2</version>
+                <configuration>
+                    <source>1.5</source>
+                    <target>1.5</target>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>2.3.2</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                            <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.8.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

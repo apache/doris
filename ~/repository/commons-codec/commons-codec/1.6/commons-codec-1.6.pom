@@ -1,0 +1,337 @@
+<?xml version="1.0"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements.  See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to You under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License.  You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-parent</artifactId>
+    <version>22</version>
+  </parent>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>commons-codec</groupId>
+  <artifactId>commons-codec</artifactId>
+  <version>1.6</version>
+  <name>Commons Codec</name>
+  <inceptionYear>2002</inceptionYear>
+  <description>
+     The codec package contains simple encoder and decoders for
+     various formats such as Base64 and Hexadecimal.  In addition to these
+     widely used encoders and decoders, the codec package also maintains a
+     collection of phonetic encoding utilities.
+    </description>
+  <url>http://commons.apache.org/codec/</url>
+  <issueManagement>
+    <system>jira</system>
+    <url>http://issues.apache.org/jira/browse/CODEC</url>
+  </issueManagement>
+  <scm>
+    <connection>scm:svn:http://svn.apache.org/repos/asf/commons/proper/codec/trunk</connection>
+    <developerConnection>scm:svn:https://svn.apache.org/repos/asf/commons/proper/codec/trunk</developerConnection>
+    <url>http://svn.apache.org/viewvc/commons/proper/codec/trunk</url>
+  </scm>
+  <distributionManagement>
+    <site>
+      <id>stagingSite</id>
+      <name>Apache Staging Website</name>
+      <url>scp://people.apache.org/www/commons.apache.org/codec/</url>
+    </site>
+  </distributionManagement>
+  <developers>
+    <developer>
+      <name>Henri Yandell</name>
+      <id>bayard</id>
+      <email>bayard@apache.org</email>
+    </developer>
+    <developer>
+      <name>Tim OBrien</name>
+      <id>tobrien</id>
+      <email>tobrien@apache.org</email>
+      <timezone>-6</timezone>
+    </developer>
+    <developer>
+      <name>Scott Sanders</name>
+      <id>sanders</id>
+      <email>sanders@totalsync.com</email>
+    </developer>
+    <developer>
+      <name>Rodney Waldhoff</name>
+      <id>rwaldhoff</id>
+      <email>rwaldhoff@apache.org</email>
+    </developer>
+    <developer>
+      <name>Daniel Rall</name>
+      <id>dlr</id>
+      <email>dlr@finemaltcoding.com</email>
+    </developer>
+    <developer>
+      <name>Jon S. Stevens</name>
+      <id>jon</id>
+      <email>jon@collab.net</email>
+    </developer>
+    <developer>
+      <name>Gary D. Gregory</name>
+      <id>ggregory</id>
+      <email>ggregory@apache.org</email>
+      <url>http://www.garygregory.com</url>
+      <timezone>-5</timezone>
+    </developer>
+    <developer>
+      <name>David Graham</name>
+      <id>dgraham</id>
+      <email>dgraham@apache.org</email>
+    </developer>
+    <developer>
+      <name>Julius Davies</name>
+      <id>julius</id>
+      <email>julius@apache.org</email>
+      <organizationUrl>http://juliusdavies.ca/</organizationUrl>
+      <timezone>-8</timezone>
+    </developer>
+  </developers>
+  <contributors>
+    <contributor>
+      <name>Christopher O'Brien</name>
+      <email>siege@preoccupied.net</email>
+      <roles>
+        <role>hex</role>
+        <role>md5</role>
+        <role>architecture</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Martin Redington</name>
+      <roles>
+        <role>Representing xml-rpc</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Jeffery Dever</name>
+      <roles>
+        <role>Representing http-client</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Steve Zimmermann</name>
+      <email>steve.zimmermann@heii.com</email>
+      <roles>
+        <role>Documentation</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Benjamin Walstrum</name>
+      <email>ben@walstrum.com</email>
+    </contributor>
+    <contributor>
+      <name>Oleg Kalnichevski</name>
+      <email>oleg@ural.ru</email>
+      <roles>
+        <role>Representing http-client</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Dave Dribin</name>
+      <email>apache@dave.dribin.org</email>
+      <roles>
+        <role>DigestUtil</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Alex Karasulu</name>
+      <email>aok123 at bellsouth.net</email>
+      <roles>
+        <role>Submitted Binary class and test</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Matthew Inger</name>
+      <email>mattinger at yahoo.com</email>
+      <roles>
+        <role>Submitted DIFFERENCE algorithm for Soundex and RefinedSoundex</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Jochen Wiedmann</name>
+      <email>jochen@apache.org</email>
+      <roles>
+        <role>Base64 code [CODEC-69]</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Sebastian Bazley</name>
+      <email>sebb@apache.org</email>
+      <roles>
+        <role>Streaming Base64</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Matthew Pocock</name>
+      <email>turingatemyhamster@gmail.com</email>
+      <roles>
+        <role>Beinder-Morse phonetic matching</role>
+      </roles>
+    </contributor>
+  </contributors>
+  <!-- Codec should depend on very little -->
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.10</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <properties>
+    <maven.compile.source>1.5</maven.compile.source>
+    <maven.compile.target>1.5</maven.compile.target>
+    <commons.componentid>codec</commons.componentid>
+    <commons.release.version>1.6</commons.release.version>
+    <!-- The RC version used in the staging repository URL. -->
+    <commons.rc.version>RC2</commons.rc.version>
+    <commons.jira.id>CODEC</commons.jira.id>
+    <commons.jira.pid>12310464</commons.jira.pid>
+    <!-- Ensure copies work OK (can be removed later when this is in parent POM) -->
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <commons.encoding>UTF-8</commons.encoding>
+  </properties>
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-site-plugin</artifactId>
+          <version>3.0</version>
+          <dependencies>
+            <dependency>
+              <!-- add support for ssh/scp -->
+              <groupId>org.apache.maven.wagon</groupId>
+              <artifactId>wagon-ssh</artifactId>
+              <version>1.0</version>
+            </dependency>
+          </dependencies>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.10</version>
+        <configuration>
+          <includes>
+            <include>**/*Test.java</include>
+            <include>**/Test*.java</include>
+          </includes>
+          <excludes>
+            <exclude>**/*AbstractTest.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>2.3.2</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>2.2.1</version>
+        <configuration>
+          <descriptors>
+            <descriptor>src/main/assembly/bin.xml</descriptor>
+            <descriptor>src/main/assembly/src.xml</descriptor>
+          </descriptors>
+          <tarLongFileMode>gnu</tarLongFileMode>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-changes-plugin</artifactId>
+        <version>2.6</version>
+        <configuration>
+          <issueLinkTemplate>%URL%/%ISSUE%</issueLinkTemplate>
+          <!-- TODO: <onlyCurrentVersion>true</onlyCurrentVersion> -->
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>changes-report</report>
+              <report>jira-report</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>2.8</version>
+        <configuration>
+          <configLocation>${basedir}/checkstyle.xml</configLocation>
+          <enableRulesSummary>false</enableRulesSummary>
+          <headerFile>${basedir}/LICENSE-header.txt</headerFile>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>cobertura-maven-plugin</artifactId>
+        <version>2.5.1</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>2.5</version>
+        <configuration>
+          <targetJdk>1.5</targetJdk>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <version>2.3.2</version>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>taglist-maven-plugin</artifactId>
+        <version>2.4</version>
+        <configuration>
+          <tags>
+            <tag>TODO</tag>
+            <tag>NOPMD</tag>
+            <tag>NOTE</tag>
+          </tags>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>javancss-maven-plugin</artifactId>
+        <version>2.0</version>
+      </plugin>
+    </plugins>
+  </reporting>
+</project>

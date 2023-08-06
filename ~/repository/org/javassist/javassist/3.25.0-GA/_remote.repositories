@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:04:20 CST 2023
+javassist-3.25.0-GA.jar>gcs-maven-central-mirror=
+javassist-3.25.0-GA.pom>gcs-maven-central-mirror=

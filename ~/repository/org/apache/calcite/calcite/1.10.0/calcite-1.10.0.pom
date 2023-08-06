@@ -1,0 +1,967 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements.  See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to you under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License.  You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.apache</groupId>
+    <artifactId>apache</artifactId>
+    <version>17</version>
+  </parent>
+
+  <!-- The basics. -->
+  <groupId>org.apache.calcite</groupId>
+  <artifactId>calcite</artifactId>
+  <packaging>pom</packaging>
+  <version>1.10.0</version>
+
+  <!-- More project information. -->
+  <name>Calcite</name>
+  <description>Calcite is a dynamic data management framework</description>
+  <url>http://calcite.apache.org</url>
+  <inceptionYear>2012</inceptionYear>
+
+  <mailingLists>
+    <mailingList>
+      <name>Apache Calcite developers list</name>
+      <subscribe>dev-subscribe@calcite.apache.org</subscribe>
+      <unsubscribe>dev-unsubscribe@calcite.apache.org</unsubscribe>
+      <post>dev@calcite.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/calcite-dev</archive>
+    </mailingList>
+  </mailingLists>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <top.dir>${project.basedir}</top.dir>
+    <version.major>1</version.major>
+    <version.minor>10</version.minor>
+
+    <!-- This list is in alphabetical order. -->
+    <airlift-tpch.version>0.1</airlift-tpch.version>
+    <avatica.version>1.8.0</avatica.version>
+    <build-helper-maven-plugin.version>1.9</build-helper-maven-plugin.version>
+    <cassandra-driver-core.version>3.0.0</cassandra-driver-core.version>
+    <checksum-maven-plugin.version>1.2</checksum-maven-plugin.version>
+    <commons-dbcp.version>1.4</commons-dbcp.version>
+    <commons-lang3.version>3.2</commons-lang3.version>
+    <commons-logging.version>1.1.3</commons-logging.version>
+    <eigenbase-properties.version>1.1.5</eigenbase-properties.version>
+    <elasticsearch-java-driver.version>2.3.2</elasticsearch-java-driver.version>
+    <findbugs.version>1.3.9</findbugs.version>
+    <fmpp-maven-plugin.version>1.0</fmpp-maven-plugin.version>
+    <foodmart-data-hsqldb.version>0.3</foodmart-data-hsqldb.version>
+    <foodmart-queries.version>0.4.1</foodmart-queries.version>
+    <freemarker.version>2.3.19</freemarker.version>
+    <git-commit-id-plugin.version>2.1.9</git-commit-id-plugin.version>
+
+    <!-- We support (and test against) Guava versions between
+         14.0.1 (Hive) and 19.0 (most recent).
+         Override with your preferred version and it should work. -->
+    <guava.version>18.0</guava.version>
+    <joda.version>2.8.1</joda.version>
+    <h2.version>1.4.185</h2.version>
+    <hadoop.version>2.6.0</hadoop.version>
+    <hamcrest.version>1.3</hamcrest.version>
+    <hppc.version>0.7.1</hppc.version>
+    <hsqldb.version>2.3.1</hsqldb.version>
+    <httpclient.version>4.5.2</httpclient.version>
+    <httpcore.version>4.4.4</httpcore.version>
+    <hydromatic-resource.version>0.5.1</hydromatic-resource.version>
+    <hydromatic-toolbox.version>0.3</hydromatic-toolbox.version>
+    <hydromatic-tpcds.version>0.4</hydromatic-tpcds.version>
+    <jackson.version>2.6.3</jackson.version>
+    <janino.version>2.7.6</janino.version>
+    <java-diff.version>1.1</java-diff.version>
+    <javacc-maven-plugin.version>2.4</javacc-maven-plugin.version>
+    <jcip-annotations.version>1.0-1</jcip-annotations.version>
+    <jetty.version>9.2.15.v20160210</jetty.version>
+    <jmh.version>1.11.2</jmh.version>
+    <junit.version>4.12</junit.version>
+    <maven-checkstyle-plugin.version>2.12.1</maven-checkstyle-plugin.version>
+    <maven-dependency-plugin.version>2.10</maven-dependency-plugin.version>
+
+    <!-- keep failsafe version in sync with surefire; apache 17 has surefire 2.7.2 -->
+    <maven-failsafe-plugin.version>2.7.2</maven-failsafe-plugin.version>
+    <maven-scm-provider.version>1.9.1</maven-scm-provider.version>
+    <maven-shade-plugin.version>2.1</maven-shade-plugin.version>
+    <maven-source-plugin.version>2.4</maven-source-plugin.version>
+    <mockito-all.version>1.10.19</mockito-all.version>
+    <mongo-java-driver.version>2.12.3</mongo-java-driver.version>
+    <mysql-driver.version>5.1.20</mysql-driver.version>
+    <opencsv.version>2.3</opencsv.version>
+    <oracle-jdbc6-driver.version>11.2.0.2.0</oracle-jdbc6-driver.version>
+    <pentaho-aggdesigner.version>5.1.5-jhyde</pentaho-aggdesigner.version>
+    <postgresql.version>9.3-1102-jdbc3</postgresql.version>
+    <protobuf.version>3.0.0-beta-1</protobuf.version>
+    <quidem.version>0.7</quidem.version>
+    <scala.version>2.10.3</scala.version>
+    <scott-data-hsqldb.version>0.1</scott-data-hsqldb.version>
+    <servlet.version>3.0.1</servlet.version>
+    <slf4j.version>1.7.13</slf4j.version>
+    <spark.version>1.6.1</spark.version>
+    <sqlline.version>1.1.9</sqlline.version>
+    <xalan.version>2.7.1</xalan.version>
+    <xerces.version>2.9.1</xerces.version>
+  </properties>
+
+  <issueManagement>
+    <system>Jira</system>
+    <url>https://issues.apache.org/jira/browse/CALCITE</url>
+  </issueManagement>
+
+  <scm>
+    <connection>scm:git:https://git-wip-us.apache.org/repos/asf/calcite.git</connection>
+    <developerConnection>scm:git:https://git-wip-us.apache.org/repos/asf/calcite.git</developerConnection>
+    <url>https://github.com/apache/calcite</url>
+    <tag>calcite-1.10.0</tag>
+  </scm>
+
+  <modules>
+    <module>cassandra</module>
+    <module>core</module>
+    <module>druid</module>
+    <module>elasticsearch</module>
+    <module>example</module>
+    <module>linq4j</module>
+    <module>mongodb</module>
+    <module>piglet</module>
+    <module>plus</module>
+    <module>spark</module>
+    <module>splunk</module>
+    <module>ubenchmark</module>
+  </modules>
+
+  <!-- No dependencies here. Declare dependency VERSIONS in
+       dependencyManagement, below, and each dependency in the module that uses
+       it. -->
+  <dependencies />
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Sorted by groupId, artifactId; calcite (and avatica) dependencies first. -->
+      <dependency>
+        <groupId>org.apache.calcite.avatica</groupId>
+        <artifactId>avatica</artifactId>
+        <version>${avatica.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.calcite.avatica</groupId>
+        <artifactId>avatica-server</artifactId>
+        <version>${avatica.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.calcite</groupId>
+        <artifactId>calcite-core</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.calcite</groupId>
+        <artifactId>calcite-core</artifactId>
+        <type>test-jar</type>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.calcite</groupId>
+        <artifactId>calcite-linq4j</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <!-- Now third-party dependencies, sorted by groupId and artifactId. -->
+      <dependency>
+        <groupId>commons-dbcp</groupId>
+        <artifactId>commons-dbcp</artifactId>
+        <version>${commons-dbcp.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.carrotsearch</groupId>
+        <artifactId>hppc</artifactId>
+        <version>${hppc.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.datastax.cassandra</groupId>
+        <artifactId>cassandra-driver-core</artifactId>
+        <version>${cassandra-driver-core.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-annotations</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>joda-time</groupId>
+        <artifactId>joda-time</artifactId>
+        <version>${joda.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.code.findbugs</groupId>
+        <artifactId>jsr305</artifactId>
+        <version>${findbugs.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>${guava.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java</artifactId>
+        <version>${protobuf.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.oracle</groupId>
+        <artifactId>ojdbc6</artifactId>
+        <version>${oracle-jdbc6-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.h2database</groupId>
+        <artifactId>h2</artifactId>
+        <version>${h2.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>javax.servlet</groupId>
+        <artifactId>javax.servlet-api</artifactId>
+        <version>${servlet.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>junit</groupId>
+        <artifactId>junit</artifactId>
+        <version>${junit.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.airlift.tpch</groupId>
+        <artifactId>tpch</artifactId>
+        <version>${airlift-tpch.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>mysql</groupId>
+        <artifactId>mysql-connector-java</artifactId>
+        <version>${mysql-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.hydromatic</groupId>
+        <artifactId>eigenbase-properties</artifactId>
+        <version>${eigenbase-properties.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.hydromatic</groupId>
+        <artifactId>foodmart-data-hsqldb</artifactId>
+        <version>${foodmart-data-hsqldb.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.hydromatic</groupId>
+        <artifactId>foodmart-queries</artifactId>
+        <version>${foodmart-queries.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.hydromatic</groupId>
+        <artifactId>quidem</artifactId>
+        <version>${quidem.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.hydromatic</groupId>
+        <artifactId>scott-data-hsqldb</artifactId>
+        <version>${scott-data-hsqldb.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.hydromatic</groupId>
+        <artifactId>tpcds</artifactId>
+        <version>${hydromatic-tpcds.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.sf.opencsv</groupId>
+        <artifactId>opencsv</artifactId>
+        <version>${opencsv.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>${commons-lang3.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.hadoop</groupId>
+        <artifactId>hadoop-common</artifactId>
+        <version>${hadoop.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.httpcomponents</groupId>
+        <artifactId>httpclient</artifactId>
+        <version>${httpclient.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.httpcomponents</groupId>
+        <artifactId>httpcore</artifactId>
+        <version>${httpcore.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-all</artifactId>
+        <version>${mockito-all.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>${postgresql.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.scala-lang</groupId>
+        <artifactId>scala-library</artifactId>
+        <version>${scala.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.codehaus.janino</groupId>
+        <artifactId>janino</artifactId>
+        <version>${janino.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.codehaus.janino</groupId>
+        <artifactId>commons-compiler</artifactId>
+        <version>${janino.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.hamcrest</groupId>
+        <artifactId>hamcrest-core</artifactId>
+        <version>${hamcrest.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.hsqldb</groupId>
+        <artifactId>hsqldb</artifactId>
+        <version>${hsqldb.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.incava</groupId>
+        <artifactId>java-diff</artifactId>
+        <version>${java-diff.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.pentaho</groupId>
+        <artifactId>pentaho-aggdesigner-algorithm</artifactId>
+        <version>${pentaho-aggdesigner.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.spark</groupId>
+        <artifactId>spark-core_2.10</artifactId>
+        <version>${spark.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.eclipse.jetty</groupId>
+        <artifactId>jetty-server</artifactId>
+        <version>${jetty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.eclipse.jetty</groupId>
+        <artifactId>jetty-util</artifactId>
+        <version>${jetty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.elasticsearch</groupId>
+        <artifactId>elasticsearch</artifactId>
+        <version>${elasticsearch-java-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongo-java-driver</artifactId>
+        <version>${mongo-java-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.openjdk.jmh</groupId>
+        <artifactId>jmh-core</artifactId>
+        <version>${jmh.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.openjdk.jmh</groupId>
+        <artifactId>jmh-generator-annprocess</artifactId>
+        <version>${jmh.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-log4j12</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>sqlline</groupId>
+        <artifactId>sqlline</artifactId>
+        <version>${sqlline.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>xerces</groupId>
+        <artifactId>xercesImpl</artifactId>
+        <version>${xerces.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>xalan</groupId>
+        <artifactId>xalan</artifactId>
+        <version>${xalan.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.stephenc.jcip</groupId>
+        <artifactId>jcip-annotations</artifactId>
+        <version>${jcip-annotations.version}</version>
+        <scope>test</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.rat</groupId>
+        <artifactId>apache-rat-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <!-- The following files have file formats that do not
+                 admit comments, and therefore cannot contain
+                 license notices. -->
+            <exclude>src/main/resources/META-INF/services/java.sql.Driver</exclude>
+            <exclude>**/src/test/resources/**/*.csv</exclude>
+            <exclude>**/src/test/resources/bug/archers.json</exclude>
+            <exclude>**/src/test/resources/foodmart-schema.spec</exclude>
+
+            <!-- Exclude all of avatica, RAT is run in Avatica -->
+            <exclude>avatica/**</exclude>
+
+            <!-- Do not exclude site/target; it should not exist
+                 in any sandbox from which you are making a
+                 release. Also, do not exclude site/.sass-cache. -->
+
+            <!-- Files generated by Jekyll. -->
+            <exclude>site/_includes/anchor_links.html</exclude>
+            <exclude>site/_includes/docs_contents.html</exclude>
+            <exclude>site/_includes/docs_contents_mobile.html</exclude>
+            <exclude>site/_includes/docs_option.html</exclude>
+            <exclude>site/_includes/docs_ul.html</exclude>
+            <exclude>site/_includes/footer.html</exclude>
+            <exclude>site/_includes/header.html</exclude>
+            <exclude>site/_includes/news_contents.html</exclude>
+            <exclude>site/_includes/news_contents_mobile.html</exclude>
+            <exclude>site/_includes/news_item.html</exclude>
+            <exclude>site/_includes/primary-nav-items.html</exclude>
+            <exclude>site/_includes/section_nav.html</exclude>
+            <exclude>site/_includes/top.html</exclude>
+            <exclude>site/_layouts/default.html</exclude>
+            <exclude>site/_layouts/docs.html</exclude>
+            <exclude>site/_layouts/external.html</exclude>
+            <exclude>site/_layouts/news.html</exclude>
+            <exclude>site/_layouts/news_item.html</exclude>
+            <exclude>site/_layouts/page.html</exclude>
+            <exclude>site/_sass/**</exclude>
+            <exclude>site/css/screen.scss</exclude>
+            <exclude>site/fonts/**</exclude>
+            <exclude>site/js/**</exclude>
+
+            <!-- Images -->
+            <exclude>site/img/*.png</exclude>
+            <exclude>site/favicon.ico</exclude>
+
+            <!-- Not source files, generated during the release process -->
+            <exclude>git.properties</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>jar-no-fork</goal>
+              <goal>test-jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <source>1.7</source>
+          <target>1.7</target>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>validate</id>
+            <phase>validate</phase>
+            <configuration>
+              <configLocation>${top.dir}/src/main/config/checkstyle/checker.xml</configLocation>
+              <suppressionsLocation>${top.dir}/src/main/config/checkstyle/suppressions.xml</suppressionsLocation>
+              <consoleOutput>true</consoleOutput>
+              <headerLocation>${top.dir}/src/main/config/checkstyle/header.txt</headerLocation>
+              <failOnViolation>true</failOnViolation>
+              <includeTestSourceDirectory>true</includeTestSourceDirectory>
+            </configuration>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+        <dependencies>
+          <dependency>
+            <groupId>net.hydromatic</groupId>
+            <artifactId>toolbox</artifactId>
+            <version>${hydromatic-toolbox.version}</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+      <plugin>
+        <!-- override default version 2.8 for access to additional config settings -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>${maven-dependency-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>analyze</id>
+            <goals>
+              <goal>analyze-only</goal>
+            </goals>
+            <configuration>
+              <failOnWarning>true</failOnWarning>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <!-- This is the configuration used by "mvn javadoc:javadoc". It is
+             configured strict, so that it shows errors such as broken links in
+             javadoc on private methods. The configuration for "mvn site" is
+             under "reporting", and is more lenient. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <links>
+            <link>http://docs.oracle.com/javase/8/docs/api/</link>
+          </links>
+          <excludePackageNames>org.apache.calcite.benchmarks.generated,org.apache.calcite.sql.parser.impl,org.apache.calcite.piglet.parser,org.openjdk.jmh</excludePackageNames>
+          <tags>
+            <tag>
+              <name>sql.92</name>
+              <placement>a</placement>
+              <head>SQL 92 spec:</head>
+            </tag>
+            <tag>
+              <name>sql.99</name>
+              <placement>a</placement>
+              <head>SQL 99 spec:</head>
+            </tag>
+            <tag>
+              <name>sql.2003</name>
+              <placement>a</placement>
+              <head>SQL 2003 spec:</head>
+            </tag>
+            <tag>
+              <name>pre</name>
+            </tag>
+            <tag>
+              <name>post</name>
+            </tag>
+          </tags>
+          <show>private</show>
+        </configuration>
+      </plugin>
+      <plugin>
+        <!-- Override apache parent POM's definition of release
+             plugin. If we don't specify gitexe version, git doesn't
+             commit during release process. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-release-plugin</artifactId>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.maven.scm</groupId>
+            <artifactId>maven-scm-provider-gitexe</artifactId>
+            <version>${maven-scm-provider.version}</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <!-- Make sure every sub-project has LICENSE, NOTICE and
+             git.properties in its jar's META-INF directory. -->
+        <executions>
+          <execution>
+            <id>add-resource</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>add-resource</goal>
+              <goal>add-test-resource</goal>
+            </goals>
+            <configuration>
+              <resources>
+                <resource>
+                  <directory>${top.dir}</directory>
+                  <targetPath>META-INF</targetPath>
+                  <includes>
+                    <include>LICENSE</include>
+                    <include>NOTICE</include>
+                  </includes>
+                </resource>
+                <resource>
+                  <directory>${top.dir}/target</directory>
+                  <targetPath>META-INF</targetPath>
+                  <includes>
+                    <include>git.properties</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+
+    <pluginManagement>
+      <plugins>
+        <!-- Sorted by groupId, artifactId. -->
+        <plugin>
+          <groupId>com.googlecode.fmpp-maven-plugin</groupId>
+          <artifactId>fmpp-maven-plugin</artifactId>
+          <version>${fmpp-maven-plugin.version}</version>
+          <dependencies>
+            <dependency>
+              <groupId>org.freemarker</groupId>
+              <artifactId>freemarker</artifactId>
+              <version>${freemarker.version}</version>
+            </dependency>
+          </dependencies>
+        </plugin>
+        <plugin>
+          <groupId>net.hydromatic</groupId>
+          <artifactId>hydromatic-resource-maven-plugin</artifactId>
+          <version>${hydromatic-resource.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>net.ju-n.maven.plugins</groupId>
+          <artifactId>checksum-maven-plugin</artifactId>
+          <version>${checksum-maven-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-checkstyle-plugin</artifactId>
+          <version>${maven-checkstyle-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>${maven-failsafe-plugin.version}</version>
+          <executions>
+            <execution>
+              <id>failsafe-integration-test</id>
+              <goals>
+                <goal>integration-test</goal>
+              </goals>
+              <phase>integration-test</phase>
+              <configuration>
+                <threadCount>6</threadCount>
+                <parallel>both</parallel>
+                <argLine>-Xmx1024m</argLine>
+              </configuration>
+            </execution>
+            <execution>
+              <id>failsafe-verify</id>
+              <goals>
+                <goal>verify</goal>
+              </goals>
+              <phase>verify</phase>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>${maven-shade-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>${maven-source-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <configuration>
+            <threadCount>1</threadCount>
+            <perCoreThreadCount>true</perCoreThreadCount>
+            <parallel>both</parallel>
+            <argLine>-Xmx1536m -XX:MaxPermSize=256m -Duser.timezone=${user.timezone}</argLine>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>${build-helper-maven-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>javacc-maven-plugin</artifactId>
+          <version>${javacc-maven-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>pl.project13.maven</groupId>
+          <artifactId>git-commit-id-plugin</artifactId>
+          <version>${git-commit-id-plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <links>
+            <link>http://docs.oracle.com/javase/8/docs/api/</link>
+          </links>
+          <excludePackageNames>org.apache.calcite.benchmarks.generated,org.apache.calcite.sql.parser.impl,org.apache.calcite.piglet.parser,org.openjdk.jmh</excludePackageNames>
+          <tags>
+            <tag>
+              <name>sql.92</name>
+              <placement>a</placement>
+              <head>SQL 92 spec:</head>
+            </tag>
+            <tag>
+              <name>sql.99</name>
+              <placement>a</placement>
+              <head>SQL 99 spec:</head>
+            </tag>
+            <tag>
+              <name>sql.2003</name>
+              <placement>a</placement>
+              <head>SQL 2003 spec:</head>
+            </tag>
+          </tags>
+          <additionalparam>-tag sql.2003:a:xxx</additionalparam>
+          <notimestamp>true</notimestamp>
+          <windowtitle>Apache Calcite API</windowtitle>
+        </configuration>
+      </plugin>
+    </plugins>
+  </reporting>
+
+  <repositories>
+    <repository>
+      <id>central</id>
+      <name>Central Repository</name>
+      <url>http://repo.maven.apache.org/maven2</url>
+      <layout>default</layout>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+    <repository>
+      <releases>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>warn</checksumPolicy>
+      </releases>
+      <id>conjars</id>
+      <name>Conjars</name>
+      <url>http://conjars.org/repo</url>
+      <layout>default</layout>
+    </repository>
+  </repositories>
+
+  <profiles>
+    <profile>
+      <!-- This profile adds/overrides few features of the 'apache-release'
+           profile in the parent pom. -->
+      <id>apache-release</id>
+      <build>
+        <plugins>
+          <!-- Apache-RAT checks for files without headers.
+               If run on a messy developer's sandbox, it will fail.
+               This serves as a reminder to only build a release in a clean
+               sandbox! -->
+          <plugin>
+            <groupId>org.apache.rat</groupId>
+            <artifactId>apache-rat-plugin</artifactId>
+            <executions>
+              <execution>
+                <phase>verify</phase>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>net.ju-n.maven.plugins</groupId>
+            <artifactId>checksum-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>artifacts</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <algorithms>
+                <algorithm>MD5</algorithm>
+                <algorithm>SHA-1</algorithm>
+              </algorithms>
+              <failOnError>false</failOnError>
+            </configuration>
+          </plugin>
+          <!-- Override the parent assembly execution to customize the assembly
+               descriptor and final name. -->
+          <plugin>
+            <artifactId>maven-assembly-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>source-release-assembly</id>
+                <phase>none</phase>
+              </execution>
+              <execution>
+                <id>source-release-assembly-calcite</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+                <configuration>
+                  <runOnlyAtExecutionRoot>true</runOnlyAtExecutionRoot>
+                  <appendAssemblyId>false</appendAssemblyId>
+                  <descriptor>src/main/config/assemblies/source-assembly.xml</descriptor>
+                  <finalName>apache-calcite-${project.version}-src</finalName>
+                  <tarLongFileMode>gnu</tarLongFileMode>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <artifactId>maven-remote-resources-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>root-resources</id>
+                <goals>
+                  <goal>process</goal>
+                </goals>
+                <configuration>
+                  <runOnlyAtExecutionRoot>true</runOnlyAtExecutionRoot>
+                  <resourceBundles>
+                    <resourceBundle>org.apache:apache-jar-resource-bundle:1.4</resourceBundle>
+                  </resourceBundles>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>it</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <!-- CALCITE-537: workaround for MRRESOURCES-91
+        Avoid overwrite of the destination file if the produced
+        contents is the same.
+        Apache pom overwrites NOTICE, DEPENDENCIES, and LICENSE files, however
+        we do not want recompile the module every time. -->
+      <id>skip-apache-licenses</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+        <file><exists>target/maven-shared-archive-resources/META-INF/LICENSE</exists></file>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-remote-resources-plugin</artifactId>
+            <configuration>
+              <skip>true</skip>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <!-- Generate git.properties on first build -->
+      <id>generate-git-id</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+        <!-- Note: <missing> here does NOT support interpolation,
+        so technically, this profile is active for sub-modules.
+        It would be nice to use ${top.dir}/target/... here, but
+        it is not possible.
+        However sub-modules lack .git folder, so no git.properties
+        is generated. -->
+        <file>
+          <missing>target/git.properties</missing>
+        </file>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>pl.project13.maven</groupId>
+            <artifactId>git-commit-id-plugin</artifactId>
+            <inherited>false</inherited>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>revision</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <dateFormat>yyyy-MM-dd'T'HH:mm:ssZ</dateFormat>
+              <verbose>false</verbose>
+              <skipPoms>false</skipPoms>
+              <generateGitPropertiesFile>true</generateGitPropertiesFile>
+              <generateGitPropertiesFilename>target/git.properties</generateGitPropertiesFilename>
+              <failOnNoGitDirectory>false</failOnNoGitDirectory>
+              <gitDescribe>
+                <skip>false</skip>
+                <always>false</always>
+                <abbrev>7</abbrev>
+                <dirty>-dirty</dirty>
+                <forceLongFormat>true</forceLongFormat>
+              </gitDescribe>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

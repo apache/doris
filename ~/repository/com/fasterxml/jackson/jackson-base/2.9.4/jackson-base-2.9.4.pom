@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson</groupId>
+    <artifactId>jackson-bom</artifactId>
+    <version>2.9.4</version>
+  </parent>
+  <artifactId>jackson-base</artifactId>
+  <packaging>pom</packaging>
+  <description>Parent pom for components of Jackson dataprocessor: includes base settings as well
+as consistent set of dependencies across components. NOTE: NOT to be used by components outside
+of Jackson: application code should only rely on `jackson-bom`
+  </description>
+  <properties>
+    <!-- by default, assume Automatic Module Name can use same package as one
+         that contains `PackageVersion` class: works for all extension modules
+        (but some core components require override)
+      -->
+    <jdk.module.name>${packageVersion.package}</jdk.module.name>
+
+    <!-- 27-Sep-2017, tatu: Until update of parent poms (at least), need to
+           ensure newer versions of certain plugins
+      -->
+    <version.plugin.javadoc>3.0.0-M1</version.plugin.javadoc>
+
+  </properties>
+
+  <dependencies>
+    <dependency> <!-- all components use junit for testing -->
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+
+        <!-- Verify existence of certain settings
+          -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-enforcer-plugin</artifactId>
+          <version>3.0.0-M1</version>
+          <executions>
+            <execution>
+              <id>enforce-java</id>
+              <phase>validate</phase>
+              <goals>
+		<goal>enforce</goal>
+              </goals>
+              <configuration>
+              <rules>
+                <requireMavenVersion>
+                  <version>[3.0,)</version>
+                  <message>[ERROR] The currently supported version of Maven is 3.0 or higher</message>
+                </requireMavenVersion>
+                <requirePluginVersions>
+                  <banLatest>true</banLatest>
+                  <banRelease>true</banRelease>
+                  <banSnapshots>true</banSnapshots>
+                  <phases>clean,deploy,site</phases>
+                  <message>[ERROR] Best Practice is to always define plugin versions!</message>
+                </requirePluginVersions>
+	      </rules>
+	      </configuration>
+	    </execution>
+            <execution>
+              <id>enforce-properties</id>
+              <phase>validate</phase>
+
+<!-- important! Do NOT enable here since parent does not define, build would fail
+    BUT: alas means child has specify settings for phase AND goals like so:
+              <phase>validate</phase>
+              <goals>
+		<goal>enforce</goal>
+              </goals>
+-->
+              <configuration>
+		<rules>
+                  <!-- Needed both for Replacer plug-in AND for Automatic Module Name -->
+                  <requireProperty>
+                    <property>packageVersion.package</property>
+                  </requireProperty>
+                  <requireProperty>
+                    <property>packageVersion.dir</property>
+                  </requireProperty>
+		</rules>
+              </configuration>
+            </execution>
+          </executions>
+	</plugin>
+
+        <!-- Augment settings of OSGi bundles created -->
+	<plugin>
+          <groupId>org.apache.felix</groupId>
+          <artifactId>maven-bundle-plugin</artifactId>
+          <configuration>
+            <instructions combine.children="merge">
+              <Automatic-Module-Name>${jdk.module.name}</Automatic-Module-Name>
+            </instructions>
+          </configuration>
+	</plugin>
+
+	<plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${version.plugin.javadoc}</version>
+          <configuration>
+<!-- Disable Java 8 javadoc warnings -->
+            <additionalparam>-Xdoclint:none</additionalparam>
+<!-- ... if on Java 8 -->
+<!-- otherwise just: -->
+            <failOnError>false</failOnError>
+            <links>
+              <link>http://docs.oracle.com/javase/8/docs/api/</link>
+            </links>
+          </configuration>
+	</plugin>
+        <!-- Set up replacer but do not invoke (it's pom, after all) -->
+	<plugin>
+          <groupId>com.google.code.maven-replacer-plugin</groupId>
+          <artifactId>replacer</artifactId>
+          <executions>
+            <execution>
+              <id>process-packageVersion</id>
+              <phase>generate-sources</phase>
+            </execution>
+          </executions>
+	</plugin>
+
+	<!-- 08-Aug-2017, tatu: Need newer version of cobertura wrt Java 8+ -->
+	<plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>cobertura-maven-plugin</artifactId>
+          <version>2.7</version>
+	</plugin>
+      </plugins>
+    </pluginManagement>
+
+    <!-- And one more odd thing... we actually MUST disable checks just for this
+         pom (but not on something that extends i)
+      -->
+    <plugins>
+      <plugin>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-properties</id>
+            <phase>none</phase>
+          </execution>
+        </executions>
+      </plugin>
+   </plugins>
+
+  </build>
+</project>

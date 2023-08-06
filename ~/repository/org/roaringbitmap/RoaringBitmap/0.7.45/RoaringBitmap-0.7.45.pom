@@ -1,0 +1,109 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.roaringbitmap</groupId>
+    <artifactId>RoaringBitmapParent</artifactId>
+    <version>0.7.45</version>
+  </parent>
+  <artifactId>RoaringBitmap</artifactId>
+  <name>RoaringBitmap</name>
+  <url>https://github.com/RoaringBitmap/RoaringBitmap</url>
+  <description>Roaring bitmaps are compressed bitmaps (also called bitsets) which tend to outperform
+     conventional compressed bitmaps such as WAH or Concise. </description>
+  <packaging>jar</packaging>
+
+  <developers>
+    <developer>
+      <id>lemire</id>
+      <name>Daniel Lemire</name>
+      <email>lemire@gmail.com</email>
+      <url>http://lemire.me/en/</url>
+      <roles>
+        <role>architect</role>
+        <role>developer</role>
+        <role>maintainer</role>
+      </roles>
+      <timezone>-5</timezone>
+      <properties>
+        <picUrl>http://lemire.me/fr/images/JPG/profile2011B_152.jpg</picUrl>
+      </properties>
+    </developer>
+  </developers>
+  <issueManagement>
+    <system>GitHub Issue Tracking</system>
+    <url>https://github.com/RoaringBitmap/RoaringBitmap/issues</url>
+  </issueManagement>
+  <licenses>
+    <license>
+      <name>Apache 2</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+      <comments>A business-friendly OSS license</comments>
+    </license>
+  </licenses>
+  <properties>
+    <checkstyle.configLocation>${basedir}/style/roaring_google_checks.xml</checkstyle.configLocation>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>org.roaringbitmap</groupId>
+      <artifactId>shims</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.esotericsoftware</groupId>
+      <artifactId>kryo</artifactId>
+      <version>5.0.0-RC1</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-eclipse-plugin</artifactId>
+        <version>2.10</version>
+        <configuration>
+          <workspace>${basedir}</workspace>
+          <workspaceCodeStylesURL>${basedir}/style/eclipse-java-google-style.xml</workspaceCodeStylesURL>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.19.1</version>
+        <configuration>
+          <forkCount>1</forkCount>
+          <reuseForks>false</reuseForks>
+          <argLine>-Xmx2g ${argLine}</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifestEntries>
+              <Multi-Release>true</Multi-Release>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

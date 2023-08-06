@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson</groupId>
+    <artifactId>jackson-parent</artifactId>
+    <version>2.6.1</version>
+  </parent>
+
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-annotations</artifactId>
+  <name>Jackson-annotations</name>
+  <version>2.6.0</version>
+  <packaging>bundle</packaging>
+  <description>Core annotations used for value types, used by Jackson data binding package.
+  </description>
+
+  <url>http://github.com/FasterXML/jackson</url>
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/jackson-annotations.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/jackson-annotations.git</developerConnection>
+    <url>http://github.com/FasterXML/jackson-annotations</url>
+    <tag>jackson-annotations-2.6.0</tag>
+  </scm>
+
+  <properties>
+    <osgi.export>com.fasterxml.jackson.annotation.*;version=${project.version}</osgi.export>
+  </properties>
+</project>

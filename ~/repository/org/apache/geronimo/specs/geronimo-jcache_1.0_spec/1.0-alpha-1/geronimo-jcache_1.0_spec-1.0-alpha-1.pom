@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Licensed to the Apache Software Foundation (ASF) under one or more
+    contributor license agreements.  See the NOTICE file distributed with
+    this work for additional information regarding copyright ownership.
+    The ASF licenses this file to You under the Apache License, Version 2.0
+    (the "License"); you may not use this file except in compliance with
+    the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.apache.geronimo.genesis</groupId>
+    <artifactId>genesis-java5-flava</artifactId>
+    <version>2.2</version>
+  </parent>
+
+  <groupId>org.apache.geronimo.specs</groupId>
+  <artifactId>geronimo-jcache_1.0_spec</artifactId>
+  <packaging>bundle</packaging>
+  <name>Apache Geronimo JCache Spec 1.0</name>
+  <version>1.0-alpha-1</version>
+
+  <description>Apache Geronimo implementation of the JSR-107</description>
+  <url>http://geronimo.apache.org/maven/${siteId}/${project.version}</url>
+
+  <distributionManagement>
+    <site>
+      <id>apache-website</id>
+      <url>${site.deploy.url}/maven/${siteId}/${project.version}</url>
+    </site>
+  </distributionManagement>
+
+  <properties>
+    <siteId>specs/${project.artifactId}</siteId>
+  </properties>
+
+  <scm>
+    <connection>scm:svn:http://svn.apache.org/repos/asf/geronimo/specs/tags/geronimo-jcache_1.0_spec-1.0-alpha-1</connection>
+    <developerConnection>scm:svn:https://svn.apache.org/repos/asf/geronimo/specs/tags/geronimo-jcache_1.0_spec-1.0-alpha-1
+    </developerConnection>
+    <url>http://svn.apache.org/viewcvs.cgi/geronimo/specs/tags/geronimo-jcache_1.0_spec-1.0-alpha-1</url>
+  </scm>
+
+  <!-- added so the build can find staged depends -->
+  <repositories>
+    <repository>
+      <id>apache.nexus.staging</id>
+      <name>Apache Staging Repository</name>
+      <layout>default</layout>
+      <url>https://repository.apache.org/content/repositories/staging/</url>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <releases>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>warn</checksumPolicy>
+      </releases>
+    </repository>
+  </repositories>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.geronimo.specs</groupId>
+      <artifactId>geronimo-jcdi_1.0_spec</artifactId>
+      <version>1.0</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.1</version>
+        <configuration>
+          <target>1.6</target>
+          <source>1.6</source>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>2.0.1</version>
+        <configuration>
+          <instructions>
+            <Export-Package>
+              javax.cache*;version=1.0
+            </Export-Package>
+          </instructions>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

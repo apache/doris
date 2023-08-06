@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>org.sonatype.oss</groupId>
+    <artifactId>oss-parent</artifactId>
+    <version>7</version>
+  </parent>
+  <groupId>org.codehaus.woodstox</groupId>
+  <artifactId>stax2-api</artifactId>
+  <name>Stax2 API</name>
+  <version>3.1.4</version>
+  <packaging>bundle</packaging>
+  <description>tax2 API is an extension to basic Stax 1.0 API that adds significant new functionality, such as full-featured bi-direction validation interface and high-performance Typed Access API.
+  </description>
+  <url>http://wiki.fasterxml.com/WoodstoxStax2</url>
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/stax2-api.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/stax2-api.git</developerConnection>
+    <url>http://github.com/FasterXML/stax2-api</url>    
+    <tag>stax2-api-3.1.4</tag>
+  </scm>
+  <developers>
+        <developer>
+            <id>tatu</id>
+            <name>Tatu Saloranta</name>
+            <email>tatu@fasterxml.com</email>
+        </developer>
+  </developers>
+  <licenses>
+    <license>
+      <name>The BSD License</name>
+      <url>http://www.opensource.org/licenses/bsd-license.php</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <organization>
+    <name>fasterxml.com</name>
+    <url>http://fasterxml.com</url>
+  </organization>
+
+  <dependencies>
+    <!-- Stax API jar is needed; 1.0-2 seems to be the last "official"
+         version prior to JDK 6 that bundles API
+      -->
+    <dependency>
+      <groupId>javax.xml.stream</groupId>
+      <artifactId>stax-api</artifactId>
+      <version>1.0-2</version>
+      <!-- at this point, with inclusion in JDK 1.6, this should be given -->
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>2.5.1</version>
+        <configuration>
+          <source>1.5</source>
+          <target>1.5</target>
+          <showDeprecation>true</showDeprecation>
+          <showWarnings>true</showWarnings>
+          <optimize>true</optimize>
+          <!-- 16-Apr-2013, tatu: As per Nick W's suggestions, let's
+              use these to reduce jar size
+            -->
+          <debug>true</debug>
+          <debuglevel>lines,source</debuglevel>
+        </configuration>
+      </plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-release-plugin</artifactId>
+            <version>2.4.1</version>
+            <configuration>
+                <mavenExecutorId>forked-path</mavenExecutorId>
+            </configuration>
+        </plugin>
+        <plugin><!-- plug-in to attach source bundle in repo -->
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>2.1.2</version>
+          <executions>
+            <execution>
+              <id>attach-sources</id>
+              <goals>
+                <goal>jar</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>2.6.1</version>
+          <!-- 06-Jul-2013, tatu: When can we switch to 1.6?
+            -->
+          <configuration>
+            <source>1.5</source>
+            <target>1.5</target>
+            <encoding>UTF-8</encoding>
+            <links>
+              <link>http://java.sun.com/javase/6/docs/api/</link>
+            </links>
+          </configuration>
+          <executions>
+            <execution>
+              <id>attach-javadocs</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>jar</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+       <!-- Plus, let's make jars OSGi bundles as well  -->
+        <plugin>
+          <groupId>org.apache.felix</groupId>
+          <artifactId>maven-bundle-plugin</artifactId>
+          <version>2.3.7</version>
+          <extensions>true</extensions>
+          <configuration>
+            <instructions>
+              <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
+              <Bundle-Vendor>fasterml.com</Bundle-Vendor>
+              <Import-Package>
+javax.xml.namespace
+,javax.xml.stream
+,javax.xml.stream.events
+,javax.xml.stream.util
+,javax.xml.transform
+,javax.xml.transform.dom 
+,org.w3c.dom
+</Import-Package>
+              <Private-Package>
+</Private-Package>
+              <!-- Whether to export 'impl' is open to debate; but for now it has necessary                  
+                   base classes for anyone who wants to create custom segment types                          
+                -->
+              <Export-Package>
+org.codehaus.stax2
+,org.codehaus.stax2.evt
+,org.codehaus.stax2.io
+,org.codehaus.stax2.osgi
+,org.codehaus.stax2.ri
+,org.codehaus.stax2.ri.dom
+,org.codehaus.stax2.ri.evt
+,org.codehaus.stax2.ri.typed
+,org.codehaus.stax2.typed
+,org.codehaus.stax2.util
+,org.codehaus.stax2.validation
+</Export-Package>
+            </instructions>
+          </configuration>
+        </plugin>
+    </plugins>
+  </build>
+</project>

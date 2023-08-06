@@ -1,0 +1,131 @@
+<?xml version="1.0"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+<project
+    xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-parent</artifactId>
+    <version>23</version>
+  </parent>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>commons-daemon</groupId>
+  <artifactId>commons-daemon</artifactId>
+  <version>1.0.13</version>
+  <name>Commons Daemon</name>
+  <!-- Daemon started in Commons in 2002 with an import of code from Tomcat,
+       which is why the NOTICE file has an earlier date than the inceptionYear -->
+  <inceptionYear>2002</inceptionYear>
+  <description>
+     Apache Commons Daemon software provides an alternative invocation mechanism for unix-daemon-like Java code.
+  </description>
+  <url>http://commons.apache.org/daemon/</url>
+
+  <issueManagement>
+    <system>jira</system>
+    <url>http://issues.apache.org/jira/browse/DAEMON</url>
+  </issueManagement>
+
+  <scm>
+    <connection>scm:svn:http://svn.apache.org/repos/asf/commons/proper/daemon/trunk</connection>
+    <developerConnection>scm:svn:https://svn.apache.org/repos/asf/commons/proper/daemon/trunk</developerConnection>
+    <url>http://svn.apache.org/viewvc/commons/proper/daemon/trunk</url>
+  </scm>
+
+  <developers>
+    <developer>
+      <name>Jean-Frederic Clere</name>
+      <id>jfclere</id>
+      <email>jfclere at apache.org</email>
+    </developer>
+
+    <developer>
+      <name>Remy Maucherat</name>
+      <id>remm</id>
+      <email>remm at apache.org</email>
+    </developer>
+
+    <developer>
+      <name>Yoav Shapira</name>
+      <id>yoavs</id>
+      <email>yoavs at apache.org</email>
+    </developer>
+
+    <developer>
+      <name>Bill Barker</name>
+      <id>billbarker</id>
+      <email>billbarker at apache.org</email>
+    </developer>
+    <developer>
+      <name>Mladen Turk</name>
+      <id>mturk</id>
+      <email>mturk at apache.org</email>
+    </developer>
+  </developers>
+
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>3.8.1</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <properties>
+    <maven.compile.source>1.3</maven.compile.source>
+    <maven.compile.target>1.3</maven.compile.target>
+    <commons.componentid>daemon</commons.componentid>
+    <commons.release.version>1.0.13</commons.release.version>
+    <commons.jira.id>DAEMON</commons.jira.id>
+    <commons.jira.pid>12310468</commons.jira.pid>
+  </properties>
+
+  <build>
+    <plugins>
+<!--
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+          <configuration>
+            <includes>
+              <include>**/*Test.java</include>
+            </includes>
+            <excludes>
+              <exclude>**/*AbstractTest.java</exclude>
+            </excludes>
+        </configuration>
+      </plugin>
+-->
+      <plugin>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <configuration>
+          <descriptors>
+            <descriptor>src/main/assembly/native-src.xml</descriptor>
+            <descriptor>src/main/assembly/bin.xml</descriptor>
+            <descriptor>src/main/assembly/src.xml</descriptor>
+            <descriptor>src/main/assembly/win.xml</descriptor>
+          </descriptors>
+          <tarLongFileMode>gnu</tarLongFileMode>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

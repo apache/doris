@@ -1,0 +1,1066 @@
+<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.rabbitmq</groupId>
+  <artifactId>amqp-client</artifactId>
+  <version>5.14.2</version>
+  <packaging>jar</packaging>
+
+  <name>RabbitMQ Java Client</name>
+  <description>The RabbitMQ Java client library allows Java applications to interface with RabbitMQ.</description>
+  <url>https://www.rabbitmq.com</url>
+
+  <licenses>
+    <license>
+      <name>ASL 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
+      <distribution>repo</distribution>
+    </license>
+    <license>
+      <name>GPL v2</name>
+      <url>https://www.gnu.org/licenses/gpl-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+    <license>
+      <name>MPL 2.0</name>
+      <url>https://www.mozilla.org/en-US/MPL/2.0/</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <email>info@rabbitmq.com</email>
+      <name>Team RabbitMQ</name>
+      <organization>VMware, Inc. or its affiliates.</organization>
+      <organizationUrl>https://rabbitmq.com</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <url>https://github.com/rabbitmq/rabbitmq-java-client</url>
+    <connection>scm:git:git://github.com/rabbitmq/rabbitmq-java-client.git</connection>
+    <developerConnection>scm:git:git@github.com:rabbitmq/rabbitmq-java-client.git</developerConnection>
+    <tag>v5.14.2</tag>
+  </scm>
+
+  <organization>
+    <name>VMware, Inc. or its affiliates.</name>
+    <url>https://www.rabbitmq.com</url>
+  </organization>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <slf4j.version>1.7.32</slf4j.version>
+    <metrics.version>4.2.4</metrics.version>
+    <micrometer.version>1.7.5</micrometer.version>
+    <jackson.version>2.13.0</jackson.version>
+    <logback.version>1.2.6</logback.version>
+    <junit.version>4.13.2</junit.version>
+    <mockito.version>4.0.0</mockito.version>
+    <assertj.version>3.21.0</assertj.version>
+    <jetty.version>9.4.44.v20210927</jetty.version>
+    <bouncycastle.version>1.70</bouncycastle.version>
+    <netcrusher.version>0.10</netcrusher.version>
+
+    <maven.javadoc.plugin.version>3.2.0</maven.javadoc.plugin.version>
+    <maven.release.plugin.version>2.5.3</maven.release.plugin.version>
+    <versions.maven.plugin.version>2.3</versions.maven.plugin.version>
+    <maven.resources.plugin.version>3.1.0</maven.resources.plugin.version>
+    <maven.source.plugin.version>3.0.1</maven.source.plugin.version>
+    <groovy.maven.plugin.version>2.1.1</groovy.maven.plugin.version>
+    <groovy.all.version>2.4.8</groovy.all.version>
+    <keytool.maven.plugin.version>1.5</keytool.maven.plugin.version>
+    <build.helper.maven-plugin.version>1.12</build.helper.maven-plugin.version>
+    <maven.compiler.plugin.version>3.8.1</maven.compiler.plugin.version>
+    <maven.surefire.plugin.version>2.22.2</maven.surefire.plugin.version>
+    <maven.failsafe.plugin.version>2.22.2</maven.failsafe.plugin.version>
+    <maven.gpg.plugin.version>1.6</maven.gpg.plugin.version>
+    <maven.jar.plugin.version>3.0.2</maven.jar.plugin.version>
+    <maven.bundle.plugin.version>3.2.0</maven.bundle.plugin.version>
+    <maven.packagecloud.wagon.version>0.0.6</maven.packagecloud.wagon.version>
+    <nexus-staging-maven-plugin.version>1.6.8</nexus-staging-maven-plugin.version>
+    <checksum.maven.plugin.version>1.8</checksum.maven.plugin.version>
+    <jshell-maven-plugin.version>1.3</jshell-maven-plugin.version>
+
+    <!--
+    These groovy scripts are used later in this POM file to generate
+    source files and resources for the library itself and for the
+    testsuite.
+    -->
+    <groovy-scripts.dir>${basedir}/src/main/scripts</groovy-scripts.dir>
+
+    <!--
+    ${deps.dir} should point to a directory containing a working copy of
+    rabbitmq-codegen and rabbitmq-server, named "rabbitmq_codegen" and
+    "rabbit" respectively.
+
+    "rabbitmq_codegen" is used to generate required Java source files.
+    Its path can be specified with the ${codegen.dir} property instead.
+
+    "rabbit" is used to automatically setup a RabbitMQ cluster for the
+    testsuite.
+    -->
+    <deps.dir>${basedir}/deps</deps.dir>
+    <codegen.dir>${deps.dir}/rabbitmq_codegen</codegen.dir>
+    <codegen.spec_version>0.9.1</codegen.spec_version>
+
+    <!-- For testing only -->
+    <make.bin>make</make.bin>
+    <rabbitmq.dir>${deps.dir}/rabbit</rabbitmq.dir>
+    <rabbitmqctl.bin>${rabbitmq.dir}/scripts/rabbitmqctl</rabbitmqctl.bin>
+
+    <test-keystore.ca>${project.build.directory}/ca.keystore</test-keystore.ca>
+    <test-keystore.empty>${project.build.directory}/empty.keystore</test-keystore.empty>
+    <test-keystore.password>bunnies</test-keystore.password>
+
+    <test-broker.A.nodename>rabbit@localhost</test-broker.A.nodename>
+    <test-broker.A.node_port>5672</test-broker.A.node_port>
+    <test-broker.A.config_file>${project.build.directory}/test-classes/${test-broker.A.nodename}</test-broker.A.config_file>
+    <test-broker.B.nodename>hare@localhost</test-broker.B.nodename>
+    <test-broker.B.node_port>5673</test-broker.B.node_port>
+    <test-broker.B.config_file>${project.build.directory}/test-classes/${test-broker.B.nodename}</test-broker.B.config_file>
+
+    <!-- to sign artifacts when releasing -->
+    <gpg.keyname>6026DFCA</gpg.keyname>
+  </properties>
+
+  <profiles>
+    <profile>
+      <!--
+      If we detect the RabbitMQ Umbrella project, use its dependencies
+      directory.
+      -->
+      <id>in-umbrella</id>
+      <activation>
+        <file>
+          <exists>../../UMBRELLA.md</exists>
+        </file>
+      </activation>
+      <properties>
+        <deps.dir>${basedir}/..</deps.dir>
+      </properties>
+    </profile>
+
+    <profile>
+      <!-- On FreeBSD, GNU Make is installed as "gmake". -->
+      <id>use-gmake</id>
+      <activation>
+        <os><name>FreeBSD</name></os>
+      </activation>
+      <properties>
+        <make.bin>gmake</make.bin>
+      </properties>
+    </profile>
+
+    <profile>
+      <!-- On Windows, use the Batch version of rabbitmqctl. -->
+      <id>use-rabbitmqctl.bat</id>
+      <activation>
+        <os><family>Windows</family></os>
+      </activation>
+      <properties>
+        <rabbitmqctl.bin>${rabbitmq.dir}/scripts/rabbitmqctl.bat</rabbitmqctl.bin>
+      </properties>
+    </profile>
+
+    <profile>
+      <!--
+      Java 8's Javadoc is way more sensible to documentation
+      correctness. For now, disable all those errors until we fix them.
+      -->
+      <id>disable-java8-doclint</id>
+      <activation>
+        <jdk>[1.8,)</jdk>
+      </activation>
+      <properties>
+        <javadoc.opts>-Xdoclint:none</javadoc.opts>
+      </properties>
+    </profile>
+
+    <profile>
+      <!--
+      We need this option in Java 11+ to avoid an
+      extra 'undefined' segment in the URL
+      -->
+      <id>javadoc-no-module-dir-java-11</id>
+      <activation>
+        <jdk>[11,)</jdk>
+      </activation>
+      <properties>
+        <javadoc.joption>--no-module-directories</javadoc.joption>
+      </properties>
+    </profile>
+
+    <profile>
+      <!--
+      To ease testing of the Java client, this POM can setup a RabbitMQ
+      cluster automatically, including TLS support.
+
+      It depends on the presence of ${rabbitmq.dir} which points to
+      a working copy of the rabbitmq-server Git repository. If it
+      is missing, nothing is setup and the testsuite relies on an
+      externally provided broker/cluster.
+
+      If you want to explicitly disable the automatic cluster setup,
+      you must disable this profile:
+
+          mvn verify -P '!setup-test-cluster'
+
+      -->
+      <id>setup-test-cluster</id>
+      <activation>
+        <property>
+          <name>!skipTests</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.gmaven</groupId>
+            <artifactId>groovy-maven-plugin</artifactId>
+            <version>${groovy.maven.plugin.version}</version>
+            <dependencies>
+              <dependency>
+                <groupId>org.codehaus.groovy</groupId>
+                <artifactId>groovy-all</artifactId>
+                <version>${groovy.all.version}</version>
+              </dependency>
+            </dependencies>
+            <executions>
+              <!--
+              We use "${rabbitmq.dir}/Makefile" to query the location of
+              the test TLS certificates.
+              -->
+              <execution>
+                <phase>generate-test-resources</phase>
+                <id>query-test-tls-certs-dir</id>
+                <goals>
+                  <goal>execute</goal>
+                </goals>
+                <configuration>
+                  <source>
+                    ${groovy-scripts.dir}/query_test_tls_certs_dir.groovy
+                  </source>
+                </configuration>
+              </execution>
+
+              <!--
+              Start two brokers and cluster them.
+
+              Currently, those test brokers will listen to the default
+              TCP ports of 5672 and 5673 for AMQP and 5671 and 5670
+              for AMQP+TLS. Unfortunately, this means no other standard
+              RabbitMQ can run on the same host at the same time.
+              -->
+              <execution>
+                <phase>pre-integration-test</phase>
+                <id>start-test-broker-A</id>
+                <goals>
+                  <goal>execute</goal>
+                </goals>
+                <configuration>
+                  <properties>
+                    <nodename>${test-broker.A.nodename}</nodename>
+                    <node_port>${test-broker.A.node_port}</node_port>
+                  </properties>
+                  <source>
+                    ${groovy-scripts.dir}/manage_test_broker.groovy
+                  </source>
+                </configuration>
+              </execution>
+              <execution>
+                <phase>pre-integration-test</phase>
+                <id>start-test-broker-B</id>
+                <goals>
+                  <goal>execute</goal>
+                </goals>
+                <configuration>
+                  <properties>
+                    <nodename>${test-broker.B.nodename}</nodename>
+                    <node_port>${test-broker.B.node_port}</node_port>
+                  </properties>
+                  <source>
+                    ${groovy-scripts.dir}/manage_test_broker.groovy
+                  </source>
+                </configuration>
+              </execution>
+              <execution>
+                <phase>pre-integration-test</phase>
+                <id>create-test-cluster</id>
+                <goals>
+                  <goal>execute</goal>
+                </goals>
+                <configuration>
+                  <properties>
+                    <nodename>${test-broker.B.nodename}</nodename>
+                    <target>${test-broker.A.nodename}</target>
+                  </properties>
+                  <source>
+                    ${groovy-scripts.dir}/manage_test_broker.groovy
+                  </source>
+                </configuration>
+              </execution>
+
+              <!--
+              After the testsuite, no matter the result, stop both test brokers.
+              -->
+              <execution>
+                <phase>post-integration-test</phase>
+                <id>stop-test-broker-B</id>
+                <goals>
+                  <goal>execute</goal>
+                </goals>
+                <configuration>
+                  <properties>
+                    <nodename>${test-broker.B.nodename}</nodename>
+                  </properties>
+                  <source>
+                    ${groovy-scripts.dir}/manage_test_broker.groovy
+                  </source>
+                </configuration>
+              </execution>
+              <execution>
+                <phase>post-integration-test</phase>
+                <id>stop-test-broker-A</id>
+                <goals>
+                  <goal>execute</goal>
+                </goals>
+                <configuration>
+                  <properties>
+                    <nodename>${test-broker.A.nodename}</nodename>
+                  </properties>
+                  <source>
+                    ${groovy-scripts.dir}/manage_test_broker.groovy
+                  </source>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <!--
+          Generate two Java keystores from the test TLS certificates.
+          Here, we only enable the plugin. The actual configuration is
+          in the main <build /> element.
+          -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>keytool-maven-plugin</artifactId>
+            <version>${keytool.maven.plugin.version}</version>
+            <configuration>
+              <skip>false</skip>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <!--
+      If the caller decided to provide an external RabbitMQ
+      broker/cluster, he can specify the path to his test TLS
+      certificates with the ${test-tls-certs.dir} property.
+
+      Thus, if the CA certificate exists, we also enable the generation
+      of the two Java keystores.
+      -->
+      <id>use-provided-test-keystores</id>
+      <activation>
+        <file>
+          <exists>${test-tls-certs.dir}/testca/cacert.pem</exists>
+        </file>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>keytool-maven-plugin</artifactId>
+            <version>${keytool.maven.plugin.version}</version>
+            <configuration>
+              <skip>false</skip>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <!--
+      Tests are integration tests, not unit tests, because they depend
+      on a running broker which can be automatically started by this
+      POM.
+
+      To skip those tests, you can run use the usual ${skipTests}
+      property:
+
+          mvn verify -DskipTests
+
+      -->
+      <id>integration-tests</id>
+      <activation>
+        <property>
+          <name>!skipTests</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <version>${maven.failsafe.plugin.version}</version>
+            <configuration>
+              <systemPropertyVariables>
+                <make.bin>${make.bin}</make.bin>
+                <rabbitmq.dir>${rabbitmq.dir}</rabbitmq.dir>
+                <rabbitmqctl.bin>${rabbitmqctl.bin}</rabbitmqctl.bin>
+
+                <test-keystore.ca>${test-keystore.ca}</test-keystore.ca>
+                <test-keystore.empty>${test-keystore.empty}</test-keystore.empty>
+                <test-keystore.password>${test-keystore.password}</test-keystore.password>
+                <test-client-cert.path>${test-tls-certs.dir}/client/keycert.p12</test-client-cert.path>
+                <test-client-cert.password>changeme</test-client-cert.password>
+
+                <test-broker.A.nodename>${test-broker.A.nodename}</test-broker.A.nodename>
+                <test-broker.A.node_port>${test-broker.A.node_port}</test-broker.A.node_port>
+                <test-broker.A.config_file>${test-broker.A.config_file}</test-broker.A.config_file>
+                <test-broker.B.nodename>${test-broker.B.nodename}</test-broker.B.nodename>
+                <test-broker.B.node_port>${test-broker.B.node_port}</test-broker.B.node_port>
+                <test-broker.B.config_file>${test-broker.B.config_file}</test-broker.B.config_file>
+              </systemPropertyVariables>
+              <environmentVariables>
+                <DEPS_DIR>${deps.dir}</DEPS_DIR>
+              </environmentVariables>
+              <failIfNoTests>true</failIfNoTests>
+              <includes>
+                <include>**/ClientTests.*</include>
+                <include>**/FunctionalTests.*</include>
+                <include>**/SSLTests.*</include>
+                <include>**/ServerTests.*</include>
+                <include>**/HATests.*</include>
+              </includes>
+              <!--
+                needed because of bug in OpenJDK 8 u181 on Debian distros
+                see https://stackoverflow.com/questions/53010200/maven-surefire-could-not-find-forkedbooter-class
+              -->
+              <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+            </configuration>
+            <executions>
+              <execution>
+                <id>integration-test</id>
+                <goals>
+                  <goal>integration-test</goal>
+                </goals>
+              </execution>
+              <execution>
+                <id>verify</id>
+                <goals>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
+      Profile to activate the NIO mode in the test suite:
+      mvn verify -P use-nio
+    -->
+    <profile>
+      <id>use-nio</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <version>${maven.failsafe.plugin.version}</version>
+            <configuration>
+              <systemPropertyVariables>
+                <use.nio>true</use.nio>
+              </systemPropertyVariables>
+              <!--
+                needed because of bug in OpenJDK 8 u181 on Debian distros
+                see https://stackoverflow.com/questions/53010200/maven-surefire-could-not-find-forkedbooter-class
+              -->
+              <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <!--
+      The "snapshots" Maven profile is used to push release artifacts to a
+      Sonatype snapshots repository.
+      -->
+      <id>snapshots</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>${maven.javadoc.plugin.version}</version>
+            <configuration>
+              <additionalOptions>${javadoc.opts}</additionalOptions>
+              <additionalJOption>${javadoc.joption}</additionalJOption>
+              <quiet>true</quiet>
+              <source>8</source>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>${maven.gpg.plugin.version}</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+                <configuration>
+                  <keyname>${gpg.keyname}</keyname>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+      <distributionManagement>
+        <snapshotRepository>
+          <id>ossrh</id>
+          <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+      </distributionManagement>
+    </profile>
+
+    <!--
+      The "release" Maven profile is used to push release artifacts to OSSRH
+    -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+
+          <plugin>
+            <groupId>org.sonatype.plugins</groupId>
+            <artifactId>nexus-staging-maven-plugin</artifactId>
+            <version>${nexus-staging-maven-plugin.version}</version>
+            <extensions>true</extensions>
+            <configuration>
+              <serverId>ossrh</serverId>
+              <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+              <autoReleaseAfterClose>false</autoReleaseAfterClose>
+              <stagingProgressTimeoutMinutes>20</stagingProgressTimeoutMinutes>
+            </configuration>
+          </plugin>
+
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>${maven.javadoc.plugin.version}</version>
+            <configuration>
+              <additionalOptions>${javadoc.opts}</additionalOptions>
+              <additionalJOption>${javadoc.joption}</additionalJOption>
+              <quiet>true</quiet>
+              <source>8</source>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>${maven.gpg.plugin.version}</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+                <configuration>
+                  <keyname>${gpg.keyname}</keyname>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+      <distributionManagement>
+        <repository>
+          <id>ossrh</id>
+          <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+      </distributionManagement>
+    </profile>
+
+    <!--
+      The "milestone" Maven profile is used to push release artifacts to the
+      PackageCloud Milestones Maven Repository.
+    -->
+    <profile>
+      <id>milestone</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>${maven.javadoc.plugin.version}</version>
+            <configuration>
+              <additionalOptions>${javadoc.opts}</additionalOptions>
+              <additionalJOption>${javadoc.joption}</additionalJOption>
+              <quiet>true</quiet>
+              <source>8</source>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>net.nicoulaj.maven.plugins</groupId>
+            <artifactId>checksum-maven-plugin</artifactId>
+            <version>${checksum.maven.plugin.version}</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>files</goal>
+                </goals>
+                <configuration>
+                  <fileSets>
+                    <fileSet>
+                      <directory>${project.build.directory}</directory>
+                      <includes>
+                        <include>*.jar</include>
+                        <include>*.pom</include>
+                      </includes>
+                    </fileSet>
+                  </fileSets>
+                  <algorithms>
+                    <algorithm>MD5</algorithm>
+                    <algorithm>SHA-1</algorithm>
+                  </algorithms>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>${maven.gpg.plugin.version}</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+                <configuration>
+                  <keyname>${gpg.keyname}</keyname>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+      <distributionManagement>
+        <repository>
+          <id>packagecloud-rabbitmq-maven-milestones</id>
+          <url>packagecloud+https://packagecloud.io/rabbitmq/maven-milestones</url>
+        </repository>
+      </distributionManagement>
+    </profile>
+
+  </profiles>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.dropwizard.metrics</groupId>
+      <artifactId>metrics-core</artifactId>
+      <version>${metrics.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-core</artifactId>
+      <version>${micrometer.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>${logback.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <version>${mockito.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>${assertj.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-servlet</artifactId>
+      <version>${jetty.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk15on</artifactId>
+      <version>${bouncycastle.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.github.netcrusherorg</groupId>
+      <artifactId>netcrusher-core</artifactId>
+      <version>${netcrusher.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+
+  <build>
+
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.sonarsource.scanner.maven</groupId>
+          <artifactId>sonar-maven-plugin</artifactId>
+          <version>3.5.0.1254</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <!-- We store the client version in a Java properties file. -->
+    <resources>
+      <resource>
+        <directory>${basedir}/src/main/resources</directory>
+        <filtering>true</filtering>
+      </resource>
+    </resources>
+
+    <!--
+    Those resources are a Java properties file and RabbitMQ
+    configuration files for the test brokers.
+    -->
+    <testResources>
+      <testResource>
+        <directory>${basedir}/src/test/resources</directory>
+        <filtering>true</filtering>
+      </testResource>
+    </testResources>
+
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>${maven.resources.plugin.version}</version>
+        <configuration>
+          <nonFilteredFileExtensions>
+            <nonFilteredFileExtension>p12</nonFilteredFileExtension>
+            <nonFilteredFileExtension>jks</nonFilteredFileExtension>
+          </nonFilteredFileExtensions>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.gmaven</groupId>
+        <artifactId>groovy-maven-plugin</artifactId>
+        <version>${groovy.maven.plugin.version}</version>
+        <dependencies>
+          <dependency>
+            <groupId>org.codehaus.groovy</groupId>
+            <artifactId>groovy-all</artifactId>
+            <version>${groovy.all.version}</version>
+          </dependency>
+        </dependencies>
+        <executions>
+          <!--
+          Generate Java source files from specifications found in
+          ${codegen.dir}. The groovy script is used as a "proxy"
+          to execute a Python script with the proper arguments and
+          environment.
+          -->
+          <execution>
+            <phase>generate-sources</phase>
+            <id>generate-amqp-sources</id>
+            <goals>
+              <goal>execute</goal>
+            </goals>
+            <configuration>
+              <properties>
+                <script>${basedir}/codegen.py</script>
+                <spec>
+                  ${codegen.dir}/amqp-rabbitmq-${codegen.spec_version}.json
+                </spec>
+                <header>
+                  ${project.build.directory}/generated-sources/src/main/java/com/rabbitmq/client/AMQP.java
+                </header>
+                <body>
+                  ${project.build.directory}/generated-sources/src/main/java/com/rabbitmq/client/impl/AMQImpl.java
+                </body>
+              </properties>
+              <source>
+                ${groovy-scripts.dir}/generate_amqp_sources.groovy
+              </source>
+            </configuration>
+          </execution>
+
+          <!--
+          We always remove the generated Java keystores because
+          keytool(1) complains if the destination file already exists
+          with the content we want to import.
+          -->
+          <execution>
+            <phase>generate-test-resources</phase>
+            <id>remove-old-test-keystores</id>
+            <goals>
+              <goal>execute</goal>
+            </goals>
+            <configuration>
+              <source>
+                ${groovy-scripts.dir}/remove_old_test_keystores.groovy
+              </source>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>${build.helper.maven-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>add-generated-sources-dir</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${project.build.directory}/generated-sources/src/main/java</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven.compiler.plugin.version}</version>
+        <configuration>
+          <source>1.8</source>
+          <target>1.8</target>
+          <compilerArgs>
+            <arg>-Xlint:deprecation</arg>
+            <arg>-Xlint:unchecked</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+
+      <!--
+      Disable the unit tests plugin because we only have integration
+      tests.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven.surefire.plugin.version}</version>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+
+      <!-- Generate two Java keystores for the SSLTests testsuite. -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>keytool-maven-plugin</artifactId>
+        <version>${keytool.maven.plugin.version}</version>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+        <executions>
+          <execution>
+            <id>generate-test-ca-keystore</id>
+            <phase>generate-test-resources</phase>
+            <goals>
+              <goal>importCertificate</goal>
+            </goals>
+            <configuration>
+              <file>${test-tls-certs.dir}/testca/cacert.pem</file>
+              <keystore>${test-keystore.ca}</keystore>
+              <storepass>${test-keystore.password}</storepass>
+              <noprompt>true</noprompt>
+              <alias>server1</alias>
+            </configuration>
+          </execution>
+          <execution>
+            <id>generate-test-empty-keystore</id>
+            <phase>generate-test-resources</phase>
+            <goals>
+              <goal>importCertificate</goal>
+              <goal>deleteAlias</goal>
+            </goals>
+            <configuration>
+              <file>${test-tls-certs.dir}/testca/cacert.pem</file>
+              <keystore>${test-keystore.empty}</keystore>
+              <storepass>${test-keystore.password}</storepass>
+              <noprompt>true</noprompt>
+              <alias>server1</alias>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>${maven.jar.plugin.version}</version>
+        <configuration>
+          <archive>
+            <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+            <manifestEntries>
+              <Automatic-Module-Name>com.rabbitmq.client</Automatic-Module-Name>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>${maven.bundle.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>bundle-manifest</id>
+            <phase>process-classes</phase>
+            <goals>
+              <goal>manifest</goal>
+            </goals>
+            <configuration>
+              <instructions>
+                <Export-Package>com.rabbitmq*</Export-Package>
+                <Bundle-SymbolicName>com.rabbitmq.client</Bundle-SymbolicName>
+                <Specification-Title>AMQP</Specification-Title>
+                <Specification-Version>0.9.1</Specification-Version>
+                <Specification-Vendor>AMQP Working Group (www.amqp.org)</Specification-Vendor>
+                <Implementation-Title>${project.name}</Implementation-Title>
+                <Implementation-Version>${project.version}</Implementation-Version>
+                <Implementation-Vendor>${project.organization.name}</Implementation-Vendor>
+                <Implementation-URL>${project.url}</Implementation-URL>
+              </instructions>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>versions-maven-plugin</artifactId>
+        <version>${versions.maven.plugin.version}</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-release-plugin</artifactId>
+        <version>${maven.release.plugin.version}</version>
+        <configuration>
+          <tagNameFormat>v@{project.version}</tagNameFormat>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>${maven.source.plugin.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>${maven.javadoc.plugin.version}</version>
+        <configuration>
+          <additionalOptions>${javadoc.opts}</additionalOptions>
+          <additionalJOption>${javadoc.joption}</additionalJOption>
+          <quiet>true</quiet>
+          <source>8</source>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>com.github.johnpoth</groupId>
+        <artifactId>jshell-maven-plugin</artifactId>
+        <version>${jshell-maven-plugin.version}</version>
+        <configuration>
+          <testClasspath>true</testClasspath>
+        </configuration>
+      </plugin>
+
+    </plugins>
+    <extensions>
+      <extension>
+        <groupId>io.packagecloud.maven.wagon</groupId>
+        <artifactId>maven-packagecloud-wagon</artifactId>
+        <version>${maven.packagecloud.wagon.version}</version>
+      </extension>
+    </extensions>
+  </build>
+
+</project>

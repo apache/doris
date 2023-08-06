@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+      <groupId>com.fasterxml</groupId>
+      <artifactId>oss-parent</artifactId>
+      <version>37</version>
+    </parent>
+
+    <groupId>com.fasterxml.woodstox</groupId>
+    <artifactId>woodstox-core</artifactId>
+    <version>5.3.0</version>
+    <packaging>bundle</packaging>
+    <name>Woodstox</name>
+    <description>
+        Woodstox is a high-performance XML processor that
+        implements Stax (JSR-173), SAX2 and Stax2 APIs
+    </description>
+    <developers>
+      <developer>
+        <id>cowtowncoder</id>
+        <name>Tatu Saloranta</name>
+        <email>tatu@fasterxml.com</email>
+      </developer>
+    </developers>
+    <organization>
+        <name>FasterXML</name>
+        <url>http://fasterxml.com</url>
+    </organization>
+    <url>https://github.com/FasterXML/woodstox</url>
+    <issueManagement>
+        <url>https://github.com/FasterXML/woodstox/issues</url>
+    </issueManagement>
+    <scm>
+        <connection>scm:git:git@github.com:FasterXML/woodstox.git</connection>
+        <developerConnection>scm:git:git@github.com:FasterXML/woodstox.git</developerConnection>
+        <url>https://github.com/FasterXML/woodstox</url>
+        <tag>woodstox-core-5.3.0</tag>
+    </scm>
+
+    <properties>
+      <version.msv>2013.6.1</version.msv>
+      <!-- Woodstox 5.0 is 1.6+ -->
+      <javac.src.version>1.6</javac.src.version>
+      <javac.target.version>1.6</javac.target.version>
+
+      <!-- Since our groupId is NOT the same as Java package id, need to explicitly define.
+           And due to number of packages, let's just include all.
+        -->
+      <osgi.export>com.ctc.wstx.*;version=${project.version}</osgi.export>
+
+      <!-- 5.1 adds "Automatic-Module-Name" for JDK 9
+           Note: choice between Maven group id and Java package bit tricky;
+           choose latter at this point (may change in future)
+        -->
+      <jdk.module.name>com.ctc.wstx</jdk.module.name>
+    </properties>
+
+    <licenses>
+        <license>
+            <name>The Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <dependencies>
+        <!-- First mandatory (and transitive) dependencies -->
+        <dependency>
+          <groupId>org.codehaus.woodstox</groupId>
+          <artifactId>stax2-api</artifactId>
+          <!-- 13-Mar-2019, tatu: Upgraded to 4.2 (for Woodstox 5.3) get JDK 9 module-info -->
+          <version>4.2</version>
+	  <exclusions>
+            <exclusion>
+              <groupId>javax.xml.stream</groupId>
+              <artifactId>stax-api</artifactId>
+            </exclusion>
+	  </exclusions>
+        </dependency>
+
+        <!-- Then optional ones (need for build, possibly
+           for runtime but not always)
+        -->
+
+        <!-- First, MSV, needed for RNG/W3C Schema validation -->
+        <!-- 05-Mar-2009, TSa: This gets messy, as there are
+          multiple alternatives, even at http://repo1.maven1.maven.org/maven2;
+          + main level ones (group ids "xsdlib", "relaxngDatatype")
+          + "msv" ones (3 subgroups)
+          + "com.sun.msv", but only for xsdlib
+
+          and all with varying sets of dependencies; 
+          For now, we'll just use "msv", which does not properly define
+          dependencies...
+
+          Also: make these 'provided', since user needs to include them
+          directly. Not sure what OSGi thinks about that but...
+        -->
+        <dependency>
+            <groupId>net.java.dev.msv</groupId>
+            <artifactId>msv-core</artifactId>
+            <version>${version.msv}</version>
+            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.msv</groupId>
+            <artifactId>msv-rngconverter</artifactId>
+            <version>${version.msv}</version>
+            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.msv</groupId>
+            <artifactId>xsdlib</artifactId>
+            <version>${version.msv}</version>
+            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Then OSGi, needed if using OSGi discovery -->
+        <dependency>
+            <groupId>org.apache.felix</groupId>
+            <artifactId>org.osgi.core</artifactId>
+            <version>1.4.0</version>
+            <optional>true</optional>
+         <scope>provided</scope>
+        </dependency>
+
+        <!-- Then test jars
+        -->
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.12</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>1.6</source>
+                    <target>1.6</target>
+<!--
+                    <excludes>
+                        <exclude>test/**</exclude>
+                    </excludes>
+-->
+                </configuration>
+            </plugin>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>failing/*.java</exclude>
+                        <exclude>**/Abstract*.java</exclude>
+                        <exclude>**/Base*.java</exclude>
+                        <exclude>**/*$*.java</exclude>
+                    </excludes>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/Test*.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <extensions>true</extensions>
+                <configuration>
+                  <instructions combine.children="merge">
+                    <Automatic-Module-Name>${jdk.module.name}</Automatic-Module-Name>
+                  </instructions>
+                </configuration>
+            </plugin>
+
+	    <!--  12-Mar-2019, tatu: Add rudimentary JDK9+ module info. To build with JDK 8
+		  will have to use `moduleInfoFile` which is crappy but anything else requires
+		  JDK 9+. With Jackson 3.0 will upgrade.
+              -->
+<!--
+	    <plugin>
+              <groupId>org.moditect</groupId>
+              <artifactId>moditect-maven-plugin</artifactId>
+              <executions>
+		<execution>
+		  <id>add-module-infos</id>
+		  <phase>package</phase>
+		  <goals>
+		    <goal>add-module-info</goal>
+		  </goals>
+		  <configuration>
+		    <overwriteExistingFiles>true</overwriteExistingFiles>
+		    <module>
+                      <moduleInfoFile>src/moditect/module-info.java</moduleInfoFile>
+		    </module>
+		  </configuration>
+		</execution>
+              </executions>
+	    </plugin>
+-->
+	</plugins>
+    </build>
+
+    <reporting>
+        <plugins>
+            <!--
+            <plugin>
+                <artifactId>maven-changelog-plugin</artifactId>
+            </plugin>
+            -->
+            <plugin>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <show>private</show>
+                    <serialwarn>true</serialwarn>
+                    <author>true</author>
+                    <doctitle>${project.name} ${project.version} API</doctitle>
+                    <windowtitle>${project.name} ${project.version} API</windowtitle>
+                </configuration>
+            </plugin>
+            <plugin>
+                <artifactId>maven-surefire-report-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </reporting>
+
+  <profiles>
+    <profile>
+      <id>moditect</id>
+      <properties>
+        <!-- Not only do we need JDK 9+, must target later JDK too -->
+        <java.version>1.9</java.version>
+      </properties>
+      <dependencies>
+	<dependency>
+            <groupId>net.java.dev.msv</groupId>
+            <artifactId>msv-rngconverter</artifactId>
+            <version>${version.msv}</version>
+            <scope>provided</scope>
+            <optional>true</optional>
+            <exclusions>
+	      <!-- 12-Mar-2019, tatu: xercesImpl causes heartburn to Moditect/jdeps so... -->
+              <exclusion>
+		<groupId>xerces</groupId>
+		<artifactId>xercesImpl</artifactId>
+              </exclusion>
+            </exclusions>
+	</dependency>
+      </dependencies>
+      <build>
+	<plugins>
+	  <plugin>
+	    <groupId>org.moditect</groupId>
+	    <artifactId>moditect-maven-plugin</artifactId>
+	    <executions>
+	      <execution>
+		<id>generate-module-info</id>
+		<phase>generate-sources</phase>
+		<goals>
+		  <goal>generate-module-info</goal>
+		</goals>
+		<configuration>
+		  <modules>
+		    <module>
+		      <artifact>
+			<groupId>${project.groupId}</groupId>
+			<artifactId>${project.artifactId}</artifactId>
+                        <version>${project.version}</version>
+		      </artifact>
+		    </module>
+		  </modules>
+		</configuration>
+	      </execution>
+	    </executions>
+	  </plugin>
+	</plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>

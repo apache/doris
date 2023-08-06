@@ -1,0 +1,6 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:01 CST 2023
+javax.annotation-api-1.3.2.jar>gcs-maven-central-mirror=
+javax.annotation-api-1.3.2.pom>allmaven=
+javax.annotation-api-1.3.2.jar>allmaven=
+javax.annotation-api-1.3.2.pom>gcs-maven-central-mirror=

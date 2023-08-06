@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:38:44 CST 2023
+joda-time-2.9.9.pom>gcs-maven-central-mirror=
+joda-time-2.9.9.jar>gcs-maven-central-mirror=
+joda-time-2.9.9.jar>allmaven=

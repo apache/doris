@@ -1,0 +1,46 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.github.scopt</groupId>
+    <artifactId>scopt_2.12</artifactId>
+    <packaging>jar</packaging>
+    <description>a command line options parsing library</description>
+    <url>https://github.com/scopt/scopt</url>
+    <version>3.5.0</version>
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>http://www.opensource.org/licenses/mit-license.php</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <name>scopt</name>
+    <organization>
+        <name>com.github.scopt</name>
+        <url>https://github.com/scopt/scopt</url>
+    </organization>
+    <scm>
+        <url>git@github.com:scopt/scopt.git</url>
+        <connection>scm:git:git@github.com:scopt/scopt.git</connection>
+    </scm>
+    <developers>
+        <developer>
+            <id>eed3si9n</id>
+            <name>Eugene Yokota</name>
+            <url>http://eed3si9n.com</url>
+        </developer>
+    </developers>
+    <dependencies>
+        <dependency>
+            <groupId>org.scala-lang</groupId>
+            <artifactId>scala-library</artifactId>
+            <version>2.12.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.specs2</groupId>
+            <artifactId>specs2-core_2.12</artifactId>
+            <version>3.8.6</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,87 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson</groupId>
+    <!-- For 2.9.2 and beyond, new parent pom; extends jackson-bom -->
+    <artifactId>jackson-base</artifactId>
+    <version>2.9.4</version>
+  </parent>
+
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-core</artifactId>
+  <name>Jackson-core</name>
+  <version>2.9.4</version>
+  <packaging>bundle</packaging>
+  <description>Core Jackson processing abstractions (aka Streaming API), implementation for JSON</description>
+  <inceptionYear>2008</inceptionYear>
+
+  <url>https://github.com/FasterXML/jackson-core</url>
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/jackson-core.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/jackson-core.git</developerConnection>
+    <url>http://github.com/FasterXML/jackson-core</url>    
+    <tag>jackson-core-2.9.4</tag>
+  </scm>
+
+  <properties>
+    <!-- 16-Sep-2016, tatu: Retain Java6/JDK1.6 compatibility for streaming for Jackson 2.x -->
+    <javac.src.version>1.6</javac.src.version>
+    <javac.target.version>1.6</javac.target.version>
+
+    <!-- 04-May-2016, tatu: Bundle-plugin 3.x seems to require Java 7, so to
+           build for Java 6 need to downgrade here to last working 2.x version
+          (2.5.4 had some issues wrt shading)
+      -->
+    <version.plugin.bundle>2.5.3</version.plugin.bundle>
+
+    <osgi.export>com.fasterxml.jackson.core;version=${project.version},
+com.fasterxml.jackson.core.*;version=${project.version}
+    </osgi.export>
+
+    <!-- Generate PackageVersion.java into this directory. -->
+    <packageVersion.dir>com/fasterxml/jackson/core/json</packageVersion.dir>
+    <packageVersion.package>${project.groupId}.json</packageVersion.package>
+    <!-- usually above is fine for Automatic Module Name, but not here: -->
+    <jdk.module.name>com.fasterxml.jackson.core</jdk.module.name>
+  </properties>
+
+  <!-- parent provides junit dep, not repeated here -->
+
+  <build>
+    <plugins>
+      <!-- Important: enable enforcer plug-in: -->
+      <plugin>
+        <artifactId>maven-enforcer-plugin</artifactId>
+	<executions> <!-- or?  combine.children="merge"> -->
+          <execution>
+            <id>enforce-properties</id>
+	        <phase>validate</phase>
+            <goals><goal>enforce</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${version.plugin.surefire}</version>
+        <configuration>
+          <redirectTestOutputToFile>${surefire.redirectTestOutputToFile}</redirectTestOutputToFile>
+          <excludes>
+            <exclude>**/failing/**/*.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <!-- settings are fine, but needed to trigger execution! -->
+      <plugin>
+        <groupId>com.google.code.maven-replacer-plugin</groupId>
+        <artifactId>replacer</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+
+</project>

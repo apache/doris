@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson.jaxrs</groupId>
+    <artifactId>jackson-jaxrs-providers</artifactId>
+    <version>2.7.8</version>
+  </parent>
+  <artifactId>jackson-jaxrs-base</artifactId>
+  <name>Jackson-JAXRS-base</name>
+  <packaging>bundle</packaging>
+  <description>Pile of code that is shared by all Jackson-based JAX-RS
+providers.
+  </description>
+
+  <properties>
+    <osgi.export>
+${project.groupId}.annotation.*;version=${project.version}
+,${project.groupId}.base.*;version=${project.version}
+,${project.groupId}.cfg.*;version=${project.version}
+,${project.groupId}.util.*;version=${project.version}
+</osgi.export>
+    <osgi.import>javax.ws.rs;version="${javax.ws.rs.version}"
+,javax.ws.rs.core;version="${javax.ws.rs.version}"
+,javax.ws.rs.ext;version="${javax.ws.rs.version}",
+*
+</osgi.import>
+  </properties>
+
+  <dependencies>
+    <!-- Extends Jackson core, mapper -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <version>${version.jackson.core}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${version.jackson.core}</version>
+    </dependency>
+    <!-- test deps should come from parent -->
+  </dependencies>
+</project>

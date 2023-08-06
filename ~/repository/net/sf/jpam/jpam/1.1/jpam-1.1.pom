@@ -1,0 +1,365 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>net.sf.jpam</groupId>
+    <artifactId>jpam</artifactId>
+    <packaging>jar</packaging>
+    <version>1.1</version>
+    <name>JPam</name>
+    <description>
+        <![CDATA[Jpam is a Java-PAM bridge.  PAM, or Pluggable Authentication Modules, is a standard security architecture used on Linux, Solaris, HP-UX, Mac OS X and other Unix systems.]]>
+    </description>
+    <url>http://jpam.sf.net</url>
+    <inceptionYear>2004</inceptionYear>
+    <developers>
+        <developer>
+            <id>gregluck</id>
+            <name>Greg Luck</name>
+            <email>gregluck at users.sourceforge.net</email>
+            <url>http://gregluck.com</url>
+            <roles>
+                <role>Maintainer</role>
+                <role>Developer</role>
+            </roles>
+            <timezone>+10</timezone>
+            <properties>
+                <skype>gregrluck</skype>
+                <yahoo>gregrluck</yahoo>
+            </properties>
+        </developer>
+    </developers>
+
+    <contributors>
+        <contributor>
+            <name>David Lutterkort</name>
+            <email/>
+            <url/>
+            <organization>RedHat</organization>
+            <organizationUrl>http://redhat.com</organizationUrl>
+            <roles>
+                <role>Contributed patches</role>
+            </roles>
+            <timezone>05</timezone>
+            <properties>
+                <contribution>Dynamic linking and RPM packaging</contribution>
+            </properties>
+        </contributor>
+    </contributors>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>commons-logging</groupId>
+            <artifactId>commons-logging</artifactId>
+            <version>1.0.4</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>checkstyle</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>4.1</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>checkstyle</groupId>
+            <artifactId>checkstyle-optional</artifactId>
+            <version>4.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <licenses>
+        <license>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>http://jpam.sourceforge.net/LICENSE.txt</url>
+            <distribution>repo</distribution>
+            <comments>The license is the standard wording from the Apache license, but with
+                Greg Luck as copyright
+                owner.
+            </comments>
+        </license>
+    </licenses>
+
+    <issueManagement>
+        <system>Sourceforge</system>
+        <url>https://sourceforge.net/tracker/?group_id=116930</url>
+    </issueManagement>
+
+
+    <distributionManagement>
+        <site>
+            <id>sf-jpam-site</id>
+            <name>SF JPAM Site</name>
+            <url>scp://gregluck@shell.sf.net:/home/groups/j/jp/jpam/htdocs</url>
+        </site>
+    </distributionManagement>
+
+    <mailingLists>
+        <mailingList>
+            <name>jpam-list@lists.sourceforge.net</name>
+            <subscribe>http://lists.sourceforge.net/lists/listinfo/jpam-list</subscribe>
+            <unsubscribe>http://lists.sourceforge.net/lists/listinfo/jpam-list</unsubscribe>
+            <post>jpam-list@lists.sourceforge.net</post>
+            <archive>http://sourceforge.net/mailarchive/forum.php?forum=jpam-list</archive>
+        </mailingList>
+    </mailingLists>
+
+    <scm>
+        <connection>scm:svn:https://jpam.svn.sourceforge.net/svnroot/jpam</connection>
+        <developerConnection>
+            scm:svn:https://username@jpam.svn.sourceforge.net/svnroot/jpam
+        </developerConnection>
+        <tag/>
+        <url>http://svn.sourceforge.net/viewcvs.cgi/jpam/</url>
+    </scm>
+
+    <build>
+        <plugins>
+            <!-- Site -->
+            <!--<plugin>-->
+                <!--<artifactId>maven-site-plugin</artifactId>-->
+                <!--<version>2.0-beta-4</version>-->
+                <!--<configuration>-->
+                    <!--<locales>en,ja</locales>-->
+                    <!--<templateDirectory>file://${basedir}/src/site/</templateDirectory>-->
+                    <!--<template>maven-site.vm</template>-->
+                <!--</configuration>-->
+            <!--</plugin>-->
+
+
+
+            <!-- javadoc -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>2.0</version>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <version>2.2</version>
+            </plugin>
+            <!-- Ant -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+
+                    <execution>
+                        <id>book</id>
+                        <phase>site</phase>
+                        <configuration>
+                            <tasks>
+                                <ant antfile="${basedir}/build.xml" inheritRefs="true">
+                                    <target name="generate-checkstyle-config"/>
+                                </ant>
+                                <ant antfile="${basedir}/build.xml" inheritRefs="true">
+                                    <target name="book"/>
+                                </ant>
+                            </tasks>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>singlepageguide</id>
+                        <phase>site</phase>
+                        <configuration>
+                            <tasks>
+                                <ant antfile="${basedir}/build.xml" inheritRefs="true">
+                                    <target name="generate-checkstyle-config"/>
+                                </ant>
+                                <ant antfile="${basedir}/build.xml" inheritRefs="true">
+                                    <target name="singlepageguide"/>
+                                </ant>
+                            </tasks>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <descriptors>
+                        <descriptor>src/main/assembly/bin.xml</descriptor>
+                    </descriptors>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/**</exclude>
+                        <exclude>**/TestSquare.java</exclude>
+                        <exclude>**/constructs/web/**</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+
+    <!-- Reports -->
+    <reporting>
+        <plugins>
+
+            <!-- Reports -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-project-info-reports-plugin</artifactId>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>dependencies</report>
+                            <report>project-team</report>
+                            <report>mailing-list</report>
+                            <report>issue-tracking</report>
+                            <report>license</report>
+                            <report>scm</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+
+            <!-- Checkstyle -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <configuration>
+                    <configLocation>target/log/checkstyle.xml</configLocation>
+                    <enableRSS>false</enableRSS>
+                </configuration>
+            </plugin>
+
+            <!-- Ant deps for Checkstyle plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <configuration>
+                    <tasks>
+                        <ant antfile="${basedir}/build.xml" inheritRefs="true">
+                            <target name="generate-checkstyle-config"/>
+                        </ant>
+                    </tasks>
+                </configuration>
+            </plugin>
+
+            <!-- javadoc -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+		<version>2.0</version>
+                <configuration>
+                    <author>true</author>
+                    <bottom>true</bottom>
+                    <destDir>${basedir}/target/site/javadoc</destDir>
+                    <header><![CDATA[<a href="/" target="_top">jpam</a>]]></header>
+                    <minmemory>128m</minmemory>
+                    <maxmemory>512</maxmemory>
+                    <overview>${basedir}/src/main/java/net/sf/jpam/overview.html</overview>
+                    <packagenames>net.sf.*</packagenames>
+                    <use>true</use>
+                    <version>true</version>
+                    <windowtitle>${project.name} ${project.version} API</windowtitle>
+                    <doclet>ydoc.doclets.YStandard</doclet>
+                    <docletPath>
+                        ${basedir}/tools/ydoc-2.2_02-jdk1.5/lib/ydoc.jar:${basedir}/tools/ydoc-2.2_02-jdk1.5/lib/class2svg.jar:${basedir}/tools/ydoc-2.2_02-jdk1.5/resources:${basedir}/target/classes
+                    </docletPath>
+                    <!--<docletpathref>project.class.path</docletpathref>-->
+                    <additionalparam>-umlautogen</additionalparam>
+                    <tag name="noinspection" description="IntelliJ Inspection Ignore tag"
+                         enabled="false"/>
+                </configuration>
+            </plugin>
+
+            <!-- Clover
+           <plugin>
+               <groupId>org.apache.maven.plugins</groupId>
+               <artifactId>maven-clover-plugin</artifactId>
+           </plugin> -->
+
+            <!-- PMD and CPD -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-pmd-plugin</artifactId>
+                <configuration>
+                    <targetjdk>1.4</targetjdk>
+                    <rulesets>
+                        <ruleset>/rulesets/basic.xml</ruleset>
+                        <ruleset>/rulesets/controversial.xml</ruleset>
+                    </rulesets>
+                    <format>xml</format>
+                    <linkXref>true</linkXref>
+                    <sourceEncoding>utf-8</sourceEncoding>
+                    <minimumTokens>100</minimumTokens>
+                    <outputDirectory>${project.reporting.outputDirectory}</outputDirectory>
+                </configuration>
+            </plugin>
+
+            <!-- Manual Changelist -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>changes-maven-plugin</artifactId>
+                <configuration>
+                    <link_template>
+                        %URL%/index.php?func=detail&amp;group_id=116930&amp;atid=603559&amp;aid=%ISSUE%
+                    </link_template>
+                </configuration>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>changes-report</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+
+            <!-- Automated Changelist - using fisheye instead
+           <plugin>
+               <groupId>org.codehaus.mojo</groupId>
+               <artifactId>changelog-maven-plugin</artifactId>
+           </plugin> -->
+
+            <!-- ToDos -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>taglist-maven-plugin</artifactId>
+                <version>2.0-beta-1</version>
+                <configuration>
+                    <tags>todo, TODO, @todo</tags>
+                </configuration>
+            </plugin>
+
+            <!-- Java Cross Reference (JXR) -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>jxr-maven-plugin</artifactId>
+                <configuration>
+                    <outputDirectory>${project.build.directory}/site</outputDirectory>
+                </configuration>
+            </plugin>
+
+            <!-- Surefire
+           <plugin>
+              <groupId>org.codehaus.mojo</groupId>
+              <artifactId>surefire-report-maven-plugin</artifactId>
+           </plugin> -->
+
+        </plugins>
+    </reporting>
+
+
+</project>

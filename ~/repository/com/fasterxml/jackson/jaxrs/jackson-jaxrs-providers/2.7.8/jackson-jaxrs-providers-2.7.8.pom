@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson</groupId>
+    <artifactId>jackson-parent</artifactId>
+    <version>2.7</version>
+  </parent>
+  <groupId>com.fasterxml.jackson.jaxrs</groupId>
+  <artifactId>jackson-jaxrs-providers</artifactId>
+  <name>Jackson JAX-RS</name>
+  <version>2.7.8</version>
+  <packaging>pom</packaging>
+  <description>Parent for Jackson JAX-RS providers
+  </description>
+
+  <modules>
+    <module>base</module>
+<!-- 26-Dec-2015, tatu: As per [jaxrs-providers#48], will add datatypes module in 2.8
+    <module>datatypes</module>
+-->
+    <module>cbor</module>
+    <module>json</module>
+    <module>smile</module>
+    <module>xml</module>
+    <module>yaml</module>
+  </modules>
+  <url>http://wiki.fasterxml.com/JacksonHome</url>
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/jackson-jaxrs-providers.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/jackson-jaxrs-providers.git</developerConnection>
+    <url>http://github.com/FasterXML/jackson-jaxrs-providers</url>    
+    <tag>jackson-jaxrs-providers-2.7.8</tag>
+  </scm>
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding> 
+    <!-- core/databind should have same version; data formats, annotation version from parent pom -->
+    <version.jackson.core>2.7.8</version.jackson.core>
+    <version.dataformats>${version.jackson.core}</version.dataformats>
+
+    <version.jackson.cbor>${version.dataformats}</version.jackson.cbor>
+    <version.jackson.smile>${version.dataformats}</version.jackson.smile>
+    <version.jackson.xml>${version.dataformats}</version.jackson.xml>
+    <version.jackson.yaml>${version.dataformats}</version.jackson.yaml>
+
+    <version.jackson.jaxb>${version.jackson.core}</version.jackson.jaxb>
+
+    <!--  Need Jersey+Jetty for testing -->
+    <version.jersey>1.17.1</version.jersey>
+    <version.jetty>8.1.10.v20130312</version.jetty>
+    
+    <!-- Needed to enable jax-rs 2.0 usage under OSGi -->
+    <javax.ws.rs.version>[1.1.1,2.1)</javax.ws.rs.version>
+  </properties>
+
+  <dependencies>
+
+    <!-- and we need JAX-RS annotations for testing as well; but usually provided
+      by container (and app should definitely have direct dep too, when using annotations)
+       -->
+    <dependency>
+      <groupId>javax.ws.rs</groupId>
+      <!-- 05-Apr-2014, tatu: JAX-RS 2.x has different artifact-id, "javax.ws.rs-api"
+        -->
+      <artifactId>jsr311-api</artifactId>
+      <version>1.1.1</version>
+<!--
+      <artifactId>javax.ws.rs-api</artifactId>
+      <version>2.0</version>
+-->
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- tests require JAX-RS impl; otherwise components fail to load
+        (some oddity with API classes; should NOT be needed...)
+
+        NOTE: use 1.2 as that's JDK 1.5; later (1.8) versions need JDK 1.6
+      -->
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-server</artifactId>
+      <version>${version.jetty}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-servlet</artifactId>
+      <version>${version.jetty}</version>
+      <scope>test</scope>
+    </dependency>
+        
+    <dependency>
+      <groupId>com.sun.jersey</groupId>
+      <artifactId>jersey-core</artifactId>
+      <version>${version.jersey}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.sun.jersey</groupId>
+      <artifactId>jersey-server</artifactId>
+      <version>${version.jersey}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.sun.jersey</groupId>
+      <artifactId>jersey-servlet</artifactId>
+      <version>${version.jersey}</version>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+</project>

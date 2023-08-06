@@ -1,0 +1,148 @@
+<?xml version="1.0"?>
+<!--
+* © 2016 and later: Unicode, Inc. and others.
+* License & terms of use: http://www.unicode.org/copyright.html
+*******************************************************************************
+* Copyright (C) 2010-2016, International Business Machines Corporation and    *
+* others. All Rights Reserved.                                                *
+*******************************************************************************
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.ibm.icu</groupId>
+  <artifactId>icu4j</artifactId>
+  <version>69.1</version>
+
+  <name>ICU4J</name>
+  <description>
+    International Component for Unicode for Java (ICU4J) is a mature, widely used Java library
+    providing Unicode and Globalization support 
+  </description>
+  <url>http://icu-project.org/</url>
+  <inceptionYear>2001</inceptionYear>
+
+  <licenses>
+    <license>
+      <name>Unicode/ICU License</name>
+      <url>https://raw.githubusercontent.com/unicode-org/icu/master/icu4c/LICENSE</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>macchiati</id>
+      <name>Mark Davis</name>
+      <organization>Google</organization>
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>JCEmmons</id>
+      <name>John Emmons</name>
+      <organization>IBM Corporation</organization>
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>dougfelt</id>
+      <name>Doug Felt</name>
+      <organization>Google</organization>
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>deborah</id>
+      <name>Deborah Goldsmith</name>
+      <organization>Apple</organization>
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>srl295</id>
+      <name>Steven Loomis</name>
+      <organization>IBM Corporation</organization>
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>markusicu</id>
+      <name>Markus Scherer</name>
+      <organization>Google</organization>
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>pedberg</id>
+      <name>Peter Edberg</name>
+      <organization>Apple</organization>
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+    <developer>
+      <id>yumaoka</id>
+      <name>Yoshito Umaoka</name>
+      <organization>IBM Corporation</organization>
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+    </developer>
+  </developers>
+
+  <mailingLists>
+    <mailingList>
+      <name>icu-support</name>
+      <subscribe>https://lists.sourceforge.net/lists/listinfo/icu-support</subscribe>
+      <unsubscribe>https://lists.sourceforge.net/lists/listinfo/icu-support</unsubscribe>
+      <post>icu-support@lists.sourceforge.net</post>
+      <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=icu-support</archive>
+    </mailingList>
+    <mailingList>
+      <name>icu-announce</name>
+      <subscribe>https://lists.sourceforge.net/lists/listinfo/icu-announce</subscribe>
+      <unsubscribe>https://lists.sourceforge.net/lists/listinfo/icu-announce</unsubscribe>
+      <post>icu-announce@lists.sourceforge.net</post>
+      <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=icu-announce</archive>
+    </mailingList>
+    <mailingList>
+      <name>icu-design</name>
+      <subscribe>https://lists.sourceforge.net/lists/listinfo/icu-design</subscribe>
+      <unsubscribe>https://lists.sourceforge.net/lists/listinfo/icu-design</unsubscribe>
+      <post>icu-design@lists.sourceforge.net</post>
+      <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=icu-design</archive>
+    </mailingList>
+  </mailingLists>
+
+  <scm>
+    <connection>scm:git:git://github.com/unicode-org/icu.git</connection>
+    <developerConnection>scm:git:git@github.com:unicode-org/icu.git</developerConnection>
+    <url>https://github.com/unicode-org/icu</url>
+  </scm>
+
+  <issueManagement>
+    <system>JIRA</system>
+    <url>https://unicode-org.atlassian.net/projects/ICU</url>
+  </issueManagement>
+
+  <distributionManagement>
+    <repository>
+      <id>icu4j-releases</id>
+      <name>ICU4J Central Repository</name>
+      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2</url>
+    </repository>
+    <snapshotRepository>
+      <id>icu4j-snapshots</id>
+      <name>ICU4J Central Development Repository</name>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+    </snapshotRepository>
+  </distributionManagement>
+</project>

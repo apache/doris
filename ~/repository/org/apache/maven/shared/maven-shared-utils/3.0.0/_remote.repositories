@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:47:26 CST 2023
+maven-shared-utils-3.0.0.pom>allmaven=
+maven-shared-utils-3.0.0.jar>allmaven=
+maven-shared-utils-3.0.0.jar>gcs-maven-central-mirror=

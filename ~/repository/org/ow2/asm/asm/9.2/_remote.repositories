@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:25:53 CST 2023
+asm-9.2.pom>gcs-maven-central-mirror=
+asm-9.2.jar>allmaven=
+asm-9.2.jar>gcs-maven-central-mirror=

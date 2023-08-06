@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson.dataformat</groupId>
+    <artifactId>jackson-dataformats-binary</artifactId>
+    <version>2.8.11</version>
+  </parent>
+  <artifactId>jackson-dataformat-smile</artifactId>
+  <name>Jackson dataformat: Smile</name>
+  <packaging>bundle</packaging>
+  <description>Support for reading and writing Smile ("binary JSON")
+encoded data using Jackson abstractions (streaming API, data binding,
+tree model)
+  </description>
+  <url>http://github.com/FasterXML/jackson-dataformats-binary</url>    
+
+  <properties>
+    <packageVersion.dir>com/fasterxml/jackson/dataformat/smile</packageVersion.dir>
+    <packageVersion.package>${project.groupId}.smile</packageVersion.package>
+  </properties>
+
+  <dependencies>
+
+    <!-- and for testing we need databind-->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <!-- Inherited from oss-base. Generate PackageVersion.java.-->
+        <groupId>com.google.code.maven-replacer-plugin</groupId>
+        <artifactId>replacer</artifactId>
+        <executions>
+          <execution>
+            <id>process-packageVersion</id>
+            <phase>generate-sources</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

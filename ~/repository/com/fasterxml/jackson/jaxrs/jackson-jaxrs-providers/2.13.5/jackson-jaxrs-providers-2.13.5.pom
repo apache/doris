@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson</groupId>
+    <artifactId>jackson-base</artifactId>
+    <version>2.13.5</version>
+  </parent>
+  <groupId>com.fasterxml.jackson.jaxrs</groupId>
+  <artifactId>jackson-jaxrs-providers</artifactId>
+  <name>Jackson: JAX-RS (parent)</name>
+  <version>2.13.5</version>
+  <packaging>pom</packaging>
+  <description>Parent for Jackson JAX-RS providers
+  </description>
+
+  <modules>
+    <module>base</module>
+    <module>datatypes</module>
+    <module>cbor</module>
+    <module>json</module>
+    <module>smile</module>
+    <module>xml</module>
+    <module>yaml</module>
+  </modules>
+  <url>http://github.com/FasterXML/jackson-jaxrs-providers</url>    
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/jackson-jaxrs-providers.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/jackson-jaxrs-providers.git</developerConnection>
+    <url>http://github.com/FasterXML/jackson-jaxrs-providers</url>    
+    <tag>jackson-jaxrs-providers-2.13.5</tag>
+  </scm>
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding> 
+
+    <!--  Need Jersey+Jetty for testing; deps from DropWizard 1.3.29 -->
+    <version.jersey>2.25.1</version.jersey>
+    <!-- as per CVE-2019-10247 -> 9.4.35 -->
+    <!-- 01-Jul-2021, tatu: Further increase (latest at this point) -->
+    <version.jetty>9.4.42.v20210604</version.jetty>
+
+    <!-- Needed to enable jax-rs 2.0 usage under OSGi -->
+    <javax.ws.rs.version>[2.0,2.2)</javax.ws.rs.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>jakarta.xml.bind</groupId>
+        <artifactId>jakarta.xml.bind-api</artifactId>
+        <version>2.3.3</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+
+    <!-- and we need JAX-RS annotations for testing as well; but usually provided
+      by container (and app should definitely have direct dep too, when using annotations)
+       -->
+    <dependency>
+      <groupId>javax.ws.rs</groupId>
+      <!-- 05-Apr-2014, tatu: JAX-RS 2.x has different artifact-id, "javax.ws.rs-api"
+        -->
+      <artifactId>javax.ws.rs-api</artifactId>
+      <version>2.1.1</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-server</artifactId>
+      <version>${version.jetty}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.jetty</groupId>
+      <artifactId>jetty-servlet</artifactId>
+      <version>${version.jetty}</version>
+      <scope>test</scope>
+    </dependency>
+        
+    <dependency>
+      <groupId>org.glassfish.jersey.core</groupId>
+      <artifactId>jersey-server</artifactId>
+      <version>${version.jersey}</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>com.google.guava</groupId>
+          <artifactId>guava</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.slf4j</groupId>
+          <artifactId>slf4j-api</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.glassfish.jersey.containers</groupId>
+      <artifactId>jersey-container-servlet</artifactId>
+      <version>${version.jersey}</version>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+
+  <!-- Alas, need to include snapshot reference since otherwise can not find
+       snapshot of parent... -->
+  <repositories>
+    <repository>
+      <id>sonatype-nexus-snapshots</id>
+      <name>Sonatype Nexus Snapshots</name>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+      <releases><enabled>false</enabled></releases>
+      <snapshots><enabled>true</enabled></snapshots>
+    </repository>
+  </repositories>  
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.felix</groupId>
+          <artifactId>maven-bundle-plugin</artifactId>
+          <configuration>
+            <instructions>
+              <_nouses>false</_nouses>
+            </instructions>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <!-- Inherited from oss-base. Generate PackageVersion.java.-->
+          <groupId>com.google.code.maven-replacer-plugin</groupId>
+          <artifactId>replacer</artifactId>
+          <executions>
+            <execution>
+              <id>process-packageVersion</id>
+              <phase>generate-sources</phase>
+            </execution>
+          </executions>
+        </plugin>
+
+        <plugin>
+          <groupId>org.moditect</groupId>
+          <artifactId>moditect-maven-plugin</artifactId>
+          <!-- 20-Feb-2021, tatu: For Jackson 2.x, put `module-info.class` under location
+                  only visible to JDK 11+ (to avoid issues with older pre-Java9 frameworks?)
+            -->
+          <configuration>
+            <jvmVersion>11</jvmVersion>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <!-- 05-Jul-2020, tatu: Add generation of Gradle Module Metadata -->
+    <plugins>
+
+     <plugin>
+        <groupId>de.jjohannes</groupId>
+        <artifactId>gradle-module-metadata-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

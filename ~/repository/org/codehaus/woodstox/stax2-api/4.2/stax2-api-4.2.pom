@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+      <groupId>com.fasterxml</groupId>
+      <artifactId>oss-parent</artifactId>
+      <version>35</version>
+  </parent>
+  <groupId>org.codehaus.woodstox</groupId>
+  <artifactId>stax2-api</artifactId>
+  <name>Stax2 API</name>
+  <version>4.2</version>
+  <packaging>bundle</packaging>
+  <description>tax2 API is an extension to basic Stax 1.0 API that adds significant new functionality, such as full-featured bi-direction validation interface and high-performance Typed Access API.
+  </description>
+  <url>http://github.com/FasterXML/stax2-api</url>
+  <organization>
+    <name>fasterxml.com</name>
+    <url>http://fasterxml.com</url>
+  </organization>
+  <developers>
+     <developer>
+       <id>tatu</id>
+       <name>Tatu Saloranta</name>
+       <email>tatu@fasterxml.com</email>
+     </developer>
+  </developers>
+  <licenses>
+    <license>
+      <name>The BSD License</name>
+      <url>http://www.opensource.org/licenses/bsd-license.php</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <scm>
+    <connection>scm:git:git@github.com:FasterXML/stax2-api.git</connection>
+    <developerConnection>scm:git:git@github.com:FasterXML/stax2-api.git</developerConnection>
+    <url>http://github.com/FasterXML/stax2-api</url>    
+    <tag>stax2-api-4.2</tag>
+  </scm>
+
+  <properties>
+      <!-- 1.6 baseline for 4.0 (earlier only required 1.5) -->
+      <javac.src.version>1.6</javac.src.version>
+      <javac.target.version>1.6</javac.target.version>
+
+      <!-- 4.1 adds "Automatic-Module-Name" for JDK 9 -->
+      <jdk.module.name>org.codehaus.stax2</jdk.module.name>
+  </properties>
+
+  <build>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-release-plugin</artifactId>
+            <configuration>
+                <mavenExecutorId>forked-path</mavenExecutorId>
+            </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <configuration>
+            <source>1.6</source>
+            <target>1.6</target>
+            <encoding>UTF-8</encoding>
+            <links>
+              <link>https://docs.oracle.com/javase/8/docs/api/</link>
+            </links>
+          </configuration>
+          <executions>
+            <execution>
+              <id>attach-javadocs</id>
+              <phase>verify</phase>
+              <goals>
+                <goal>jar</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+       <!-- Plus, let's make jars OSGi bundles as well  -->
+        <plugin>
+          <groupId>org.apache.felix</groupId>
+          <artifactId>maven-bundle-plugin</artifactId>
+          <extensions>true</extensions>
+          <configuration>
+            <instructions>
+              <Automatic-Module-Name>${jdk.module.name}</Automatic-Module-Name>
+              <Bundle-SymbolicName>${project.artifactId}</Bundle-SymbolicName>
+              <Bundle-Vendor>fasterml.com</Bundle-Vendor>
+              <Import-Package>
+javax.xml.namespace
+,javax.xml.stream
+,javax.xml.stream.events
+,javax.xml.stream.util
+,javax.xml.transform
+,javax.xml.transform.dom 
+,org.w3c.dom
+</Import-Package>
+              <Private-Package>
+</Private-Package>
+              <!-- Whether to export 'impl' is open to debate; but for now it has necessary                  
+                   base classes for anyone who wants to create custom segment types                          
+                -->
+              <Export-Package>
+org.codehaus.stax2
+,org.codehaus.stax2.evt
+,org.codehaus.stax2.io
+,org.codehaus.stax2.osgi
+,org.codehaus.stax2.ri
+,org.codehaus.stax2.ri.dom
+,org.codehaus.stax2.ri.evt
+,org.codehaus.stax2.ri.typed
+,org.codehaus.stax2.typed
+,org.codehaus.stax2.util
+,org.codehaus.stax2.validation
+</Export-Package>
+            </instructions>
+          </configuration>
+        </plugin>
+	<!--  04-Mar-2019, tatu: Add rudimentary JDK9+ module info. To build with JDK 8
+              will have to use `moduleInfoFile` as anything else requires JDK 9+
+          -->
+	<plugin>
+          <groupId>org.moditect</groupId>
+          <artifactId>moditect-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>add-module-infos</id>
+            <phase>package</phase>
+            <goals>
+              <goal>add-module-info</goal>
+            </goals>
+            <configuration>
+              <overwriteExistingFiles>true</overwriteExistingFiles>
+              <module>
+                <moduleInfoFile>src/moditect/module-info.java</moduleInfoFile>
+              </module>
+            </configuration>
+          </execution>
+        </executions>
+	</plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>moditect</id>
+      <properties>
+        <!-- Not only do we need JDK 9+, must target later JDK too -->
+        <java.version>1.9</java.version>
+	<javac.src.version>1.9</javac.src.version>
+	<javac.target.version>1.9</javac.target.version>
+        <version.plugin.bundle>4.1.0</version.plugin.bundle>
+      </properties>
+      <build>
+	<plugins>
+	  <plugin>
+	    <groupId>org.moditect</groupId>
+	    <artifactId>moditect-maven-plugin</artifactId>
+	    <executions>
+	      <execution>
+		<id>generate-module-info</id>
+		<phase>generate-sources</phase>
+		<goals>
+		  <goal>generate-module-info</goal>
+		</goals>
+		<configuration>
+		  <modules>
+		    <module>
+		      <artifact>
+			<groupId>${project.groupId}</groupId>
+			<artifactId>${project.artifactId}</artifactId>
+			<!-- 08-Mar-2019, tatu: Alas, due to JDK bug
+			     https://bugs.openjdk.java.net/browse/JDK-8207162
+			     this won't work...
+			     
+			<version>5.2.0</version>
+			     -->
+                        <version>${project.version}</version>
+		      </artifact>
+		    </module>
+		  </modules>
+		</configuration>
+	      </execution>
+	    </executions>
+	  </plugin>
+	</plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

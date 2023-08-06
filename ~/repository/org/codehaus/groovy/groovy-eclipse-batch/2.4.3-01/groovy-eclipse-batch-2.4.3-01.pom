@@ -1,0 +1,58 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                      http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.codehaus.groovy</groupId>
+  <artifactId>groovy-eclipse-batch</artifactId>
+  <packaging>jar</packaging>
+  <version>2.4.3-01</version>
+  <name>Groovy-Eclipse Batch Compiler</name>
+  <description>Groovy Eclipse Compiler wrapped for Batch Use from Maven</description>
+  <url>http://groovy.codehaus.org/Groovy-Eclipse+compiler+plugin+for+Maven</url>
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+	</properties>
+
+	<licenses>
+		<license>
+			<name>The Eclipse Public License</name>
+			<url>http://www.eclipse.org/legal/epl-v10.html</url>
+			<distribution>repo</distribution>
+		</license>
+		<license>
+			<name>The Apache Software License, Version 2.0</name>
+			<url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+
+	<developers>
+		<developer>
+			<id>werdna</id>
+			<name>Andrew Eisenberg</name>
+			<email>andrew@eisenberg.as</email>
+		</developer>
+	</developers>
+
+	<issueManagement>
+		<system>jira</system>
+		<url>http://jira.codehaus.org/browse/GRECLIPSE</url>
+	</issueManagement>
+	<scm>
+		<connection>git://github.com/groovy/groovy-eclipse.git</connection>
+		<developerConnection>git@github.com:groovy/groovy-eclipse.git</developerConnection>
+		<url>https://github.com/groovy/groovy-eclipse</url>
+	</scm>
+	<organization>
+		<name>SpringSource, a division of VMWare</name>
+		<url>http://springsource.com</url>
+	</organization>
+	<distributionManagement>
+		<repository>
+			<id>codehaus-nexus-snapshots</id>
+			<name>Codehaus.org snapshot repository</name>
+			<url>https://nexus.codehaus.org/content/repositories/snapshots/groovy/</url>
+		</repository>
+	</distributionManagement>
+</project>

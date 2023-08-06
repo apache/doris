@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:47:25 CST 2023
+protoc-jar-3.11.4.jar>gcs-maven-central-mirror=
+protoc-jar-3.11.4.jar>allmaven=
+protoc-jar-3.11.4.pom>gcs-maven-central-mirror=

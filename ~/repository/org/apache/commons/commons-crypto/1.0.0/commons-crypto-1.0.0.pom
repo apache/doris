@@ -1,0 +1,637 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-parent</artifactId>
+    <version>40</version>
+  </parent>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.apache.commons</groupId>
+  <artifactId>commons-crypto</artifactId>
+  <packaging>jar</packaging>
+  <description>
+Apache Commons Crypto is a cryptographic library optimized with AES-NI (Advanced Encryption
+Standard New Instructions). It provides Java API for both cipher level and Java stream level.
+Developers can use it to implement high performance AES encryption/decryption with the minimum
+code and effort. Please note that Crypto doesn't implement the cryptographic algorithm such as
+AES directly. It wraps to Openssl or JCE which implement the algorithms.
+
+Features
+--------
+
+1. Cipher API for low level cryptographic operations.
+2. Java stream API (CryptoInputStream/CryptoOutputStream) for high level stream encyrption/decryption.
+3. Both optimized with high performance AES encryption/decryption. (1400 MB/s - 1700 MB/s throughput in modern Xeon processors).
+4. JNI-based implementation to achieve comparable performance to the native C++ version based on OpenSsl.
+5. Portable across various operating systems (currently only Linux/MacOSX/Windows);
+   Apache Commons Crypto loads the library according to your machine environment (it checks system properties, `os.name` and `os.arch`).
+6. Simple usage. Add the commons-crypto-(version).jar file to your classpath.
+
+
+Export restrictions
+-------------------
+
+This distribution includes cryptographic software.
+The country in which you currently reside may have restrictions
+on the import, possession, use, and/or re-export to another country,
+of encryption software. BEFORE using any encryption software,
+please check your country's laws, regulations and policies
+concerning the import, possession, or use, and re-export of
+encryption software, to see if this is permitted.
+See &lt;http://www.wassenaar.org/&gt; for more information.
+
+The U.S. Government Department of Commerce, Bureau of Industry and Security (BIS),
+has classified this software as Export Commodity Control Number (ECCN) 5D002.C.1,
+which includes information security software using or performing
+cryptographic functions with asymmetric algorithms.
+The form and manner of this Apache Software Foundation distribution makes
+it eligible for export under the License Exception
+ENC Technology Software Unrestricted (TSU) exception
+(see the BIS Export Administration Regulations, Section 740.13)
+for both object code and source code.
+
+The following provides more details on the included cryptographic software:
+
+* Commons Crypto use [Java Cryptography Extension](http://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html) provided by Java
+* Commons Crypto link to and use [OpenSSL](https://www.openssl.org/) ciphers
+
+  </description>
+  <version>1.0.0</version>
+  <name>Apache Commons Crypto</name>
+  <inceptionYear>2016</inceptionYear>
+  <url>http://commons.apache.org/proper/commons-crypto/</url>
+  <issueManagement>
+    <system>jira</system>
+    <url>http://issues.apache.org/jira/browse/CRYPTO</url>
+  </issueManagement>
+  <scm>
+    <connection>
+      scm:git:http://git-wip-us.apache.org/repos/asf/commons-crypto.git
+    </connection>
+    <developerConnection>
+      scm:git:https://git-wip-us.apache.org/repos/asf/commons-crypto.git
+    </developerConnection>
+    <url>
+      https://git-wip-us.apache.org/repos/asf?p=commons-crypto.git
+    </url>
+    <tag>CRYPTO-1.0.0-RC1</tag>
+  </scm>
+  <ciManagement>
+    <system>Jenkins</system>
+    <url>https://builds.apache.org/search/?q=Commons-CRYPTO</url>
+  </ciManagement>
+  <distributionManagement>
+    <site>
+      <id>commons.site</id>
+      <name>Apache Commons Site SVN</name>
+      <url>scm:svn:${commons.scmPubUrl}</url>
+    </site>
+  </distributionManagement>
+  <developers>
+    <developer>
+      <name>Aaron T Myers</name>
+      <email>atm@apache.org</email>
+      <id>atm</id>
+    </developer>
+    <developer>
+      <name>Andrew Wang</name>
+      <email>wang@apache.org</email>
+      <id>wang</id>
+    </developer>
+    <developer>
+      <name>Chris Nauroth</name>
+      <email>cnauroth@apache.org</email>
+      <id>cnauroth</id>
+    </developer>
+    <developer>
+      <name>Colin P. McCabe</name>
+      <email>cmccabe@apache.org</email>
+      <id>cmccabe</id>
+    </developer>
+    <developer>
+      <name>Dapeng Sun</name>
+      <email>sdp@apache.org</email>
+      <id>sdp</id>
+    </developer>
+    <developer>
+      <name>Dian Fu</name>
+      <email>dianfu@apache.org</email>
+      <id>dianfu</id>
+    </developer>
+    <developer>
+      <name>Dong Chen</name>
+      <email>dongc@apache.org</email>
+      <id>dongc</id>
+    </developer>
+    <developer>
+      <name>Ferdinand Xu</name>
+      <email>xuf@apache.org</email>
+      <id>xuf</id>
+    </developer>
+    <developer>
+      <name>Haifeng Chen</name>
+      <email>haifengchen@apache.org</email>
+      <id>haifengchen</id>
+    </developer>
+    <developer>
+      <name>Marcelo Vanzin</name>
+      <email>vanzin@apache.org</email>
+      <id>vanzin</id>
+    </developer>
+    <developer>
+      <name>Uma Maheswara Rao G</name>
+      <email>umamahesh@apache.org</email>
+      <id>umamahesh</id>
+    </developer>
+    <developer>
+      <name>Yi Liu</name>
+      <email>yliu@apache.org</email>
+      <id>yliu</id>
+    </developer>
+  </developers>
+
+  <contributors>
+    <contributor>
+      <name>Colin Ma</name>
+      <email>junjie.ma@intel.com</email>
+    </contributor>
+    <contributor>
+      <name>Xianda Ke</name>
+      <email>xianda.ke@intel.com</email>
+    </contributor>
+    <contributor>
+      <name>Ke Jia</name>
+      <email>ke.a.jia@intel.com</email>
+    </contributor>
+    <contributor>
+      <name>George Kankava </name>
+      <email>george.kankava@devfactory.com</email>
+    </contributor>
+  </contributors>
+
+  <properties>
+    <commons.componentid>crypto</commons.componentid>
+    <commons.release.version>1.0.0</commons.release.version>
+    <commons.release.desc>(Requires Java ${maven.compiler.target} or later)</commons.release.desc>
+    <commons.rc.version>RC1</commons.rc.version>
+    <jna.version>4.2.2</jna.version>
+
+    <!-- properties not related to versioning -->
+    <commons.jira.id>CRYPTO</commons.jira.id>
+    <commons.jira.pid>12320024</commons.jira.pid>
+    <commons.javadoc.java.link>http://download.oracle.com/javase/7/docs/api/</commons.javadoc.java.link>
+    <commons.changes.onlyCurrentVersion>true</commons.changes.onlyCurrentVersion>
+    <commons-build-plugin.version>1.6</commons-build-plugin.version>
+    <maven.compiler.source>1.7</maven.compiler.source>
+    <maven.compiler.target>1.7</maven.compiler.target>
+
+
+    <!--
+        Encoding of Java source files: ensures that the compiler and
+        the javadoc generator use the right encoding. Subprojects may
+        overwrite this, if they are using another encoding.
+    -->
+    <commons.encoding>iso-8859-1</commons.encoding>
+    <!-- used in this pom to provide the Javadoc HTML file encoding -->
+    <commons.docEncoding>${commons.encoding}</commons.docEncoding>
+    <!-- Define source encoding for filtering; used by general plugins -->
+    <project.build.sourceEncoding>${commons.encoding}</project.build.sourceEncoding>
+    <!-- This is used by reporting plugins -->
+    <project.reporting.outputEncoding>${commons.encoding}</project.reporting.outputEncoding>
+
+    <!-- The property "target.name" is used to specify the ant target, The All target will use
+    OsInfo.java to detect the OS info and arch to generate the native binary for detected platform.
+    User is able to specify the platform by maven profiles.-->
+    <target.name>all</target.name>
+    <maven-antrun-plugin.version>1.8</maven-antrun-plugin.version>
+    <junit.version>4.12</junit.version>
+    <commons-logging.version>1.1.3</commons-logging.version>
+    <commons.jacoco.version>0.7.7.201606060606</commons.jacoco.version>
+    <slf4j-api.version>1.7.10</slf4j-api.version>
+  </properties>
+  <profiles>
+    <profile>
+      <id>win32</id>
+      <properties>
+        <target.name>win32</target.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>win64</id>
+      <properties>
+        <target.name>win64</target.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>mac32</id>
+      <properties>
+        <target.name>mac32</target.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>linux32</id>
+      <properties>
+        <target.name>linux32</target.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>linux64</id>
+      <properties>
+        <target.name>linux64</target.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>linux-arm</id>
+      <properties>
+        <target.name>linux-arm</target.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>linux-armhf</id>
+      <properties>
+        <target.name>linux-armhf</target.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>linux-aarch64</id>
+      <properties>
+        <target.name>linux-aarch64</target.name>
+      </properties>
+    </profile>
+    <profile>
+      <id>jacoco</id>
+      <activation>
+        <file>
+          <exists>src/site/resources/profile.jacoco</exists>
+        </file>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <configuration>
+              <excludes>
+                <exclude>**/examples/*</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+      <reporting>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>${commons.jacoco.version}</version>
+            <configuration>
+              <excludes>
+                <exclude>**/examples/*</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </reporting>
+    </profile>
+    <!-- Profile to build and run the benchmarks. Use 'mvn test -Pbenchmark', and add '-Dbenchmark=foo' to run only the foo benchmark -->
+    <profile>
+      <id>benchmark</id>
+
+      <properties>
+        <skipTests>true</skipTests>
+        <benchmark>org.apache</benchmark>
+        <jmh.version>1.12</jmh.version>
+      </properties>
+
+      <dependencies>
+        <dependency>
+          <groupId>org.openjdk.jmh</groupId>
+          <artifactId>jmh-core</artifactId>
+          <version>${jmh.version}</version>
+          <scope>test</scope>
+        </dependency>
+
+        <dependency>
+          <groupId>org.openjdk.jmh</groupId>
+          <artifactId>jmh-generator-annprocess</artifactId>
+          <version>${jmh.version}</version>
+          <scope>test</scope>
+        </dependency>
+
+      </dependencies>
+
+      <build>
+        <plugins>
+          <!-- Enable the compilation of the benchmarks -->
+          <plugin>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <version>${commons.compiler.version}</version>
+            <configuration combine.self="override">
+              <testIncludes>
+                <testInclude>**/*</testInclude>
+              </testIncludes>
+            </configuration>
+          </plugin>
+
+          <!-- Hook the benchmarks to the test phase -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <version>1.4.0</version>
+            <executions>
+              <execution>
+                <id>benchmark</id>
+                <phase>test</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <classpathScope>test</classpathScope>
+                  <executable>java</executable>
+                  <arguments>
+                    <argument>-classpath</argument>
+                    <classpath />
+                    <argument>org.openjdk.jmh.Main</argument>
+                    <argument>-rf</argument>
+                    <argument>json</argument>
+                    <argument>-rff</argument>
+                    <argument>target/jmh-result.json</argument>
+                    <argument>${benchmark}</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+  </profiles>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources/</directory>
+        <filtering>true</filtering>
+      </resource>
+    </resources>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${commons.compiler.version}</version>
+          <configuration>
+            <!-- Fix incremental compiler bug, see https://jira.codehaus.org/browse/MCOMPILER-205 etc. -->
+            <excludes>
+              <exclude>**/package-info.java</exclude>
+            </excludes>
+          </configuration>
+        </plugin>
+        <plugin>
+          <artifactId>maven-antrun-plugin</artifactId>
+          <version>${maven-antrun-plugin.version}</version>
+          <dependencies>
+            <dependency>
+              <groupId>ant-contrib</groupId>
+              <artifactId>ant-contrib</artifactId>
+              <version>1.0b3</version>
+              <exclusions>
+                <exclusion>
+                  <groupId>ant</groupId>
+                  <artifactId>ant</artifactId>
+                </exclusion>
+              </exclusions>
+            </dependency>
+            <dependency>
+              <groupId>org.apache.ant</groupId>
+              <artifactId>ant-nodeps</artifactId>
+              <version>1.8.1</version>
+            </dependency>
+          </dependencies>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>3.0.1</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifestEntries>
+              <!-- Helper application -->
+              <Main-Class>org.apache.commons.crypto.Crypto</Main-Class>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>2.7</version>
+        <executions>
+          <execution>
+            <id>create-version-file</id>
+            <!-- change phase of maven-resource-plugin -->
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>resources</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>make</id>
+            <phase>process-classes</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target name="make">
+                <taskdef resource="net/sf/antcontrib/antcontrib.properties" classpathref="maven.plugin.classpath" />
+                <exec executable="make" failonerror="true" dir="${project.basedir}">
+                  <env key="VERSION" value="${project.version}" />
+                  <env key="PROJECT_NAME" value="${project.name}" />
+                  <!-- For debugging: -->
+                  <!-- <arg value="-d" /> -->
+                  <arg value="${target.name}" />
+                </exec>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-build-plugin</artifactId>
+        <version>${commons-build-plugin.version}</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <configuration>
+          <descriptors>
+             <descriptor>src/assembly/bin.xml</descriptor>
+             <descriptor>src/assembly/src.xml</descriptor>
+          </descriptors>
+          <tarLongFileMode>gnu</tarLongFileMode>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <testExcludes>
+            <testExclude>**/*Benchmark*</testExclude>
+          </testExcludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-scm-publish-plugin</artifactId>
+        <version>1.1</version>
+        <configuration>
+          <ignorePathsToDelete>
+            <ignorePathToDelete>javadocs**</ignorePathToDelete>
+          </ignorePathsToDelete>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <reporting>
+    <plugins>
+      <plugin>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>2.17</version>
+        <configuration>
+          <configLocation>${basedir}/checkstyle.xml</configLocation>
+          <enableRulesSummary>false</enableRulesSummary>
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>checkstyle</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <!-- Requires setting 'export MAVEN_OPTS="-Xmx512m -XX:MaxPermSize=128m" ' -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <!-- Use version from parent pom as that is adjusted according to the Java version used to run Maven -->
+        <version>${commons.findbugs.version}</version>
+        <configuration>
+          <excludeFilterFile>${basedir}/findbugs-exclude.xml</excludeFilterFile>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>3.6</version>
+        <configuration>
+          <targetJdk>${maven.compiler.target}</targetJdk>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>taglist-maven-plugin</artifactId>
+        <version>2.4</version>
+        <configuration>
+          <tagListOptions>
+            <tagClasses>
+              <tagClass>
+                <displayName>Needs Work</displayName>
+                <tags>
+                  <tag>
+                    <matchString>TODO</matchString>
+                    <matchType>exact</matchType>
+                  </tag>
+                  <tag>
+                    <matchString>FIXME</matchString>
+                    <matchType>exact</matchType>
+                  </tag>
+                  <tag>
+                    <matchString>XXX</matchString>
+                    <matchType>exact</matchType>
+                  </tag>
+                </tags>
+              </tagClass>
+              <tagClass>
+                <displayName>Noteable Markers</displayName>
+                <tags>
+                  <tag>
+                    <matchString>NOTE</matchString>
+                    <matchType>exact</matchType>
+                  </tag>
+                  <tag>
+                    <matchString>NOPMD</matchString>
+                    <matchType>exact</matchType>
+                  </tag>
+                  <tag>
+                    <matchString>NOSONAR</matchString>
+                    <matchType>exact</matchType>
+                  </tag>
+                </tags>
+              </tagClass>
+            </tagClasses>
+          </tagListOptions>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>javancss-maven-plugin</artifactId>
+        <version>2.1</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.rat</groupId>
+        <artifactId>apache-rat-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>.gitattributes</exclude>
+            <exclude>.gitignore</exclude>
+            <exclude>.git/**</exclude>
+            <exclude>.idea/**</exclude>
+            <exclude>**/build/**</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+    </plugins>
+  </reporting>
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna</artifactId>
+      <version>${jna.version}</version>
+      </dependency>
+  </dependencies>
+</project>

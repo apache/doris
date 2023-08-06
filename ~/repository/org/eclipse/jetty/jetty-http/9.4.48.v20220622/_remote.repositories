@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:02:37 CST 2023
+jetty-http-9.4.48.v20220622.jar>gcs-maven-central-mirror=
+jetty-http-9.4.48.v20220622.pom>gcs-maven-central-mirror=

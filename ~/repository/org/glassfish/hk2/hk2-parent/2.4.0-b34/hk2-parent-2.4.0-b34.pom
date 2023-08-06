@@ -1,0 +1,1107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
+
+    Copyright (c) 2010-2015 Oracle and/or its affiliates. All rights reserved.
+
+    The contents of this file are subject to the terms of either the GNU
+    General Public License Version 2 only ("GPL") or the Common Development
+    and Distribution License("CDDL") (collectively, the "License").  You
+    may not use this file except in compliance with the License.  You can
+    obtain a copy of the License at
+    https://glassfish.dev.java.net/public/CDDL+GPL_1_1.html
+    or packager/legal/LICENSE.txt.  See the License for the specific
+    language governing permissions and limitations under the License.
+
+    When distributing the software, include this License Header Notice in each
+    file and include the License file at packager/legal/LICENSE.txt.
+
+    GPL Classpath Exception:
+    Oracle designates this particular file as subject to the "Classpath"
+    exception as provided by Oracle in the GPL Version 2 section of the License
+    file that accompanied this code.
+
+    Modifications:
+    If applicable, add the following below the License Header, with the fields
+    enclosed by brackets [] replaced by your own identifying information:
+    "Portions Copyright [year] [name of copyright owner]"
+
+    Contributor(s):
+    If you wish your version of this file to be governed by only the CDDL or
+    only the GPL Version 2, indicate your decision by adding "[Contributor]
+    elects to include this software in this distribution under the [CDDL or GPL
+    Version 2] license."  If you don't indicate a single choice of license, a
+    recipient has the option to distribute your version of this file under
+    either the CDDL, the GPL Version 2 or to extend the choice of license to
+    its licensees as provided above.  However, if you add GPL Version 2 code
+    and therefore, elected the GPL Version 2 license, then the option applies
+    only if the new code is made subject to such option by the copyright
+    holder.
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.glassfish.hk2</groupId>
+        <artifactId>hk2-bom</artifactId>
+        <version>2.4.0-b34</version>
+        <relativePath>bom/pom.xml</relativePath>
+    </parent>
+    <artifactId>hk2-parent</artifactId>
+    <packaging>pom</packaging>
+
+    <name>HK2</name>
+    <description>Dependency Injection Kernel</description>
+    <inceptionYear>2009</inceptionYear>
+
+    <organization>
+        <name>Oracle Corporation</name>
+        <url>http://www.oracle.com</url>
+    </organization>
+
+    <url>https://hk2.java.net</url>
+
+    <licenses>
+        <license>
+            <name>CDDL + GPLv2 with classpath exception</name>
+            <url>https://glassfish.java.net/nonav/public/CDDL+GPL_1_1.html</url>
+            <distribution>repo</distribution>
+            <comments>A business-friendly OSS license</comments>
+        </license>
+    </licenses>
+
+    <contributors>
+        <contributor>
+            <name>Jerome Dochez</name>
+            <url>http://blogs.sun.com/dochez</url>
+        </contributor>
+        <contributor>
+            <name>Kohsuke Kawaguchi</name>
+            <url>http://weblogs.java.net/blog/kohsuke</url>
+        </contributor>
+        <contributor>
+            <name>Sanjeeb Sahoo</name>
+            <url>http://weblogs.java.net/ss141213</url>
+        </contributor>
+        <contributor>
+            <name>Andriy Zhdanov</name>
+            <url>http://avalez.blogspot.com</url>
+        </contributor>
+        <contributor>
+            <name>Jeff Trent</name>
+        </contributor>
+    </contributors>
+
+    <developers>
+        <developer>
+            <id>jwells</id>
+            <name>John Wells</name>
+            <organization>Oracle, Inc</organization>
+            <roles>
+                <role>developer</role>
+            </roles>
+        </developer>
+        <developer>
+            <id>mtaube</id>
+            <name>Mason Taube</name>
+            <organization>Oracle, Inc</organization>
+            <roles>
+                <role>developer</role>
+            </roles>
+        </developer>
+    </developers>
+
+    <mailingLists>
+        <mailingList>
+            <name>dev</name>
+            <subscribe>http://java.net/projects/hk2/lists</subscribe>
+            <post>dev@hk2.java.net</post>
+            <archive>http://java.net/projects/hk2/lists/dev/archive</archive>
+        </mailingList>
+        <mailingList>
+            <name>users</name>
+            <subscribe>http://java.net/projects/hk2/lists</subscribe>
+            <post>users@hk2.java.net</post>
+            <archive>http://java.net/projects/hk2/lists/users/archive</archive>
+        </mailingList>
+        <mailingList>
+            <name>issues</name>
+            <subscribe>http://java.net/projects/hk2/lists</subscribe>
+            <post>issues@hk2.java.net</post>
+            <archive>http://java.net/projects/hk2/lists/issues/archive</archive>
+        </mailingList>
+        <mailingList>
+            <name>commits</name>
+            <subscribe>http://java.net/projects/hk2/lists</subscribe>
+            <post>commits@hk2.java.net</post>
+            <archive>http://java.net/projects/hk2/lists/commits/archive</archive>
+        </mailingList>
+    </mailingLists>
+
+    <issueManagement>
+        <system>JIRA</system>
+        <url>http://java.net/jira/browse/HK2</url>
+    </issueManagement>
+
+    <scm>
+        <connection>scm:git:git://java.net/hk2~git</connection>
+        <developerConnection>scm:git:ssh://${user.name}@git.java.net/hk2~git</developerConnection>
+        <url>https://java.net/projects/hk2/sources/git/show</url>
+        <tag>hk2-parent-2.4.0-b34</tag>
+    </scm>
+
+    <repositories>
+        <repository>
+            <id>spring-external</id>
+            <name>SpringSource Enterprise Bundle Repository - External Library Releases</name>
+            <url>http://repository.springsource.com/maven/bundles/external</url>
+        </repository>
+    </repositories>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>jvnet-nexus-snapshots</id>
+            <name>Java.net Nexus Snapshots Repository</name>
+            <url>https://maven.java.net/content/repositories/snapshots</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </pluginRepository>
+    </pluginRepositories>
+
+    <distributionManagement>
+        <site>
+            <id>website.java.net</id>
+            <url>dav:https://website.java.net/website/hk2</url>
+        </site>
+    </distributionManagement> 
+
+    <properties>
+        <java.net.username>${user.name}</java.net.username>
+        
+        <junit.version>4.11</junit.version>
+        <asm.version>5.0.3</asm.version>
+        <tiger-types.version>1.4</tiger-types.version>
+        <woodstox.version>3.2.3</woodstox.version>
+        <stax-api.version>1.0-2</stax-api.version>        
+        <aopalliance.version>1.0</aopalliance.version>
+        <testng.version>6.8.7</testng.version>
+        <assertj.version>1.4.0</assertj.version>
+        <pax-exam-version>3.5.0</pax-exam-version>
+        <javax-inject.version>1</javax-inject.version>
+        <slf4j.version>1.7.12</slf4j.version>
+        <org.jboss.logging.version>3.1.0.GA</org.jboss.logging.version>
+        <javax.validation.osgi.version>1.1.0</javax.validation.osgi.version>
+        <jtype.version>0.1.0</jtype.version>        
+        <javax.el.version>2.2.5</javax.el.version>
+        <findbugs.exclude />
+        <findbugs.threshold>High</findbugs.threshold>
+
+        <!-- site is generated under target/site/${project.version} -->
+        <site.dir>${project.build.directory}/site</site.dir>
+        <site.outputDir>${site.dir}/${project.version}</site.outputDir>
+
+        <!-- properties for site resources -->
+        <cdn.bootstrap>http://netdna.bootstrapcdn.com</cdn.bootstrap>
+        <cdn.google>http://ajax.googleapis.com/ajax/libs</cdn.google>
+        <cdn.yandex>http://yandex.st</cdn.yandex>
+        <bootstrap.version>2.3.2</bootstrap.version>
+        <fontawesome.version>3.2.1</fontawesome.version>
+        <highlightjs.version>7.5</highlightjs.version>
+        <jquery.version>1.9.1</jquery.version>
+        <jdk.version>1.6.0</jdk.version>
+        <mvn.version>3.0.3</mvn.version>
+    </properties>
+
+    <modules>
+        <module>hk2-maven</module>
+        <module>osgiversion-maven-plugin</module>
+        <module>hk2-inhabitant-generator</module>
+        <module>hk2-metadata-generator</module>
+        <module>consolidatedbundle-maven-plugin</module>
+        <!--<module>osgi-resource-locator</module>-->
+        <module>hk2-runlevel</module>
+        <module>hk2-locator</module>
+        <module>class-model</module>
+        <module>hk2-core</module>
+        <module>osgi</module>
+        <module>dependency-verifier</module>
+        <module>dependency-visualizer</module>
+        <module>examples</module>
+        <module>hk2-testing</module>
+        <module>guice-bridge</module>
+        <module>spring-bridge</module>
+        <module>hk2-jmx</module>
+        <module>hk2</module>
+        <module>bom</module>
+        <module>external</module>
+        <module>hk2-utils</module>
+        <module>hk2-api</module>
+        <module>hk2-configuration</module>
+        <module>hk2-extras</module>
+    </modules>
+
+    <build>
+        <defaultGoal>install</defaultGoal>
+        <finalName>${project.artifactId}</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-eclipse-plugin</artifactId>
+                <configuration>
+                    <downloadSources>true</downloadSources>
+                    <downloadJavadocs>true</downloadJavadocs>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>1.6</source>
+                    <target>1.6</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-enableassertions</argLine>
+                    <systemProperties>
+                        <property>
+                            <name>java.util.logging.config.file</name>
+                            <value>logging.properties</value>
+                        </property>
+                    </systemProperties>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <configuration>
+                    <skip>${findbugs.skip}</skip>
+                    <threshold>${findbugs.threshold}</threshold>
+                    <findbugsXmlWithMessages>true</findbugsXmlWithMessages>
+                    <excludeFilterFile>
+                        exclude-common.xml,${findbugs.exclude}
+                    </excludeFilterFile>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.glassfish.findbugs</groupId>
+                        <artifactId>findbugs</artifactId>
+                        <version>1.0</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <configuration>
+                    <!-- By default, we don't export anything. -->
+                    <Export-Package />
+                    <instructions>
+                        <!-- Read all the configuration from osgi.bundle file, if it exists.
+                             See Felix-699 to find out why we use ${basedir}.
+                        -->
+                        <_include>-${basedir}/osgi.bundle</_include>
+                    </instructions>
+                </configuration>
+            </plugin>
+            <!--
+                maven site URL contains the version.
+                Thus, we need to do the following redirects:
+                  / -> /${project.version}
+                  /apidocs -> ${project.version}/apidocs
+                  /xref -> ${project.version}/xref
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>2.6</version>
+                <inherited>false</inherited>
+                <executions>
+                    <execution>
+                        <id>copy-resources</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${site.dir}</outputDirectory>
+                            <resources>          
+                                <resource>
+                                    <directory>src/main/resources</directory>
+                                    <filtering>true</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
+                Download site's resources: .css and .js files
+            -->
+            <plugin>
+                <groupId>com.googlecode.maven-download-plugin</groupId>
+                <artifactId>maven-download-plugin</artifactId>
+                <inherited>false</inherited>
+                <executions>
+                    <execution>
+                        <id>get-bootstrap-min-css</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>${cdn.bootstrap}/twitter-bootstrap/${bootstrap.version}/css/bootstrap.min.css</url>
+                            <outputDirectory>${site.outputDir}/css</outputDirectory>
+                            <md5>a4e7cc3c672f9dbc86ffe3517aff11a8</md5>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>get-bootstrap-min-js</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>${cdn.bootstrap}/twitter-bootstrap/${bootstrap.version}/js/bootstrap.min.js</url>
+                            <outputDirectory>${site.outputDir}/js</outputDirectory>
+                            <md5>be1c5898c4332c8e7f9906011e005bb0</md5>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>get-jquery</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>${cdn.google}/jquery/${jquery.version}/jquery.min.js</url>
+                            <outputDirectory>${site.outputDir}/js</outputDirectory>
+                            <md5>397754ba49e9e0cf4e7c190da78dda05</md5>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>get-highlightjs</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>${cdn.yandex}/highlightjs/${highlightjs.version}/highlight.min.js</url>
+                            <outputDirectory>${site.outputDir}/js</outputDirectory>
+                            <md5>56335e0f03719e5ab34a87a6a74b2476</md5>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>get-highlightjs-theme</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>wget</goal>
+                        </goals>
+                        <configuration>
+                            <url>${cdn.yandex}/highlightjs/${highlightjs.version}/styles/solarized_dark.min.css</url>
+                            <outputDirectory>${site.outputDir}/css</outputDirectory>
+                            <md5>0496f08bdc1e4e4469d5db56070b1323</md5>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-site-plugin</artifactId>
+                <configuration>
+                    <stagingDirectory>${site.outputDir}}</stagingDirectory>
+                    <inputDirectory>${site.dir}</inputDirectory>
+                    <skip>false</skip>
+                    <skipDeploy>false</skipDeploy>
+                </configuration>
+                <inherited>false</inherited>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.apache.maven.doxia</groupId>
+                        <artifactId>doxia-module-markdown</artifactId>
+                        <version>1.4</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>lt.velykis.maven.skins</groupId>
+                        <artifactId>reflow-velocity-tools</artifactId>
+                        <version>1.1.0</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.apache.velocity</groupId>
+                        <artifactId>velocity</artifactId>
+                        <version>1.7</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <useDefaultManifestFile>true</useDefaultManifestFile>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-versions</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[${jdk.version},)</version>
+                                    <message>You need JDK ${jdk.version} and above!</message>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[${mvn.version},)</version>
+                                    <message>You need Maven ${mvn.version} or above!</message>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>2.9.1</version>
+                    <configuration>
+                        <additionalparam>${javadoc.options}</additionalparam>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-gpg-plugin</artifactId>
+                    <version>1.4</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>1.3.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>com.googlecode.maven-download-plugin</groupId>
+                    <artifactId>maven-download-plugin</artifactId>
+                    <version>1.1.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>findbugs-maven-plugin</artifactId>
+                    <version>2.4.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>2.6</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-eclipse-plugin</artifactId>
+                    <version>2.9</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>3.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>2.3.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>2.4</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.felix</groupId>
+                    <artifactId>maven-bundle-plugin</artifactId>
+                    <version>2.4.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-plugin-plugin</artifactId>
+                    <version>2.9</version>
+                </plugin> 
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>1.7</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.glassfish.hk2</groupId>
+                    <artifactId>config-generator</artifactId>
+                    <version>${project.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.glassfish.hk2</groupId>
+                    <artifactId>hk2-inhabitant-generator</artifactId>
+                    <version>${project.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.glassfish.hk2</groupId>
+                    <artifactId>hk2-metadata-generator</artifactId>
+                    <version>${project.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-antrun-plugin</artifactId>
+                    <version>1.7</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>2.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.glassfish.hk2</groupId>
+                    <artifactId>osgiversion-maven-plugin</artifactId>
+                    <version>${project.version}</version>
+                    <executions>
+                        <execution>
+                            <id>compute-osgi-version</id>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>compute-osgi-version</goal>
+                            </goals>
+                            <configuration>
+                                <dropVersionComponent>qualifier</dropVersionComponent>
+                                <versionPropertyName>project.osgi.version</versionPropertyName>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>2.2</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <extensions>
+            <extension>
+                <groupId>org.apache.maven.wagon</groupId>
+                <artifactId>wagon-webdav-jackrabbit</artifactId>
+                <version>2.0</version>
+            </extension>
+        </extensions>
+    </build>
+    
+    <reporting>
+        <outputDirectory>${site.outputDir}</outputDirectory>
+        <plugins>
+            <plugin>
+                <artifactId>maven-project-info-reports-plugin</artifactId>
+                <version>2.7</version>
+                <configuration>
+                    <customBundle>${project.basedir}/src/site/custom/project-info-report.properties</customBundle>
+                    <developerConnection>scm:git:ssh://[jvnet_id]@git.java.net/hk2~git/</developerConnection>
+                </configuration>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>project-team</report>
+                            <report>mailing-list</report>
+                            <report>issue-tracking</report>
+                            <report>license</report>
+                            <report>scm</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>2.8</version>
+                <configuration>
+                    <additionalparam>${javadoc.options}</additionalparam>
+                    <sourcepath>
+                        ${basedir}/hk2-api/src/main/java;
+                        ${basedir}/hk2-locator/src/main/java;
+                        ${basedir}/hk2-utils/src/main/java;
+                        ${basedir}/hk2-runlevel/src/main/java;
+                        ${basedir}/guice-bridge/src/main/java;
+                        ${basedir}/spring-bridge/src/main/java;
+                        ${basedir}/hk2-testing/hk2-junitrunner/src/main/java;
+                        ${basedir}/hk2-testing/collections/src/main/java;
+                        ${basedir}/hk2-inhabitant-generator/src/main/java;
+                        ${basedir}/hk2-configuration/manager/src/main/java;
+                        ${basedir}/hk2-configuration/hk2-integration/src/main/java;
+                        ${basedir}/hk2-configuration/persistence/property-file/src/main/java;
+                        ${basedir}/hk2-configuration/persistence/hk2-xml/src/main/java;
+                        ${basedir}/hk2-extras/src/main/java
+                    </sourcepath>
+                    <doctitle>HK2 API Documentation</doctitle>
+                    <windowtitle>HK2 API Documentation</windowtitle>
+                    <bottom>
+<![CDATA[Copyright &#169; 2009-2015,
+    <a href="http://www.oracle.com">Oracle</a>
+    and/or its affiliates. All Rights Reserved.
+]]>
+                    </bottom>
+                </configuration>
+                <reportSets>
+                    <reportSet>
+                        <id>javadoc</id>
+                        <inherited>false</inherited>
+                        <reports>
+                            <report>javadoc</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jxr-plugin</artifactId>
+                <version>2.3</version>
+                <configuration>
+                    <linkJavadoc>true</linkJavadoc>
+                    <javadocDir>${site.outputDir}/apidocs</javadocDir>
+                    <sourcePath>
+                        ;${basedir}/hk2-api/src/main/java;
+                        ${basedir}/hk2-configuration/persistence/hk2-xml-dom/hk2-config/src/main/java;
+                        ${basedir}/hk2-locator/src/main/java;
+                        ${basedir}/hk2-utils/src/main/java;
+                        ${basedir}/hk2-runlevel/src/main/java;
+                        ${basedir}/hk2-core/src/main/java;
+                        ${basedir}/class-model/src/main/java;
+                        ${basedir}/hk2-configuration/persistence/hk2-xml-dom/config-types/src/main/java;
+                        ${basedir}/guice-bridge/src/main/java;
+                        ${basedir}/spring-bridge/src/main/java;
+                        ${basedir}/hk2-testing/hk2-junitrunner/src/main/java;
+                        ${basedir}/hk2-inhabitant-generator/src/main/java;
+                        ${basedir}/hk2-configuration/persistence/hk2-xml/src/main/java;
+                        ${basedir}/hk2-extras/src/main/java
+                    </sourcePath>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <version>2.4.0</version>
+                <configuration>
+                    <threshold>${findbugs.threshold}</threshold>
+                    <excludeFilterFile>${findbugs.exclude}</excludeFilterFile>
+                </configuration>
+            </plugin>
+        </plugins>
+    </reporting>
+    
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.jvnet</groupId>
+                <artifactId>tiger-types</artifactId>
+                <version>${tiger-types.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>woodstox</groupId>
+                <artifactId>wstx-asl</artifactId>
+                <version>${woodstox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.xml.stream</groupId>
+                <artifactId>stax-api</artifactId>
+                <version>${stax-api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.maven</groupId>
+                <artifactId>maven-plugin-api</artifactId>
+                <version>2.0.4</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.maven</groupId>
+                <artifactId>maven-project</artifactId>
+                <version>3.0-alpha-2</version>
+                <type>jar</type>
+            </dependency>
+            <dependency>
+                <groupId>com.sun.codemodel</groupId>
+                <artifactId>codemodel</artifactId>
+                <version>2.6</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>2.0.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.maven.shared</groupId>
+                <artifactId>maven-osgi</artifactId>
+                <version>0.2.0</version>
+            </dependency>
+            <dependency>
+                <groupId>args4j</groupId>
+                <artifactId>args4j</artifactId>
+                <version>2.0.12</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.inject</groupId>
+                <artifactId>javax.inject</artifactId>
+                <version>${javax-inject.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.inject</groupId>
+                <artifactId>guice</artifactId>
+                <version>3.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish.hk2</groupId>
+                <artifactId>osgi-resource-locator</artifactId>
+                <version>1.0.1</version>
+            </dependency>
+            <dependency>
+                <groupId>ant</groupId>
+                <artifactId>ant</artifactId>
+                <version>1.6.5</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.maven</groupId>
+                <artifactId>maven-artifact</artifactId>
+                <version>2.0.4</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.maven</groupId>
+                <artifactId>maven-archiver</artifactId>
+                <version>2.0.4</version>
+            </dependency>
+            <dependency>
+                <groupId>org.osgi</groupId>
+                <artifactId>osgi_R4_core</artifactId>
+                <version>1.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testng</groupId>
+                <artifactId>testng</artifactId>
+                <version>${testng.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.assertj</groupId>
+                <artifactId>assertj-core</artifactId>
+                <version>${assertj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.osgi</groupId>
+                <artifactId>org.osgi.core</artifactId>
+                <version>4.2.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>org.osgi.core</artifactId>
+                <version>1.4.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.osgi</groupId>
+                <artifactId>org.osgi.compendium</artifactId>
+                <version>4.2.0</version>
+            </dependency>
+            <dependency>
+                <groupId>javax.enterprise</groupId>
+                <artifactId>cdi-api</artifactId>
+                <version>1.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.osgi</groupId>
+                <artifactId>org.osgi.enterprise</artifactId>
+                <version>4.2.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>org.apache.felix.bundlerepository</artifactId>
+                <version>1.6.6</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam-spi</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam-junit4</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam-link-mvn</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam-inject</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency> 
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam-invoker-junit</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam-extender-service</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam-container-native</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.exam</groupId>
+                <artifactId>pax-exam-link-assembly</artifactId>
+                <version>${pax-exam-version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.base</groupId>
+                <artifactId>ops4j-base</artifactId>
+                <version>1.4.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.url</groupId>
+                <artifactId>pax-url-aether</artifactId>
+                <version>2.1.0</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-core</artifactId>
+                <version>1.1.2</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>1.1.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.geronimo.specs</groupId>
+                <artifactId>geronimo-atinject_1.0_spec</artifactId>
+                <version>1.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.tipi</groupId>
+                <artifactId>org.ops4j.pax.tipi.junit</artifactId>
+                <version>4.11.0.1</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>org.apache.felix.main</artifactId>
+                <version>3.2.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>org.apache.felix.framework</artifactId>
+                <version>3.2.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-simple</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>com.springsource.org.junit</artifactId>
+                <version>4.4.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>org.apache.felix.configadmin</artifactId>
+                <version>1.8.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.logging</groupId>
+                <artifactId>pax-logging-api</artifactId>
+                <version>1.6.4</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ops4j.pax.logging</groupId>
+                <artifactId>pax-logging-service</artifactId>
+                <version>1.7.2</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-context</artifactId>
+                <version>3.2.3.RELEASE</version>
+            </dependency>
+            <dependency>
+                <groupId>org.hibernate</groupId>
+                <artifactId>hibernate-validator-cdi</artifactId>
+                <version>${hibernate-validator.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.googlecode.jtype</groupId>
+                <artifactId>jtype</artifactId>
+                <version>${jtype.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jboss.logging</groupId>
+                <artifactId>jboss-logging</artifactId>
+                <version>${org.jboss.logging.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.ow2.asm</groupId>
+                <artifactId>asm-debug-all</artifactId>
+                <version>${asm.version}</version>
+                <optional>true</optional>
+            </dependency>
+            <dependency>
+                <groupId>aopalliance</groupId>
+                <artifactId>aopalliance</artifactId>
+                <version>${aopalliance.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>junit</groupId>
+                <artifactId>junit</artifactId>
+                <version>${junit.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.easymock</groupId>
+                <artifactId>easymock</artifactId>
+                <version>3.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.uncommons</groupId>
+                <artifactId>reportng</artifactId>
+                <version>1.1.2</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.easymock</groupId>
+            <artifactId>easymock</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <profile>
+          <id>noagent</id>
+          <activation>
+            <activeByDefault>true</activeByDefault>
+          </activation>
+          <properties>
+            <surefireArgLineExtra />
+          </properties>
+        </profile>
+        <profile>
+            <id>sonar</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- <argLine>-enableassertions</argLine> -->
+                            <argLine>${surefireArgLineExtra}</argLine>
+                            <systemProperties>
+                                <property>
+                                    <name>java.util.logging.config.file</name>
+                                    <value>logging.properties</value>
+                                </property>
+                            </systemProperties>
+                            <properties>
+                              <property>
+                                <name>listener</name>
+                                <value>org.sonar.java.jacoco.JUnitListener</value>
+                              </property>
+                            </properties>
+                        </configuration>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.jacoco</groupId>
+                                <artifactId>jacoco-maven-plugin</artifactId>
+                                <version>0.7.4.201502262128</version>
+                            </dependency>
+                        </dependencies>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <version>0.7.4.201502262128</version>
+                        <executions>
+                            <!-- Prepares the property pointing to the JaCoCo runtime agent which
+                                 is passed as VM argument when Maven the Surefire plugin is executed. -->
+                            <execution>
+                                <id>pre-unit-test</id>
+                                <goals>
+                                    <goal>prepare-agent</goal>
+                                </goals>
+                                <configuration>
+                                    <!-- Sets the path to the file which contains the execution data. -->
+                                    <destFile>${project.build.directory}/jacoco.exec</destFile>
+                                    <!-- Sets the name of the property containing the settings for JaCoCo
+                                         runtime agent. -->
+                                    <propertyName>surefireArgLineExtra</propertyName>
+                                </configuration>
+                            </execution>
+                            <!-- Ensures that the code coverage report for unit tests is created
+                                 after unit tests have been run. -->
+                            <execution>
+                                <id>post-unit-test</id>
+                                <phase>test</phase>
+                                <goals>
+                                    <goal>report</goal>
+                                </goals>
+                                <configuration>
+                                    <!-- Sets the path to the file which contains the execution data. -->
+                                    <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+                                    <!-- Sets the output directory for the code coverage report. -->
+                                    <outputDirectory>${project.reporting.outputDirectory}/jacoco</outputDirectory>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>sonar-maven-plugin</artifactId>
+                        <version>2.5</version>
+                    </plugin>
+                </plugins>
+            </build>
+            <dependencies>
+               <dependency>
+                  <groupId>org.codehaus.sonar-plugins.java</groupId>
+                  <artifactId>sonar-jacoco-listeners</artifactId>
+                  <version>3.0</version>
+                  <scope>test</scope>
+               </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>javadoc-jdk8+</id>
+            <activation>
+                <jdk>[1.8,)</jdk>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <properties>
+                <javadoc.options>-Xdoclint:none</javadoc.options>
+            </properties>
+        </profile>
+    </profiles>
+</project>

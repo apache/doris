@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+<project
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
+  xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <artifactId>avro-parent</artifactId>
+    <groupId>org.apache.avro</groupId>
+    <version>1.7.7</version>
+    <relativePath>../</relativePath>
+  </parent>
+
+  <artifactId>avro</artifactId>
+
+  <name>Apache Avro</name>
+  <url>http://avro.apache.org</url>
+  <description>Avro core components</description>
+  <packaging>bundle</packaging>
+
+  <properties>
+    <osgi.import>
+      !org.apache.avro*,
+      com.thoughtworks.paranamer,
+      org.codehaus.jackson*,
+      org.xerial.snappy;resolution:=optional,
+      *
+    </osgi.import>
+    <osgi.export>org.apache.avro*;version="${project.version}"</osgi.export>
+  </properties>
+
+  <build>
+    <resources>
+      <resource>
+        <directory>../../../share/schemas</directory>
+        <includes>
+          <include>org/apache/avro/data/Json.avsc</include>
+        </includes>
+      </resource>
+    </resources>
+    <plugins>
+      <plugin>
+        <groupId>com.thoughtworks.paranamer</groupId>
+        <artifactId>paranamer-maven-plugin</artifactId>
+        <version>${paranamer.version}</version>
+        <executions>
+          <execution>
+            <id>paranamer-test</id>
+            <configuration>
+              <sourceDirectory>${project.build.testSourceDirectory}</sourceDirectory>
+              <outputDirectory>${project.build.testOutputDirectory}</outputDirectory>
+            </configuration>
+            <phase>process-test-classes</phase>
+            <goals>
+              <goal>generate</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>interop-data-generate</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>exec-maven-plugin</artifactId>
+            <executions>
+              <!-- Generate random data for interop tests, using null codec -->
+              <execution>
+                <id>interop-generate-null-codec</id>
+                <phase>generate-resources</phase>
+                <configuration>
+                  <mainClass>org.apache.avro.RandomData</mainClass>
+                  <classpathScope>test</classpathScope>
+                  <arguments>
+                    <argument>../../../share/test/schemas/interop.avsc</argument>
+                    <argument>../../../build/interop/data/java.avro</argument>
+                    <argument>100</argument>
+                  </arguments>
+                </configuration>
+                <goals><goal>java</goal></goals>
+              </execution>
+              <!-- Generate random data for interop tests, using deflate codec -->
+              <execution>
+                <id>interop-generate-deflate-codec</id>
+                <phase>generate-resources</phase>
+                <configuration>
+                  <mainClass>org.apache.avro.RandomData</mainClass>
+                  <classpathScope>test</classpathScope>
+                  <arguments>
+                    <argument>../../../share/test/schemas/interop.avsc</argument>
+                    <argument>../../../build/interop/data/java_deflate.avro</argument>
+                    <argument>100</argument>
+                    <argument>deflate</argument>
+                  </arguments>
+                </configuration>
+                <goals><goal>java</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.codehaus.jackson</groupId>
+      <artifactId>jackson-core-asl</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.codehaus.jackson</groupId>
+      <artifactId>jackson-mapper-asl</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.thoughtworks.paranamer</groupId>
+      <artifactId>paranamer</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.xerial.snappy</groupId>
+      <artifactId>snappy-java</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-compress</artifactId>
+    </dependency>
+  </dependencies>
+
+</project>
+

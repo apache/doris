@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+
+ <!-- General information -->
+
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.codehaus.jackson</groupId>
+  <artifactId>jackson-mapper-asl</artifactId>
+  <packaging>jar</packaging>
+  <name>Data Mapper for Jackson</name>
+  <version>1.8.3</version>
+  <description>Data Mapper package is a high-performance data binding package
+built on Jackson JSON processor
+</description>
+
+ <!-- Contact information -->
+
+  <url>http://jackson.codehaus.org</url>
+  <issueManagement>
+    <url>http://jira.codehaus.org/browse/JACKSON</url>
+  </issueManagement>
+
+ <!-- Dependency information -->
+ 
+  <dependencies>
+    <!-- need the core Jackson parser/generator jar -->
+    <dependency>
+      <groupId>org.codehaus.jackson</groupId>
+      <artifactId>jackson-core-asl</artifactId>
+      <version>1.8.3</version>
+    </dependency>
+  </dependencies>
+
+  <!-- Licensing (joy!) -->
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <organization>
+    <name>FasterXML</name>
+    <url>http://fasterxml.com</url>
+  </organization>
+
+</project>

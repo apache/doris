@@ -1,0 +1,781 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>net.sourceforge.czt</groupId>
+  <artifactId>czt-parent</artifactId>
+  <version>1.6-cdh</version>
+  
+  <packaging>pom</packaging>
+  <name>Community Z Tools</name>
+
+  <description>
+    Set of libraries and tools for editing, typechecking and animating
+    formal specifications written in the Z specification language,
+    with some support for Z extensions such as Object-Z and Circus.
+  </description>
+
+
+  <properties>
+    <site.url>http://czt.sourceforge.net</site.url>
+
+    <czt.version>1.6-cdh</czt.version>
+    <czt.groupId>net.sourceforge.czt</czt.groupId>
+    <czt.dev.groupId>net.sourceforge.czt.dev</czt.dev.groupId>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- Use build timestamp as OSGI qualifier (e.g. 1.6.0.201209062207) -->
+    <maven.build.timestamp.format>yyyyMMddHHmm</maven.build.timestamp.format>
+    <osgi-version-qualifier>${maven.build.timestamp}</osgi-version-qualifier>
+    
+    <site.build.dir>${project.build.directory}/generated-site</site.build.dir>
+    <site.build.apt.dir>${site.build.dir}/apt</site.build.apt.dir>
+    <site.build.md.dir>${site.build.dir}/markdown</site.build.md.dir>
+
+    <site.deploy.id>sourceforge</site.deploy.id>
+    <!-- Use SCP upload via SourceForge shell for Maven site, because SFTP fails
+         (see http://jira.codehaus.org/browse/WAGON-354).
+         However, SCP requires shell access first (see comments for `site` profile below) -->
+    <site.deploy.url>scp://shell.sourceforge.net/home/project-web/czt/htdocs</site.deploy.url>
+    <site.deploy.url.sftp>sftp://web.sourceforge.net/home/project-web/czt/htdocs</site.deploy.url.sftp>
+
+    <files.deploy.url>sftp://frs.sourceforge.net/home/frs/project/czt/</files.deploy.url>
+  </properties>
+
+  <url>${site.url}</url>
+
+
+  <modules>
+    <module>dev</module>
+    <module>zml</module>
+    <module>session</module>
+    <module>corejava</module>
+    <module>parser</module>
+    <module>typechecker</module>
+    <module>util</module>
+    <module>rules</module>
+    <module>zlive</module>
+    <module>gaffe</module>
+    <module>gaffe2</module>
+    <module>vcg</module>
+    <module>z2b</module>
+    <module>z2alloy</module>
+    <module>zeves</module>
+    <module>ui</module>
+    <module>jedit</module>
+  </modules>
+
+
+  <dependencies>
+    <!-- JUnit -->
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.5</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <!-- Note that CZT dependencies are no longer managed via dependencyManagement. This is to
+       avoid inheriting the dependency management in /dev plugins, as well as other submodules
+       where it is not needed.
+       
+       To ensure the correct versions are used, we now rely on all CZT sibling projects having
+       the same version. So when writing a dependency on CZT module, use
+       <version>${project.version}</version> as the version.
+       
+       See http://www.sonatype.com/books/mvnex-book/reference/optimizing-sect-dependencies.html
+       for more details. -->
+  <dependencyManagement />
+
+  <build>
+    <extensions>
+      <!-- extension to enable SCP use for deployment
+           (must be added to the main build configuration) -->
+      <extension>
+        <groupId>org.apache.maven.wagon</groupId>
+        <artifactId>wagon-ssh</artifactId>
+        <!-- Private key authentication does not work with wagon-ssh versions 2.6-2.9.
+             Will be fixed in 2.10 - update when released.
+             See https://issues.apache.org/jira/browse/WAGON-413 -->
+        <version>2.5</version>
+      </extension>
+    </extensions>
+
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.3</version>
+        <configuration>
+          <source>1.8</source>
+          <target>1.8</target>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>2.6</version>
+        <configuration>
+          <skipIfEmpty>true</skipIfEmpty>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.18.1</version>
+        <configuration>
+          <systemProperties>
+            <property>
+              <name>java.util.logging.config.file</name>
+              <value>logging.properties</value>
+            </property>
+          </systemProperties>
+          <!-- don't execute the tests
+          <skipExec>true</skipExec> -->
+          <!-- ignore failing tests
+          <testFailureIgnore>true</testFailureIgnore> -->
+        </configuration>
+      </plugin>
+
+      <!-- Copy additional files to the site directory, e.g. README or INSTALL files from
+           project root, so that they are available in the generated HMTL website.
+           Executed in pre-site phase. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>1.8</version>
+        <executions>
+          <execution>
+            <id>copy-site-files</id>
+            <phase>pre-site</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <mkdir dir="${site.build.dir}" />
+                <copy failonerror="false" quiet="true" file="README.txt" tofile="${site.build.apt.dir}/index.apt"/>
+                <!-- copy the site file first, then README won't overwrite -->
+                <copy failonerror="false" quiet="true" file="{project.basedir}/src/site/markdown/index.md" tofile="${site.build.md.dir}/index.md"/>
+                <copy failonerror="false" quiet="true" file="README.md" tofile="${site.build.md.dir}/index.md"/>
+                <copy failonerror="false" quiet="true" file="README.md" tofile="${site.build.md.dir}/manual.md"/>
+                <copy failonerror="false" quiet="true" file="INSTALL.md" tofile="${site.build.md.dir}/install.md"/>
+<!--            <copy overwrite="true" failonerror="false" todir="${site.build.dir}">
+                  <fileset dir="src/site" />
+                </copy> -->
+              </target>
+            </configuration>
+          </execution>
+          <execution>
+            <!-- Copies font files during site generation.
+                 Not inherited by child projects (i.e. runs just on top-level). -->
+            <id>copy-font-files</id>
+            <phase>pre-site</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <inherited>false</inherited>
+            <configuration>
+              <target>
+                <copy failonerror="false" quiet="true" file="fonts/README.md" tofile="${site.build.md.dir}/fonts/index.md"/>
+                <copy failonerror="false" quiet="true" file="fonts/CZTSans.ttf" tofile="${site.build.dir}/resources/fonts/CZTSans.ttf"/>
+              </target>
+            </configuration>
+          </execution>
+          <execution>
+            <!-- Copies LaTeX files during site generation.
+                 Not inherited by child projects (i.e. runs just on top-level). -->
+            <id>copy-latex-files</id>
+            <phase>pre-site</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <inherited>false</inherited>
+            <configuration>
+              <target>
+                <copy failonerror="false" quiet="true" file="dtx/README.md" tofile="${site.build.md.dir}/latex/index.md"/>
+                <copy failonerror="false" quiet="true" file="dtx/z/czt.sty" tofile="${site.build.dir}/resources/latex/z/czt.sty"/>
+                <copy failonerror="false" quiet="true" file="dtx/z/czt-guide.pdf" tofile="${site.build.dir}/resources/latex/z/czt-guide.pdf"/>
+                <copy failonerror="false" quiet="true" file="dtx/z/czt-guide.tex" tofile="${site.build.dir}/resources/latex/z/czt-guide.tex"/>
+                <copy failonerror="false" quiet="true" file="dtx/z/czt-guide.bib" tofile="${site.build.dir}/resources/latex/z/czt-guide.bib"/>
+                <copy failonerror="false" quiet="true" file="dtx/z/refcard.pdf" tofile="${site.build.dir}/resources/latex/z/zrefcard.pdf"/>
+                <copy failonerror="false" quiet="true" file="dtx/z/Sched.pdf" tofile="${site.build.dir}/resources/latex/z/scheduler.pdf"/>
+                <copy failonerror="false" quiet="true" file="dtx/z/Sched.tex" tofile="${site.build.dir}/resources/latex/z/scheduler.tex"/>
+                <copy failonerror="false" quiet="true" file="dtx/circus/circus.sty" tofile="${site.build.dir}/resources/latex/circus/circus.sty"/>
+                <copy failonerror="false" quiet="true" file="dtx/circus/circus-guide.pdf" tofile="${site.build.dir}/resources/latex/circus/circus-guide.pdf"/>
+                <copy failonerror="false" quiet="true" file="dtx/circus/circus-guide.tex" tofile="${site.build.dir}/resources/latex/circus/circus-guide.tex"/>
+                <copy failonerror="false" quiet="true" file="dtx/circus/buffer-refinement-multienv.pdf" tofile="${site.build.dir}/resources/latex/circus/buffer-refinement-multienv.pdf"/>
+                <copy failonerror="false" quiet="true" file="dtx/circus/buffer-refinement-multienv.tex" tofile="${site.build.dir}/resources/latex/circus/buffer-refinement-multienv.tex"/>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.ant</groupId>
+            <artifactId>ant</artifactId>
+            <version>1.9.6</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+
+      <!-- Configure Maven site generation to add dependencies for Reflow Maven skin
+           and Markdown support. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <version>3.4</version>
+        <dependencies>
+          <dependency>
+            <groupId>lt.velykis.maven.skins</groupId>
+            <artifactId>reflow-velocity-tools</artifactId>
+            <version>1.1.1</version>
+          </dependency>
+          <dependency>
+            <!-- Reflow skin requires velocity 1.7 -->
+            <groupId>org.apache.velocity</groupId>
+            <artifactId>velocity</artifactId>
+            <version>1.7</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <generateReports>true</generateReports>
+          <inputEncoding>UTF-8</inputEncoding>
+          <outputEncoding>UTF-8</outputEncoding>
+          <!-- Avoid calling `chmod` on deployed files - this slows down site-deploy A LOT!
+               Plus it seems that SourceForge does set the correct permissions anyway.. -->
+          <chmod>false</chmod>
+        </configuration>
+      </plugin>
+
+      <!--
+        Maven Release plugin configured according to
+        http://central.sonatype.org/pages/apache-maven.html
+       -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-release-plugin</artifactId>
+        <version>2.5.2</version>
+        <configuration>
+          <autoVersionSubmodules>true</autoVersionSubmodules>
+          <useReleaseProfile>false</useReleaseProfile>
+          <releaseProfiles>release</releaseProfiles>
+          <goals>deploy</goals>
+        </configuration>
+      </plugin>
+
+    </plugins>
+
+
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <configuration>
+            <!--
+              Indicate to use a custom manifest file if available in /META-INF/MANIFEST.MF.
+              The `maven-bundle-plugin` generates one for jars with OSGI information.
+              Where this is not generated, default is used (as opposed to explicit entry for manifest file, 
+              which crashes build for other project types, e.g. `maven-plugin`.
+            -->
+            <useDefaultManifestFile>true</useDefaultManifestFile>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>2.10.3</version>
+          <configuration>
+            <detectLinks>true</detectLinks>
+            <!-- Disable doclint in JDK 8 for now:
+                 http://blog.joda.org/2014/02/turning-off-doclint-in-jdk-8-javadoc.html -->
+            <additionalparam>-Xdoclint:none</additionalparam>
+          </configuration>
+        </plugin>
+
+        <!-- Generate OSGI bundles for core CZT projects. This will add additional information to
+             their manifest files, which indicate OSGI properties, e.g. name/version/packages/etc.
+             This way the CZT core can be used in OSGI environment, e.g. Eclipse. -->
+        <plugin>
+          <groupId>org.apache.felix</groupId>
+          <artifactId>maven-bundle-plugin</artifactId>
+          <version>2.5.3</version>
+          <extensions>true</extensions>
+          <configuration>
+            <instructions>
+              <Embed-Transitive>true</Embed-Transitive>
+              <_failok>true</_failok>
+              <_nouses>true</_nouses>
+              <_nodefaultversion>true</_nodefaultversion>
+              <_snapshot>${osgi-version-qualifier}</_snapshot>
+
+              <Bundle-SymbolicName>${maven-symbolicname};singleton:=false</Bundle-SymbolicName>
+              <Bundle-RequiredExecutionEnvironment>JavaSE-1.6</Bundle-RequiredExecutionEnvironment>
+              <Bundle-ClassPath>{maven-dependencies}</Bundle-ClassPath>
+              <!-- Export packages with version, otherwise cannot use versioned package imports.
+                   See also http://fusesource.com/docs/esb/4.4/esb_deploy_osgi/BestPractices-BuildBundles.html -->
+              <Export-Package>*;version=${project.version};-noimport:=true</Export-Package>
+            </instructions>
+          </configuration>
+          <executions>
+            <execution>
+              <id>bundle-manifest</id>
+              <phase>process-classes</phase>
+              <goals>
+                <goal>manifest</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+
+        <!-- Ignore `maven-enforcer-plugin` explicitly to avoid m2e warnings about it
+             being ignored. -->
+        <!-- This plugin's configuration is used to store Eclipse m2e settings only. 
+             It has no influence on the Maven build itself. -->
+        <plugin>
+          <groupId>org.eclipse.m2e</groupId>
+          <artifactId>lifecycle-mapping</artifactId>
+          <version>1.0.0</version>
+          <configuration>
+            <lifecycleMappingMetadata>
+              <pluginExecutions>
+                <pluginExecution>
+                  <pluginExecutionFilter>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <versionRange>[1.0.0,)</versionRange>
+                    <goals>
+                      <goal>enforce</goal>
+                    </goals>
+                  </pluginExecutionFilter>
+                  <action>
+                    <ignore />
+                  </action>
+                </pluginExecution>
+              </pluginExecutions>
+            </lifecycleMappingMetadata>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>2.8</version>
+        <configuration>
+          <webAccessUrl>http://sourceforge.net/p/czt/code/ci/master/tree</webAccessUrl>
+          <anonymousConnection>scm:git:git://git.code.sf.net/p/czt/code</anonymousConnection>
+          <developerConnection>scm:git:ssh://USERNAME@git.code.sf.net/p/czt/code</developerConnection>
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <!-- Placeholder for index report: child modules can generate the report and it
+                 will be placed at the top. -->
+            <id>project-index</id>
+            <reports />
+          </reportSet>
+          <reportSet>
+            <reports>
+              <report>summary</report>
+              <report>license</report>
+              <!-- Modules report gives incorrect links when URL is renamed, 
+                   e.g. /dev-parent into /dev -->
+              <!-- <report>modules</report> -->
+              <report>project-team</report>
+              <report>scm</report>
+              <report>issue-tracking</report>
+              <report>mailing-list</report>
+              <report>dependency-management</report>
+              <report>dependencies</report>
+              <report>dependency-convergence</report>
+              <report>cim</report>
+              <report>plugins</report>
+              <report>distribution-management</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-changes-plugin</artifactId>
+        <version>2.11</version>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>changes-report</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>javadoc</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+
+    </plugins>
+  </reporting>
+
+
+  <profiles>
+
+    <!--
+      Special profile for Eclipse module, which builds CZT Eclipse plugins. They use Tycho to build
+      and require a 2nd reactor build (i.e. after the CZT core is built and OSGI-fied).
+      For this reason the `eclipse` module is separated to allow Eclipse-free core build.
+      
+      The module is included here so that m2e can discover it from the top level, even if
+      the Tycho build would be run on `eclipse/pom.xml` directly.
+     -->
+    <profile>
+      <id>eclipse</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <modules>
+        <module>eclipse</module>
+      </modules>
+    </profile>
+
+
+    <!--
+      Profile for doing CZT Maven release.
+      See instructions on http://central.sonatype.org/pages/apache-maven.html
+      (We are doing the deployment with Maven Release Plugin)
+     -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>2.4</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>1.6</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+
+    <profile>
+      <id>reports</id>
+      <activation>
+        <activeByDefault>false</activeByDefault>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-checkstyle-plugin</artifactId>
+            <version>2.9.1</version>
+            <dependencies>
+              <dependency>
+                <groupId>${czt.dev.groupId}</groupId>
+                <artifactId>checkstyle</artifactId>
+                <version>1.6-cdh</version>
+              </dependency>
+            </dependencies>
+          </plugin>
+        </plugins>
+      </build>
+      <reporting>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-report-plugin</artifactId>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-checkstyle-plugin</artifactId>
+            <version>2.9.1</version>
+            <configuration>
+              <configLocation>/net/sourceforge/czt/checkstyle.xml</configLocation>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>jdepend-maven-plugin</artifactId>
+          </plugin>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>taglist-maven-plugin</artifactId>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-pmd-plugin</artifactId>
+            <configuration>
+              <targetJdk>1.5</targetJdk>
+            </configuration>
+          </plugin>
+        </plugins>
+      </reporting>
+    </profile>
+
+    <profile>
+      <id>javadoc</id>
+      <activation>
+        <property>
+          <name>javadoc</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <phase>compile</phase>
+                <goals>
+                  <goal>javadoc</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <maxmemory>200m</maxmemory>
+              <groups>
+                <group>
+                  <title>Standard Z Packages</title>
+                  <packages>net.sourceforge.czt.z.*</packages>
+                </group>
+                <group>
+                  <title>Z Pattern Packages</title>
+                  <packages>net.sourceforge.czt.zpatt.*</packages>
+                </group>
+                <group>
+                  <title>Object Z Packages</title>
+                  <packages>net.sourceforge.czt.oz.*</packages>
+                </group>
+                <group>
+                  <title>Circus Packages</title>
+                  <packages>net.sourceforge.czt.circus.*</packages>
+                </group>
+                <group>
+                  <title>Circus Pattern Packages</title>
+                  <packages>net.sourceforge.czt.circuspatt.*</packages>
+                </group>
+              </groups>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!-- a profile for CZT website generation using Maven site plugin.
+         To build a multi-module site, run the following Maven command on the root:
+         mvn clean site site:stage -P site
+
+         CZT Maven site can be deployed to SourceForge project web by first creating a SourceForge
+         shell using the following command:
+         ssh USERNAME,czt@shell.sourceforge.net create
+
+         And then deploying Maven site to SourceForge project web by running
+         mvn site-deploy -P site
+
+         This is a workaround for SFTP failing to upload to SourceForge
+         (see http://jira.codehaus.org/browse/WAGON-354)
+         Uploading via SCP and SourceForge shell is the currently recommended way:
+         http://maven.apache.org/plugins/maven-site-plugin/examples/site-deploy-to-sourceforge.net.html
+         -->
+    <profile>
+      <id>site</id>
+      <activation />
+
+      <!-- Include the "eclipse" module, which is not included by default -->
+      <modules>
+        <module>eclipse</module>
+      </modules>
+    </profile>
+
+
+    <!-- m2e configuration for maven-bundle-plugin.
+         We use static .qualifier instead of time-generated one in m2e.
+         Also need to use special position for manifest in PDE (ignored in .gitignore)  -->
+    <profile>
+      <id>m2e</id>
+      <activation>
+        <property>
+          <name>m2e.version</name>
+        </property>
+      </activation>
+      <properties>
+        <osgi-version-qualifier>qualifier</osgi-version-qualifier>
+      </properties>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.felix</groupId>
+              <artifactId>maven-bundle-plugin</artifactId>
+              <configuration>
+                  <!-- PDE does not honour custom manifest location -->
+                <manifestLocation>META-INF</manifestLocation>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+  </profiles>
+
+  <organization>
+    <name>Community Z Tools Project</name>
+    <url>http://czt.sourceforge.net</url>
+  </organization>
+
+  <inceptionYear>2003</inceptionYear>
+
+  <licenses>
+    <license>
+      <name>GPL</name>
+      <url>http://www.gnu.org/copyleft/gpl.txt</url>
+    </license>
+  </licenses>
+  
+  <developers>
+    <developer>
+      <id>andriusvelykis</id>
+      <name>Andrius Velykis</name>
+      <url>http://andrius.velykis.lt</url>
+      <organization>Newcastle University, UK</organization>
+      <organizationUrl>http://www.ncl.ac.uk/computing</organizationUrl>
+      <timezone>0</timezone>
+    </developer>
+
+    <developer>
+      <id>leouk</id>
+      <name>Leo Freitas</name>
+      <url>http://www.ncl.ac.uk/computing/people/profile/leo.freitas</url>
+      <organization>Newcastle University, UK</organization>
+      <organizationUrl>http://www.ncl.ac.uk/computing</organizationUrl>
+      <timezone>0</timezone>
+    </developer>
+
+    <developer>
+      <id>marku</id>
+      <name>Mark Utting</name>
+      <url>http://www.cs.waikato.ac.nz/~marku/</url>
+      <organization>University of Waikato, New Zealand</organization>
+    </developer>
+
+    <developer>
+      <id>petramalik</id>
+      <name>Petra Dietrich</name>
+    </developer>
+
+    <developer>
+      <id>timmiller</id>
+      <name>Tim Miller</name>
+      <url>http://www.csse.unimelb.edu.au/~tmill/</url>
+      <organization>University of Melbourne, Australia</organization>
+    </developer>
+  </developers>
+
+  <issueManagement>
+    <system>SourceForge</system>
+    <url>http://sourceforge.net/tracker/?group_id=86250</url>
+  </issueManagement>
+
+  <mailingLists>
+    <mailingList>
+      <name>CZT-Devel</name>
+      <subscribe>https://lists.sourceforge.net/lists/listinfo/czt-devel</subscribe>
+      <unsubscribe>https://lists.sourceforge.net/lists/listinfo/czt-devel</unsubscribe>
+      <post>mailto:czt-devel@lists.sourceforge.net</post>
+      <archive>http://sourceforge.net/mailarchive/forum.php?forum=czt-devel</archive>
+    </mailingList>
+    
+    <mailingList>
+      <name>CZT-Users</name>
+      <subscribe>https://lists.sourceforge.net/lists/listinfo/czt-users</subscribe>
+      <unsubscribe>https://lists.sourceforge.net/lists/listinfo/czt-users</unsubscribe>
+      <post>mailto:czt-users@lists.sourceforge.net</post>
+      <archive>http://sourceforge.net/mailarchive/forum.php?forum=czt-users</archive>
+    </mailingList>
+  </mailingLists>
+
+  <scm>
+    <connection>scm:git:git://git.code.sf.net/p/czt/code</connection>
+    <developerConnection>scm:git:ssh://USERNAME@git.code.sf.net/p/czt/code</developerConnection>
+    <url>http://sourceforge.net/p/czt/code/ci/master/tree</url>
+  </scm>
+
+  <distributionManagement>
+    <site>
+      <id>${site.deploy.id}</id>
+      <name>CZT SourceForge Project Website</name>
+      <url>${site.deploy.url}</url>
+    </site>
+    <!-- Snapshot repository needed for deployment to OSSRH:
+         http://central.sonatype.org/pages/apache-maven.html -->
+    <snapshotRepository>
+      <id>ossrh</id>
+      <name>Sonatype OSSRH</name>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+    </snapshotRepository>
+    <repository>
+      <id>ossrh</id>
+      <name>Sonatype OSSRH</name>
+      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+    </repository>
+  </distributionManagement>
+
+</project>

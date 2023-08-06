@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+    <!--
+        The ANTLR MAveb artifacts are now released via the Sonotype OSS
+        repository, which means that they are synced to Maven central 
+        within a few minutes of hitting the release repo for Sonotype.
+        To enable this, we inherit from the Sonotype provided parent
+        pom. However, we must also configure our .m2/settings.xml to include
+        the snapshot and staging server and the sonotype password. This 
+        means that only ANTLR developers can released the artifacts, but
+        anyone can build locally.
+      -->
+    <parent>
+        <groupId>org.sonatype.oss</groupId>
+        <artifactId>oss-parent</artifactId>
+        <version>7</version>
+    </parent>
+
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.antlr</groupId>
+    <artifactId>ST4</artifactId>
+    <packaging>jar</packaging>
+
+    <!--
+        The version number defined here in the version tag indicates how the
+        jar is named and released. When it ends with SNAPSHOT, it will be stored
+        in your local repository (~/m2 on UNIX) as stringtemplate-X.Y-SNAPSHOT, but
+        will be deplyed to the ANTLR snapshot repository at antlr.org with the word
+        SNAPSHOT replaced with the the data, time and unique number.
+    -->
+
+    <version>4.0.4</version>
+
+    <!--
+        The name of the project as seen by IDEs and release documentation etc.
+    -->
+
+    <name>ANTLR ST4 4.0.4</name>
+    <description>StringTemplate is a java template engine for generating source code,
+web pages, emails, or any other formatted text output.
+
+StringTemplate is particularly good at multi-targeted code generators,
+multiple site skins, and internationalization/localization. 
+
+It evolved over years of effort developing jGuru.com. 
+
+StringTemplate also generates the stringtemplate website: http://www.stringtemplate.org
+and powers the ANTLR v3 code generator. Its distinguishing characteristic 
+is that unlike other engines, it strictly enforces model-view separation.
+
+Strict separation makes websites and code generators more flexible
+and maintainable; it also provides an excellent defense against malicious
+template authors.
+
+There are currently about 600 StringTemplate source downloads a month.
+    </description>
+    
+    <!--
+    Make sure that the build is not platform dependent (I.E show that
+    all the files in the source tree are in UTF-8 format.
+    -->
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    
+    <!--
+        The URL of the base project
+      -->
+
+    <url>http://www.stringtemplate.org</url>
+    <developers>
+        <developer>
+            <name>Terence Parr</name>
+            <organization>USFCA</organization>
+            <organizationUrl>http://www.cs.usfca.edu</organizationUrl>
+            <email>parrt@antlr.org</email>
+            <roles>
+                <role>Project Leader</role>
+                <role>Developer - Java Target</role>
+            </roles>
+            <timezone>PST</timezone>
+        </developer>
+        <developer>
+            <name>Jim Idle</name>
+            <organization>Temporal Wave LLC</organization>
+            <organizationUrl>http://www.temporal-wave.com</organizationUrl>
+            <email>jimi@temporal-wave.com</email>
+            <roles>
+                <role>Developer - Maven stuff</role>
+            </roles>
+            <timezone>PST</timezone>
+        </developer>
+    </developers>
+
+    <licenses>
+        <license>
+            <name>BSD licence</name>
+            <url>http://antlr.org/license.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <scm>
+        <url>http://fisheye2.cenqua.com/browse/stringtemplate</url>
+        <connection>http://fisheye2.cenqua.com/browse/stringtemplate</connection>
+    </scm>
+
+    <profiles>
+        <profile>
+            <id>release-sign-artifacts</id>
+            <activation>
+                <property>
+                    <name>deploy</name>
+                    <value>true</value>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>1.3</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                   <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.8.2</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr-runtime</artifactId>
+            <version>3.3</version>
+            <scope>compile</scope>
+        </dependency>
+            
+    </dependencies>
+
+    <build>
+        <defaultGoal>install</defaultGoal>
+        <extensions>
+            <extension>
+                <groupId>org.apache.maven.wagon</groupId>
+                <artifactId>wagon-ssh-external</artifactId>
+                <version>1.0-beta-2</version>
+            </extension>
+        </extensions>
+
+        <!--
+            The root of the source code for StringTemplate
+        -->
+        <sourceDirectory>src</sourceDirectory>
+
+        <!--
+            The root of the test source code for StringTemplate.
+        -->
+        <testSourceDirectory>test</testSourceDirectory>
+
+        <!--
+            All the resources that should be on the classpath, when 
+            the junit tests are run. Here we need to include the test
+            source code directory as the .st files loaded dynamically
+            by the tests, are located underneath this tree.
+        -->
+        <testResources>
+            <testResource>
+                <directory>test</directory>
+            </testResource>
+        </testResources>
+
+        <plugins>
+           <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr3-maven-plugin</artifactId>
+                <version>3.3</version>
+                <configuration>
+                    <libDirectory>src/org/stringtemplate/v4/compiler</libDirectory>
+                    <sourceDirectory>src</sourceDirectory>
+                    <verbose>true</verbose>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>antlr</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>2.3.2</version>
+                <configuration>
+                    <source>1.6</source>
+                    <!--
+                        NB: If you want to generate 1.4 compatible classes then change
+                            the target to:
+                        <target>jsr14</target>
+
+                        However, the junit tests will then all be hidden from junit and
+                        none will run, hence this is not done by default.
+                     -->
+                    <target>1.6</target>
+                    <sourceDirectory>src</sourceDirectory>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.8.1</version>
+                <configuration>
+                    <additionalClasspathElements>
+                        <additionalClasspathElement>${basedir}/src</additionalClasspathElement>
+                    </additionalClasspathElements>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <version>2.3.2</version>
+                <configuration>
+                    <findbugsXmlOutput>true</findbugsXmlOutput>
+                    <findbugsXmlWithMessages>true</findbugsXmlWithMessages>
+                    <xmlOutput>true</xmlOutput>
+                </configuration>
+            </plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-source-plugin</artifactId>
+                <version>2.1.2</version>
+				<executions>
+					<execution>
+						<id>attach-sources</id>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-javadoc-plugin</artifactId>
+                <version>2.8</version>
+				<executions>
+					<execution>
+						<id>attach-javadocs</id>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+	</plugins>
+    </build>
+</project>
+

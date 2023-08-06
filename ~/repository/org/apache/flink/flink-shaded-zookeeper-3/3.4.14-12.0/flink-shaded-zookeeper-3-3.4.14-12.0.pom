@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-shaded-zookeeper-parent</artifactId>
+    <version>12.0</version>
+    <relativePath>..</relativePath>
+  </parent>
+  <groupId>org.apache.flink</groupId>
+  <artifactId>flink-shaded-zookeeper-3</artifactId>
+  <version>3.4.14-12.0</version>
+  <name>flink-shaded-zookeeper-3.4</name>
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <properties>
+    <curator.version>4.2.0</curator.version>
+    <zookeeper.version>3.4.14</zookeeper.version>
+  </properties>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.apache.zookeeper</groupId>
+        <artifactId>zookeeper</artifactId>
+        <version>${zookeeper.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>

@@ -1,0 +1,4 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:09 CST 2023
+avro-parent-1.11.1.pom>allmaven=
+avro-parent-1.11.1.pom>gcs-maven-central-mirror=

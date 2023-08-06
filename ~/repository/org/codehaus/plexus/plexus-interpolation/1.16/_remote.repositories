@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:49:15 CST 2023
+plexus-interpolation-1.16.jar>allmaven=
+plexus-interpolation-1.16.pom>allmaven=
+plexus-interpolation-1.16.pom>gcs-maven-central-mirror=

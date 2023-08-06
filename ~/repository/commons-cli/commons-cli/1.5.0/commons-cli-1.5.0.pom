@@ -1,0 +1,439 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-parent</artifactId>
+    <version>52</version>
+  </parent>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>commons-cli</groupId>
+  <artifactId>commons-cli</artifactId>
+  <version>1.5.0</version>
+  <name>Apache Commons CLI</name>
+
+  <inceptionYear>2002</inceptionYear>
+  <description>
+    Apache Commons CLI provides a simple API for presenting, processing and validating a Command Line Interface.
+  </description>
+
+  <url>https://commons.apache.org/proper/commons-cli/</url>
+
+  <issueManagement>
+    <system>jira</system>
+    <url>https://issues.apache.org/jira/browse/CLI</url>
+  </issueManagement>
+
+  <scm>
+    <connection>scm:git:https://gitbox.apache.org/repos/asf/commons-cli.git</connection>
+    <developerConnection>scm:git:https://gitbox.apache.org/repos/asf/commons-cli.git</developerConnection>
+    <url>https://gitbox.apache.org/repos/asf?p=commons-cli.git</url>
+    <tag>HEAD</tag>
+  </scm>
+
+  <developers>
+    <developer>
+      <name>James Strachan</name>
+      <id>jstrachan</id>
+      <email>jstrachan@apache.org</email>
+      <organization>SpiritSoft, Inc.</organization>
+    </developer>
+    <developer>
+      <name>Bob McWhirter</name>
+      <id>bob</id>
+      <email>bob@werken.com</email>
+      <organization>Werken</organization>
+      <roles>
+        <role>contributed ideas and code from werken.opt</role>
+      </roles>
+    </developer>
+    <developer>
+      <name>John Keyes</name>
+      <id>jkeyes</id>
+      <email>jbjk@mac.com</email>
+      <organization>integral Source</organization>
+      <roles>
+        <role>contributed ideas and code from Optz</role>
+      </roles>
+    </developer>
+    <developer>
+      <name>Rob Oxspring</name>
+      <id>roxspring</id>
+      <email>roxspring@imapmail.org</email>
+      <organization>Indigo Stone</organization>
+      <roles>
+        <role>designed CLI2</role>
+      </roles>
+    </developer>
+    <developer>
+      <name>Emmanuel Bourg</name>
+      <id>ebourg</id>
+      <email>ebourg@apache.org</email>
+      <organization>Ariane Software</organization>
+    </developer>
+    <developer>
+      <name>Thomas Neidhart</name>
+      <id>tn</id>
+      <email>tn@apache.org</email>
+    </developer>
+    <developer>
+      <name>Rob Tompkins</name>
+      <id>chtompki</id>
+      <email>chtompki@apache.org</email>
+    </developer>
+    <developer>
+      <id>ggregory</id>
+      <name>Gary Gregory</name>
+      <email>ggregory at apache.org</email>
+      <url>https://www.garygregory.com</url>
+      <organization>The Apache Software Foundation</organization>
+      <organizationUrl>https://www.apache.org/</organizationUrl>      
+      <roles>
+        <role>PMC Member</role>
+      </roles>
+      <timezone>America/New_York</timezone>
+      <properties>
+        <picUrl>https://people.apache.org/~ggregory/img/garydgregory80.png</picUrl>
+      </properties>
+    </developer>
+  </developers>
+
+  <contributors>
+    <contributor>
+      <name>Beluga Behr</name>
+    </contributor>
+    <contributor>
+      <name>Peter Donald</name>
+      <roles>
+        <role>contributed ideas and code from Avalon Excalibur's cli package</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Brian Egge</name>
+      <roles>
+        <role>made the 1.1 release happen</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Duncan Jones</name>
+      <roles>
+        <role>supplied patches</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Berin Loritsch</name>
+      <email>bloritsch@apache.org</email>
+      <roles>
+        <role>helped in the Avalon CLI merge</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Peter Maddocks</name>
+      <email>peter_maddocks@hp.com</email>
+      <organization>Hewlett-Packard</organization>
+      <roles>
+        <role>supplied patch</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Alexandru Mocanu</name>
+      <roles>
+        <role>supplied patch</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Andrew Shirley</name>
+      <roles>
+        <role>lots of fixes for 1.1</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Greg Thomas</name>
+    </contributor>
+    <contributor>
+      <name>Slawek Zachcial</name>
+      <roles>
+        <role>unit tests</role>
+      </roles>
+    </contributor>
+    <contributor>
+      <name>Rubin Simons</name>
+      <email>rubin@raaftech.com</email>
+      <roles>
+        <role>supplied patch</role>
+      </roles>
+    </contributor>
+    
+  </contributors>
+
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <properties>
+    <maven.compiler.source>1.7</maven.compiler.source>
+    <maven.compiler.target>1.7</maven.compiler.target>
+    <commons.componentid>cli</commons.componentid>
+    <commons.module.name>org.apache.commons.cli</commons.module.name>
+    <commons.release.version>1.5.0</commons.release.version>
+    <commons.release.name>commons-cli-${commons.release.version}</commons.release.name>
+    <commons.release.isDistModule>true</commons.release.isDistModule>
+    <commons.rc.version>RC1</commons.rc.version>
+    <commons.bc.version>1.4</commons.bc.version>
+    <commons.osgi.symbolicName>org.apache.commons.cli</commons.osgi.symbolicName>
+    <commons.jira.id>CLI</commons.jira.id>
+    <commons.jira.pid>12310463</commons.jira.pid>
+    <!-- The RC version used in the staging repository URL. -->
+    <commons.rc.version>RC1</commons.rc.version>
+    <commons.scmPubUrl>https://svn.apache.org/repos/infra/websites/production/commons/content/proper/commons-cli</commons.scmPubUrl>
+    <commons.scmPubCheckoutDirectory>site-content</commons.scmPubCheckoutDirectory>
+    <commons.encoding>utf-8</commons.encoding>
+    <commons.checkstyle-plugin.version>3.1.2</commons.checkstyle-plugin.version>
+    <commons.checkstyle.impl.version>9.0.1</commons.checkstyle.impl.version>
+    <commons.javadoc.version>3.3.1</commons.javadoc.version>
+    <commons.javadoc.java.link>${commons.javadoc7.java.link}</commons.javadoc.java.link>
+    <commons.jacoco.version>0.8.7</commons.jacoco.version>
+    <commons.surefire-report.version>3.0.0-M5</commons.surefire-report.version>
+    <commons.surefire.version>3.0.0-M5</commons.surefire.version>
+    <commons.felix.version>5.1.2</commons.felix.version>
+    <biz.aQute.bndlib.version>6.0.0</biz.aQute.bndlib.version>
+    <spotbugs.plugin.version>4.4.2.2</spotbugs.plugin.version>
+    <spotbugs.impl.version>4.4.2</spotbugs.impl.version>
+    <commons.animal-sniffer.version>1.20</commons.animal-sniffer.version>
+    <commons.japicmp.version>0.15.3</commons.japicmp.version>
+    <clirr.skip>true</clirr.skip>
+    <findbugs.skip>true</findbugs.skip>
+    <japicmp.skip>false</japicmp.skip>
+    <commons.releaseManagerName>Rob Tompkins</commons.releaseManagerName>
+    <commons.releaseManagerKey>B6E73D84EA4FCC47166087253FAAD2CD5ECBB314</commons.releaseManagerKey>
+  </properties>
+
+  <build>
+    <defaultGoal>clean package apache-rat:check japicmp:cmp checkstyle:check spotbugs:check javadoc:javadoc</defaultGoal>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+            <groupId>org.apache.rat</groupId>
+            <artifactId>apache-rat-plugin</artifactId>
+            <version>${commons.rat.version}</version>
+            <!-- Should agree with config in build section -->
+            <configuration>
+              <excludes>
+                <exclude>.asf.yaml</exclude>
+              </excludes>
+            </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-checkstyle-plugin</artifactId>
+          <version>${commons.checkstyle-plugin.version}</version>
+          <configuration>
+            <configLocation>${basedir}/src/conf/checkstyle.xml</configLocation>
+            <suppressionsLocation>${basedir}/src/conf/checkstyle-suppressions.xml</suppressionsLocation>
+            <enableRulesSummary>false</enableRulesSummary>
+            <includeTestSourceDirectory>true</includeTestSourceDirectory>
+          </configuration>
+          <dependencies>
+            <dependency>
+              <groupId>com.puppycrawl.tools</groupId>
+              <artifactId>checkstyle</artifactId>
+              <version>${commons.checkstyle.impl.version}</version>
+            </dependency>
+          </dependencies>
+        </plugin>      
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <version>${spotbugs.plugin.version}</version>
+        <dependencies>
+          <dependency>
+            <groupId>com.github.spotbugs</groupId>
+            <artifactId>spotbugs</artifactId>
+            <version>${spotbugs.impl.version}</version>
+         </dependency>
+        </dependencies>
+        <configuration>
+          <excludeFilterFile>${basedir}/src/conf/spotbugs-exclude-filter.xml</excludeFilterFile>
+        </configuration>
+      </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-scm-publish-plugin</artifactId>
+          <configuration>
+            <ignorePathsToDelete>
+              <ignorePathToDelete>javadocs**</ignorePathToDelete>
+            </ignorePathsToDelete>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <configuration>
+          <descriptors>
+            <descriptor>src/assembly/bin.xml</descriptor>
+            <descriptor>src/assembly/src.xml</descriptor>
+          </descriptors>
+          <tarLongFileMode>gnu</tarLongFileMode>
+        </configuration>
+      </plugin>
+      <!--
+        Fix for https://bugs.openjdk.java.net/browse/JDK-8212233
+        which is addressed in maven-javadoc-plugin:3.1.0, see https://issues.apache.org/jira/browse/MJAVADOC-562
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>${commons.javadoc.version}</version>
+        <configuration>
+          <source>7</source>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>com.github.siom79.japicmp</groupId>
+        <artifactId>japicmp-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <linksource>true</linksource>
+          <links>
+            <link>${commons.javadoc.java.link}</link>
+          </links>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.rat</groupId>
+        <artifactId>apache-rat-plugin</artifactId>
+        <version>${commons.rat.version}</version>
+        <!-- Should agree with config in build section -->
+        <configuration>
+          <excludes>
+            <exclude>.asf.yaml</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>3.15.0</version>
+        <configuration>
+          <targetJdk>${maven.compiler.target}</targetJdk>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>com.github.siom79.japicmp</groupId>
+        <artifactId>japicmp-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </reporting>
+
+  <distributionManagement>
+    <site>
+      <id>apache.website</id>
+      <name>Apache Commons Site</name>
+      <url>scm:svn:${commons.scmPubUrl}</url>
+    </site>
+  </distributionManagement>
+
+  <profiles>
+    <profile>
+      <id>rc</id>
+      <distributionManagement>
+        <!-- Cannot define in parent ATM, see COMMONSSITE-26 -->
+        <site>
+          <id>apache.website</id>
+          <name>Apache Commons Release Candidate Staging Site</name>
+          <url>${commons.deployment.protocol}://people.apache.org/www/people.apache.org/builds/commons/${commons.componentid}/${commons.release.version}/${commons.rc.version}/site</url>
+        </site>
+      </distributionManagement>
+    </profile>
+    <profile>
+      <id>setup-checkout</id>
+      <activation>
+        <file>
+          <missing>site-content</missing>
+        </file>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.0.0</version>
+            <executions>
+              <execution>
+                <id>prepare-checkout</id>
+                <phase>pre-site</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <exec executable="svn">
+                      <arg line="checkout --depth immediates ${commons.scmPubUrl} ${commons.scmPubCheckoutDirectory}" />
+                    </exec>
+
+                    <exec executable="svn">
+                      <arg line="update --set-depth exclude ${commons.scmPubCheckoutDirectory}/javadocs" />
+                    </exec>
+
+                    <pathconvert pathsep=" " property="dirs">
+                      <dirset dir="${commons.scmPubCheckoutDirectory}" includes="*" />
+                    </pathconvert>
+                    <exec executable="svn">
+                      <arg line="update --set-depth infinity ${dirs}" />
+                    </exec>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>

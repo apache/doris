@@ -1,0 +1,286 @@
+<?xml version="1.0"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+<project
+    xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-parent</artifactId>
+    <version>11</version>
+  </parent>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>commons-codec</groupId>
+  <artifactId>commons-codec</artifactId>
+  <version>1.4</version>
+  <name>Commons Codec</name>
+
+  <inceptionYear>2002</inceptionYear>
+    <description>
+     The codec package contains simple encoder and decoders for
+     various formats such as Base64 and Hexadecimal.  In addition to these
+     widely used encoders and decoders, the codec package also maintains a
+     collection of phonetic encoding utilities.
+    </description>
+
+  <url>http://commons.apache.org/codec/</url>
+
+  <issueManagement>
+    <system>jira</system>
+    <url>http://issues.apache.org/jira/browse/CODEC</url>
+  </issueManagement>
+
+  <scm>
+    <connection>scm:svn:http://svn.apache.org/repos/asf/commons/proper/codec/trunk</connection>
+    <developerConnection>scm:svn:https://svn.apache.org/repos/asf/commons/proper/codec/trunk</developerConnection>
+    <url>http://svn.apache.org/viewvc/commons/proper/codec/trunk</url>
+  </scm>
+
+    <developers>
+        <developer>
+            <name>Henri Yandell</name>
+            <id>bayard</id>
+            <email>bayard@generationjava.com</email>
+        </developer>
+        <developer>
+            <name>Tim OBrien</name>
+            <id>tobrien</id>
+            <email>tobrien@apache.org</email>
+            <timezone>-6</timezone>
+        </developer>
+        <developer>
+            <name>Scott Sanders</name>
+            <id>sanders</id>
+            <email>sanders@totalsync.com</email>
+        </developer>
+        <developer>
+            <name>Rodney Waldhoff</name>
+            <id>rwaldhoff</id>
+            <email>rwaldhoff@apache.org</email>
+        </developer>
+        <developer>
+            <name>Daniel Rall</name>
+            <id>dlr</id>
+            <email>dlr@finemaltcoding.com</email>
+        </developer>
+        <developer>
+            <name>Jon S. Stevens</name>
+            <id>jon</id>
+            <email>jon@collab.net</email>
+        </developer>
+        <developer>
+            <name>Gary D. Gregory</name>
+            <id>ggregory</id>
+            <email>ggregory@apache.org</email>
+            <url>http://www.garygregory.com</url>
+            <organization>Seagull Software</organization>
+            <organizationUrl>http://www.seagullsoftware.com</organizationUrl>
+            <timezone>-8</timezone>
+        </developer>
+        <developer>
+            <name>David Graham</name>
+            <id>dgraham</id>
+            <email>dgraham@apache.org</email>
+        </developer>
+    </developers>
+    <contributors>
+        <contributor>
+            <name>Christopher O'Brien</name>
+            <email>siege@preoccupied.net</email>
+            <roles>
+                <role>hex</role>
+                <role>md5</role>
+                <role>architecture</role>
+            </roles>
+        </contributor>
+        <contributor>
+            <name>Martin Redington</name>
+            <roles><role>Representing xml-rpc</role></roles>
+        </contributor>
+        <contributor>
+            <name>Jeffery Dever</name>
+            <roles><role>Representing http-client</role></roles>
+        </contributor>
+        <contributor>
+            <name>Steve Zimmermann</name>
+            <email>steve.zimmermann@heii.com</email>
+            <roles><role>Documentation</role></roles>
+        </contributor>
+        <contributor>
+            <name>Benjamin Walstrum</name>
+            <email>ben@walstrum.com</email>
+        </contributor>
+        <contributor>
+            <name>Oleg Kalnichevski</name>
+            <email>oleg@ural.ru</email>
+            <roles><role>Representing http-client</role></roles>
+        </contributor>
+        <contributor>
+            <name>Dave Dribin</name>
+            <email>apache@dave.dribin.org</email>
+            <roles><role>DigestUtil</role></roles>
+        </contributor>
+        <contributor>
+            <name>Alex Karasulu</name>
+            <email>aok123 at bellsouth.net</email>
+            <roles><role>Submitted Binary class and test</role></roles>
+        </contributor>
+        <contributor>
+            <name>Matthew Inger</name>
+            <email>mattinger at yahoo.com</email>
+            <roles><role>Submitted DIFFERENCE algorithm for Soundex and RefinedSoundex</role></roles>
+        </contributor>
+        <contributor>
+            <name>Jochen Wiedmann</name>
+            <email>jochen@apache.org</email>
+            <roles><role>Base64 code [CODEC-69]</role></roles>
+        </contributor>
+        <contributor>
+            <name>Julius Davies</name>
+            <email>juliusdavies@gmail.com</email>
+            <roles>
+               <role>Base64InputStream</role>
+               <role>Base64OutputStream</role>
+            </roles>
+        </contributor>
+        <contributor>
+            <name>Sebastian Bazley</name>
+            <email>sebb@apache.org</email>
+            <roles><role>Streaming Base64</role></roles>
+        </contributor>
+    </contributors>    
+
+  <!-- Codec should depend on very little -->
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>3.8.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <properties>
+    <maven.compile.source>1.4</maven.compile.source>
+    <maven.compile.target>1.4</maven.compile.target>
+    <commons.componentid>codec</commons.componentid>
+    <commons.release.version>1.4</commons.release.version>
+    <commons.jira.id>CODEC</commons.jira.id>
+    <commons.jira.pid>12310464</commons.jira.pid>
+    <!-- Ensure copies work OK (can be removed later when this is in parent POM) -->
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+  </properties> 
+
+  <build>
+    <sourceDirectory>src/java</sourceDirectory>
+    <testSourceDirectory>src/test</testSourceDirectory>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <includes>
+                <include>**/*Test.java</include>
+                <include>**/Test*.java</include>
+              </includes>
+              <excludes>
+                <exclude>**/*AbstractTest.java</exclude>
+              </excludes>
+          </configuration>
+        </plugin>
+        <plugin>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <configuration>
+            <descriptors>
+              <descriptor>src/assembly/bin.xml</descriptor>
+              <descriptor>src/assembly/src.xml</descriptor>
+            </descriptors>
+            <tarLongFileMode>gnu</tarLongFileMode>
+          </configuration>
+        </plugin>
+      </plugins>
+    </build>
+
+    <reporting>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-changes-plugin</artifactId>
+          <version>2.1</version>
+          <configuration>
+            <xmlPath>${basedir}/xdocs/changes.xml</xmlPath>
+            <issueLinkTemplate>%URL%/%ISSUE%</issueLinkTemplate>
+          </configuration>
+          <reportSets>
+            <reportSet>
+              <reports>
+                 <report>changes-report</report>
+              </reports>
+            </reportSet>
+          </reportSets>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-checkstyle-plugin</artifactId>
+          <version>2.3</version>
+          <configuration>
+            <configLocation>${basedir}/checkstyle.xml</configLocation>
+            <enableRulesSummary>false</enableRulesSummary>
+            <headerFile>${basedir}/LICENSE-header.txt</headerFile>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>cobertura-maven-plugin</artifactId>
+          <version>2.3</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-pmd-plugin</artifactId>
+          <version>2.4</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>findbugs-maven-plugin</artifactId>
+          <version>2.0.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>clirr-maven-plugin</artifactId>
+          <version>2.2.2</version>
+          <configuration>
+            <comparisonVersion>1.3</comparisonVersion>
+            <minSeverity>info</minSeverity>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>2.5</version>
+          <configuration>
+            <linksource>true</linksource>
+            <links>
+              <link>http://java.sun.com/j2se/1.4.2/docs/api/</link>
+            </links>
+          </configuration>
+        </plugin>
+      </plugins>
+    </reporting>
+
+</project>

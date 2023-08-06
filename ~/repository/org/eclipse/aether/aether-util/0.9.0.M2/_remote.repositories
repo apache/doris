@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:48:58 CST 2023
+aether-util-0.9.0.M2.jar>gcs-maven-central-mirror=
+aether-util-0.9.0.M2.pom>allmaven=
+aether-util-0.9.0.M2.pom>gcs-maven-central-mirror=

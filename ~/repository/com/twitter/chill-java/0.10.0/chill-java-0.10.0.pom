@@ -1,0 +1,64 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.twitter</groupId>
+    <artifactId>chill-java</artifactId>
+    <packaging>jar</packaging>
+    <description>chill-java</description>
+    <version>0.10.0</version>
+    <name>chill-java</name>
+    <organization>
+        <name>com.twitter</name>
+    </organization>
+    <scm>
+        <url>https://github.com/twitter/chill</url>
+        <connection>scm:git:https://github.com/twitter/chill.git</connection>
+        <developerConnection>scm:git:git@github.com:twitter/chill.git</developerConnection>
+    </scm>
+    <url>https://github.com/twitter/chill</url>
+    <licenses>
+        <license>
+            <name>Apache 2</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+            <comments>A business-friendly OSS license</comments>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>oscar</id>
+            <name>Oscar Boykin</name>
+            <url>http://twitter.com/posco</url>
+        </developer>
+        <developer>
+            <id>sritchie</id>
+            <name>Sam Ritchie</name>
+            <url>http://twitter.com/sritchie</url>
+        </developer>
+    </developers>
+    <dependencies>
+        <dependency>
+            <groupId>org.scalacheck</groupId>
+            <artifactId>scalacheck_2.12</artifactId>
+            <version>1.15.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.scalatest</groupId>
+            <artifactId>scalatest_2.12</artifactId>
+            <version>3.2.9</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.scalatestplus</groupId>
+            <artifactId>scalatestplus-scalacheck_2.12</artifactId>
+            <version>3.1.0.0-RC2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>kryo-shaded</artifactId>
+            <version>4.0.2</version>
+        </dependency>
+    </dependencies>
+</project>

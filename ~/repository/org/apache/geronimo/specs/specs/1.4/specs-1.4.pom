@@ -1,0 +1,301 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+	<!--
+	    Licensed to the Apache Software Foundation (ASF) under one
+	    or more contributor license agreements.  See the NOTICE file
+	    distributed with this work for additional information
+	    regarding copyright ownership.  The ASF licenses this file
+	    to you under the Apache License, Version 2.0 (the
+	    "License"); you may not use this file except in compliance
+	    with the License.  You may obtain a copy of the License at
+
+	     http://www.apache.org/licenses/LICENSE-2.0
+
+	    Unless required by applicable law or agreed to in writing,
+	    software distributed under the License is distributed on an
+	    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+	    KIND, either express or implied.  See the License for the
+	    specific language governing permissions and limitations
+	    under the License.
+	-->
+
+	<!-- $Rev: 617380 $ $Date: 2008-02-01 10:09:52 +0100 (Fri, 01 Feb 2008) $ -->
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.geronimo.genesis.config</groupId>
+        <artifactId>project-config</artifactId>
+        <version>1.2</version>
+    </parent>
+
+    <groupId>org.apache.geronimo.specs</groupId>
+    <artifactId>specs</artifactId>
+    <packaging>pom</packaging>
+    <name>Geronimo Specifications</name>
+    <version>1.4</version>
+
+    <description>
+        Provides open-source implementations of Sun specifications.
+    </description>
+
+    <scm>
+        <connection>scm:svn:http://svn.apache.org/repos/asf/geronimo/specs/tags/specs-1.4</connection>
+        <developerConnection>scm:svn:https://svn.apache.org/repos/asf/geronimo/specs/tags/specs-1.4</developerConnection>
+        <url>http://svn.apache.org/viewvc/geronimo/specs/tags/specs-1.4</url>
+    </scm>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>3.8.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <properties>
+	    <!--
+	     |
+	     | Geronimo OSGi properties
+	     | 
+	     | Note: when modules can override these properties.
+	     |
+	     -->
+	    <geronimo.osgi.import.pkg>*</geronimo.osgi.import.pkg>
+	    <geronimo.osgi.export.pkg>*</geronimo.osgi.export.pkg>
+	    <geronimo.osgi.private.pkg />
+	    <geronimo.osgi.export>!META-INF*,${geronimo.osgi.export.pkg}*;version=${geronimo.osgi.export.version}</geronimo.osgi.export>
+	    <geronimo.osgi.export.version>${project.version}</geronimo.osgi.export.version>
+	    <geronimo.osgi.import>!META-INF*,${geronimo.osgi.import.pkg}</geronimo.osgi.import>
+	    <geronimo.osgi.symbolic.name>${groupId}.${artifactId}</geronimo.osgi.symbolic.name>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>2.0.2</version>
+                <configuration>
+                    <source>1.5</source>
+                    <target>1.5</target>
+                </configuration>
+            </plugin>
+
+            <!-- We want to package up license resources in the JARs produced -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-remote-resources-plugin</artifactId>
+                <version>1.0-beta-2</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>process</goal>
+                        </goals>
+                        <configuration>
+                            <resourceBundles>
+                                <resourceBundle>org.apache:apache-jar-resource-bundle:1.0</resourceBundle>
+                            </resourceBundles>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>1.1</version>
+                <inherited>true</inherited>
+                <executions>
+                    <execution>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <tasks>
+                                <copy file="LICENSE.txt" tofile="${project.build.directory}/maven-shared-archive-resources/META-INF/LICENSE" overwrite="true" />
+                                <copy file="NOTICE.txt" tofile="${project.build.directory}/maven-shared-archive-resources/META-INF/NOTICE" overwrite="true" />
+                            </tasks>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>2.3</version>
+                <inherited>true</inherited>
+                <configuration>
+                    <source>1.5</source>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-idea-plugin</artifactId>
+                <version>2.1</version>
+                <configuration>
+                    <jdkName>1.5</jdkName>
+                    <linkModules>true</linkModules>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-release-plugin</artifactId>
+		        <version>2.0-beta-7</version>
+                <configuration>
+                    <tagBase>https://svn.apache.org/repos/asf/geronimo/specs/tags/</tagBase>
+                    <useReleaseProfile>false</useReleaseProfile>
+                    <goals>deploy</goals>
+                    <arguments>-Prelease</arguments>
+                </configuration>
+            </plugin>
+
+	        <plugin>
+	            <groupId>org.apache.felix</groupId>
+	            <artifactId>maven-bundle-plugin</artifactId>
+                <version>1.2.0</version>
+	            <extensions>true</extensions>
+	            <configuration>
+		            <instructions>
+		                <Bundle-Name>${artifactId}</Bundle-Name>
+		                <Bundle-SymbolicName>${geronimo.osgi.symbolic.name}</Bundle-SymbolicName>
+		                <Export-Package>${geronimo.osgi.export}</Export-Package>
+		                <Import-Package>${geronimo.osgi.import}</Import-Package>
+		                <Private-Package>${geronimo.osgi.private.pkg}</Private-Package>
+		                <Implementation-Title>Apache Geronimo</Implementation-Title>
+		                <Implementation-Version>${project.version}</Implementation-Version>
+		           </instructions>
+		        </configuration>
+		        <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+		        </executions>
+	        </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>2.1</version>
+                <configuration>
+                    <archive>
+                        <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+                    </archive>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+
+            <build>
+                <plugins>
+		            <!-- We want the sources JAR published with the release -->
+		            <plugin>
+		                <groupId>org.apache.maven.plugins</groupId>
+		                <artifactId>maven-source-plugin</artifactId>
+		                <version>2.0.4</version>
+		                <inherited>true</inherited>
+		                <executions>
+		                    <execution>
+		                        <id>attach-sources</id>
+		                        <goals>
+		                            <goal>jar</goal>
+		                        </goals>
+		                    </execution>
+		                </executions>
+		            </plugin>
+
+		            <!-- We want the JavaDoc JAR published with the release -->
+		            <plugin>
+		                <groupId>org.apache.maven.plugins</groupId>
+		                <artifactId>maven-javadoc-plugin</artifactId>
+		                <version>2.3</version>
+		                <inherited>true</inherited>
+		                <configuration>
+		                    <source>1.5</source>
+		                </configuration>
+		                <executions>
+		                    <execution>
+		                        <id>attach-javadocs</id>
+                                <phase>compile</phase>
+		                        <goals>
+		                            <goal>jar</goal>
+		                        </goals>
+		                    </execution>
+		                </executions>
+		            </plugin>
+
+		            <!-- We want to deploy the artifact to a staging location for perusal -->
+		            <plugin>
+		                <groupId>org.apache.maven.plugins</groupId>
+		                <artifactId>maven-deploy-plugin</artifactId>
+		                <version>2.3</version>
+		                <inherited>true</inherited>
+		                <configuration>
+		                    <updateReleaseInfo>true</updateReleaseInfo>
+		                    <altDeploymentRepository>${deploy.repository}</altDeploymentRepository>
+		                </configuration>
+		            </plugin>
+
+		            <!-- We want to deploy the site to a staging location for perusal -->
+		            <plugin>
+		                <groupId>org.apache.maven.plugins</groupId>
+		                <artifactId>maven-site-plugin</artifactId>
+		                <version>2.0-beta-6</version>
+		                <executions>
+		                    <execution>
+		                        <goals>
+		                            <goal>stage-deploy</goal>
+		                        </goals>
+		                        <configuration>
+		                            <stagingSiteURL>${deploy.siteURL}</stagingSiteURL>
+		                        </configuration>
+		                    </execution>
+		                </executions>
+		            </plugin>
+
+		            <!-- We want to sign the artifact, the POM, and all attached artifacts -->
+		            <plugin>
+		                <groupId>org.apache.maven.plugins</groupId>
+		                <artifactId>maven-gpg-plugin</artifactId>
+		                <version>1.0-alpha-4</version>
+		                <configuration>
+		                    <passphrase>${gpg.passphrase}</passphrase>
+		                </configuration>
+		                <executions>
+		                    <execution>
+		                        <goals>
+		                            <goal>sign</goal>
+		                        </goals>
+		                    </execution>
+		                </executions>
+		            </plugin>
+                </plugins> 
+            </build>
+        </profile>
+    </profiles>
+    
+    <distributionManagement>
+        <!--
+        NOTE: The repository and snapshotRepository are picked up from Genesis.
+        -->
+        <site>
+            <id>geronimo-website</id>
+            <url>scp://people.apache.org/www/geronimo.apache.org/maven/specs</url>
+        </site>
+    </distributionManagement>
+
+</project>

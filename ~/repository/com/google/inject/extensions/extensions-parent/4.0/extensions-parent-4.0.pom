@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.google.inject</groupId>
+    <artifactId>guice-parent</artifactId>
+    <version>4.0</version>
+  </parent>
+
+  <packaging>pom</packaging>
+
+  <groupId>com.google.inject.extensions</groupId>
+  <artifactId>extensions-parent</artifactId>
+
+  <name>Google Guice - Extensions</name>
+
+  <modules>
+    <module>assistedinject</module>
+    <!-- TODO(cgruber): Comment out dagger-adapter module if guice releases before dagger 2.x -->
+    <module>dagger-adapter</module>
+    <module>grapher</module>
+    <module>jmx</module>
+    <module>jndi</module>
+    <module>multibindings</module>
+    <module>persist</module>
+    <module>servlet</module>
+    <module>spring</module>
+    <module>struts2</module>
+    <module>testlib</module>
+    <module>throwingproviders</module>
+<!--
+ |  not yet promoted...
+- -
+    <module>mini</module>
+    <module>service</module>
+-->
+  </modules>
+
+  <dependencies>
+    <!--
+     | All extensions depend on the core
+    -->
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!--
+     | Some extension tests depend on the core tests
+    -->
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <version>${project.version}</version>
+      <classifier>tests</classifier>
+      <scope>test</scope>
+    </dependency>
+    <!--
+     | Some extension tests depend on guava test libs which are not inherited
+     | from test scope.
+    -->
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava-testlib</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+     | Some extension tests depend on cglib which is not embedded
+     | in an execution that doesn't include package.
+    -->
+    <dependency>
+      <groupId>org.ow2.asm</groupId>
+      <artifactId>asm</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>cglib</groupId>
+      <artifactId>cglib</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+       | Add standard LICENSE and NOTICE files
+      -->
+      <plugin>
+        <artifactId>maven-remote-resources-plugin</artifactId>
+      </plugin>
+      <!--
+       | Enable Java6 conformance checks
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>animal-sniffer-maven-plugin</artifactId>
+      </plugin>
+      <!--
+       | Add OSGi manifest: extensions are fragments that attach to the core
+      -->
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <configuration>
+          <instructions>
+            <Fragment-Host>com.google.inject</Fragment-Host>
+          </instructions>
+        </configuration>
+      </plugin>
+      <!--
+       | Generate sources jar
+      -->
+      <plugin>
+        <artifactId>maven-source-plugin</artifactId>
+      </plugin>
+      <!--
+       | Generate javadoc jar
+      -->
+      <plugin>
+        <artifactId>maven-javadoc-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

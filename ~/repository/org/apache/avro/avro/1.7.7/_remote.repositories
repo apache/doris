@@ -1,0 +1,5 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Mon Aug 07 03:38:44 CST 2023
+avro-1.7.7.pom>gcs-maven-central-mirror=
+avro-1.7.7.jar>gcs-maven-central-mirror=
+avro-1.7.7.jar>allmaven=
