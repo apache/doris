@@ -700,10 +700,10 @@ public class AnalyticExpr extends Expr {
                                             + getFnCall().getChildren().get(0).getType());
             }
 
-            if (getFnCall().getChildren().get(2) instanceof CastExpr) {
-                throw new AnalysisException("Type = " + type + " can't not convert to "
-                                            + getFnCall().getChildren().get(0).getType());
-            }
+            // if (getFnCall().getChildren().get(2) instanceof CastExpr) {
+            //     throw new AnalysisException("Type = " + type + " can't not convert to "
+            //                                 + getFnCall().getChildren().get(0).getType());
+            // }
 
             // check the value whether out of range
             checkDefaultValue(analyzer);
