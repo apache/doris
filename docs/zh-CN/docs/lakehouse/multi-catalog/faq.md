@@ -169,11 +169,13 @@ under the License.
     ```
 
 16. 在Catalog中配置Kerberos时，报错`Unable to obtain password from user`的解决方法：
+
     - 用到的principal必须在klist中存在，使用`klist -kt your.keytab`检查。
     - 检查catalog配置是否正确，比如漏配`yarn.resourcemanager.principal`。
     - 若上述检查没问题，则当前系统yum或者其他包管理软件安装的JDK版本存在不支持的加密算法，建议自行安装JDK并设置`JAVA_HOME`环境变量。
 
 17. 查询配置了Kerberos的外表，遇到该报错：`GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos Ticket)`，一般重启FE和BE能够解决该问题。
+
     - 重启所有节点前可在`"${DORIS_HOME}/be/conf/be.conf"`中的JAVA_OPTS参数里配置`-Djavax.security.auth.useSubjectCredsOnly=false`，通过底层机制去获取JAAS credentials信息，而不是应用程序。
     - 在[JAAS Troubleshooting](https://docs.oracle.com/javase/8/docs/technotes/guides/security/jgss/tutorials/Troubleshooting.html)中可获取更多常见JAAS报错的解决方法。
 
@@ -184,3 +186,49 @@ under the License.
         'hive.version' = '1.x.x'
     );
     ```
+
+19. 使用 Hedged Read 优化 HDFS 读取慢的问题。
+
+    在某些情况下，HDFS 的负载较高可能导致读取某个 HDFS 上的数据副本的时间较长，从而拖慢整体的查询效率。HDFS Client 提供了 Hedged Read 功能。
+    该功能可以在一个读请求超过一定阈值未返回时，启动另一个读线程读取同一份数据，哪个先返回就是用哪个结果。
+
+    注意：该功能可能会增加 HDFS 集群的负载，请酌情使用。
+
+    可以通过以下两种方式开启这个功能：
+
+    - 在创建 Catalog 的参数中指定：
+
+        ```
+        create catalog regression properties (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://172.21.16.47:7004',
+            'dfs.client.hedged.read.threadpool.size' = '128',
+            'dfs.client.hedged.read.threshold.millis' = "500"
+        );
+        ```
+        
+        `dfs.client.hedged.read.threadpool.size` 表示用于 Hedged Read 的线程数，这些线程由一个 HDFS Client 共享。通常情况下，针对一个 HDFS 集群，BE 节点会共享一个 HDFS Client。
+
+        `dfs.client.hedged.read.threshold.millis` 是读取阈值，单位毫秒。当一个读请求超过这个阈值未返回时，会触发 Hedged Read。
+
+    - 在 be.conf 中配置参数
+
+        ```
+        enable_hdfs_hedged_read = true
+        hdfs_hedged_read_thread_num = 128
+        hdfs_hedged_read_threshold_time = 500
+        ```
+
+        这种方式会在BE节点全局开启 Hedged Read（默认不开启）。并忽略在创建 Catalog 时设置的 Hedged Read 属性。
+
+    开启后，可以在 Query Profile 中看到相关参数：
+
+    `TotalHedgedRead`: 发起 Hedged Read 的次数。
+
+    `HedgedReadWins`：Hedged Read 成功的次数（发起并且比原请求更快返回的次数）
+     
+    注意，这里的值是单个 HDFS Client 的累计值，而不是单个查询的数值。同一个 HDFS Client 会被多个查询复用。
+
+
+
+
