@@ -312,8 +312,8 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the clean interval of file descriptor cache and segment cache
-DECLARE_mInt32(cache_clean_interval);
+// the prune stale interval of all cache
+DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
