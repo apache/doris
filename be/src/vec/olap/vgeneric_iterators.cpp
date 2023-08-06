@@ -71,6 +71,13 @@ Status VStatisticsIterator::next_batch(Block* block) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
             for (int i = 0; i < block->columns(); ++i) {
                 columns[i]->resize(size);
+                if (columns[i]->is_nullable()) {
+                    auto* column_nullable = reinterpret_cast<ColumnNullable*>(columns[i].get());
+                    // need to initialize null map, or else it will causes problem
+                    // if the column is used in later data processing,  e.g. in case expr,
+                    // it uses the null map data to calculate the output column index.
+                    column_nullable->get_null_map_data().assign(size, (NullMap::value_type)0);
+                }
             }
         } else {
             for (int i = 0; i < block->columns(); ++i) {
