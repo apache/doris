@@ -107,7 +107,7 @@ suite("test_csv_with_enclose_and_escape", "p0") {
         set 'enclose', "\""
         set 'escape', '\\'
 
-        file "enclose_normal.csv"
+        file "enclose_not_trim_quotes.csv"
     }
 
     qt_select """
