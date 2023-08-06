@@ -32,7 +32,7 @@ Doris集群必须完全搭建完成后再配置FE和BE的自动拉起服务。
 
 ## Systemd配置Doris服务
 
-systemd具体使用以及参数解析可以参考[这里](https://blog.51cto.com/arm2012/1963238) 
+systemd具体使用以及参数解析可以参考[这里](https://systemd.io/) 
 
 ### sudo 权限控制
 
@@ -315,6 +315,7 @@ Supervisor 配置自动拉起可以使用 yum 命令直接安装，也可以通�
 这个是 python 版本不兼容问题，通过yum命令直接安装的 supervisor 只支持 python2 版本，所以需要将 /usr/bin/supervisord 和 /usr/bin/supervisorctl 中文件内容开头 #!/usr/bin/python 改为 #!/usr/bin/python2 ，前提是要装 python2 版本
 ```
 
+- 如果配置了 supervisor 对 Doris 进程进行自动拉起，此时如果 Doris 出现非正常因素导致BE节点宕机，那么此时本来应该输出到 be.out 中的错误堆栈信息会被supervisor 拦截，需要在 supervisor 的log中查找来进一步分析。
 
 
 
