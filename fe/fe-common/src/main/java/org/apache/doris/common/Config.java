@@ -1176,6 +1176,12 @@ public class Config extends ConfigBase {
     public static int cache_result_max_row_count = 3000;
 
     /**
+     * Set the maximum data size that can be cached
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int cache_result_max_data_size = 31457280; // 30M
+
+    /**
      * Used to limit element num of InPredicate in delete statement.
      */
     @ConfField(mutable = true, masterOnly = true)
