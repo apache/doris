@@ -155,7 +155,15 @@ Partition fields can also be other fields, but need to ensure that only a small 
 
 ## How to Use
 
-### Enable SQL Cache
+> NOTE:
+>
+>   In the following scenarios, the cache result is wrong
+>   1. Use session variable: default_order_by_limit, sql_select_limit
+>   2. Use var = cur_date(), var = random() functions that generate random values
+>
+>   There may be other cases where the cache result is wrong, so it is recommended to enable it only in controllable scenarios such as reports.
+
+### Enable SQLCache
 
 Make sure cache_enable_sql_mode=true in fe.conf (default is true)
 
