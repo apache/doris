@@ -38,6 +38,7 @@
 #else
 #include <gperftools/malloc_extension.h>
 #endif
+#include "common/config.h"
 #include "util/perf_counters.h"
 
 namespace doris {
