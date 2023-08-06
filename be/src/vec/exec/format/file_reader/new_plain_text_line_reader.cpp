@@ -27,6 +27,7 @@
 #include <ostream>
 
 #include "exec/decompressor.h"
+#include "gutil/strings/memutil.h"
 #include "io/fs/file_reader.h"
 #include "util/slice.h"
 
@@ -55,32 +56,19 @@ void CsvLineReaderContext::read_line_impl(const uint8_t* start, size_t& bound) {
     do {
         curr_start = start + _idx;
         curr_len = bound - _idx;
-        const uint8_t* col_sep =
-                find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
-
-        if (col_sep != nullptr) [[likely]] {
-            on_col_sep_found(start, col_sep);
-            continue;
-        }
-        break;
-    } while (true);
-}
-
-void CsvLineReaderContext::on_col_sep_found(const uint8_t* start, const uint8_t* col_sep_pos) {
-    const uint8_t* field_start = start + _idx;
-    // record column separator's position
-    _column_sep_positions.push_back(col_sep_pos - start);
-    const size_t forward_distance = col_sep_pos + _column_sep_len - field_start;
-    _idx += forward_distance;
+    } while (look_for_column_sep(curr_start, curr_len));
 }
 
 size_t CsvLineReaderContext::update_reading_bound(const uint8_t* start) {
-    _result = find_line_delim_func(start + _idx, _total_len - _idx, line_delimiter.c_str(),
-                                   line_delimiter_len);
+    _result = (uint8_t*)memmem(start + _idx, _total_len - _idx, line_delimiter.c_str(),
+                               line_delimiter_len);
+    size_t len;
     if (_result == nullptr) {
-        return _total_len;
+        len = _total_len;
+    } else {
+        len = _result - start + line_delimiter_len;
     }
-    return _result - start + line_delimiter_len;
+    return len;
 }
 
 template <bool SingleChar>
@@ -89,17 +77,14 @@ const uint8_t* CsvLineReaderContext::look_for_column_sep_pos(const uint8_t* curr
                                                              const char* column_sep,
                                                              size_t column_sep_len) {
     const uint8_t* col_sep_pos = nullptr;
-
     if constexpr (SingleChar) {
         char sep = column_sep[0];
-        // note(tsy): tests show that simple `for + if` performs better than native memchr or memmem under normal `short feilds` case.
         for (size_t i = 0; i < curr_len; ++i) {
             if (curr_start[i] == sep) {
                 return curr_start + i;
             }
         }
     } else {
-        // note(tsy): can be optimized, memmem has relatively large overhaed when used multiple times in short pattern.
         col_sep_pos = (uint8_t*)memmem(curr_start, curr_len, column_sep, column_sep_len);
     }
     return col_sep_pos;
@@ -107,9 +92,22 @@ const uint8_t* CsvLineReaderContext::look_for_column_sep_pos(const uint8_t* curr
 
 template const uint8_t* CsvLineReaderContext::look_for_column_sep_pos<true>(
         const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
-
+        
 template const uint8_t* CsvLineReaderContext::look_for_column_sep_pos<false>(
         const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
+
+bool CsvLineReaderContext::look_for_column_sep(const uint8_t* curr_start, size_t curr_len) {
+    const uint8_t* col_sep_pos =
+            find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
+
+    if (col_sep_pos != nullptr) [[likely]] {
+        const size_t forward_distance = col_sep_pos - curr_start;
+        _column_sep_positions.push_back(_idx + forward_distance);
+        _idx += (forward_distance + _column_sep_len);
+        return true;
+    }
+    return false;
+}
 
 void EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start, size_t& bound) {
     while (_idx != bound) {
@@ -146,15 +144,10 @@ void EncloseCsvLineReaderContext::_on_start(const uint8_t* start, size_t& len) {
 void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
     size_t curr_len = len - _idx;
-    const uint8_t* col_sep_pos =
-            find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
-
-    if (col_sep_pos != nullptr) [[likely]] {
-        on_col_sep_found(start, col_sep_pos);
+    if (look_for_column_sep(curr_start, curr_len)) [[likely]] {
         _state.forward_to(ReaderState::START);
         return;
     }
-    // TODO(tsy): maybe potential bug when a multi-char is not read completely
     _idx = len;
 }
 
@@ -184,11 +177,7 @@ void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, si
 
 void EncloseCsvLineReaderContext::_on_match_enclose(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
-    const uint8_t* delim_pos =
-            find_col_sep_func(curr_start, _column_sep_len, _column_sep.c_str(), _column_sep_len);
-
-    if (delim_pos != nullptr) [[likely]] {
-        on_col_sep_found(start, delim_pos);
+    if (look_for_column_sep(curr_start, _column_sep_len)) [[likely]] {
         _state.forward_to(ReaderState::START);
         return;
     }

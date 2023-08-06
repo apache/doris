@@ -19,17 +19,14 @@
 #include <stdint.h>
 
 #include <cstddef>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "exec/line_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
-#include "util/slice.h"
 
 namespace doris {
 namespace io {
@@ -38,6 +35,24 @@ class IOContext;
 
 class Decompressor;
 class Status;
+
+enum class ReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
+struct ReaderStateWrapper {
+    inline void forward_to(ReaderState state) {
+        this->prev_state = this->curr_state;
+        this->curr_state = state;
+    }
+
+    inline void reset() {
+        this->curr_state = ReaderState::START;
+        this->prev_state = ReaderState::START;
+    }
+
+    inline bool operator==(const ReaderState& state) const { return curr_state == state; }
+
+    ReaderState curr_state = ReaderState::START;
+    ReaderState prev_state = ReaderState::START;
+};
 
 class TextLineReaderContextIf {
 public:
@@ -77,39 +92,36 @@ protected:
 };
 
 class CsvLineReaderContext : public PlainTexLineReaderCtx {
-    // using a function ptr to decrease the overhead (found very effective during test).
-    using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
+
+// using a function ptr to decrease the overhead 
+using FindColumnSepFunc = const uint8_t*(*)(const uint8_t*, size_t, const char*, size_t);
 
 public:
     explicit CsvLineReaderContext(const std::string& line_delimiter_,
                                   const size_t line_delimiter_len_, const std::string& column_sep_,
-                                  const size_t column_sep_len_, size_t col_sep_num)
+                                  const size_t column_sep_len_, const size_t column_sep_num_)
             : PlainTexLineReaderCtx(line_delimiter_, line_delimiter_len_),
               _column_sep(column_sep_),
               _column_sep_len(column_sep_len_),
-              _column_sep_num(col_sep_num) {
+              _is_single_char_col_sep(column_sep_len_ == 1) {
+        _column_sep_positions.reserve(column_sep_num_);
         if (column_sep_len_ == 1) {
             find_col_sep_func = &CsvLineReaderContext::look_for_column_sep_pos<true>;
         } else {
             find_col_sep_func = &CsvLineReaderContext::look_for_column_sep_pos<false>;
         }
-        if (line_delimiter_len == 1) {
-            find_line_delim_func = &CsvLineReaderContext::look_for_line_delimiter<true>;
-        } else {
-            find_line_delim_func = &CsvLineReaderContext::look_for_line_delimiter<false>;
-        }
-        _column_sep_positions.reserve(col_sep_num);
     }
 
     const uint8_t* read_line(const uint8_t* start, const size_t length) override;
 
     inline void refresh() override {
         _idx = 0;
+        _state.reset();
         _result = nullptr;
         _column_sep_positions.clear();
     }
 
-    [[nodiscard]] inline const std::vector<size_t> column_sep_positions() const {
+    [[nodiscard]] inline const std::vector<size_t>& column_sep_positions() const {
         return _column_sep_positions;
     }
 
@@ -118,52 +130,25 @@ protected:
 
     size_t update_reading_bound(const uint8_t* start);
 
-    void on_col_sep_found(const uint8_t* curr_start, const uint8_t* col_sep_pos);
+    bool look_for_column_sep(const uint8_t* curr_start, size_t curr_len);
 
-    FindDelimiterFunc find_col_sep_func;
-    FindDelimiterFunc find_line_delim_func;
+    FindColumnSepFunc find_col_sep_func;
 
     template <bool SingleChar>
     static const uint8_t* look_for_column_sep_pos(const uint8_t* curr_start, size_t curr_len,
                                                   const char* column_sep, size_t column_sep_len);
-    template <bool SingleChar>
-    inline static const uint8_t* look_for_line_delimiter(const uint8_t* curr_start, size_t curr_len,
-                                                         const char* line_delim,
-                                                         size_t line_delim_len) {
-        if constexpr (SingleChar) {
-            return (uint8_t*)memchr(curr_start, line_delim[0], curr_len);
-        } else {
-            return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
-        }
-    }
 
     const std::string _column_sep;
     const size_t _column_sep_len;
+    const bool _is_single_char_col_sep;
 
     size_t _total_len;
-    const size_t _column_sep_num;
 
     size_t _idx = 0;
+    ReaderStateWrapper _state;
     const uint8_t* _result = nullptr;
+    // record the start pos of each column sep
     std::vector<size_t> _column_sep_positions;
-};
-
-enum class ReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
-struct ReaderStateWrapper {
-    inline void forward_to(ReaderState state) {
-        this->prev_state = this->curr_state;
-        this->curr_state = state;
-    }
-
-    inline void reset() {
-        this->curr_state = ReaderState::START;
-        this->prev_state = ReaderState::START;
-    }
-
-    inline bool operator==(const ReaderState& state) const { return curr_state == state; }
-
-    ReaderState curr_state = ReaderState::START;
-    ReaderState prev_state = ReaderState::START;
 };
 
 class EncloseCsvLineReaderContext final : public CsvLineReaderContext {
@@ -171,16 +156,13 @@ public:
     explicit EncloseCsvLineReaderContext(const std::string& line_delimiter_,
                                          const size_t line_delimiter_len_,
                                          const std::string& column_sep_,
-                                         const size_t column_sep_len_, size_t col_sep_num,
+                                         const size_t column_sep_len_, const size_t column_sep_num_,
                                          const char enclose, const char escape)
             : CsvLineReaderContext(line_delimiter_, line_delimiter_len_, column_sep_,
-                                   column_sep_len_, col_sep_num),
+                                   column_sep_len_, column_sep_num_),
               _enclose(enclose),
-              _escape(escape) {}
-
-    inline void refresh() override {
-        CsvLineReaderContext::refresh();
-        _state.reset();
+              _escape(escape) {
+        _column_sep_positions.reserve(column_sep_num_);
     }
 
 protected:
@@ -192,7 +174,6 @@ private:
     void _on_pre_match_enclose(const uint8_t* start, size_t& len);
     void _on_match_enclose(const uint8_t* start, size_t& len);
 
-    ReaderStateWrapper _state;
     const char _enclose;
     const char _escape;
 };

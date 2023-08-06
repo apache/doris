@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -69,18 +70,6 @@ enum class FileCachePolicy : uint8_t;
 namespace doris::vectorized {
 
 const static Slice _s_null_slice = Slice("\\N");
-
-void CsvTextFieldSplitter::split_line(const Slice& line, std::vector<Slice>* splitted_values) {
-    const char* data = line.data;
-    const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
-    size_t value_start_offset = 0;
-    for (auto idx : column_sep_positions) {
-        split_field(data, value_start_offset, idx - value_start_offset, splitted_values);
-        value_start_offset = idx + _value_sep_len;
-    }
-    // process the last column
-    split_field(data, value_start_offset, line.size - value_start_offset, splitted_values);
-}
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -218,38 +207,28 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.text_params.__isset.escape) {
         _escape = _params.file_attributes.text_params.escape;
     }
-    _text_converter->set_escape_char(_escape);
-
-    _trim_tailing_spaces =
-            (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
-
-    if (_params.file_attributes.__isset.trim_double_quotes) {
-        _trim_double_quotes = _params.file_attributes.trim_double_quotes;
-    }
-
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
+    _text_converter->set_escape_char(_escape);
 
     if (_enclose == 0) {
         _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 _file_slot_descs.size() - 1);
-
-        _fields_splitter = std::make_unique<CsvTextFieldSplitter>(
-                _trim_tailing_spaces, _trim_double_quotes, _text_line_reader_ctx,
-                _value_separator_length, '\"');
     } else {
         _text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 _file_slot_descs.size() - 1, _enclose, _escape);
-
-        _fields_splitter = std::make_unique<CsvTextFieldSplitter>(
-                _trim_tailing_spaces, !_not_trim_enclose, _text_line_reader_ctx,
-                _value_separator_length, _enclose);
     }
 
     //get array delimiter
     _array_delimiter = _params.file_attributes.text_params.array_delimiter;
     _text_converter->set_array_delimiter(_array_delimiter[0]);
+
+    if (_params.file_attributes.__isset.trim_double_quotes) {
+        _trim_double_quotes = _params.file_attributes.trim_double_quotes;
+    }
+    _trim_tailing_spaces =
+            (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
@@ -273,7 +252,6 @@ Status CsvReader::init_reader(bool is_load) {
 
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _fields_splitter = std::make_unique<CsvProtoFieldSplitter>();
         _line_reader = NewPlainBinaryLineReader::create_unique(_file_reader);
         break;
     default:
@@ -531,9 +509,57 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
     return Status::OK();
 }
 
+void CsvReader::_split_line_for_proto_format(const Slice& line) {
+    PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+    PDataRow* row = *row_ptr;
+    for (const PDataColumn& col : row->col()) {
+        _split_values.emplace_back(col.value());
+    }
+}
+
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
-    _fields_splitter->split_line(line, &_split_values);
+    if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
+        _split_line_for_proto_format(line);
+        return;
+    }
+
+    const char* data = line.data;
+    const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
+    size_t value_start_offset = 0;
+    for (auto idx : column_sep_positions) {
+        _process_value_field(data, value_start_offset, idx - value_start_offset);
+        value_start_offset = idx + _value_separator_length;
+    }
+    // process the last column
+    _process_value_field(data, value_start_offset, line.size - value_start_offset);
+}
+
+void CsvReader::_process_value_field(const char* data, size_t start_offset, size_t value_len) {
+    if (_trim_tailing_spaces) {
+        while (value_len > 0 && *(data + start_offset + value_len - 1) == ' ') {
+            --value_len;
+        }
+    }
+
+    // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
+    if (!_not_trim_enclose) {
+        _trim_ends(data, &start_offset, &value_len, _enclose);
+    }
+    if (_trim_double_quotes) {
+        _trim_ends(data, &start_offset, &value_len, '\"');
+    }
+    _split_values.emplace_back(data + start_offset, value_len);
+}
+
+void CsvReader::_trim_ends(const char* data, size_t* start_offset, size_t* value_len,
+                           const char c) const {
+    const bool trim_cond = *value_len > 1 && *(data + *start_offset) == c &&
+                           *(data + *start_offset + *value_len - 1) == c;
+    if (trim_cond) {
+        ++(*start_offset);
+        *value_len -= 2;
+    }
 }
 
 Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is_success) {
@@ -630,6 +656,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
+
     if (_enclose == 0) {
         _text_line_reader_ctx = std::make_shared<CsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
@@ -639,8 +666,6 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 _file_slot_descs.size() - 1, _enclose, _escape);
     }
-    _fields_splitter = std::make_unique<CsvTextFieldSplitter>(
-            _trim_tailing_spaces, false, _text_line_reader_ctx, _value_separator_length);
 
     _line_reader =
             NewPlainTextLineReader::create_unique(_profile, _file_reader, _decompressor.get(),
