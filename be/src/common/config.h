@@ -565,6 +565,8 @@ DECLARE_Bool(enable_quadratic_probing);
 DECLARE_String(pprof_profile_dir);
 // for jeprofile in jemalloc
 DECLARE_mString(jeprofile_dir);
+// Purge all unused dirty pages for all arenas.
+DECLARE_mBool(enable_je_purge_dirty_pages);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);

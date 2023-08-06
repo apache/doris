@@ -516,6 +516,7 @@ DEFINE_Bool(enable_quadratic_probing, "false");
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
+DEFINE_mBool(enable_je_purge_dirty_pages, "true");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
