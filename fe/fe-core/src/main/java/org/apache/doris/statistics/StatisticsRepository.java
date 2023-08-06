@@ -59,7 +59,7 @@ public class StatisticsRepository {
             + FeConstants.INTERNAL_DB_NAME + "`";
 
     private static final String FULL_QUALIFIED_COLUMN_STATISTICS_NAME = FULL_QUALIFIED_DB_NAME + "."
-            + "`" + StatisticConstants.STATISTIC_TBL_NAME + "`";
+            + "`" + StatisticConstants.COL_STATS_TBL_NAME + "`";
 
     private static final String FULL_QUALIFIED_COLUMN_HISTOGRAM_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.HISTOGRAM_TBL_NAME + "`";
@@ -85,48 +85,48 @@ public class StatisticsRepository {
 
     private static final String FETCH_RECENT_STATS_UPDATED_COL =
             "SELECT * FROM "
-                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.COL_STATS_TBL_NAME
                     + " WHERE part_id is NULL "
                     + " ORDER BY update_time DESC LIMIT "
                     + Config.stats_cache_size;
 
     private static final String FETCH_STATS_FULL_NAME =
             "SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id FROM "
-                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+                    + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.COL_STATS_TBL_NAME
                     + " ORDER BY update_time "
                     + "LIMIT ${limit} OFFSET ${offset}";
 
     private static final String FETCH_STATS_PART_ID = "SELECT col_id, part_id FROM "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.STATISTIC_TBL_NAME
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.COL_STATS_TBL_NAME
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NOT NULL";
 
     private static final String PERSIST_TABLE_STATS_TEMPLATE = "INSERT INTO "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TBL_STATS_TBL_NAME
             + " VALUES('${id}', ${catalogId}, ${dbId}, ${tblId}, ${indexId}, ${partId}, ${rowCount},"
             + " ${lastAnalyzeTimeInMs}, NOW())";
 
     private static final String FETCH_TABLE_LEVEL_STATS_TEMPLATE = "SELECT * FROM "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TBL_STATS_TBL_NAME
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NULL";
 
     private static final String FETCH_TABLE_LEVEL_PART_STATS_TEMPLATE = "SELECT * FROM "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TBL_STATS_TBL_NAME
             + " WHERE part_id = ${partId}";
 
 
     private static final String FETCH_PART_TABLE_STATS_TEMPLATE = "SELECT * FROM "
-            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
+            + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.TBL_STATS_TBL_NAME
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NOT NULL";
 
     private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
+            + "." + StatisticConstants.COL_STATS_TBL_NAME + " WHERE "
             + "tbl_id=${tblId} AND idx_id=${idxId} AND col_id='${colId}'";
 
     private static final String QUERY_PARTITION_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
-            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
+            + "." + StatisticConstants.COL_STATS_TBL_NAME + " WHERE "
             + " ${inPredicate}"
             + " AND part_id IS NOT NULL";
 
@@ -203,19 +203,19 @@ public class StatisticsRepository {
     }
 
     public static void dropStatistics(Set<Long> partIds) throws DdlException {
-        dropStatisticsByPartId(partIds, StatisticConstants.ANALYSIS_TBL_NAME);
-        dropStatisticsByPartId(partIds, StatisticConstants.STATISTIC_TBL_NAME);
+        dropStatisticsByPartId(partIds, StatisticConstants.TBL_STATS_TBL_NAME);
+        dropStatisticsByPartId(partIds, StatisticConstants.COL_STATS_TBL_NAME);
     }
 
     public static void dropStatistics(long tblId, Set<String> colNames) throws DdlException {
-        dropStatisticsByColName(tblId, colNames, StatisticConstants.STATISTIC_TBL_NAME);
+        dropStatisticsByColName(tblId, colNames, StatisticConstants.COL_STATS_TBL_NAME);
         dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
     }
 
     public static void dropExternalTableStatistics(long tblId) throws DdlException {
         Map<String, String> params = new HashMap<>();
         String inPredicate = String.format("tbl_id = %s", tblId);
-        params.put("tblName", StatisticConstants.ANALYSIS_TBL_NAME);
+        params.put("tblName", StatisticConstants.TBL_STATS_TBL_NAME);
         params.put("condition", inPredicate);
         try {
             StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));

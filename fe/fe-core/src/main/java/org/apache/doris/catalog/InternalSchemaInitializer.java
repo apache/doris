@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AddColumnsClause;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -43,18 +46,20 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 public class InternalSchemaInitializer extends Thread {
 
     public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
 
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
+
+    private TableIf colStatsTbl;
+
+    private TableIf histStatsTbl;
 
     public void run() {
         if (!FeConstants.enableInternalSchemaDb) {
@@ -83,9 +88,10 @@ public class InternalSchemaInitializer extends Thread {
             LOG.warn("Internal DB got deleted!");
             return;
         }
+        addTblNameIfNecessary();
         Database database = op.get();
-        modifyTblReplicaCount(database, StatisticConstants.ANALYSIS_TBL_NAME);
-        modifyTblReplicaCount(database, StatisticConstants.STATISTIC_TBL_NAME);
+        modifyTblReplicaCount(database, StatisticConstants.TBL_STATS_TBL_NAME);
+        modifyTblReplicaCount(database, StatisticConstants.COL_STATS_TBL_NAME);
         modifyTblReplicaCount(database, StatisticConstants.HISTOGRAM_TBL_NAME);
     }
 
@@ -149,7 +155,7 @@ public class InternalSchemaInitializer extends Thread {
     @VisibleForTesting
     public CreateTableStmt buildAnalysisTblStmt() throws UserException {
         TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, StatisticConstants.ANALYSIS_TBL_NAME);
+                FeConstants.INTERNAL_DB_NAME, StatisticConstants.TBL_STATS_TBL_NAME);
         List<ColumnDef> columnDefs = new ArrayList<>();
         columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
         columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
@@ -184,7 +190,7 @@ public class InternalSchemaInitializer extends Thread {
     @VisibleForTesting
     public CreateTableStmt buildStatisticsTblStmt() throws UserException {
         TableName tableName = new TableName("",
-                FeConstants.INTERNAL_DB_NAME, StatisticConstants.STATISTIC_TBL_NAME);
+                FeConstants.INTERNAL_DB_NAME, StatisticConstants.COL_STATS_TBL_NAME);
         List<ColumnDef> columnDefs = new ArrayList<>();
         columnDefs.add(new ColumnDef("id", TypeDef.createVarchar(StatisticConstants.ID_LEN)));
         columnDefs.add(new ColumnDef("catalog_id", TypeDef.createVarchar(StatisticConstants.MAX_NAME_LEN)));
@@ -202,6 +208,12 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("max", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
         columnDefs.add(new ColumnDef("data_size_in_bytes", TypeDef.create(PrimitiveType.BIGINT), true));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+        // Name limit of catalog and db is 63 characters, you could refer it in `FeNameFormat.java`
+        int idLen = 64 * 4;
+        columnDefs.add(new ColumnDef("catalog_name", TypeDef.createVarchar(idLen)));
+        columnDefs.add(new ColumnDef("db_name", TypeDef.createVarchar(idLen)));
+        // Table name length is configurable, it could be specified by FE option`Config.table_name_length_limit`
+        columnDefs.add(new ColumnDef("tbl_name", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         String engineName = "olap";
         ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
                 "db_id", "tbl_id", "idx_id", "col_id", "part_id");
@@ -236,6 +248,12 @@ public class InternalSchemaInitializer extends Thread {
         columnDefs.add(new ColumnDef("sample_rate", TypeDef.create(PrimitiveType.DOUBLE)));
         columnDefs.add(new ColumnDef("buckets", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         columnDefs.add(new ColumnDef("update_time", TypeDef.create(PrimitiveType.DATETIME)));
+        // Name limit of catalog and db is 63 characters, you could refer it in `FeNameFormat.java`
+        int idLen = 64 * 4;
+        columnDefs.add(new ColumnDef("catalog_name", TypeDef.createVarchar(idLen)));
+        columnDefs.add(new ColumnDef("db_name", TypeDef.createVarchar(idLen)));
+        // Table name length is configurable, it could be specified by FE option`Config.table_name_length_limit`
+        columnDefs.add(new ColumnDef("tbl_name", TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH)));
         String engineName = "olap";
         ArrayList<String> uniqueKeys = Lists.newArrayList("id", "catalog_id",
                 "db_id", "tbl_id", "idx_id", "col_id");
@@ -263,43 +281,52 @@ public class InternalSchemaInitializer extends Thread {
         if (!optionalDatabase.isPresent()) {
             return false;
         }
-        Database db = optionalDatabase.get();
-        return db.getTable(StatisticConstants.ANALYSIS_TBL_NAME).isPresent()
-                && db.getTable(StatisticConstants.STATISTIC_TBL_NAME).isPresent()
-                && db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent();
-    }
-
-    /**
-     * Compare whether the current internal table schema meets expectations,
-     * delete and rebuild if it does not meet the table schema.
-     * TODO remove this code after the table structure is stable
-     */
-    private boolean isTableChanged(TableName tableName, List<ColumnDef> columnDefs) {
         try {
-            String catalogName = Env.getCurrentEnv().getInternalCatalog().getName();
-            String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + tableName.getDb();
-            TableIf table = StatisticsUtil.findTable(catalogName, dbName, tableName.getTbl());
-            List<Column> existColumns = table.getBaseSchema(false);
-            existColumns.sort(Comparator.comparing(Column::getName));
-            List<Column> columns = columnDefs.stream()
-                    .map(ColumnDef::toColumn)
-                    .sorted(Comparator.comparing(Column::getName))
-                    .collect(Collectors.toList());
-            if (columns.size() != existColumns.size()) {
+            optionalDatabase.get().readLock();
+            Database db = optionalDatabase.get();
+            if (db.getTable(StatisticConstants.TBL_STATS_TBL_NAME).isPresent()
+                    && db.getTable(StatisticConstants.COL_STATS_TBL_NAME).isPresent()
+                    && db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).isPresent()) {
+                colStatsTbl = db.getTable(StatisticConstants.COL_STATS_TBL_NAME).get();
+                histStatsTbl = db.getTable(StatisticConstants.HISTOGRAM_TBL_NAME).get();
                 return true;
             }
-            for (int i = 0; i < columns.size(); i++) {
-                Column c1 = columns.get(i);
-                Column c2 = existColumns.get(i);
-                if (!c1.getName().equals(c2.getName())
-                        || c1.getDataType() != c2.getDataType()) {
-                    return true;
+            return false;
+        } finally {
+            optionalDatabase.get().readUnlock();
+        }
+    }
+
+    private void addTblNameIfNecessary() {
+        TableIf[] tbls = new TableIf[] {colStatsTbl, histStatsTbl};
+        List<AlterClause> alterClauses = new ArrayList<>();
+        List<ColumnDef> columnDefs = new ArrayList<>();
+        // Name limit of catalog and db is 63 characters, you could refer it in `FeNameFormat.java`
+        int idLen = 64 * 4;
+        columnDefs.add(new ColumnDef("catalog_name", TypeDef.createVarchar(idLen), true));
+        columnDefs.add(new ColumnDef("db_name", TypeDef.createVarchar(idLen), true));
+        // Table name length is configurable, it could be specified by FE option`Config.table_name_length_limit`
+        columnDefs.add(new ColumnDef("tbl_name",
+                TypeDef.createVarchar(ScalarType.MAX_VARCHAR_LENGTH), true));
+        alterClauses.add(new AddColumnsClause(columnDefs, null, new HashMap<>()));
+        for (TableIf tbl : tbls) {
+            if (tbl.getBaseSchema().stream()
+                    .filter(c -> c.getName().equals("tbl_name") || c.getName().equals("db_name") || c.getName()
+                            .equals("catalog_name")).count() == 3) {
+                continue;
+            }
+            while (true) {
+                try {
+                    AlterTableStmt stmt = new AlterTableStmt(new TableName("",
+                            StatisticConstants.DB_NAME, tbl.getName()), alterClauses);
+                    StatisticsUtil.analyze(stmt);
+                    Env.getCurrentEnv().alterTable(stmt);
+                    break;
+                } catch (Throwable t) {
+                    LOG.warn("Failed to upgrade stats tbl:{}", tbl.getName(), t);
+                    StatisticsUtil.sleep(5 * 1000);
                 }
             }
-            return false;
-        } catch (Throwable t) {
-            LOG.warn("Failed to check table schema", t);
-            return false;
         }
     }
 

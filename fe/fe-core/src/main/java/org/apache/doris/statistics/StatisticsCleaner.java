@@ -103,7 +103,7 @@ public class StatisticsCleaner extends MasterDaemon {
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
-                                    StatisticConstants.STATISTIC_TBL_NAME);
+                                    StatisticConstants.COL_STATS_TBL_NAME);
             histStatsTbl =
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,

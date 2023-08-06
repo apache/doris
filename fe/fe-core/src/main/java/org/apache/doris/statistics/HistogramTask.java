@@ -44,8 +44,11 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    '${colId}' AS col_id, "
             + "    ${sampleRate} AS sample_rate, "
             + "    HISTOGRAM(`${colName}`, ${maxBucketNum}) AS buckets, "
-            + "    NOW() AS create_time "
-            + "FROM "
+            + "    NOW() AS create_time. "
+            + "     '${catalogName}', "
+            + "     '${dbName}', "
+            + "     '${tblName}' "
+            + "     FROM "
             + "    `${dbName}`.`${tblName}` ${sampleExpr}";
 
     @VisibleForTesting
@@ -71,6 +74,7 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("dbName", info.dbName);
         params.put("tblName", String.valueOf(info.tblName));
         params.put("colName", String.valueOf(info.colName));
+        params.put("catalogName", String.valueOf(info.catalogName));
         params.put("sampleRate", getSampleRateFunction());
         params.put("sampleExpr", getSampleExpression());
         params.put("maxBucketNum", String.valueOf(info.maxBucketNum));

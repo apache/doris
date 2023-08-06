@@ -58,16 +58,16 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         setTaskStateToRunning();
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+        params.put("columnStatTbl", StatisticConstants.COL_STATS_TBL_NAME);
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", String.valueOf(info.indexId));
-        params.put("colId", String.valueOf(info.colName));
         params.put("dataSizeFunction", getDataSizeFunction(col));
         params.put("dbName", info.dbName);
         params.put("colName", String.valueOf(info.colName));
         params.put("tblName", String.valueOf(info.tblName));
+        params.put("catalogName", String.valueOf(info.catalogName));
         params.put("sampleExpr", getSampleExpression());
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {

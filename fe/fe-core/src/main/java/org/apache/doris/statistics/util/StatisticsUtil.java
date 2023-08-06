@@ -396,7 +396,7 @@ public class StatisticsUtil {
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
-                                    StatisticConstants.STATISTIC_TBL_NAME));
+                                    StatisticConstants.COL_STATS_TBL_NAME));
             statsTbls.add(
                     (OlapTable) StatisticsUtil
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,

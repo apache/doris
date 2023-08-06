@@ -104,7 +104,7 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                 tableRef.setPartitionNames(partitionName);
                 String sql = selectOne.toSql();
                 params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-                params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+                params.put("columnStatTbl", StatisticConstants.COL_STATS_TBL_NAME);
                 params.put("catalogId", String.valueOf(catalog.getId()));
                 params.put("dbId", String.valueOf(db.getId()));
                 params.put("tblId", String.valueOf(tbl.getId()));
@@ -117,6 +117,7 @@ public class MVAnalysisTask extends BaseAnalysisTask {
                 params.put("dataSizeFunction", getDataSizeFunction(column));
                 params.put("dbName", info.dbName);
                 params.put("colName", colName);
+                params.put("catalogName", info.catalogName);
                 params.put("tblName", String.valueOf(info.tblName));
                 params.put("sql", sql);
                 params.put("sampleExpr", getSampleExpression());

@@ -65,7 +65,10 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "MIN(`${colName}`) AS min, "
             + "MAX(`${colName}`) AS max, "
             + "${dataSizeFunction} AS data_size, "
-            + "NOW() "
+            + "NOW(), "
+            + "'${catalogName}', "
+            + "'${dbName}', "
+            + "'${tblName}' "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
 
     private static final String ANALYZE_SQL_PARTITION_TEMPLATE = "INSERT INTO "
@@ -84,7 +87,10 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "MIN(`${colName}`) AS min, "
             + "MAX(`${colName}`) AS max, "
             + "${dataSizeFunction} AS data_size, "
-            + "NOW() "
+            + "NOW(), "
+            + "'${catalogName}', "
+            + "'${dbName}', "
+            + "'${tblName}' "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
 
     private static final String ANALYZE_TABLE_COUNT_TEMPLATE = "SELECT COUNT(1) as rowCount "
@@ -186,7 +192,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
                 sb.append(StringUtils.join(splits, " and "));
                 Map<String, String> params = buildTableStatsParams(partId);
                 params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-                params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+                params.put("columnStatTbl", StatisticConstants.COL_STATS_TBL_NAME);
                 params.put("colName", col.getName());
                 params.put("colId", info.colName);
                 params.put("dataSizeFunction", getDataSizeFunction(col));
@@ -225,7 +231,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             }
             Map<String, String> params = buildTableStatsParams("NULL");
             params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-            params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
+            params.put("columnStatTbl", StatisticConstants.COL_STATS_TBL_NAME);
             params.put("colName", col.getName());
             params.put("colId", info.colName);
             params.put("dataSizeFunction", getDataSizeFunction(col));

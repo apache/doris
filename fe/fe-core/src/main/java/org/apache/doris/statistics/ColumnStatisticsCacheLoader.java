@@ -55,7 +55,7 @@ public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<
                     .getDbOrMetaException(key.dbId).getTableOrMetaException(key.tableId);
             columnStatistic = table.getColumnStatistic(key.colName);
         } catch (Exception e) {
-            LOG.warn(String.format("Exception to get column statistics by metadata. [Catalog:%d, DB:%d, Table:%d]",
+            LOG.debug(String.format("Exception to get column statistics by metadata. [Catalog:%d, DB:%d, Table:%d]",
                     key.catalogId, key.dbId, key.tableId), e);
         }
         return columnStatistic;
