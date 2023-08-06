@@ -59,6 +59,8 @@ public class Group {
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
+    private final List<GroupExpression> enforcers = Lists.newArrayList();
+
     private LogicalProperties logicalProperties;
 
     // Map of cost lower bounds
@@ -210,6 +212,11 @@ public class Group {
         return null;
     }
 
+    public void addEnforcer(GroupExpression enforcer) {
+        enforcer.setOwnerGroup(this);
+        enforcers.add(enforcer);
+    }
+
     /**
      * Set or update lowestCostPlans: properties --> Pair.of(cost, expression)
      */
@@ -308,12 +315,11 @@ public class Group {
     public void mergeTo(Group target) {
         // move parentExpressions Ownership
         parentExpressions.keySet().forEach(parent -> target.addParentExpression(parent));
-        // PhysicalEnforcer isn't in groupExpressions, so mergeGroup() can't replace its children.
-        // So we need to manually replace the children of PhysicalEnforcer in here.
-        // TODO: SortEnforcer?
-        parentExpressions.keySet().stream().filter(ge -> ge.getPlan() instanceof PhysicalDistribute)
-                .forEach(ge -> ge.children().set(0, target));
-        parentExpressions.clear();
+
+        // TODO: dedup?
+        // move enforcers Ownership
+        enforcers.forEach(ge -> ge.children().set(0, target));
+        enforcers.forEach(enforcer -> target.addEnforcer(enforcer));
 
         // move LogicalExpression PhysicalExpression Ownership
         Map<GroupExpression, GroupExpression> logicalSet = target.getLogicalExpressions().stream()
@@ -424,6 +430,10 @@ public class Group {
         str.append("  physical expressions:\n");
         for (GroupExpression physicalExpression : physicalExpressions) {
             str.append("    ").append(physicalExpression).append("\n");
+        }
+        str.append(" enforcers:\n");
+        for (GroupExpression enforcer : enforcers) {
+            str.append("    ").append(enforcer).append("\n");
         }
         return str.toString();
     }
