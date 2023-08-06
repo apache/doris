@@ -43,8 +43,9 @@ COLLECT_SET
 ### notice
 
 ```
-仅支持向量化引擎中使用
+仅支持向量化引擎中使用，且需要开启自动回退到旧优化器的配置。
 ```
+具体操作见： [Nereids 全新优化器](../../../query-acceleration/nereids.md)
 
 ### example
 

@@ -147,7 +147,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
 1. **Partition**
 
-   - Partition 列可以指定一列或多列，分区列必须为 KEY 列。多列分区的使用方式在后面 **多列分区** 小结介绍。
+   - Partition 列可以指定一列或多列，分区列必须为 KEY 列。多列分区的使用方式在后面 <A HREF="#range_more_partition">**Range多列分区，** </A> <A HREF="#list_more_partition">**List多列分区** </A> 小结介绍。
    - 不论分区列是什么类型，在写分区值时，都需要加双引号。
    - 分区数量理论上没有上限。
    - 当不使用 Partition 建表时，系统会自动生成一个和表名同名的，全值范围的 Partition。该 Partition 对用户不可见，并且不可删改。
@@ -228,7 +228,8 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    综上，分区的删除不会改变已存在分区的范围。删除分区可能出现空洞。通过 `VALUES LESS THAN` 语句增加分区时，分区的下界紧接上一个分区的上界。
 
-   Range分区除了上述我们看到的单列分区，也支持**多列分区**，示例如下：
+   Range分区除了上述我们看到的单列分区，也支持<a ID="range_more_partition"> **Range多列分区**</a>
+> .0.>**多列分区**，示例如下：
 
    ```text
    PARTITION BY RANGE(`date`, `id`)
@@ -307,7 +308,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
        p_uk: ("London")
        ```
 
-   List分区也支持**多列分区**，示例如下：
+   List分区也支持<a id="list_more_partition"> **多列分区**</a>，示例如下：
 
    ```text
    PARTITION BY LIST(`id`, `city`)

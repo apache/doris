@@ -42,8 +42,10 @@ Creates an array containing distinct elements from `expr`,with the optional `max
 ### notice
 
 ```
-Only supported in vectorized engine
+Only supported in vectorized engine, and you need to enable the 'enable_fallback_to_original_planner' configuration
 ```
+
+Specific operation link: [Nereids-The Brand New Planner](../../../query-acceleration/nereids.md)
 
 ### example
 
