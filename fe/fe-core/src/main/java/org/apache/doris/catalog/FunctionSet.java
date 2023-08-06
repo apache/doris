@@ -203,6 +203,7 @@ public class FunctionSet<T> {
     public static final String HISTOGRAM = "histogram";
     public static final String HIST = "hist";
     public static final String MAP_AGG = "map_agg";
+    public static final String COUNT_BY_ENUM = "count_by_enum";
 
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -1612,6 +1613,21 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                         "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
         }
+
+        // count_by_enum
+        addBuiltin(AggregateFunction.createBuiltin(COUNT_BY_ENUM,
+                Lists.newArrayList(Type.STRING),
+                Type.STRING,
+                Type.STRING,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                false, true, false, true));
 
     }
 
