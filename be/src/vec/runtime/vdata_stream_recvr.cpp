@@ -301,12 +301,12 @@ VDataStreamRecvr::VDataStreamRecvr(
           _is_merging(is_merging),
           _is_closed(false),
           _profile(profile),
+          _peak_memory_usage_counter(nullptr),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
           _enable_pipeline(state->enable_pipeline_exec()) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
     _mem_tracker =
-            std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id),
-                                         _profile, nullptr, "PeakMemoryUsage");
+            std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id));
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // Create one queue per sender if is_merging is true.
@@ -326,6 +326,8 @@ VDataStreamRecvr::VDataStreamRecvr(
     // Initialize the counters
     _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
     _blocks_memory_usage = _profile->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage");
+    _peak_memory_usage_counter =
+            _profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
     _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);
     _local_bytes_received_counter = ADD_COUNTER(_profile, "LocalBytesReceived", TUnit::BYTES);
 
@@ -391,6 +393,7 @@ bool VDataStreamRecvr::ready_to_read() {
 }
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
+    _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     if (!_is_merging) {
         block->clear();
         return _sender_queues[0]->get_batch(block, eos);
@@ -424,6 +427,9 @@ void VDataStreamRecvr::close() {
     _mgr = nullptr;
 
     _merger.reset();
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    }
 }
 
 } // namespace doris::vectorized

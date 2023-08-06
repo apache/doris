@@ -154,6 +154,7 @@ private:
     RuntimeProfile::Counter* _decompress_bytes;
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _peak_memory_usage_counter;
 
     // Number of rows received
     RuntimeProfile::Counter* _rows_produced_counter;
