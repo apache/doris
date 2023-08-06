@@ -1657,3 +1657,30 @@
 -- !select_array_datetimev2_4 --
 [2023-01-19 18:11:11.111, 2023-01-19 18:22:22.222, 2023-01-19 18:33:33.333]
 
+-- !select --
+true
+false
+true
+\N
+\N
+\N
+true
+
+-- !select --
+true
+false
+true
+\N
+\N
+\N
+true
+
+-- !select --
+true
+false
+true
+\N
+\N
+\N
+true
+
