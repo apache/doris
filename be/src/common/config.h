@@ -1093,6 +1093,12 @@ DECLARE_mInt64(kerberos_expiration_time_seconds);
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
 
+// DISABLED: Don't resolve location info.
+// FAST: Perform CU lookup using .debug_aranges (might be incomplete).
+// FULL: Scan all CU in .debug_info (slow!) on .debug_aranges lookup failure.
+// FULL_WITH_INLINE: Scan .debug_info (super slower, use with caution) for inline functions in addition to FULL.
+DECLARE_mString(dwarf_location_info_mode);
+
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DECLARE_mInt64(auto_inc_prefetch_size_ratio);
 

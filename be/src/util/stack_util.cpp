@@ -45,9 +45,6 @@ std::string get_stack_trace() {
     } else if (tool == "glibc") {
         return get_stack_trace_by_glibc();
     } else if (tool == "libunwind") {
-#if defined(__APPLE__) // TODO
-        return get_stack_trace_by_glog();
-#endif
         return get_stack_trace_by_libunwind();
     } else {
         return "no stack";
@@ -81,7 +78,7 @@ std::string get_stack_trace_by_glibc() {
 }
 
 std::string get_stack_trace_by_libunwind() {
-    return StackTrace().toString();
+    return "\n" + StackTrace().toString();
 }
 
 } // namespace doris
