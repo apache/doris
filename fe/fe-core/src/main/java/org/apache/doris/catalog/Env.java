@@ -140,7 +140,9 @@ import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
+import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -190,7 +192,6 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
-import org.apache.doris.persist.StorageInfoV2;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
@@ -233,7 +234,6 @@ import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -250,11 +250,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -1620,7 +1618,7 @@ public class Env {
                     + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
-                    MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
+                    MetaHelper.getFile(Storage.VERSION_FILE, dir));
             MetaHelper.complete(Storage.VERSION_FILE, dir);
             return true;
         } catch (Exception e) {
@@ -1638,13 +1636,19 @@ public class Env {
         try {
             String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
             String infoUrl = "http://" + hostPort + "/info";
-            StorageInfo info = getStorageInfo(infoUrl);
+            ResponseBody<StorageInfo> responseBody = MetaHelper
+                    .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
+            if (responseBody.getCode() != RestApiStatusCode.OK.code) {
+                LOG.warn("get image failed,responseBody:{}", responseBody);
+                throw new IOException(responseBody.toString());
+            }
+            StorageInfo info = responseBody.getData();
             long version = info.getImageSeq();
             if (version > localImageVersion) {
                 String url = "http://" + hostPort + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
-                MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
+                MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getFile(filename, dir));
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
@@ -1674,42 +1678,6 @@ public class Env {
         }
 
         return containSelf;
-    }
-
-    private StorageInfo getStorageInfo(String url) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-
-        HttpURLConnection connection = null;
-        try {
-            connection = HttpURLUtil.getConnectionWithNodeIdent(url);
-            connection.setConnectTimeout(HTTP_TIMEOUT_SECOND * 1000);
-            connection.setReadTimeout(HTTP_TIMEOUT_SECOND * 1000);
-
-            String response;
-            try (BufferedReader bufferedReader = new BufferedReader(
-                    new InputStreamReader(connection.getInputStream()))) {
-                String line;
-                StringBuilder sb = new StringBuilder();
-                while ((line = bufferedReader.readLine()) != null) {
-                    sb.append(line);
-                }
-                response = sb.toString();
-            }
-
-            // For http v2, the response body for "/info" api changed from
-            // StorageInfo to StorageInfoV2.
-            // So we need to make it compatible with old api.
-            try {
-                return mapper.readValue(response, StorageInfo.class);
-            } catch (Exception e) {
-                // try new response body
-                return mapper.readValue(response, StorageInfoV2.class).data;
-            }
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
     }
 
     public StatisticsCache getStatisticsCache() {
