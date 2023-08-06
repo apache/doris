@@ -75,7 +75,13 @@ Status VStatisticsIterator::next_batch(Block* block) {
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
             for (int i = 0; i < block->columns(); ++i) {
-                columns[i]->resize(size);
+                if (columns[i]->is_nullable()) {
+                    auto* column_nullable = reinterpret_cast<ColumnNullable*>(columns[i].get());
+                    column_nullable->get_nested_column().resize(size);
+                    column_nullable->get_null_map_data().resize_fill(size);
+                } else {
+                    columns[i]->resize(size);
+                }
             }
         } else {
             for (int i = 0; i < block->columns(); ++i) {
