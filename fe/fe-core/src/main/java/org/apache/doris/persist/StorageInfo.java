@@ -17,6 +17,8 @@
 
 package org.apache.doris.persist;
 
+import java.util.Objects;
+
 /**
  * This class is designed for sending storage information from master to standby master.
  * StorageInfo is easier to serialize to a Json String than class Storage
@@ -58,5 +60,24 @@ public class StorageInfo {
 
     public void setImageSeq(long imageSeq) {
         this.imageSeq = imageSeq;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        StorageInfo that = (StorageInfo) o;
+        return clusterID == that.clusterID
+                && imageSeq == that.imageSeq
+                && editsSeq == that.editsSeq;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(clusterID, imageSeq, editsSeq);
     }
 }

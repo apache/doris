@@ -24,12 +24,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.master.MetaHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.HttpStatus;
@@ -175,7 +177,8 @@ public class RestBaseController extends BaseController {
         Preconditions.checkArgument(imageFile != null && imageFile.exists());
         response.setHeader("Content-type", "application/octet-stream");
         response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());
-        response.setHeader("X-Image-Size", imageFile.length() + "");
+        response.setHeader(MetaHelper.X_IMAGE_SIZE, imageFile.length() + "");
+        response.setHeader(MetaHelper.X_IMAGE_MD5, DigestUtils.md5Hex(new FileInputStream(imageFile)));
         getFile(request, response, imageFile, imageFile.getName());
     }
 
