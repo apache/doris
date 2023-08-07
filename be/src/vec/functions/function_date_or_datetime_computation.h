@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -1077,7 +1078,7 @@ struct TimeToSecImpl {
 
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = static_cast<int>(column_data.get_element(i));
+            res_data[i] = static_cast<int64_t>(column_data.get_element(i)) / (1000 * 1000);
         }
         block.replace_by_position(result, std::move(res_col));
 
