@@ -223,8 +223,8 @@ suite("test_delete") {
 
     sql '''
         CREATE TABLE test1 (
-            x varchar NOT NULL,
-            id varchar NOT NULL
+            x varchar(10) NOT NULL,
+            id varchar(10) NOT NULL
         )
         ENGINE=OLAP
         UNIQUE KEY(`x`)COMMENT "OLAP"
