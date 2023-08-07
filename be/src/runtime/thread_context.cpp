@@ -59,7 +59,7 @@ AttachTask::~AttachTask() {
 
 SwitchThreadMemTrackerLimiter::SwitchThreadMemTrackerLimiter(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-     SwitchBthreadLocal::switch_to_bthread_local();
+    SwitchBthreadLocal::switch_to_bthread_local();
     _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
 }
