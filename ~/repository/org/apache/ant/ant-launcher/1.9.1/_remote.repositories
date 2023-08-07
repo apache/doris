@@ -1,5 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:36:24 CST 2023
-ant-launcher-1.9.1.jar>allmaven=
-ant-launcher-1.9.1.jar>gcs-maven-central-mirror=
-ant-launcher-1.9.1.pom>gcs-maven-central-mirror=

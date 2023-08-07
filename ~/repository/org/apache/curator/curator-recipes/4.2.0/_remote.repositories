@@ -1,6 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:48:37 CST 2023
-curator-recipes-4.2.0.jar>gcs-maven-central-mirror=
-curator-recipes-4.2.0.pom>allmaven=
-curator-recipes-4.2.0.pom>gcs-maven-central-mirror=
-curator-recipes-4.2.0.jar>allmaven=

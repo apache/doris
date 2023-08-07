@@ -1,6 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:49:15 CST 2023
-maven-plugin-api-3.1.0.jar>gcs-maven-central-mirror=
-maven-plugin-api-3.1.0.pom>gcs-maven-central-mirror=
-maven-plugin-api-3.1.0.jar>allmaven=
-maven-plugin-api-3.1.0.pom>allmaven=

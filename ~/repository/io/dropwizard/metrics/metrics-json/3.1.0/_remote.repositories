@@ -1,5 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:36:24 CST 2023
-metrics-json-3.1.0.jar>allmaven=
-metrics-json-3.1.0.pom>gcs-maven-central-mirror=
-metrics-json-3.1.0.jar>gcs-maven-central-mirror=

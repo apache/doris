@@ -1,6 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:48:34 CST 2023
-commons-net-3.9.0.jar>allmaven=
-commons-net-3.9.0.jar>gcs-maven-central-mirror=
-commons-net-3.9.0.pom>gcs-maven-central-mirror=
-commons-net-3.9.0.pom>allmaven=

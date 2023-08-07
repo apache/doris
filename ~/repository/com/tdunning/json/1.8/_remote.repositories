@@ -1,5 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:36:24 CST 2023
-json-1.8.jar>allmaven=
-json-1.8.jar>gcs-maven-central-mirror=
-json-1.8.pom>gcs-maven-central-mirror=

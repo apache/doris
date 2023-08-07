@@ -1,9 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:05:16 CST 2023
-https\://repository.cloudera.com/artifactory/public/.error=
-https\://repository.apache.org/content/repositories/snapshots/.error=
-http\://maven.aliyun.com/nexus/content/groups/public/.error=
-https\://repository.apache.org/content/repositories/snapshots/.lastUpdated=1691348715982
-https\://repository.cloudera.com/artifactory/public/.lastUpdated=1691348716214
-http\://maven.aliyun.com/nexus/content/groups/public/.lastUpdated=1691348716375
-https\://repo.huaweicloud.com/repository/maven/huaweicloudsdk/.lastUpdated=1691348716409

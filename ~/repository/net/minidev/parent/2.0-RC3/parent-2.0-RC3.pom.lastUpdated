@@ -1,9 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:40:05 CST 2023
-https\://repo.huaweicloud.com/repository/maven/huaweicloudsdk/.error=
-http\://download.oracle.com/maven/.error=
-http\://download.oracle.com/maven/.lastUpdated=1691350804691
-http\://maven.aliyun.com/nexus/content/groups/public/.lastUpdated=1691350805339
-https\://repository.cloudera.com/content/repositories/third-party/.error=
-https\://repository.cloudera.com/content/repositories/third-party/.lastUpdated=1691350803638
-https\://repo.huaweicloud.com/repository/maven/huaweicloudsdk/.lastUpdated=1691350804908

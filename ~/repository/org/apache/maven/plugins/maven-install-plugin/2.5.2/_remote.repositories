@@ -1,4 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:38:46 CST 2023
-maven-install-plugin-2.5.2.jar>allmaven=
-maven-install-plugin-2.5.2.jar>gcs-maven-central-mirror=

@@ -1,5 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:26:26 CST 2023
-commons-cli-1.5.0.jar>allmaven=
-commons-cli-1.5.0.jar>gcs-maven-central-mirror=
-commons-cli-1.5.0.pom>gcs-maven-central-mirror=

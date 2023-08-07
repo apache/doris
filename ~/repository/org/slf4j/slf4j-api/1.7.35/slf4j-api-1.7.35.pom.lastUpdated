@@ -1,7 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:08:08 CST 2023
-https\://repository.cloudera.com/artifactory/public/.error=
-https\://repository.apache.org/content/repositories/snapshots/.error=
-https\://repository.apache.org/content/repositories/snapshots/.lastUpdated=1691348888161
-https\://repository.cloudera.com/artifactory/public/.lastUpdated=1691348888377
-http\://maven.aliyun.com/nexus/content/groups/public/.lastUpdated=1691348888893

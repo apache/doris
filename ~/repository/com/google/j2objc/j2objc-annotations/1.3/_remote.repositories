@@ -1,6 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:48:15 CST 2023
-j2objc-annotations-1.3.jar>gcs-maven-central-mirror=
-j2objc-annotations-1.3.jar>allmaven=
-j2objc-annotations-1.3.pom>gcs-maven-central-mirror=
-j2objc-annotations-1.3.pom>allmaven=

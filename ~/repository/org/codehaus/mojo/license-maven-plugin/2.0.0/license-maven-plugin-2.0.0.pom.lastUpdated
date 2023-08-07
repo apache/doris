@@ -1,5 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 03:39:31 CST 2023
-@default-spring-plugins-http\://repo.spring.io/plugins-release/.lastUpdated=1691350771048
-http\://repo.spring.io/plugins-release/.error=Could not transfer artifact org.codehaus.mojo\:license-maven-plugin\:pom\:2.0.0 from/to spring-plugins (http\://repo.spring.io/plugins-release/)\: Failed to transfer http\://repo.spring.io/plugins-release/org/codehaus/mojo/license-maven-plugin/2.0.0/license-maven-plugin-2.0.0.pom. Error code 405, Not Allowed
-http\://maven.aliyun.com/nexus/content/groups/public/.lastUpdated=1691350771482
