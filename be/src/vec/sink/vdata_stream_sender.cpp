@@ -282,6 +282,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
                                      int per_channel_buffer_size,
                                      bool send_query_statistics_with_every_batch)
         : _sender_id(sender_id),
+          _state(state),
           _pool(pool),
           _row_desc(row_desc),
           _current_channel_idx(0),
@@ -341,12 +342,13 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
     }
 }
 
-VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-                                     PlanNodeId dest_node_id,
+VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
+                                     const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                                      const std::vector<TPlanFragmentDestination>& destinations,
                                      int per_channel_buffer_size,
                                      bool send_query_statistics_with_every_batch)
         : _sender_id(sender_id),
+          _state(state),
           _pool(pool),
           _row_desc(row_desc),
           _current_channel_idx(0),
@@ -382,31 +384,6 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
     }
 }
 
-VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc,
-                                     int per_channel_buffer_size,
-                                     bool send_query_statistics_with_every_batch)
-        : _sender_id(0),
-          _pool(pool),
-          _row_desc(row_desc),
-          _current_channel_idx(0),
-          _profile(nullptr),
-          _serialize_batch_timer(nullptr),
-          _compress_timer(nullptr),
-          _brpc_send_timer(nullptr),
-          _brpc_wait_timer(nullptr),
-          _bytes_sent_counter(nullptr),
-          _local_send_timer(nullptr),
-          _split_block_hash_compute_timer(nullptr),
-          _split_block_distribute_by_channel_timer(nullptr),
-          _blocks_sent_counter(nullptr),
-          _peak_memory_usage_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
-          _dest_node_id(0),
-          _serializer(this) {
-    _cur_pb_block = &_pb_block1;
-    _name = "VDataStreamSender";
-}
-
 VDataStreamSender::~VDataStreamSender() {
     _channel_shared_ptrs.clear();
 }
@@ -428,7 +405,6 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
 
 Status VDataStreamSender::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
-    _state = state;
 
     std::vector<std::string> instances;
     for (const auto& channel : _channels) {
