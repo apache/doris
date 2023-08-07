@@ -218,6 +218,8 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("unknown sender_id {}", sender_id);
     }
 
+    std::lock_guard lock_guard(_lock);
+
     // we do nothing until recv CLOSE_LOAD from all stream to ensure all data are handled before ack
     if ((++_senders_closed_streams[sender_id]) < _num_stream_per_sender) {
         LOG(INFO) << fmt::format("OOXXOO {} out of {} stream received CLOSE_LOAD from sender {}",
@@ -226,7 +228,6 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
         return Status::OK();
     }
 
-    std::lock_guard lock_guard(_lock);
     if (!_senders_status[sender_id]) {
         return Status::OK();
     }
