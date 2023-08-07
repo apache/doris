@@ -75,7 +75,7 @@ public:
     }
 };
 
-class CsvTextFieldSplitter final : public LineFieldSplitterIf {
+class CsvTextFieldSplitter : public LineFieldSplitterIf {
     // using a function ptr to decrease the overhead (found very effective during test).
     using ProcessValueFunc = void (*)(const char*, size_t*, size_t*, char);
 
@@ -109,7 +109,7 @@ public:
         splitted_values->emplace_back(data + start_offset, value_len);
     }
 
-private:
+protected:
     template <bool TrimTailingSpace, bool TrimEnds>
     inline static void _process_value(const char* data, size_t* start_offset, size_t* value_len,
                                       char trimming_char) {
@@ -131,7 +131,25 @@ private:
     const char _trimming_char;
     const size_t _value_sep_len;
     ProcessValueFunc _process_value_func;
+
+private:
     std::shared_ptr<CsvLineReaderContext> _text_line_reader_ctx;
+};
+
+class PlainCsvTextFieldSplitter : public CsvTextFieldSplitter {
+public:
+    explicit PlainCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                       std::shared_ptr<CsvLineReaderContext> line_reader_ctx,
+                                       const std::string& col_sep, size_t value_sep_len = 1,
+                                       char trimming_char = 0)
+            : CsvTextFieldSplitter(trim_tailing_space, trim_ends, line_reader_ctx, value_sep_len,
+                                   trimming_char),
+              _value_sep(col_sep) {}
+
+    void split_line(const Slice& line, std::vector<Slice>* splitted_values) override;
+
+private:
+    std::string _value_sep;
 };
 
 class CsvReader : public GenericReader {

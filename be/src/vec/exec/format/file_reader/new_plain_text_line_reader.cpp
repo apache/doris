@@ -43,7 +43,7 @@
 namespace doris {
 
 const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_t length) {
-    // _total_len = length;
+    _total_len = length;
     // size_t bound = update_reading_bound(start);
 
     _result = find_line_delim_func(start + _idx, length - _idx, line_delimiter.c_str(),
@@ -58,20 +58,20 @@ const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_
 }
 
 void CsvLineReaderContext::read_line_impl(const uint8_t* start, size_t& bound) {
-    const uint8_t* curr_start;
-    size_t curr_len;
-    do {
-        curr_start = start + _idx;
-        curr_len = bound - _idx;
-        const uint8_t* col_sep =
-                find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
+    // const uint8_t* curr_start;
+    // size_t curr_len;
+    // do {
+    //     curr_start = start + _idx;
+    //     curr_len = bound - _idx;
+    //     const uint8_t* col_sep =
+    //             find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
 
-        if (col_sep != nullptr) [[likely]] {
-            on_col_sep_found(start, col_sep);
-            continue;
-        }
-        break;
-    } while (true);
+    //     if (col_sep != nullptr) [[likely]] {
+    //         on_col_sep_found(start, col_sep);
+    //         continue;
+    //     }
+    //     break;
+    // } while (true);
 }
 
 void CsvLineReaderContext::on_col_sep_found(const uint8_t* start, const uint8_t* col_sep_pos) {
