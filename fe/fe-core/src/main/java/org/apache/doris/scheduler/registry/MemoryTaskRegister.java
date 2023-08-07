@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler.registry;
 
+import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
 
 /**
@@ -27,5 +28,5 @@ public interface MemoryTaskRegister {
 
     Long registerTask(MemoryTaskExecutor executor);
 
-    void cancelTask(Long taskId);
+    void cancelTask(Long taskId) throws JobException;
 }

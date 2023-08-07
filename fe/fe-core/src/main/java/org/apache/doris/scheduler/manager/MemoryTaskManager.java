@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.manager;
 
 import org.apache.doris.scheduler.disruptor.TaskDisruptor;
+import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
 
 import lombok.Setter;
@@ -53,5 +54,9 @@ public class MemoryTaskManager {
         taskExecutorMap.put(taskId, executor);
         disruptor.tryPublishTask(taskId);
         return taskId;
+    }
+
+    public void cancelMemoryTask(Long taskId) throws JobException {
+        taskExecutorMap.get(taskId).cancel();
     }
 }
