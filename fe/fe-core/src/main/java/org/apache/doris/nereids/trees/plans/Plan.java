@@ -40,7 +40,6 @@ import java.util.stream.Collectors;
  * Abstract class for all plan node.
  */
 public interface Plan extends TreeNode<Plan> {
-
     PlanType getType();
 
     // cache GroupExpression for fast exit from Memo.copyIn.
