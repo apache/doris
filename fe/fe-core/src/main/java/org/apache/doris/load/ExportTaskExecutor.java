@@ -30,6 +30,8 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -50,6 +52,8 @@ public class ExportTaskExecutor implements MemoryTaskExecutor {
 
     @Setter
     Long taskId;
+
+    private StmtExecutor stmtExecutor;
 
     ExportTaskExecutor(List<SelectStmt> selectStmtLists, ExportJob exportJob) {
         this.selectStmtLists = selectStmtLists;
@@ -95,8 +99,7 @@ public class ExportTaskExecutor implements MemoryTaskExecutor {
             }
 
             try (AutoCloseConnectContext r = buildConnectContext()) {
-                StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, selectStmtLists.get(idx));
-                exportJob.setStmtExecutor(idx, stmtExecutor);
+                stmtExecutor = new StmtExecutor(r.connectContext, selectStmtLists.get(idx));
                 stmtExecutor.execute();
                 if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
                     exportJob.cancelExportTask(taskId, ExportFailMsg.CancelType.RUN_FAIL,
@@ -110,10 +113,9 @@ public class ExportTaskExecutor implements MemoryTaskExecutor {
                 // TODO(ftw): return or throw exception?
                 return;
             } finally {
-                exportJob.getStmtExecutor(idx).addProfileToSpan();
+                stmtExecutor.addProfileToSpan();
             }
         }
-
         exportJob.finishExportTask(taskId, outfileInfoList);
     }
 

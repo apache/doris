@@ -54,6 +54,9 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.constants.JobStatus;
+import org.apache.doris.scheduler.registry.ExportTaskRegister;
+import org.apache.doris.scheduler.registry.MemoryTaskRegister;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -78,7 +81,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -86,22 +88,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ExportJob implements Writable {
     private static final String BROKER_PROPERTY_PREFIXES = "broker.";
 
-    public static final MemoryTaskRegister register = new MemoryTaskRegister() {
-        @Override
-        public Long registerJob(MemoryTaskExecutor executor) {
-            return 1234L;
-        }
-
-        @Override
-        public JobStatus queryJobStatus(Long taskId) {
-            return JobStatus.WAITING_FINISH;
-        }
-
-        @Override
-        public void cancelJob(Long taskId) {
-            return;
-        }
-    };
+    public static final MemoryTaskRegister register = new ExportTaskRegister(Env.getCurrentEnv().getAsyncJobManager());
 
     @SerializedName("id")
     private long id;
@@ -200,6 +187,9 @@ public class ExportJob implements Writable {
 
     private ConcurrentHashMap<Long, JobStatus> taskIdToJobStatus = new ConcurrentHashMap<>();
 
+    private ConcurrentHashMap<Long, ExportTaskExecutor> taskIdToExecutor = new ConcurrentHashMap<>();
+
+    private Integer finishedTaskCount = 0;
     private List<List<OutfileInfo>> allOutfileInfo = Lists.newArrayList();
 
     public ExportJob() {
@@ -384,14 +374,17 @@ public class ExportJob implements Writable {
         return state;
     }
 
+    // TODO(ftw): delete
     public synchronized Thread getDoExportingThread() {
         return doExportingThread;
     }
 
+    // TODO(ftw): delete
     public synchronized void setDoExportingThread(Thread isExportingThread) {
         this.doExportingThread = isExportingThread;
     }
 
+    // TODO(ftw): delete
     public synchronized void setStmtExecutor(int idx, StmtExecutor executor) {
         this.stmtExecutorList.set(idx, executor);
     }
@@ -400,6 +393,7 @@ public class ExportJob implements Writable {
         return this.stmtExecutorList.get(idx);
     }
 
+    // TODO(ftw): delete
     public synchronized void cancel(ExportFailMsg.CancelType type, String msg) {
         if (msg != null) {
             failMsg = new ExportFailMsg(type, msg);
@@ -424,22 +418,30 @@ public class ExportJob implements Writable {
     }
 
     public synchronized void cancelExportTask(Long taskId, ExportFailMsg.CancelType type, String msg) {
-        taskIdToJobStatus.put(taskId, JobStatus.FAILED);
+        if (state == ExportJobState.CANCELLED) {
+            return;
+        }
+
+        if (state == ExportJobState.FINISHED) {
+            // throw error
+        }
 
         // cancel all task
-        taskIdToJobStatus.keySet().forEach(id -> {
-            register.cancelJob(id);
+        // TODO(ftw): 这里cancel其他的executor, 如果其他的executor已经完成了，这里可能会抛异常
+        taskIdToExecutor.keySet().forEach(id -> {
+            register.cancelTask(id);
         });
 
-        cancelExportJob(type, msg);
+        cancelExportJobUnprotected(type, msg);
     }
 
-    private void cancelExportJob(ExportFailMsg.CancelType type, String msg) {
+    private void cancelExportJobUnprotected(ExportFailMsg.CancelType type, String msg) {
         state = ExportJobState.CANCELLED;
         failMsg = new ExportFailMsg(type, msg);
         Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.CANCELLED);
     }
 
+    // TODO(ftw): delete
     public synchronized boolean finish(List<OutfileInfo> outfileInfoList) {
         outfileInfo = GsonUtils.GSON.toJson(outfileInfoList);
         if (updateState(ExportJobState.FINISHED)) {
@@ -453,31 +455,35 @@ public class ExportJob implements Writable {
     }
 
     public synchronized void finishExportTask(Long taskId, List<OutfileInfo> outfileInfoList) {
-        taskIdToJobStatus.put(taskId, JobStatus.FINISHED);
         allOutfileInfo.add(outfileInfoList);
+        ++finishedTaskCount;
+        // TODO(ftw): caculate progress
+        progress++;
 
         // if all task finished
-        Optional<JobStatus> notFinishTask =  taskIdToJobStatus.values().stream()
-                .filter(jobStatus -> jobStatus != JobStatus.FINISHED).findFirst();
-        if (!notFinishTask.isPresent()) {
-            // TODO(ftw): increase progress
-            progress++;
-            return;
+        if (finishedTaskCount == jobExecutorList.size()) {
+            finishExportJobUnprotected();
         }
-        finishExportJob();
     }
 
-    private void finishExportJob() {
+    private void finishExportJobUnprotected() {
         progress = 100;
         state = ExportJobState.FINISHED;
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.FINISHED);
     }
 
+    // TODO(ftw): replay
+    public synchronized boolean replayJobState() {
+        return true;
+    }
+
+    // TODO(ftw): delete
     public synchronized boolean updateState(ExportJobState newState) {
         return this.updateState(newState, false);
     }
 
+    // TODO(ftw): delete
     public synchronized boolean updateState(ExportJobState newState, boolean isReplay) {
         // We do not persist EXPORTING state in new version of metadata,
         // but EXPORTING state may still exist in older versions of metadata.

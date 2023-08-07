@@ -168,19 +168,18 @@ public class ExportMgr extends MasterDaemon {
 
     public void addExportJobAndRegisterTask(ExportStmt stmt) throws Exception {
         ExportJob job = stmt.getExportJob();
+        long jobId = Env.getCurrentEnv().getNextId();
+        job.setId(jobId);
         writeLock();
         try {
             if (labelToExportJobId.containsKey(job.getLabel())) {
                 throw new LabelAlreadyUsedException(job.getLabel());
             }
             job.getJobExecutorList().forEach(executor -> {
-                Long taskId = ExportJob.register.registerJob(executor);
+                Long taskId = ExportJob.register.registerTask(executor);
                 executor.setTaskId(taskId);
                 job.getExecutorToTaskId().put(executor, taskId);
-                // TODO(ftw): 这里可以直接查询状态了吗
-                job.getTaskIdToJobStatus().put(taskId, ExportJob.register.queryJobStatus(taskId));
-                // TODO(ftw): 这里setId不对，Job应该只有一个ID，这里设置为taskId不对
-                job.setId(taskId);
+                job.getTaskIdToExecutor().put(taskId, executor);
             });
             unprotectAddJob(job);
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
