@@ -127,6 +127,7 @@ public class DeleteStmt extends DdlStmt {
             wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
             try {
                 analyzePredicate(wherePredicate, analyzer);
+                checkDeleteConditions();
             } catch (Exception e) {
                 if (!(((OlapTable) targetTable).getKeysType() == KeysType.UNIQUE_KEYS)) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
@@ -137,9 +138,6 @@ public class DeleteStmt extends DdlStmt {
         } else {
             constructInsertStmt();
         }
-
-        // if run here, it's a simple delete, means that from clause is null and analyze predicate is ok.
-        checkDeleteConditions();
     }
 
     private void constructInsertStmt() throws AnalysisException {
