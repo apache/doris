@@ -15,13 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.jdbc;
 
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.external.jdbc.JdbcClient;
-import org.apache.doris.external.jdbc.JdbcClientConfig;
+import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;

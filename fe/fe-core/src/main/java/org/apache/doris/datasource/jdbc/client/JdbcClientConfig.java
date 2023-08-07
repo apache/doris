@@ -16,7 +16,7 @@
 // under the License.
 
 
-package org.apache.doris.external.jdbc;
+package org.apache.doris.datasource.jdbc.client;
 
 import java.util.Map;
 
