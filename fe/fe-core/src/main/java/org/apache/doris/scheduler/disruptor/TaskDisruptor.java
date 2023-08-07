@@ -17,8 +17,8 @@
 
 package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.MemoryTaskManager;
+import org.apache.doris.scheduler.manager.TimerJobManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorOneArg;
@@ -100,7 +100,7 @@ public class TaskDisruptor implements Closeable {
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, jobId, TaskType.AsyncJobTask);
+            disruptor.publishEvent(TRANSLATOR, jobId, TaskType.TimerJobTask);
         } catch (Exception e) {
             log.error("tryPublish failed, jobId: {}", jobId, e);
         }

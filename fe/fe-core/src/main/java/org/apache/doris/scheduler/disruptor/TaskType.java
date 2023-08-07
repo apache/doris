@@ -18,7 +18,7 @@
 package org.apache.doris.scheduler.disruptor;
 
 public enum TaskType {
-    AsyncJobTask,
+    TimerJobTask,
 
     MemoryTask
 }

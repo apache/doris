@@ -24,9 +24,9 @@ import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
-import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.JobTaskManager;
 import org.apache.doris.scheduler.manager.MemoryTaskManager;
+import org.apache.doris.scheduler.manager.TimerJobManager;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -76,8 +76,8 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
             return;
         }
         switch (event.getTaskType()) {
-            case AsyncJobTask:
-                onAsyncJobTask(event);
+            case TimerJobTask:
+                onTimerJobTask(event);
                 break;
             case MemoryTask:
                 onMemoryTask(event);
@@ -93,7 +93,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
      * @param taskEvent The event task to be processed.
      */
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
-    public void onAsyncJobTask(TaskEvent taskEvent) {
+    public void onTimerJobTask(TaskEvent taskEvent) {
         long jobId = taskEvent.getId();
         Job job = timerJobManager.getJob(jobId);
         if (job == null) {
