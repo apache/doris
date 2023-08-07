@@ -32,6 +32,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
@@ -307,7 +308,7 @@ public final class RuntimeFilter {
         }
 
         targetExpr = targetExpr.getRealSlotRef();
-        Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr);
+        Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr, filterSrcNode.getChild(0));
         Preconditions.checkNotNull(targetSlots);
         if (targetSlots.isEmpty()) {
             return null;
@@ -357,7 +358,7 @@ public final class RuntimeFilter {
                 return null;
             }
 
-            Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr);
+            Map<TupleId, List<SlotId>> targetSlots = getTargetSlots(analyzer, targetExpr, filterSrcNode.getChild(0));
             Preconditions.checkNotNull(targetSlots);
             if (targetSlots.isEmpty()) {
                 return null;
@@ -384,7 +385,7 @@ public final class RuntimeFilter {
      * or if applying the filter might lead to incorrect results.
      * Returns the slot id of the base table expected to use this target expr.
      */
-    private static Map<TupleId, List<SlotId>> getTargetSlots(Analyzer analyzer, Expr expr) {
+    private static Map<TupleId, List<SlotId>> getTargetSlots(Analyzer analyzer, Expr expr, PlanNode root) {
         // 'expr' is not a SlotRef and may contain multiple SlotRefs
         List<TupleId> tids = new ArrayList<>();
         List<SlotId> sids = new ArrayList<>();
@@ -486,7 +487,39 @@ public final class RuntimeFilter {
                 return Collections.emptyMap();
             }
         }
-        return slotsByTid;
+
+        // rf shouldn't push down through any analytic node
+        // remove the slots if there is any analytic node in the middle
+        Map<TupleId, List<SlotId>> result = new HashMap<>();
+        for (Map.Entry<TupleId, List<SlotId>> entry : slotsByTid.entrySet()) {
+            Pair<Boolean, Boolean> isValid =
+                    hasAnalyticNodeInSearchPath(entry.getKey(), root, false);
+            if (isValid.first && !isValid.second) {
+                result.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * deep first search the child having the corresponding tupleId
+     * and record if meets any analytic node during the search
+     * Returns Pair.first -> find a child's tupleId is id, Pair.second -> if met any analytic node during the search
+     */
+    private static Pair<Boolean, Boolean> hasAnalyticNodeInSearchPath(TupleId id, PlanNode parent,
+            boolean hasAnalyticParent) {
+        if (parent.getTupleIds().contains(id)) {
+            return Pair.of(true, hasAnalyticParent);
+        } else {
+            for (PlanNode child : parent.getChildren()) {
+                Pair<Boolean, Boolean> result = hasAnalyticNodeInSearchPath(id, child,
+                        hasAnalyticParent || parent instanceof AnalyticEvalNode);
+                if (result.first) {
+                    return result;
+                }
+            }
+        }
+        return Pair.of(false, false);
     }
 
     /**
