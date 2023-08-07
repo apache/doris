@@ -23,18 +23,24 @@
 #include <string>
 #include <unordered_map>
 
+#include "vec/common/hash_table/phmap_fwd_decl.h"
+
 namespace cctz {
 class time_zone;
 } // namespace cctz
 
 namespace doris {
 
+namespace vectorized {
+using ZoneList = flat_hash_map<std::string, cctz::time_zone>;
+}
+
 class TimezoneUtils {
 public:
     static void load_timezone_names();
+    static void load_timezones_to_cache(vectorized::ZoneList& cache_list);
     static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
 
-public:
     static const std::string default_time_zone;
 
 private:
