@@ -23,6 +23,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.manager.MemoryTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,9 @@ public class TimerJobManagerTest {
         job.setJobCategory(JobCategory.COMMON);
         testExecuteCount.set(0);
         timerJobManager = new TimerJobManager();
+        MemoryTaskManager memoryTaskManager = new MemoryTaskManager();
+        TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, memoryTaskManager);
+        this.timerJobManager.setDisruptor(taskDisruptor);
     }
 
     @Test
