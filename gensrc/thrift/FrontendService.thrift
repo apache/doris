@@ -631,8 +631,8 @@ struct TStreamLoadWithLoadStatusRequest {
 }
 
 struct TStreamLoadWithLoadStatusResult {
-    1: required Status.TStatus status
-    2: required i64 txn_id
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
     3: optional i64 total_rows
     4: optional i64 loaded_rows
     5: optional i64 filtered_rows
