@@ -182,8 +182,7 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-    - `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G), 6.4G is the maximum memory reserved for the system by default.
-* Default value: auto
+* Default value: 80%
 
 #### `cluster_id`
 
@@ -250,7 +249,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_rpc_timeout_ms`
 
 * Description: thrift default timeout time
-* Default value: 10000
+* Default value: 60000
 
 #### `thrift_client_retry_interval_ms`
 
@@ -275,7 +274,7 @@ There are two ways to configure BE configuration items:
 #### `txn_commit_rpc_timeout_ms`
 
 * Description:txn submit rpc timeout
-* Default value: 10,000 (ms)
+* Default value: 60,000 (ms)
 
 #### `txn_map_shard_size`
 
@@ -315,12 +314,18 @@ There are two ways to configure BE configuration items:
 * Description:  When using the odbc external table, if a column type of the odbc source table is not HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
 * Default value: 100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* Type: int32
+* Description: The soft limit of the maximum length of JSONB type.
+* Default value: 1,048,576
+
 ### Query
 
 #### `fragment_pool_queue_size`
 
 * Description: The upper limit of query requests that can be processed on a single node
-* Default value: 2048
+* Default value: 4096
 
 #### `fragment_pool_thread_num_min`
 
@@ -330,7 +335,7 @@ There are two ways to configure BE configuration items:
 #### `fragment_pool_thread_num_max`
 
 * Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
-* Default value: 512
+* Default value: 2048
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -553,7 +558,18 @@ There are two ways to configure BE configuration items:
 Base compaction is a long time cost background task, this configuration is the threshold to logging trace information. Trace information in log file looks like:
 
 ```
-W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] execute base compaction cost 0.00319222
+BaseCompaction:546859:
+  - filtered_rows: 0
+   - input_row_num: 10
+   - input_rowsets_count: 10
+   - input_rowsets_data_size: 2.17 KB
+   - input_segments_num: 10
+   - merge_rowsets_latency: 100000.510ms
+   - merged_rows: 0
+   - output_row_num: 10
+   - output_rowset_data_size: 224.00 B
+   - output_segments_num: 1
 0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
 0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
 0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
@@ -566,7 +582,6 @@ W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
 0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
 0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
 0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
-Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
 ```
 
 #### `cumulative_compaction_trace_threshold`
@@ -580,13 +595,13 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Type: int32
 * Description: The number of compaction tasks which execute in parallel for a disk(HDD).
-* Default value: 2
+* Default value: 4
 
 #### `compaction_task_num_per_fast_disk`
 
 * Type: int32
 * Description: The number of compaction tasks which execute in parallel for a fast disk(SSD).
-* Default value: 4
+* Default value: 8
 
 #### `cumulative_compaction_rounds_for_each_base_compaction_round`
 
@@ -613,17 +628,41 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Enable to use segment compaction during loading to avoid -238 error
 * Default value: true
 
-#### `segcompaction_threshold_segment_num`
+#### `segcompaction_batch_size`
 
 * Type: int32
-* Description: Trigger segcompaction if the num of segments in a rowset exceeds this threshold
+* Description: Max number of segments allowed in a single segcompaction task.
 * Default value: 10
 
-#### `segcompaction_small_threshold`
+#### `segcompaction_candidate_max_rows`
 
 * Type: int32
-* Description: The segment whose row number above the threshold will be compacted during segcompaction
+* Description: Max row count allowed in a single source segment, bigger segments will be skipped.
 * Default value: 1048576
+
+#### `segcompaction_candidate_max_bytes`
+
+* Type: int64
+* Description: Max file size allowed in a single source segment, bigger segments will be skipped.
+* Default value: 104857600
+
+#### `segcompaction_task_max_rows`
+
+* Type: int32
+* Description: Max total row count allowed in a single segcompaction task.
+* Default value: 1572864
+
+#### `segcompaction_task_max_bytes`
+
+* Type: int64
+* Description: Max total file size allowed in a single segcompaction task.
+* Default value: 157286400
+
+#### `segcompaction_num_threads`
+
+* Type: int32
+* Description: Global segcompaction thread pool size.
+* Default value: 5
 
 #### `disable_compaction_trace_log`
 
@@ -647,34 +686,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `update_replica_infos_interval_seconds`
 
 * Description: Minimal interval (s) to update peer replica infos
-* Default value: 10 (s)
-
-#### `compaction_policy`
-
-* Type: string
-* Description: Configure the compaction strategy in the compression phase. Currently, two compaction strategies are implemented, size_based and time_series.
-  - size_based: Version merging can only be performed when the disk volume of the rowset is the same order of magnitude. After merging, qualified rowsets are promoted to the base compaction stage. In the case of a large number of small batch imports, it can reduce the write magnification of base compact, balance the read magnification and space magnification, and reduce the data of file versions.
-  - time_series: When the disk size of a rowset accumulates to a certain threshold, version merging takes place. The merged rowset is directly promoted to the base compaction stage. This approach effectively reduces the write amplification rate of compaction, especially in scenarios with continuous imports in a time series context.
-* Default value: size_based
-
-#### `time_series_compaction_goal_size_mbytes`
-
-* Type: int64
-* Description: Enabling time series compaction will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
-* Default value: 1024
-
-#### `time_series_compaction_file_count_threshold`
-
-* Type: int64
-* Description: Enabling time series compaction will utilize this parameter to adjust the minimum number of input files for each compaction. It comes into effect only when the condition specified by time_series_compaction_goal_size_mbytes is not met.
-  - If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
-* Default value: 10000
-
-#### `time_series_compaction_time_threshold_seconds`
-
-* Type: int64
-* Description: When time series compaction is enabled, a significant duration passes without a compaction being executed, a compaction will be triggered.
-* Default value: 3600 (s)
+* Default value: 60 (s)
 
 
 ### Load
@@ -941,6 +953,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Description: Whether to use mmap to allocate memory
 * Default value: false
+
+#### `memtable_mem_tracker_refresh_interval_ms`
+
+* Description: Interval in milliseconds between memtbale flush mgr refresh iterations
+* Default value: 100
 
 #### `download_cache_buffer_size`
 
@@ -1259,12 +1276,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data.
 * Default value: false
 
-#### `enable_lazy_open_partition`
-
-* Type: bool
-* Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
-* Default value: false
-
 #### `streaming_load_rpc_max_alive_time_sec`
 
 * Description: The lifetime of TabletsChannel. If the channel does not receive any data at this time, the channel will be deleted.
@@ -1273,6 +1284,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `alter_tablet_worker_count`
 
 * Description: The number of threads making schema changes
+* Default value: 3
+
+### `alter_index_worker_count`
+
+* Description: The number of threads making index change
 * Default value: 3
 
 #### `ignore_load_tablet_failure`
@@ -1410,7 +1426,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `max_runnings_transactions_per_txn_map`
 
 * Description: Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
-* Default value: 100
+* Default value: 2000
 
 #### `max_download_speed_kbps`
 
@@ -1452,7 +1468,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
-* Default value: false
+* Default value: true
 
 </version>
 

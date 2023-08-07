@@ -28,6 +28,7 @@
 #else
 #include <fenv.h>
 #endif
+#include <algorithm>
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
@@ -159,9 +160,8 @@ public:
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
-                size_t target_scale = int_exp10(-out_scale);
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, target_scale);
+                    Op::compute(p_in, scale, p_out, int_exp10(-out_scale));
                     ++p_in;
                     ++p_out;
                 }
@@ -461,7 +461,10 @@ struct Dispatcher {
             const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(col_general);
             const auto& vec_src = decimal_col->get_data();
 
-            auto col_res = ColumnDecimal<T>::create(vec_src.size(), scale_arg);
+            UInt32 result_scale =
+                    std::min(static_cast<UInt32>(std::max(scale_arg, static_cast<Int16>(0))),
+                             decimal_col->get_scale());
+            auto col_res = ColumnDecimal<T>::create(vec_src.size(), result_scale);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {

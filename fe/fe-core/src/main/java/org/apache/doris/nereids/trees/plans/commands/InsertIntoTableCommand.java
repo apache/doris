@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
@@ -45,7 +46,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import javax.annotation.Nullable;
 
 /**
  * insert into select command implementation
@@ -60,14 +60,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     public static final Logger LOG = LogManager.getLogger(InsertIntoTableCommand.class);
 
     private final LogicalPlan logicalQuery;
-    private final @Nullable String labelName;
+    private final Optional<String> labelName;
     private NereidsPlanner planner;
     private boolean isTxnBegin = false;
 
     /**
      * constructor
      */
-    public InsertIntoTableCommand(LogicalPlan logicalQuery, @Nullable String labelName) {
+    public InsertIntoTableCommand(LogicalPlan logicalQuery, Optional<String> labelName) {
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery,
                 "logicalQuery cannot be null in InsertIntoTableCommand");
@@ -104,10 +104,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         if (ctx.getMysqlChannel() != null) {
             ctx.getMysqlChannel().reset();
         }
-        String label = this.labelName;
-        if (label == null) {
-            label = String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
-        }
+        String label = this.labelName.orElse(String.format("label_%x_%x", ctx.queryId().hi, ctx.queryId().lo));
 
         Optional<TreeNode> plan = ((Set<TreeNode>) planner.getPhysicalPlan()
                 .collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
@@ -125,9 +122,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         sink.init(ctx.queryId(), txn.getTxnId(),
                 physicalOlapTableSink.getDatabase().getId(),
                 ctx.getExecTimeout(),
-                ctx.getSessionVariable().getSendBatchParallelism(), false);
+                ctx.getSessionVariable().getSendBatchParallelism(), false, false);
 
-        sink.complete();
+        sink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
         TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
                 physicalOlapTableSink.getDatabase().getId(),
                 txn.getTxnId());

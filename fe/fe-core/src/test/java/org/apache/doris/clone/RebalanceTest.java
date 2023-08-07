@@ -307,8 +307,8 @@ public class RebalanceTest {
             Replica decommissionedReplica = replicas.stream()
                     .filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION)
                     .collect(MoreCollectors.onlyElement());
-            // expected watermarkTxnId is 111
-            Assert.assertEquals(111, decommissionedReplica.getWatermarkTxnId());
+            Assert.assertEquals(111, decommissionedReplica.getPreWatermarkTxnId());
+            Assert.assertEquals(112, decommissionedReplica.getPostWatermarkTxnId());
         });
 
         // Delete replica should change invertedIndex too

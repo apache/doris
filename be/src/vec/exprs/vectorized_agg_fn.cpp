@@ -168,7 +168,12 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     "Agg state function input type must be agg_state but get {}",
                     argument_types[0]->get_family_name());
         }
-        if (match_suffix(_fn.name.function_name, AGG_UNION_SUFFIX)) {
+
+        std::string type_function_name =
+                assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                        ->get_nested_function()
+                        ->get_name();
+        if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
             if (_data_type->is_nullable()) {
                 return Status::InternalError(
                         "Union function return type must be not nullable, real={}",
@@ -180,15 +185,24 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                         _data_type->get_name());
             }
             _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
-        } else if (match_suffix(_fn.name.function_name, AGG_MERGE_SUFFIX)) {
+        } else if (type_function_name + AGG_MERGE_SUFFIX == _fn.name.function_name) {
+            auto type = assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                                ->get_nested_function()
+                                ->get_return_type();
+            if (!type->equals(*_data_type)) {
+                return Status::InternalError("{}'s expect return type is {}, but input {}",
+                                             argument_types[0]->get_name(), type->get_name(),
+                                             _data_type->get_name());
+            }
             _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);
         } else {
-            return Status::InternalError(
-                    "Aggregate Function {} is not endwith '_merge' or '_union'", _fn.signature);
+            return Status::InternalError("{} not match function {}", argument_types[0]->get_name(),
+                                         _fn.name.function_name);
         }
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
-                _fn.name.function_name, argument_types, _data_type->is_nullable());
+                _fn.name.function_name, argument_types, _data_type->is_nullable(),
+                state->be_exec_version());
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.signature);
@@ -217,7 +231,7 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 }
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
@@ -225,7 +239,7 @@ Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, 
 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                                          Arena* arena, bool agg_many) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
@@ -233,7 +247,7 @@ Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateD
 
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
@@ -241,7 +255,7 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
 
 Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
                                                const size_t num_rows, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
@@ -249,7 +263,7 @@ Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf
 
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                                          const size_t num_rows, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();
@@ -288,7 +302,7 @@ std::string AggFnEvaluator::debug_string() const {
     return out.str();
 }
 
-Status AggFnEvaluator::_calc_argment_columns(Block* block) {
+Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
     _agg_columns.resize(_input_exprs_ctxs.size());
     int column_ids[_input_exprs_ctxs.size()];

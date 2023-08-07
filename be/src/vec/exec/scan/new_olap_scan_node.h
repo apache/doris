@@ -135,6 +135,7 @@ private:
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
     RuntimeProfile::Counter* _conditions_filtered_counter = nullptr;
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
@@ -189,6 +190,8 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
+
+    std::mutex _profile_mtx;
 };
 
 } // namespace doris::vectorized

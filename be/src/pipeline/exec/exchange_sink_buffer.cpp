@@ -22,7 +22,6 @@
 #include <butil/iobuf_inl.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 #include <stddef.h>
@@ -58,13 +57,8 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
 ExchangeSinkBuffer::~ExchangeSinkBuffer() = default;
 
 void ExchangeSinkBuffer::close() {
-    for (const auto& pair : _instance_to_request) {
-        if (pair.second) {
-            pair.second->release_finst_id();
-            pair.second->release_query_id();
-            delete pair.second;
-        }
-    }
+    _instance_to_broadcast_package_queue.clear();
+    _instance_to_package_queue.clear();
     _instance_to_request.clear();
 }
 
@@ -77,11 +71,25 @@ bool ExchangeSinkBuffer::can_write() const {
     return total_package_size <= max_package_size;
 }
 
-bool ExchangeSinkBuffer::is_pending_finish() const {
+bool ExchangeSinkBuffer::is_pending_finish() {
+    //note(wb) angly implementation here, because operator couples the scheduling logic
+    // graceful implementation maybe as follows:
+    // 1 make ExchangeSinkBuffer support try close which calls brpc::StartCancel
+    // 2 make BlockScheduler calls tryclose when query is cancel
+    bool need_cancel = _context->is_canceled();
+
     for (auto& pair : _instance_to_package_queue_mutex) {
         std::unique_lock<std::mutex> lock(*(pair.second));
         auto& id = pair.first;
         if (!_instance_to_sending_by_pipeline.at(id)) {
+            // when pending finish, we need check whether current query is cancelled
+            if (need_cancel && _instance_to_rpc_ctx.find(id) != _instance_to_rpc_ctx.end()) {
+                auto& rpc_ctx = _instance_to_rpc_ctx[id];
+                if (!rpc_ctx.is_cancelled) {
+                    brpc::StartCancel(rpc_ctx._closure->cntl.call_id());
+                    rpc_ctx.is_cancelled = true;
+                }
+            }
             return true;
         }
     }
@@ -104,10 +112,10 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     PUniqueId finst_id;
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
-    _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
+    _construct_request(low_id, finst_id);
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -149,7 +157,7 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
             send_now = true;
             _instance_to_sending_by_pipeline[ins_id.lo] = false;
         }
-        _instance_to_broadcast_package_queue[ins_id.lo].emplace(std::move(request));
+        _instance_to_broadcast_package_queue[ins_id.lo].emplace(request);
     }
     if (send_now) {
         RETURN_IF_ERROR(_send_rpc(ins_id.lo));
@@ -160,6 +168,8 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
 
 Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+
+    DCHECK(_instance_to_sending_by_pipeline[id] == false);
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
@@ -173,17 +183,23 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     if (!q.empty()) {
         // If we have data to shuffle which is not broadcasted
         auto& request = q.front();
-        if (!_instance_to_request[id]) {
-            _construct_request(id);
-        }
-        auto brpc_request = _instance_to_request[id];
+        auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block) {
             brpc_request->set_allocated_block(request.block.get());
         }
         auto* closure = request.channel->get_closure(id, request.eos, nullptr);
+
+        ExchangeRpcContext rpc_ctx;
+        rpc_ctx._closure = closure;
+        rpc_ctx.is_cancelled = false;
+        _instance_to_rpc_ctx[id] = rpc_ctx;
+
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        if (config::exchange_sink_ignore_eovercrowded) {
+            closure->cntl.ignore_eovercrowded();
+        }
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
         closure->start_rpc_time = GetCurrentTimeNanos();
@@ -191,7 +207,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                        const PTransmitDataResult& result,
                                        const int64_t& start_rpc_time) {
             set_rpc_time(id, start_rpc_time, result.receive_time());
-            Status s = Status(result.status());
+            Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
             } else if (!s.ok()) {
@@ -220,17 +236,23 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
         auto& request = broadcast_q.front();
-        if (!_instance_to_request[id]) {
-            _construct_request(id);
-        }
-        auto brpc_request = _instance_to_request[id];
+        auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block_holder->get_block()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
         auto* closure = request.channel->get_closure(id, request.eos, request.block_holder);
+
+        ExchangeRpcContext rpc_ctx;
+        rpc_ctx._closure = closure;
+        rpc_ctx.is_cancelled = false;
+        _instance_to_rpc_ctx[id] = rpc_ctx;
+
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        if (config::exchange_sink_ignore_eovercrowded) {
+            closure->cntl.ignore_eovercrowded();
+        }
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
         closure->start_rpc_time = GetCurrentTimeNanos();
@@ -238,7 +260,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                        const PTransmitDataResult& result,
                                        const int64_t& start_rpc_time) {
             set_rpc_time(id, start_rpc_time, result.receive_time());
-            Status s = Status(result.status());
+            Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
             } else if (!s.ok()) {
@@ -266,16 +288,15 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         broadcast_q.pop();
     } else {
         _instance_to_sending_by_pipeline[id] = true;
-        return Status::OK();
     }
 
     return Status::OK();
 }
 
-void ExchangeSinkBuffer::_construct_request(InstanceLoId id) {
-    _instance_to_request[id] = new PTransmitDataParams();
-    _instance_to_request[id]->set_allocated_finst_id(&_instance_to_finst_id[id]);
-    _instance_to_request[id]->set_allocated_query_id(&_query_id);
+void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id) {
+    _instance_to_request[id] = std::make_unique<PTransmitDataParams>();
+    _instance_to_request[id]->mutable_finst_id()->CopyFrom(finst_id);
+    _instance_to_request[id]->mutable_query_id()->CopyFrom(_query_id);
 
     _instance_to_request[id]->set_node_id(_dest_node_id);
     _instance_to_request[id]->set_sender_id(_sender_id);

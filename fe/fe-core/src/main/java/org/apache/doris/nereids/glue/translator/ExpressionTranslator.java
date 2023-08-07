@@ -30,13 +30,18 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -70,7 +75,6 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -79,6 +83,8 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.StateComb
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -165,12 +171,36 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
+        String invertedIndexParser = null;
+        String invertedIndexParserMode = null;
+        SlotRef left = (SlotRef) match.left().accept(this, context);
+        SlotDescriptor slotDesc = left.getDesc();
+        if (slotDesc != null && slotDesc.isScanSlot()) {
+            TupleDescriptor slotParent = slotDesc.getParent();
+            OlapTable olapTbl = (OlapTable) slotParent.getTable();
+            if (olapTbl == null) {
+                throw new AnalysisException("slotRef in matchExpression failed to get OlapTable");
+            }
+            List<Index> indexes = olapTbl.getIndexes();
+            for (Index index : indexes) {
+                if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                    List<String> columns = index.getColumns();
+                    if (left.getColumnName().equals(columns.get(0))) {
+                        invertedIndexParser = index.getInvertedIndexParser();
+                        invertedIndexParserMode = index.getInvertedIndexParserMode();
+                        break;
+                    }
+                }
+            }
+        }
         MatchPredicate.Operator op = match.op();
         return new MatchPredicate(op,
-                match.child(0).accept(this, context),
-                match.child(1).accept(this, context),
+                match.left().accept(this, context),
+                match.right().accept(this, context),
                 match.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT);
+                NullableMode.DEPEND_ON_ARGUMENT,
+                invertedIndexParser,
+                invertedIndexParserMode);
     }
 
     @Override
@@ -336,14 +366,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
-        List<Expression> nereidsArguments = adaptFunctionArgumentsForBackends(function);
-
-        List<Expr> arguments = nereidsArguments
-                .stream()
+        List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());
 
-        List<Type> argTypes = nereidsArguments.stream()
+        List<Type> argTypes = function.getArguments().stream()
                 .map(Expression::getDataType)
                 .map(AbstractDataType::toCatalogDataType)
                 .collect(Collectors.toList());
@@ -492,6 +519,22 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         return new FunctionCallExpr(catalogFunction, new FunctionParams(function.isDistinct(), arguments));
     }
 
+    @Override
+    public Expr visitJavaUdf(JavaUdf udf, PlanTranslatorContext context) {
+        FunctionParams exprs = new FunctionParams(udf.children().stream()
+                .map(expression -> expression.accept(this, context))
+                .collect(Collectors.toList()));
+        return new FunctionCallExpr(udf.getCatalogFunction(), exprs);
+    }
+
+    @Override
+    public Expr visitJavaUdaf(JavaUdaf udaf, PlanTranslatorContext context) {
+        FunctionParams exprs = new FunctionParams(udaf.isDistinct(), udaf.children().stream()
+                .map(expression -> expression.accept(this, context))
+                .collect(Collectors.toList()));
+        return new FunctionCallExpr(udaf.getCatalogFunction(), exprs);
+    }
+
     // TODO: Supports for `distinct`
     private Expr translateAggregateFunction(AggregateFunction function,
             List<Expression> currentPhaseArguments, List<Expr> aggFnArguments,
@@ -564,13 +607,5 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             default:
                 throw new AnalysisException("UnSupported type: " + assertion);
         }
-    }
-
-    /**
-     * some special arguments not need exists in the nereids, and backends need it, so we must add the
-     * special arguments for backends, e.g. the json data type string in the json_object function.
-     */
-    private List<Expression> adaptFunctionArgumentsForBackends(BoundFunction function) {
-        return function.getArguments();
     }
 }

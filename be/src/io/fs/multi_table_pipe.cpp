@@ -20,11 +20,15 @@
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <type_traits>
+
 #include "common/status.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -130,7 +134,9 @@ Status MultiTablePipe::dispatch(const std::string& table, const char* data, size
 
 #ifndef BE_TEST
 Status MultiTablePipe::request_and_exec_plans() {
-    if (_unplanned_pipes.empty()) return Status::OK();
+    if (_unplanned_pipes.empty()) {
+        return Status::OK();
+    }
 
     // get list of table names in unplanned pipes
     std::vector<std::string> tables;
@@ -169,30 +175,58 @@ Status MultiTablePipe::request_and_exec_plans() {
             }));
     _ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
 
-    Status plan_status(_ctx->multi_table_put_result.status);
+    Status plan_status(Status::create(_ctx->multi_table_put_result.status));
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << _ctx->brief();
         return plan_status;
     }
 
+    Status st;
+    if (_ctx->multi_table_put_result.__isset.params &&
+        !_ctx->multi_table_put_result.__isset.pipeline_params) {
+        st = exec_plans(exec_env, _ctx->multi_table_put_result.params);
+    } else if (!_ctx->multi_table_put_result.__isset.params &&
+               _ctx->multi_table_put_result.__isset.pipeline_params) {
+        st = exec_plans(exec_env, _ctx->multi_table_put_result.pipeline_params);
+    } else {
+        return Status::Aborted("too many or too few params are set in multi_table_put_result.");
+    }
+
+    return st;
+}
+
+template <typename ExecParam>
+Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params) {
     // put unplanned pipes into planned pipes and clear unplanned pipes
     for (auto& pipe : _unplanned_pipes) {
         _ctx->table_list.push_back(pipe.first);
         _planned_pipes.emplace(pipe.first, pipe.second);
     }
     LOG(INFO) << fmt::format("{} tables plan complete, planned table cnt={}, returned plan cnt={}",
-                             _unplanned_pipes.size(), _planned_pipes.size(),
-                             _ctx->multi_table_put_result.params.size());
+                             _unplanned_pipes.size(), _planned_pipes.size(), params.size());
     _unplanned_pipes.clear();
 
-    _inflight_plan_cnt += _ctx->multi_table_put_result.params.size();
-    for (auto& plan : _ctx->multi_table_put_result.params) {
-        // TODO: use pipeline in the future (currently is buggy for load)
-        DCHECK_EQ(plan.__isset.table_name, true);
-        DCHECK(_planned_pipes.find(plan.table_name) != _planned_pipes.end());
-        putPipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]);
-        LOG(INFO) << "fragment_instance_id=" << plan.params.fragment_instance_id
-                  << " table=" << plan.table_name;
+    _inflight_plan_cnt += params.size();
+    for (auto& plan : params) {
+        if (!plan.__isset.table_name ||
+            _planned_pipes.find(plan.table_name) == _planned_pipes.end()) {
+            return Status::Aborted("Missing vital param: table_name");
+        }
+
+        if constexpr (std::is_same_v<ExecParam, TExecPlanFragmentParams>) {
+            putPipe(plan.params.fragment_instance_id, _planned_pipes[plan.table_name]);
+            LOG(INFO) << "fragment_instance_id=" << plan.params.fragment_instance_id
+                      << " table=" << plan.table_name;
+        } else if constexpr (std::is_same_v<ExecParam, TPipelineFragmentParams>) {
+            auto pipe_id = calculate_pipe_id(plan.query_id, plan.fragment_id);
+            putPipe(pipe_id, _planned_pipes[plan.table_name]);
+            LOG(INFO) << "pipe_id=" << pipe_id << "table=" << plan.table_name;
+        } else {
+            LOG(WARNING) << "illegal exec param type, need `TExecPlanFragmentParams` or "
+                            "`TPipelineFragmentParams`, will crash";
+            CHECK(false);
+        }
+
         exec_env->fragment_mgr()->exec_plan_fragment(plan, [this](RuntimeState* state,
                                                                   Status* status) {
             {
@@ -243,6 +277,7 @@ Status MultiTablePipe::request_and_exec_plans() {
 
     return Status::OK();
 }
+
 #else
 Status MultiTablePipe::request_and_exec_plans() {
     // put unplanned pipes into planned pipes
@@ -254,36 +289,46 @@ Status MultiTablePipe::request_and_exec_plans() {
     _unplanned_pipes.clear();
     return Status::OK();
 }
-#endif
 
-Status MultiTablePipe::putPipe(const TUniqueId& fragment_instance_id,
-                               std::shared_ptr<io::StreamLoadPipe> pipe) {
-    std::lock_guard<std::mutex> l(_pipe_map_lock);
-    auto it = _pipe_map.find(fragment_instance_id);
-    if (it != std::end(_pipe_map)) {
-        return Status::InternalError("id already exist");
-    }
-    _pipe_map.emplace(fragment_instance_id, pipe);
+template <typename ExecParam>
+Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params) {
     return Status::OK();
 }
 
-std::shared_ptr<io::StreamLoadPipe> MultiTablePipe::getPipe(const TUniqueId& fragment_instance_id) {
+#endif
+
+Status MultiTablePipe::putPipe(const TUniqueId& pipe_id, std::shared_ptr<io::StreamLoadPipe> pipe) {
     std::lock_guard<std::mutex> l(_pipe_map_lock);
-    auto it = _pipe_map.find(fragment_instance_id);
+    auto it = _pipe_map.find(pipe_id);
+    if (it != std::end(_pipe_map)) {
+        return Status::InternalError("id already exist");
+    }
+    _pipe_map.emplace(pipe_id, pipe);
+    return Status::OK();
+}
+
+std::shared_ptr<io::StreamLoadPipe> MultiTablePipe::getPipe(const TUniqueId& pipe_id) {
+    std::lock_guard<std::mutex> l(_pipe_map_lock);
+    auto it = _pipe_map.find(pipe_id);
     if (it == std::end(_pipe_map)) {
         return std::shared_ptr<io::StreamLoadPipe>(nullptr);
     }
     return it->second;
 }
 
-void MultiTablePipe::removePipe(const TUniqueId& fragment_instance_id) {
+void MultiTablePipe::removePipe(const TUniqueId& pipe_id) {
     std::lock_guard<std::mutex> l(_pipe_map_lock);
-    auto it = _pipe_map.find(fragment_instance_id);
+    auto it = _pipe_map.find(pipe_id);
     if (it != std::end(_pipe_map)) {
         _pipe_map.erase(it);
-        VLOG_NOTICE << "remove stream load pipe: " << fragment_instance_id;
+        VLOG_NOTICE << "remove stream load pipe: " << pipe_id;
     }
 }
+
+template Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
+                                           std::vector<TExecPlanFragmentParams> params);
+template Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
+                                           std::vector<TPipelineFragmentParams> params);
 
 } // namespace io
 } // namespace doris

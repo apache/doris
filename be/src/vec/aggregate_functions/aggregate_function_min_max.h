@@ -624,12 +624,29 @@ public:
         }
     }
 
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+    }
+
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         if constexpr (Data::IsFixedLength) {
             auto& col = assert_cast<ColumnFixedLengthObject&>(to);
-            col.resize(1);
-            *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
+            size_t old_size = col.size();
+            col.resize(old_size + 1);
+            *(reinterpret_cast<Data*>(col.get_data().data()) + old_size) = this->data(place);
         } else {
             Base::serialize_without_key_to_column(place, to);
         }

@@ -42,6 +42,8 @@ static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
 
+using ZoneList = std::map<std::string, cctz::time_zone>;
+
 inline std::string int128_to_string(__int128_t value) {
     fmt::memory_buffer buffer;
     fmt::format_to(buffer, "{}", value);
@@ -130,8 +132,9 @@ template <typename Type>
 void write_vector_binary(const std::vector<Type>& v, BufferWritable& buf) {
     write_var_uint(v.size(), buf);
 
-    for (typename std::vector<Type>::const_iterator it = v.begin(); it != v.end(); ++it)
+    for (typename std::vector<Type>::const_iterator it = v.begin(); it != v.end(); ++it) {
         write_binary(*it, buf);
+    }
 }
 
 inline void write_binary(const String& x, BufferWritable& buf) {
@@ -215,7 +218,9 @@ void read_vector_binary(std::vector<Type>& v, BufferReadable& buf,
     }
 
     v.resize(size);
-    for (size_t i = 0; i < size; ++i) read_binary(v[i], buf);
+    for (size_t i = 0; i < size; ++i) {
+        read_binary(v[i], buf);
+    }
 }
 
 inline void read_binary(String& x, BufferReadable& buf) {
@@ -303,6 +308,19 @@ bool read_date_v2_text_impl(T& x, ReadBuffer& buf) {
 }
 
 template <typename T>
+bool read_date_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
+                            ZoneList& time_zone_cache) {
+    static_assert(std::is_same_v<UInt32, T>);
+    auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache);
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(dv);
+    return ans;
+}
+
+template <typename T>
 bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
     static_assert(std::is_same_v<UInt64, T>);
     auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
@@ -315,12 +333,26 @@ bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, UInt32 scale = -1) {
 }
 
 template <typename T>
+bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_time_zone,
+                                ZoneList& time_zone_cache, UInt32 scale = -1) {
+    static_assert(std::is_same_v<UInt64, T>);
+    auto dv = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(x);
+    auto ans =
+            dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache, scale);
+
+    // only to match the is_all_read() check to prevent return null
+    buf.position() = buf.end();
+    x = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dv);
+    return ans;
+}
+
+template <PrimitiveType P, typename T>
 bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
     if constexpr (!std::is_same_v<Decimal128, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<typename T::NativeType>(
+        x.value = StringParser::string_to_decimal<P, typename T::NativeType>(
                 (const char*)buf.position(), buf.count(), precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
@@ -328,9 +360,9 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<__int128>(buf.position(), buf.count(),
-                                                            DecimalV2Value::PRECISION,
-                                                            DecimalV2Value::SCALE, &result);
+        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2, __int128>(
+                buf.position(), buf.count(), DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
+                &result);
 
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
@@ -384,9 +416,9 @@ bool try_read_float_text(T& x, ReadBuffer& in) {
     return read_float_text_fast_impl<T>(x, in);
 }
 
-template <typename T>
+template <PrimitiveType P, typename T>
 bool try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision, UInt32 scale) {
-    return read_decimal_text_impl<T>(x, in, precision, scale);
+    return read_decimal_text_impl<P, T>(x, in, precision, scale);
 }
 
 template <typename T>
@@ -400,12 +432,14 @@ bool try_read_date_text(T& x, ReadBuffer& in) {
 }
 
 template <typename T>
-bool try_read_date_v2_text(T& x, ReadBuffer& in) {
-    return read_date_v2_text_impl<T>(x, in);
+bool try_read_date_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
+                           ZoneList& time_zone_cache) {
+    return read_date_v2_text_impl<T>(x, in, local_time_zone, time_zone_cache);
 }
 
 template <typename T>
-bool try_read_datetime_v2_text(T& x, ReadBuffer& in, UInt32 scale) {
-    return read_datetime_v2_text_impl<T>(x, in, scale);
+bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& local_time_zone,
+                               ZoneList& time_zone_cache, UInt32 scale) {
+    return read_datetime_v2_text_impl<T>(x, in, local_time_zone, time_zone_cache, scale);
 }
 } // namespace doris::vectorized

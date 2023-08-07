@@ -203,6 +203,9 @@ public class MysqlProto {
             // receive response failed.
             return false;
         }
+        if (capability.isDeprecatedEOF()) {
+            context.getMysqlChannel().setClientDeprecatedEOF();
+        }
         MysqlAuthPacket authPacket = new MysqlAuthPacket();
         if (!authPacket.readFrom(handshakeResponse)) {
             ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);

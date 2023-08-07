@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -938,19 +939,14 @@ public class DatabaseTransactionMgr {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (replica.getLastFailedVersion() >= 0) {
-                                    LOG.info("publish version failed for transaction {} on tablet {},"
-                                             + " on replica {} due to lastFailedVersion >= 0",
-                                             transactionState, tablet, replica);
-                                    continue;
-                                }
                                 if (!errorReplicaIds.contains(replica.getId())) {
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                         ++healthReplicaNum;
                                     } else {
-                                        LOG.info("publish version failed for transaction {} on tablet {},"
+                                        LOG.info("publish version {} failed for transaction {} on tablet {},"
                                                  + " on replica {} due to not catchup",
-                                                 transactionState, tablet, replica);
+                                                 partitionCommitInfo.getVersion(), transactionState, tablet,
+                                                 replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction
@@ -959,15 +955,17 @@ public class DatabaseTransactionMgr {
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
                                 } else {
-                                    LOG.info("publish version failed for transaction {} on tablet {},"
-                                             + " on replica {} due to version hole", transactionState, tablet, replica);
+                                    LOG.info("publish version {} failed for transaction {} on tablet {},"
+                                             + " on replica {} due to version hole or error",
+                                             partitionCommitInfo.getVersion(), transactionState, tablet, replica);
                                 }
                             }
 
                             if (healthReplicaNum < quorumReplicaNum) {
-                                LOG.info("publish version failed for transaction {} on tablet {},"
+                                LOG.info("publish version {} failed for transaction {} on tablet {},"
                                                 + " with only {} replicas less than quorum {}",
-                                        transactionState, tablet, healthReplicaNum, quorumReplicaNum);
+                                         partitionCommitInfo.getVersion(), transactionState, tablet, healthReplicaNum,
+                                         quorumReplicaNum);
                                 String errMsg = String.format("publish on tablet %d failed."
                                                 + " succeed replica num %d less than quorum %d."
                                                 + " table: %d, partition: %d, publish version: %d",
@@ -1030,8 +1028,15 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, -1, -1);
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1);
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
@@ -1063,10 +1068,16 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 Partition partition = table.getPartition(partitionId);
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange,
                         partition.getNextVersion(),
                         System.currentTimeMillis() /* use as partition visible time */);
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
@@ -1637,10 +1648,7 @@ public class DatabaseTransactionMgr {
                             long newVersion = newCommitVersion;
                             long lastSuccessVersion = replica.getLastSuccessVersion();
                             if (!errorReplicaIds.contains(replica.getId())) {
-                                if (replica.getLastFailedVersion() > 0) {
-                                    // if the replica is a failed replica, then not changing version
-                                    newVersion = replica.getVersion();
-                                } else if (!replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
+                                if (!replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                     // this means the replica has error in the past, but we did not observe it
                                     // during upgrade, one job maybe in quorum finished state, for example,
                                     // A,B,C 3 replica A,B 's version is 10, C's version is 10 but C' 10 is abnormal
@@ -1694,6 +1702,35 @@ public class DatabaseTransactionMgr {
                             entry.getKey(), dbId, endTransactionId);
                     return false;
                 }
+            }
+        } finally {
+            readUnlock();
+        }
+        return true;
+    }
+
+    public boolean isPreviousTransactionsFinished(long endTransactionId, long tableId, long partitionId) {
+        readLock();
+        try {
+            for (Map.Entry<Long, TransactionState> entry : idToRunningTransactionState.entrySet()) {
+                TransactionState transactionState = entry.getValue();
+                if (entry.getKey() > endTransactionId
+                        || transactionState.getTransactionStatus().isFinalStatus()
+                        || transactionState.getDbId() != dbId
+                        || !transactionState.getTableIdList().contains(tableId)) {
+                    continue;
+                }
+
+                if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                    TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tableId);
+                    // txn not contains this partition
+                    if (tableCommitInfo != null
+                            && tableCommitInfo.getIdToPartitionCommitInfo().get(partitionId) == null) {
+                        continue;
+                    }
+                }
+
+                return false;
             }
         } finally {
             readUnlock();

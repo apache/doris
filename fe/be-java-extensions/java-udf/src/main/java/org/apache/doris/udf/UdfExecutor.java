@@ -17,6 +17,7 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.exception.UdfRuntimeException;
@@ -24,21 +25,27 @@ import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
+import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 
 public class UdfExecutor extends BaseExecutor {
-    private static final Logger LOG = Logger.getLogger(UdfExecutor.class);
+    // private static final java.util.logging.Logger LOG =
+    // Logger.getLogger(UdfExecutor.class);
+    public static final Logger LOG = Logger.getLogger(UdfExecutor.class);
     // setup by init() and cleared by close()
     private Method method;
 
-    // Pre-constructed input objects for the UDF. This minimizes object creation overhead
+    // Pre-constructed input objects for the UDF. This minimizes object creation
+    // overhead
     // as these objects are reused across calls to evaluate().
     private Object[] inputObjects;
 
@@ -46,6 +53,7 @@ public class UdfExecutor extends BaseExecutor {
     private long rowIdx;
 
     private long batchSizePtr;
+    private int evaluateIndex;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used by
@@ -74,7 +82,8 @@ public class UdfExecutor extends BaseExecutor {
         int batchSize = UdfUtils.UNSAFE.getInt(null, batchSizePtr);
         try {
             if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.VARCHAR)
-                    || retType.equals(JavaUdfDataType.CHAR) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
+                    || retType.equals(JavaUdfDataType.CHAR) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
+                    || retType.equals(JavaUdfDataType.MAP_TYPE)) {
                 // If this udf return variable-size type (e.g.) String, we have to allocate output
                 // buffer multiple times until buffer size is enough to store output column. So we
                 // always begin with the last evaluated row instead of beginning of this batch.
@@ -97,14 +106,94 @@ public class UdfExecutor extends BaseExecutor {
                 }
             }
         } catch (Exception e) {
-            if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
+            if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
+                    || retType.equals(JavaUdfDataType.MAP_TYPE)) {
                 UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, batchSize);
             }
             throw new UdfRuntimeException("UDF::evaluate() ran into a problem.", e);
         }
-        if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
+        if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
+                || retType.equals(JavaUdfDataType.MAP_TYPE)) {
             UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, rowIdx);
         }
+    }
+
+    public Object[] convertBasicArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr, long strOffsetAddr) {
+        return convertBasicArg(true, argIdx, isNullable, 0, numRows, nullMapAddr, columnAddr, strOffsetAddr);
+    }
+
+    public Object[] convertArrayArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+        return convertArrayArg(argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr,
+                strOffsetAddr);
+    }
+
+    public Object[] convertMapArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long keyNestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
+            long valueNestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) {
+        PrimitiveType keyType = argTypes[argIdx].getKeyType().getPrimitiveType();
+        PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
+        Object[] keyCol = convertMapArg(keyType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
+                keyNestedNullMapAddr, keyDataAddr,
+                keyStrOffsetAddr);
+        Object[] valueCol = convertMapArg(valueType, argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr,
+                valueNestedNullMapAddr, valueDataAddr,
+                valueStrOffsetAddr);
+        return buildHashMap(keyType, valueType, keyCol, valueCol);
+    }
+
+    /**
+     * Evaluates the UDF with 'args' as the input to the UDF.
+     */
+    public Object[] evaluate(int numRows, Object[] column) throws UdfRuntimeException {
+        try {
+            Object[] result = (Object[]) Array.newInstance(method.getReturnType(), numRows);
+            Object[][] inputs = (Object[][]) column;
+            Object[] parameters = new Object[inputs.length];
+            for (int i = 0; i < numRows; ++i) {
+                for (int j = 0; j < column.length; ++j) {
+                    parameters[j] = inputs[j][i];
+                }
+                result[i] = methodAccess.invoke(udf, evaluateIndex, parameters);
+            }
+            return result;
+        } catch (Exception e) {
+            LOG.info("evaluate(int numRows, Object[] column) Exception: " + e.toString());
+            throw new UdfRuntimeException("UDF failed to evaluate", e);
+        }
+    }
+
+    public void copyBatchBasicResult(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
+            long resColumnAddr, long strOffsetAddr) {
+        copyBatchBasicResultImpl(isNullable, numRows, result, nullMapAddr, resColumnAddr, strOffsetAddr, getMethod());
+    }
+
+    public void copyBatchArrayResult(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+        Preconditions.checkState(result.length == numRows,
+                "copyBatchArrayResult result size should equal;");
+        copyBatchArrayResultImpl(isNullable, numRows, result, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr,
+                strOffsetAddr, retType.getItemType().getPrimitiveType());
+    }
+
+    public void copyBatchMapResult(boolean isNullable, int numRows, Object[] result, long nullMapAddr,
+            long offsetsAddr, long keyNsestedNullMapAddr, long keyDataAddr, long keyStrOffsetAddr,
+            long valueNsestedNullMapAddr, long valueDataAddr, long valueStrOffsetAddr) {
+        Preconditions.checkState(result.length == numRows,
+                "copyBatchMapResult result size should equal;");
+        PrimitiveType keyType = retType.getKeyType().getPrimitiveType();
+        PrimitiveType valueType = retType.getValueType().getPrimitiveType();
+        Object[] keyCol = new Object[result.length];
+        Object[] valueCol = new Object[result.length];
+        buildArrayListFromHashMap(result, keyType, valueType, keyCol, valueCol);
+
+        copyBatchArrayResultImpl(isNullable, numRows, valueCol, nullMapAddr, offsetsAddr, valueNsestedNullMapAddr,
+                valueDataAddr,
+                valueStrOffsetAddr, valueType);
+        copyBatchArrayResultImpl(isNullable, numRows, keyCol, nullMapAddr, offsetsAddr, keyNsestedNullMapAddr,
+                keyDataAddr,
+                keyStrOffsetAddr, keyType);
     }
 
     /**
@@ -175,6 +264,7 @@ public class UdfExecutor extends BaseExecutor {
                 loader = ClassLoader.getSystemClassLoader();
             }
             Class<?> c = Class.forName(className, true, loader);
+            methodAccess = MethodAccess.get(c);
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
             Method[] methods = c.getMethods();
@@ -191,6 +281,7 @@ public class UdfExecutor extends BaseExecutor {
                     continue;
                 }
                 method = m;
+                evaluateIndex = methodAccess.getIndex(UDF_FUNCTION_NAME);
                 Pair<Boolean, JavaUdfDataType> returnType;
                 if (argClass.length == 0 && parameterTypes.length == 0) {
                     // Special case where the UDF doesn't take any input args
@@ -210,6 +301,8 @@ public class UdfExecutor extends BaseExecutor {
                 } else {
                     retType = returnType.second;
                 }
+                Type keyType = retType.getKeyType();
+                Type valueType = retType.getValueType();
                 Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, argClass, false);
                 if (!inputType.first) {
                     continue;
@@ -217,6 +310,8 @@ public class UdfExecutor extends BaseExecutor {
                     argTypes = inputType.second;
                 }
                 LOG.debug("Loaded UDF '" + className + "' from " + jarPath);
+                retType.setKeyType(keyType);
+                retType.setValueType(valueType);
                 return;
             }
 
@@ -244,4 +339,5 @@ public class UdfExecutor extends BaseExecutor {
             throw new UdfRuntimeException("Unable to call create UDF instance.", e);
         }
     }
+
 }

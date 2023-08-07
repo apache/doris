@@ -56,7 +56,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
 
-3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
+3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 :::
 
 :::tip
@@ -89,7 +89,14 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 
 1. 当执行类似于 `where dt = '2022-01-01'` 这样的查询时，Doris 能够将这些过滤条件下推到外部数据源，从而直接在数据源层面排除不符合条件的数据，减少了不必要的数据获取和传输。这大大提高了查询性能，同时也降低了对外部数据源的负载。
    
-2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false。
+2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数进行下推条件过滤，可通过 explain sql 查看。
+
+目前不会下推的函数有：
+
+|    MYSQL     |
+|:------------:|
+|  DATE_TRUNC  |
+| MONEY_FORMAT |
 
 ### 行数限制
 
@@ -160,7 +167,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 | MYSQL Type                                | Doris Type     | Comment                                         |
 |-------------------------------------------|----------------|-------------------------------------------------|
-| BOOLEAN                                   | BOOLEAN        |                                                 |
+| BOOLEAN                                   | TINYINT        |                                                 |
 | TINYINT                                   | TINYINT        |                                                 |
 | SMALLINT                                  | SMALLINT       |                                                 |
 | MEDIUMINT                                 | INT            |                                                 |
@@ -180,7 +187,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | TIME                                      | STRING         |                                                 |
 | CHAR                                      | CHAR           |                                                 |
 | VARCHAR                                   | VARCHAR        |                                                 |
-| JSON                                      | STRING         |                                                 |
+| JSON                                      | JSON           |                                                 |
 | SET                                       | STRING         |                                                 |
 | BIT                                       | BOOLEAN/STRING | BIT(1) 会映射为 BOOLEAN,其他 BIT 映射为 STRING  |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                 |
@@ -236,12 +243,13 @@ Doris 通过sql 语句 `select nspname from pg_namespace where has_schema_privil
  | varchar/text                            | STRING         |                                               |
  | timestamp                               | DATETIME       |                                               |
  | date                                    | DATE           |                                               |
+ | json/josnb                              | JSON           |                                               |
  | time                                    | STRING         |                                               |
  | interval                                | STRING         |                                               |
  | point/line/lseg/box/path/polygon/circle | STRING         |                                               |
  | cidr/inet/macaddr                       | STRING         |                                               |
  | bit                                     | BOOLEAN/STRING | bit(1)会映射为 BOOLEAN,其他 bit 映射为 STRING |
- | uuid/josnb                              | STRING         |                                               |
+ | uuid                                    | STRING         |                                               |
  | Other                                   | UNSUPPORTED    |                                               |
 
 ### Oracle
@@ -254,7 +262,7 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc6.jar",
+    "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
 );
 ```
@@ -491,7 +499,7 @@ CREATE CATALOG jdbc_presto PROPERTIES (
     "password"="",
     "jdbc_url" = "jdbc:presto://localhost:9000/hive",
     "driver_url" = "presto-jdbc-0.280.jar",
-    "driver_class" = "o.prestosql.jdbc.PrestoDriver"
+    "driver_class" = "com.facebook.presto.jdbc.PrestoDriver"
 );
 ```
 
@@ -596,7 +604,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
  
     这是因为在创建 catalog 时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
 
-5. 读取 MySQL 问题出现通信链路异常
+5. 读取 MySQL 出现通信链路异常
 
     如果出现如下报错：
 
@@ -660,4 +668,34 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     在MYSQL中查询时添加“BINARY”关键字来强制区分大小写：select count(c_1) from table where BINARY c_1 = "aaa"; 或者在MYSQL中建表时候指定：
     CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 或者在初始化MYSQL数据库时指定校对规则来区分大小写：
     character-set-server=UTF-8 和 collation-server=utf8_bin。
- 
+
+10. 读取 SQLServer 出现通信链路异常
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[CANCELLED][INTERNAL_ERROR]UdfRuntimeException: Initialize datasource failed:
+    CAUSED BY: SQLServerException: The driver could not establish a secure connection to SQL Server by using Secure Sockets Layer (SSL) encryption.
+    Error: "sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException:
+    unable to find valid certification path to requested target". ClientConnectionId:a92f3817-e8e6-4311-bc21-7c66
+    ```
+
+    可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `encrypt=false` ,如 `"jdbc_url" = "jdbc:sqlserver://127.0.0.1:1433;DataBaseName=doris_test;encrypt=false"`
+
+11. 读取 MySQL datetime 类型出现异常
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed: 
+    CAUSED BY: SQLException: Zero date value prohibited
+    CAUSED BY: DataReadException: Zero date value prohibited
+    ```
+    
+    这是因为 JDBC 并不能处理 0000-00-00 00:00:00 这种时间格式，
+    需要在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `zeroDateTimeBehavior=convertToNull` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
+    这种情况下，JDBC 会把 0000-00-00 00:00:00 转换成 null，然后 Doris 会把 DateTime 类型的列按照可空类型处理，这样就可以正常读取了。
+
+12. 读取 Oracle 出现 `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` 异常
+    
+    下载 [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) 并放到 Doris FE 的 lib 目录以及 BE 的 lib/java_extensions 目录 (Doris 2.0 之前的版本需放到 BE 的 lib 目录下) 下即可。
+
+13. 通过jdbc catalog 读取Clickhouse数据出现`NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` 错误信息
+    
+    可以先下载[lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar)包，然后放到DorisFE lib 目录以及BE 的 `lib/lib/java_extensions`目录中（Doris 2.0 之前的版本需放到 BE 的 lib 目录下）。

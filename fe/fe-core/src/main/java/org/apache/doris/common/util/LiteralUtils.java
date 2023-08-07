@@ -50,7 +50,7 @@ public class LiteralUtils {
             } else if (v instanceof DecimalLiteral) {
                 list.add(((DecimalLiteral) v).getValue().toPlainString());
             } else if (v instanceof StringLiteral) {
-                list.add("'" + v.getStringValue() + "'");
+                list.add("\"" + v.getStringValue() + "\"");
             } else if (v instanceof ArrayLiteral) {
                 list.add(getStringValue((ArrayLiteral) v));
             } else {

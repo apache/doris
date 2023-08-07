@@ -74,7 +74,7 @@ static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
             null_map[pos++] = 1;
         }
     }
-    null_map.resize(pos + 1);
+    null_map.resize(pos);
 }
 
 static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offsets_data,
@@ -394,10 +394,10 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             continue;
         }
         bool is_null = def_level < _field_schema->definition_level;
-        if (prev_is_null == is_null) {
-            if (USHRT_MAX - null_map.back() >= loop_read) {
-                null_map.back() += loop_read;
-            }
+        if (prev_is_null == is_null && (USHRT_MAX - null_map.back() >= loop_read)) {
+            // If whether the values are nullable in current loop is the same the previous values,
+            // we can save the memory usage in null map
+            null_map.back() += loop_read;
         } else {
             if (!(prev_is_null ^ is_null)) {
                 null_map.emplace_back(0);
@@ -574,21 +574,22 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         data_column = doris_column->assume_mutable();
     }
 
+    ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
+    DataTypePtr& element_type = const_cast<DataTypePtr&>(
+            (reinterpret_cast<const DataTypeArray*>(remove_nullable(type).get()))
+                    ->get_nested_type());
     // read nested column
-    RETURN_IF_ERROR(_element_reader->read_column_data(
-            static_cast<ColumnArray&>(*data_column).get_data_ptr(),
-            const_cast<DataTypePtr&>(
-                    (reinterpret_cast<const DataTypeArray*>(remove_nullable(type).get()))
-                            ->get_nested_type()),
-            select_vector, batch_size, read_rows, eof, is_dict_filter));
+    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type, select_vector,
+                                                      batch_size, read_rows, eof, is_dict_filter));
     if (*read_rows == 0) {
         return Status::OK();
     }
 
+    ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*data_column).get_offsets();
     // fill offset and null map
-    fill_array_offset(_field_schema, static_cast<ColumnArray&>(*data_column).get_offsets(),
-                      null_map_ptr, _element_reader->get_rep_level(),
+    fill_array_offset(_field_schema, offsets_data, null_map_ptr, _element_reader->get_rep_level(),
                       _element_reader->get_def_level());
+    DCHECK_EQ(element_column->size(), offsets_data.back());
 
     return Status::OK();
 }
@@ -633,10 +634,14 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     bool value_eof = false;
     RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, select_vector, batch_size,
                                                   &key_rows, &key_eof, is_dict_filter));
-    select_vector.reset();
-    RETURN_IF_ERROR(_value_reader->read_column_data(value_column, value_type, select_vector,
-                                                    batch_size, &value_rows, &value_eof,
-                                                    is_dict_filter));
+    while (value_rows < key_rows && !value_eof) {
+        size_t loop_rows = 0;
+        select_vector.reset();
+        RETURN_IF_ERROR(_value_reader->read_column_data(value_column, value_type, select_vector,
+                                                        key_rows - value_rows, &loop_rows,
+                                                        &value_eof, is_dict_filter));
+        value_rows += loop_rows;
+    }
     DCHECK_EQ(key_rows, value_rows);
     DCHECK_EQ(key_eof, value_eof);
     *read_rows = key_rows;
@@ -646,9 +651,11 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
         return Status::OK();
     }
 
+    DCHECK_EQ(key_column->size(), value_column->size());
     // fill offset and null map
     fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
                       _key_reader->get_def_level());
+    DCHECK_EQ(key_column->size(), map.get_offsets().back());
 
     return Status::OK();
 }
@@ -686,16 +693,24 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
         DataTypePtr& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
         select_vector.reset();
-        size_t loop_rows = 0;
-        bool loop_eof = false;
-        _child_readers[i]->read_column_data(doris_field, doris_type, select_vector, batch_size,
-                                            &loop_rows, &loop_eof, is_dict_filter);
-        if (i != 0) {
-            DCHECK_EQ(*read_rows, loop_rows);
-            DCHECK_EQ(*eof, loop_eof);
+        size_t field_rows = 0;
+        bool field_eof = false;
+        if (i == 0) {
+            _child_readers[i]->read_column_data(doris_field, doris_type, select_vector, batch_size,
+                                                &field_rows, &field_eof, is_dict_filter);
+            *read_rows = field_rows;
+            *eof = field_eof;
         } else {
-            *read_rows = loop_rows;
-            *eof = loop_eof;
+            while (field_rows < *read_rows && !field_eof) {
+                size_t loop_rows = 0;
+                select_vector.reset();
+                _child_readers[i]->read_column_data(doris_field, doris_type, select_vector,
+                                                    *read_rows - field_rows, &loop_rows, &field_eof,
+                                                    is_dict_filter);
+                field_rows += loop_rows;
+            }
+            DCHECK_EQ(*read_rows, field_rows);
+            DCHECK_EQ(*eof, field_eof);
         }
     }
 

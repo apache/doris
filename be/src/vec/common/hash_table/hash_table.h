@@ -445,8 +445,8 @@ protected:
     using Self = HashTable;
     using cell_type = Cell;
 
-    size_t m_size = 0; /// Amount of elements
-    Cell* buf;         /// A piece of memory for all elements except the element with zero key.
+    size_t m_size = 0;   /// Amount of elements
+    Cell* buf {nullptr}; /// A piece of memory for all elements except the element with zero key.
     Grower grower;
     int64_t _resize_timer_ns;
 
@@ -462,9 +462,7 @@ protected:
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
 
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     mutable size_t collisions = 0;
-#endif
 
     void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
 
@@ -479,9 +477,7 @@ protected:
         while (!buf[place_value].is_zero(*this) &&
                !buf[place_value].key_equals(x, hash_value, *this)) {
             place_value = grower.next(place_value);
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
             ++collisions;
-#endif
         }
 
         return place_value;
@@ -503,9 +499,7 @@ protected:
     size_t ALWAYS_INLINE find_empty_cell(size_t place_value) const {
         while (!buf[place_value].is_zero(*this)) {
             place_value = grower.next(place_value);
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
             ++collisions;
-#endif
         }
 
         return place_value;
@@ -1090,9 +1084,7 @@ public:
     bool add_elem_size_overflow(size_t add_size) const {
         return grower.overflow(add_size + m_size);
     }
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t getCollisions() const { return collisions; }
-#endif
+    int64_t get_collisions() const { return collisions; }
 
 private:
     /// Increase the size of the buffer.

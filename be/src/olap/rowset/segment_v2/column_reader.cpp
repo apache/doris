@@ -233,7 +233,7 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 
 Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
                                                  OlapReaderStatistics* stats,
-                                                 InvertedIndexIterator** iterator) {
+                                                 std::unique_ptr<InvertedIndexIterator>* iterator) {
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
     if (_inverted_index) {
         RETURN_IF_ERROR(_inverted_index->new_iterator(stats, iterator));
@@ -505,16 +505,16 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
 
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
-            _inverted_index.reset(new FullTextIndexReader(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta));
+            _inverted_index = FullTextIndexReader::create_shared(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta);
             return Status::OK();
         } else {
-            _inverted_index.reset(new StringTypeInvertedIndexReader(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta));
+            _inverted_index = StringTypeInvertedIndexReader::create_shared(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta);
         }
     } else if (is_numeric_type(type)) {
-        _inverted_index.reset(
-                new BkdIndexReader(_file_reader->fs(), _file_reader->path().native(), index_meta));
+        _inverted_index = BkdIndexReader::create_shared(_file_reader->fs(),
+                                                        _file_reader->path().native(), index_meta);
     } else {
         _inverted_index.reset();
     }
@@ -925,7 +925,13 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
         opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
         _reader->encoding_info()->encoding() == DICT_ENCODING) {
         auto dict_encoding_type = _reader->get_dict_encoding_type();
-        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING) {
+        // Only if the column is a predicate column, then we need check the all dict encoding flag
+        // because we could rewrite the predciate to accelarate query speed. But if it is not a
+        // predicate column, then it is useless. And it has a bad impact on cold read(first time read)
+        // because it will load the column's ordinal index and zonemap index and maybe other indices.
+        // it has bad impact on primary key query. For example, select * from table where pk = 1, and
+        // the table has 2000 columns.
+        if (dict_encoding_type == ColumnReader::UNKNOWN_DICT_ENCODING && opts.is_predicate_column) {
             seek_to_ordinal(_reader->num_rows() - 1);
             _is_all_dict_encoding = _page.is_dict_encoding;
             _reader->set_dict_encoding_type(_is_all_dict_encoding
@@ -1164,28 +1170,34 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
         auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder.get());
         if (dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
-                // read dictionary page
-                Slice dict_data;
-                PageFooterPB dict_footer;
-                _opts.type = INDEX_PAGE;
-                RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(),
-                                                   &_dict_page_handle, &dict_data, &dict_footer,
-                                                   _compress_codec));
-                // ignore dict_footer.dict_page_footer().encoding() due to only
-                // PLAIN_ENCODING is supported for dict page right now
-                _dict_decoder = std::make_unique<
-                        BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(dict_data);
-                RETURN_IF_ERROR(_dict_decoder->init());
-
-                auto* pd_decoder = (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)
-                                           _dict_decoder.get();
-                _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
-                pd_decoder->get_dict_word_info(_dict_word_info.get());
+                RETURN_IF_ERROR(_read_dict_data());
+                CHECK_NOTNULL(_dict_decoder);
             }
 
             dict_page_decoder->set_dict_decoder(_dict_decoder.get(), _dict_word_info.get());
         }
     }
+    return Status::OK();
+}
+
+Status FileColumnIterator::_read_dict_data() {
+    CHECK_EQ(_reader->encoding_info()->encoding(), DICT_ENCODING);
+    // read dictionary page
+    Slice dict_data;
+    PageFooterPB dict_footer;
+    _opts.type = INDEX_PAGE;
+    RETURN_IF_ERROR(_reader->read_page(_opts, _reader->get_dict_page_pointer(), &_dict_page_handle,
+                                       &dict_data, &dict_footer, _compress_codec));
+    // ignore dict_footer.dict_page_footer().encoding() due to only
+    // PLAIN_ENCODING is supported for dict page right now
+    _dict_decoder =
+            std::make_unique<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(dict_data);
+    RETURN_IF_ERROR(_dict_decoder->init());
+
+    auto* pd_decoder =
+            (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
+    _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
+    pd_decoder->get_dict_word_info(_dict_word_info.get());
     return Status::OK();
 }
 
@@ -1201,8 +1213,26 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(
 
 Status FileColumnIterator::get_row_ranges_by_bloom_filter(
         const AndBlockColumnPredicate* col_predicates, RowRanges* row_ranges) {
-    if (col_predicates->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
+    if ((col_predicates->can_do_bloom_filter(false) && _reader->has_bloom_filter_index(false)) ||
+        (col_predicates->can_do_bloom_filter(true) && _reader->has_bloom_filter_index(true))) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(col_predicates, row_ranges));
+    }
+    return Status::OK();
+}
+
+Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
+                                                  RowRanges* row_ranges) {
+    if (!_is_all_dict_encoding) {
+        return Status::OK();
+    }
+
+    if (!_dict_decoder) {
+        RETURN_IF_ERROR(_read_dict_data());
+        CHECK_NOTNULL(_dict_decoder);
+    }
+
+    if (!col_predicates->evaluate_and(_dict_word_info.get(), _dict_decoder->count())) {
+        row_ranges->clear();
     }
     return Status::OK();
 }

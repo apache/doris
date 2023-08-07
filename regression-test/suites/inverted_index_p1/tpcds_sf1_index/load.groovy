@@ -55,6 +55,8 @@ suite("load") {
         sql new File("""${context.file.parent}/ddl/${table}.sql""").text
     }
 
+    sql "set exec_mem_limit=8G;"
+
     for (String tableName in tables) {
         streamLoad {
             // you can skip db declaration, because a default db has already been
@@ -74,9 +76,10 @@ suite("load") {
             set "columns", columnsMap[tableName]
             }
 
+
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url() + '/regression/tpcds/sf1-new/' + tableName}.dat.gz"""
+            file """${getS3Url()}/regression/tpcds/sf1/${tableName}.dat.gz"""
 
             time 10000 // limit inflight 10s
 

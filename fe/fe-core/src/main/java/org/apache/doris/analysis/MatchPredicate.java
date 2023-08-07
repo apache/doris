@@ -184,8 +184,15 @@ public class MatchPredicate extends Predicate {
     /**
      * use for Nereids ONLY
      */
-    public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType, NullableMode nullableMode) {
+    public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
+            NullableMode nullableMode, String invertedIndexParser, String invertedIndexParserMode) {
         this(op, e1, e2);
+        if (invertedIndexParser != null) {
+            this.invertedIndexParser = invertedIndexParser;
+        }
+        if (invertedIndexParserMode != null) {
+            this.invertedIndexParserMode = invertedIndexParserMode;
+        }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
     }

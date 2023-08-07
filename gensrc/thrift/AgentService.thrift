@@ -70,6 +70,7 @@ struct TS3StorageParam {
     7: optional i32 conn_timeout_ms = 1000
     8: optional string root_path
     9: optional string bucket
+    10: optional bool use_path_style = false
 }
 
 struct TStoragePolicy {
@@ -103,7 +104,8 @@ enum TCompressionType {
     LZ4 = 4,
     LZ4F = 5,
     ZLIB = 6,
-    ZSTD = 7
+    ZSTD = 7,
+    LZ4HC = 8
 }
 
 
@@ -141,6 +143,10 @@ struct TCreateTabletReq {
     19: optional bool enable_unique_key_merge_on_write = false
     20: optional i64 storage_policy_id
     21: optional TBinlogConfig binlog_config
+    22: optional string compaction_policy = "size_based"
+    23: optional i64 time_series_compaction_goal_size_mbytes = 1024
+    24: optional i64 time_series_compaction_file_count_threshold = 2000
+    25: optional i64 time_series_compaction_time_threshold_seconds = 3600
 }
 
 struct TDropTabletReq {
@@ -401,6 +407,10 @@ struct TTabletMetaInfo {
     7: optional i64 storage_policy_id
     8: optional Types.TReplicaId replica_id
     9: optional TBinlogConfig binlog_config
+    10: optional string compaction_policy
+    11: optional i64 time_series_compaction_goal_size_mbytes
+    12: optional i64 time_series_compaction_file_count_threshold
+    13: optional i64 time_series_compaction_time_threshold_seconds
 }
 
 struct TUpdateTabletMetaInfoReq {

@@ -27,9 +27,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
-#include "util/countdown_latch.h"
-#include "util/thread.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -39,6 +38,9 @@ class ScannerScheduler;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
+}
+namespace taskgroup {
+class TaskGroupManager;
 }
 class BfdParser;
 class BrokerMgr;
@@ -109,6 +111,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_group_scheduler() {
         return _pipeline_task_group_scheduler;
     }
+    taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
 
     // using template to simplify client cache management
     template <typename T>
@@ -174,6 +177,7 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
+    MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -192,8 +196,6 @@ private:
 
     void _register_metrics();
     void _deregister_metrics();
-
-    void _check_streamloadpipe();
 
     bool _is_init;
     std::vector<StorePath> _store_paths;
@@ -237,6 +239,7 @@ private:
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
     pipeline::TaskScheduler* _pipeline_task_group_scheduler = nullptr;
+    taskgroup::TaskGroupManager* _task_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
@@ -260,8 +263,7 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
-    CountDownLatch _check_streamloadpipe_latch;
-    scoped_refptr<Thread> _check_streamloadpipe_thread;
+    std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
 };
 
 template <>

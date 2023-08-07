@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -79,9 +78,7 @@ public class DataTypeTest {
         // double
         Assertions.assertEquals(DoubleType.INSTANCE, DataType.convertFromString("double"));
         // decimalv2
-        Assertions.assertEquals(
-                Config.enable_decimal_conversion ? DecimalV3Type.createDecimalV3Type(13, 9)
-                        : DecimalV2Type.createDecimalV2Type(13, 9),
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(13, 9),
                 DataType.convertFromString("decimal(13, 9)"));
         // decimalv3
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(13, 9),
@@ -105,10 +102,10 @@ public class DataTypeTest {
         Assertions.assertEquals(DateV2Type.INSTANCE, DataType.convertFromString("datev2"));
         // time
         Assertions.assertEquals(TimeType.INSTANCE, DataType.convertFromString("time"));
+
         // datetime
-        Assertions.assertEquals(Config.enable_date_conversion ? DateTimeV2Type.of(0) : DateTimeType.INSTANCE,
-                Config.enable_date_conversion ? DataType.convertFromString("datetimev2(0)")
-                        : DataType.convertFromString("datetime"));
+        Assertions.assertEquals(DateTimeType.INSTANCE, DataType.convertFromString("datetime"));
+
         // datetimev2
         Assertions.assertEquals(DateTimeV2Type.of(3), DataType.convertFromString("datetimev2(3)"));
         // hll

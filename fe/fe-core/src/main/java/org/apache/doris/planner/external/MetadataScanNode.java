@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
@@ -31,6 +32,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.collect.Lists;
 
@@ -53,6 +55,8 @@ public class MetadataScanNode extends ExternalScanNode {
         TMetaScanNode metaScanNode = new TMetaScanNode();
         metaScanNode.setTupleId(desc.getId().asInt());
         metaScanNode.setMetadataType(this.tvf.getMetadataType());
+        TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
+        metaScanNode.setCurrentUserIdent(tCurrentUser);
         planNode.setMetaScanNode(metaScanNode);
     }
 

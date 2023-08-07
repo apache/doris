@@ -53,7 +53,7 @@ public class GroupExpression {
     private static final EventProducer COST_STATE_TRACER = new EventProducer(CostStateUpdateEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
                     EventChannel.LOG)));
-    private double cost = 0.0;
+    private Cost cost;
     private Group ownerGroup;
     private final List<Group> children;
     private final Plan plan;
@@ -168,6 +168,10 @@ public class GroupExpression {
         toGroupExpression.ruleMasks.or(ruleMasks);
     }
 
+    public void clearApplied() {
+        ruleMasks.clear();
+    }
+
     public boolean isStatDerived() {
         return statDerived;
     }
@@ -244,9 +248,14 @@ public class GroupExpression {
         return lowestCostTable.get(property).first;
     }
 
-    public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
-            PhysicalProperties requiredPropertySet) {
-        this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    public void putOutputPropertiesMap(PhysicalProperties outputProperties,
+            PhysicalProperties requiredProperties) {
+        this.requestPropertiesMap.put(requiredProperties, outputProperties);
+    }
+
+    public void putOutputPropertiesMapIfAbsent(PhysicalProperties outputProperties,
+            PhysicalProperties requiredProperties) {
+        this.requestPropertiesMap.putIfAbsent(requiredProperties, outputProperties);
     }
 
     /**
@@ -275,11 +284,11 @@ public class GroupExpression {
         this.ownerGroup = null;
     }
 
-    public double getCost() {
+    public Cost getCost() {
         return cost;
     }
 
-    public void setCost(double cost) {
+    public void setCost(Cost cost) {
         this.cost = cost;
     }
 
@@ -319,12 +328,16 @@ public class GroupExpression {
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
-        builder.append(" cost=").append(format.format((long) cost));
+        if (cost != null) {
+            builder.append(" cost=").append(format.format((long) cost.getValue()) + " " + cost);
+        } else {
+            builder.append(" cost=null");
+        }
         builder.append(" estRows=").append(format.format(estOutputRowCount));
-        builder.append(" (plan=").append(plan.toString()).append(") children=[");
-        builder.append(Joiner.on(", ").join(
-                children.stream().map(Group::getGroupId).collect(Collectors.toList())));
-        builder.append("]");
+        builder.append(" children=[").append(Joiner.on(", ").join(
+                        children.stream().map(Group::getGroupId).collect(Collectors.toList())))
+                .append(" ]");
+        builder.append(" (plan=").append(plan.toString()).append(")");
         return builder.toString();
     }
 }

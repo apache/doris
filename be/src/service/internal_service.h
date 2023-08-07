@@ -23,7 +23,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/priority_thread_pool.hpp"
+#include "util/work_thread_pool.hpp"
 
 namespace google {
 namespace protobuf {
@@ -41,7 +41,7 @@ class PHandShakeResponse;
 class PInternalServiceImpl : public PBackendService {
 public:
     PInternalServiceImpl(ExecEnv* exec_env);
-    virtual ~PInternalServiceImpl();
+    ~PInternalServiceImpl() override;
 
     void transmit_data(::google::protobuf::RpcController* controller,
                        const ::doris::PTransmitDataParams* request,
@@ -85,10 +85,6 @@ public:
                             const PTabletWriterOpenRequest* request,
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
-
-    void open_partition(google::protobuf::RpcController* controller,
-                        const OpenPartitionRequest* request, OpenPartitionResult* response,
-                        google::protobuf::Closure* done) override;
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
@@ -186,8 +182,13 @@ public:
                                     google::protobuf::Closure* done) override;
 
 private:
-    Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version,
-                               bool compact);
+    void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
+                                        const PExecPlanFragmentRequest* request,
+                                        PExecPlanFragmentResult* result,
+                                        google::protobuf::Closure* done);
+
+    Status _exec_plan_fragment_impl(const std::string& s_request, PFragmentRequestVersion version,
+                                    bool compact);
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
@@ -226,8 +227,8 @@ private:
     // the reason see issue #16634
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
-    PriorityThreadPool _heavy_work_pool;
-    PriorityThreadPool _light_work_pool;
+    FifoThreadPool _heavy_work_pool;
+    FifoThreadPool _light_work_pool;
 };
 
 } // namespace doris

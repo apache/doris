@@ -248,7 +248,7 @@ public class StringLiteral extends LiteralExpr {
                 case DECIMAL64:
                 case DECIMAL128:
                     try {
-                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value));
+                        DecimalLiteral res = new DecimalLiteral(new BigDecimal(value).stripTrailingZeros());
                         res.setType(targetType);
                         return res;
                     } catch (Exception e) {
@@ -261,7 +261,7 @@ public class StringLiteral extends LiteralExpr {
         } else if (targetType.isDateType()) {
             // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
             // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
+            // BE support other format such as 'yyyyMMdd'...
             try {
                 return convertToDate(targetType);
             } catch (AnalysisException e) {

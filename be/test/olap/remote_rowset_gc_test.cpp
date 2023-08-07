@@ -50,6 +50,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
@@ -187,8 +188,9 @@ TEST_F(RemoteRowsetGcTest, normal) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
-                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
+    WriteRequest write_req = {
+            10005, 270068377, 20003, 30003, load_id, tuple_desc, &(tuple_desc->slots()),
+            false, &param};
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter* delta_writer = nullptr;
@@ -212,9 +214,10 @@ TEST_F(RemoteRowsetGcTest, normal) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                   write_req.tablet_id, write_req.schema_hash,
-                                                  tablet_rs.first.tablet_uid, version);
+                                                  tablet_rs.first.tablet_uid, version, &stats);
         ASSERT_EQ(Status::OK(), st);
         st = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);

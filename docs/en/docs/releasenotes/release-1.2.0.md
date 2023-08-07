@@ -115,7 +115,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 		2. When datev2 and datetimev2 are calculated with the original date and datetime (for example, equivalent connection), the original type will be cast into a new type for calculation
 		3. The example is in the documentation
 
-		Documentation: https://doris.apache.org/docs/dev/sql-manual/sql-reference/Data-Types/DATEV2
+		Documentation: https://doris.apache.org/docs/1.2/sql-manual/sql-reference/Data-Types/DATEV2
 	 
 	 
 ## More

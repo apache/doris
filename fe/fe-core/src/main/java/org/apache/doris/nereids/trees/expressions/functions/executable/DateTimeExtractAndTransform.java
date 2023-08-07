@@ -38,7 +38,7 @@ import java.time.format.DateTimeParseException;
 
 /**
  * executable function:
- * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute, second
+ * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute, second, microsecond
  */
 public class DateTimeExtractAndTransform {
     /**
@@ -168,7 +168,7 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
-     * Executable datetime extract hour
+     * Executable datetime extract second
      */
     @ExecFunction(name = "second", argTypes = {"DATETIME"}, returnType = "INT")
     public static Expression second(DateTimeLiteral date) {
@@ -178,6 +178,14 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "second", argTypes = {"DATETIMEV2"}, returnType = "INT")
     public static Expression second(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) date.getSecond()));
+    }
+
+    /**
+     * Executable datetime extract microsecond
+     */
+    @ExecFunction(name = "microsecond", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static Expression microsecond(DateTimeV2Literal date) {
+        return new IntegerLiteral(((int) date.getMicroSecond()));
     }
 
     /**
@@ -514,9 +522,9 @@ public class DateTimeExtractAndTransform {
         return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
     }
 
-    @ExecFunction(name = "to_date", argTypes = {"DATETIMEV2"}, returnType = "DATE")
+    @ExecFunction(name = "to_date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression toDate(DateTimeV2Literal date) {
-        return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
+        return new DateV2Literal(date.getYear(), date.getMonth(), date.getDay());
     }
 
     /**

@@ -124,8 +124,8 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     std::vector<TExpr> filter_src_exprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
-                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
+                _runtime_filter_descs[i], state->query_options()));
     }
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
     return Status::OK();
@@ -672,13 +672,17 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
 
         {
             Block tmp_block = _join_block;
+
+            // Here make _join_block release the columns' ptr
+            _join_block.set_columns(_join_block.clone_empty_columns());
+
             _add_tuple_is_null_column(&tmp_block);
             {
                 SCOPED_TIMER(_join_filter_timer);
                 RETURN_IF_ERROR(
                         VExprContext::filter_block(_conjuncts, &tmp_block, tmp_block.columns()));
             }
-            RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
+            RETURN_IF_ERROR(_build_output_block(&tmp_block, block, false));
             _reset_tuple_is_null_column();
         }
         _join_block.clear_column_data();

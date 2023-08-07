@@ -96,7 +96,7 @@ public class PropertyAnalyzer {
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
     public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
-    public static final String PROPERTIES_DYNAMIC_SCHEMA = "dynamic_schema";
+    public static final String PROPERTIES_DYNAMIC_SCHEMA = "deprecated_dynamic_schema";
 
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
@@ -127,9 +127,19 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
 
+    public static final String PROPERTIES_COMPACTION_POLICY = "compaction_policy";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES =
+                                                        "time_series_compaction_goal_size_mbytes";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD =
+                                                        "time_series_compaction_file_count_threshold";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS =
+                                                        "time_series_compaction_time_threshold_seconds";
     public static final String PROPERTIES_MUTABLE = "mutable";
 
-    public static final String PROPERTIES_CCR_ENABLE = "ccr_enable";
+    public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
 
     // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
     public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
@@ -140,12 +150,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
                                                                         "enable_duplicate_without_keys_by_default";
-
-    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
-    private static final String COMMA_SEPARATOR = ",";
-    private static final double MAX_FPP = 0.05;
-    private static final double MIN_FPP = 0.0001;
-
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -153,6 +157,20 @@ public class PropertyAnalyzer {
     // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
+    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
+    private static final String COMMA_SEPARATOR = ",";
+    private static final double MAX_FPP = 0.05;
+    private static final double MIN_FPP = 0.0001;
+
+    // compaction policy
+    public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
+    public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
+    public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
+    public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
+    public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
+
+
+
 
     /**
      * check and replace members of DataProperty by properties.
@@ -172,6 +190,7 @@ public class PropertyAnalyzer {
         long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
         String newStoragePolicy = oldDataProperty.getStoragePolicy();
         boolean hasStoragePolicy = false;
+        boolean storageMediumSpecified = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
@@ -179,8 +198,10 @@ public class PropertyAnalyzer {
             if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
                 if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
                     storageMedium = TStorageMedium.SSD;
+                    storageMediumSpecified = true;
                 } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
                     storageMedium = TStorageMedium.HDD;
+                    storageMediumSpecified = true;
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
@@ -247,7 +268,12 @@ public class PropertyAnalyzer {
         boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
         properties.remove(PROPERTIES_MUTABLE);
 
-        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
+        DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
+        // check the state of data property
+        if (storageMediumSpecified) {
+            dataProperty.setStorageMediumSpecified(true);
+        }
+        return dataProperty;
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
@@ -452,7 +478,7 @@ public class PropertyAnalyzer {
     }
 
     // analyze the colocation properties of table
-    public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
+    public static String analyzeColocate(Map<String, String> properties) {
         String colocateGroup = null;
         if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
             colocateGroup = properties.get(PROPERTIES_COLOCATE_WITH);
@@ -589,6 +615,94 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    public static String analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return SIZE_BASED_COMPACTION_POLICY;
+        }
+        String compactionPolicy = SIZE_BASED_COMPACTION_POLICY;
+        if (properties.containsKey(PROPERTIES_COMPACTION_POLICY)) {
+            compactionPolicy = properties.get(PROPERTIES_COMPACTION_POLICY);
+            properties.remove(PROPERTIES_COMPACTION_POLICY);
+            if (compactionPolicy != null && !compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)
+                                                && !compactionPolicy.equals(SIZE_BASED_COMPACTION_POLICY)) {
+                throw new AnalysisException(PROPERTIES_COMPACTION_POLICY
+                        + " must be " + TIME_SERIES_COMPACTION_POLICY + " or " + SIZE_BASED_COMPACTION_POLICY);
+            }
+        }
+
+        return compactionPolicy;
+    }
+
+    public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties)
+                                                                                    throws AnalysisException {
+        long goalSizeMbytes = TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return goalSizeMbytes;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            String goalSizeMbytesStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            try {
+                goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+                if (goalSizeMbytes < 10) {
+                    throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be"
+                                                                + " less than 10: " + goalSizeMbytesStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                        + goalSizeMbytesStr);
+            }
+        }
+        return goalSizeMbytes;
+    }
+
+    public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties)
+                                                                                    throws AnalysisException {
+        long fileCountThreshold = TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return fileCountThreshold;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            String fileCountThresholdStr = properties
+                                            .get(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            try {
+                fileCountThreshold = Long.parseLong(fileCountThresholdStr);
+                if (fileCountThreshold < 10) {
+                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be "
+                                                            + "less than 10: " + fileCountThresholdStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                                                                                + fileCountThresholdStr);
+            }
+        }
+        return fileCountThreshold;
+    }
+
+    public static long analyzeTimeSeriesCompactionTimeThresholdSeconds(Map<String, String> properties)
+                                                                                        throws AnalysisException {
+        long timeThresholdSeconds = TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return timeThresholdSeconds;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            String timeThresholdSecondsStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            try {
+                timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
+                if (timeThresholdSeconds < 60) {
+                    throw new AnalysisException("time_series_compaction_time_threshold_seconds can not be"
+                                                                + " less than 60: " + timeThresholdSecondsStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
+                                                                                + timeThresholdSecondsStr);
+            }
+        }
+        return timeThresholdSeconds;
+    }
+
     // analyzeCompressionType will parse the compression type from properties
     public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
         String compressionType = "";
@@ -605,6 +719,8 @@ public class PropertyAnalyzer {
             return TCompressionType.LZ4;
         } else if (compressionType.equalsIgnoreCase("lz4f")) {
             return TCompressionType.LZ4F;
+        } else if (compressionType.equalsIgnoreCase("lz4hc")) {
+            return TCompressionType.LZ4HC;
         } else if (compressionType.equalsIgnoreCase("zlib")) {
             return TCompressionType.ZLIB;
         } else if (compressionType.equalsIgnoreCase("zstd")) {
@@ -661,7 +777,7 @@ public class PropertyAnalyzer {
         return estimatePartitionSize;
     }
 
-    public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
+    public static String analyzeStoragePolicy(Map<String, String> properties) {
         String storagePolicy = "";
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
             storagePolicy = properties.get(PROPERTIES_STORAGE_POLICY);
@@ -809,6 +925,14 @@ public class PropertyAnalyzer {
         return binlogConfigMap;
     }
 
+    public static boolean analyzeIsBeingSynced(Map<String, String> properties, boolean defaultValue) {
+        if (properties != null && properties.containsKey(PROPERTIES_IS_BEING_SYNCED)) {
+            String value = properties.remove(PROPERTIES_IS_BEING_SYNCED);
+            return Boolean.valueOf(value);
+        }
+        return defaultValue;
+    }
+
     // There are 2 kinds of replication property:
     // 1. "replication_num" = "3"
     // 2. "replication_allocation" = "tag.location.zone1: 2, tag.location.zone2: 1"
@@ -900,10 +1024,12 @@ public class PropertyAnalyzer {
 
     public static boolean analyzeUniqueKeyMergeOnWrite(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            // enable merge on write by default
-            return true;
+            return false;
         }
-        String value = properties.getOrDefault(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+        if (value == null) {
+            return false;
+        }
         properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
         if (value.equals("true")) {
             return true;

@@ -30,13 +30,16 @@ import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.quartz.CronExpression;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Type;
+import java.text.ParseException;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -65,7 +68,7 @@ public class AnalysisInfo implements Writable {
         // submit by user directly
         MANUAL,
         // submit by system automatically
-        SYSTEM
+        SYSTEM;
     }
 
     public enum ScheduleType {
@@ -77,8 +80,13 @@ public class AnalysisInfo implements Writable {
     @SerializedName("jobId")
     public final long jobId;
 
+    // When this AnalysisInfo represent a task, this is the task id for it.
     @SerializedName("taskId")
     public final long taskId;
+
+    // When this AnalysisInfo represent a job, this is the list of task ids belong to this job.
+    @SerializedName("taskIds")
+    public final List<Long> taskIds;
 
     @SerializedName("catalogName")
     public final String catalogName;
@@ -129,6 +137,10 @@ public class AnalysisInfo implements Writable {
     @SerializedName("lastExecTimeInMs")
     public long lastExecTimeInMs;
 
+    // finished or failed
+    @SerializedName("timeCostInMs")
+    public long timeCostInMs;
+
     @SerializedName("state")
     public AnalysisState state;
 
@@ -149,14 +161,22 @@ public class AnalysisInfo implements Writable {
     @SerializedName("samplingPartition")
     public boolean samplingPartition;
 
-    public AnalysisInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
+    // For serialize
+    @SerializedName("cronExpr")
+    public String cronExprStr;
+
+    public CronExpression cronExpression;
+
+    public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, String catalogName, String dbName, String tblName,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
-            long lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType, boolean isExternalTableLevelTask,
-            boolean partitionOnly, boolean samplingPartition) {
+            long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
+            boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
+            CronExpression cronExpression) {
         this.jobId = jobId;
         this.taskId = taskId;
+        this.taskIds = taskIds;
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tblName = tblName;
@@ -174,11 +194,13 @@ public class AnalysisInfo implements Writable {
         this.periodTimeInMs = periodTimeInMs;
         this.message = message;
         this.lastExecTimeInMs = lastExecTimeInMs;
+        this.timeCostInMs = timeCostInMs;
         this.state = state;
         this.scheduleType = scheduleType;
         this.externalTableLevelTask = isExternalTableLevelTask;
         this.partitionOnly = partitionOnly;
         this.samplingPartition = samplingPartition;
+        this.cronExpression = cronExpression;
     }
 
     @Override
@@ -209,6 +231,9 @@ public class AnalysisInfo implements Writable {
         if (lastExecTimeInMs > 0) {
             sj.add("LastExecTime: " + StatisticsUtil.getReadableTime(lastExecTimeInMs));
         }
+        if (timeCostInMs > 0) {
+            sj.add("timeCost: " + timeCostInMs);
+        }
         if (periodTimeInMs > 0) {
             sj.add("periodTimeInMs: " + StatisticsUtil.getReadableTime(periodTimeInMs));
         }
@@ -221,6 +246,10 @@ public class AnalysisInfo implements Writable {
 
     public boolean isJob() {
         return taskId == -1;
+    }
+
+    public void addTaskId(long taskId) {
+        taskIds.add(taskId);
     }
 
     // TODO: use thrift
@@ -266,6 +295,8 @@ public class AnalysisInfo implements Writable {
             analysisInfoBuilder.setPeriodTimeInMs(StatisticsUtil.convertStrToInt(periodTimeInMs));
             String lastExecTimeInMs = resultRow.getColumnValue("last_exec_time_in_ms");
             analysisInfoBuilder.setLastExecTimeInMs(StatisticsUtil.convertStrToLong(lastExecTimeInMs));
+            String timeCostInMs = resultRow.getColumnValue("time_cost_in_ms");
+            analysisInfoBuilder.setTimeCostInMs(StatisticsUtil.convertStrToLong(timeCostInMs));
             String message = resultRow.getColumnValue("message");
             analysisInfoBuilder.setMessage(message);
             return analysisInfoBuilder.build();
@@ -337,7 +368,15 @@ public class AnalysisInfo implements Writable {
             return analysisInfoBuilder.build();
         } else {
             String json = Text.readString(dataInput);
-            return GsonUtils.GSON.fromJson(json, AnalysisInfo.class);
+            AnalysisInfo analysisInfo = GsonUtils.GSON.fromJson(json, AnalysisInfo.class);
+            if (analysisInfo.cronExprStr != null) {
+                try {
+                    analysisInfo.cronExpression = new CronExpression(analysisInfo.cronExprStr);
+                } catch (ParseException e) {
+                    LOG.warn("Cron expression of job is invalid, there is a bug", e);
+                }
+            }
+            return analysisInfo;
         }
     }
 }

@@ -17,9 +17,10 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
-import org.apache.paimon.data.columnar.ColumnarRow;
+import org.apache.paimon.data.InternalRow;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -31,17 +32,24 @@ import java.util.List;
 
 public class PaimonColumnValue implements ColumnValue {
     private int idx;
-    private ColumnarRow record;
+    private InternalRow record;
+    ColumnType dorisType;
 
     public PaimonColumnValue() {
     }
 
-    public void setIdx(int idx) {
+    public void setIdx(int idx, ColumnType dorisType) {
         this.idx = idx;
+        this.dorisType = dorisType;
     }
 
-    public void setOffsetRow(ColumnarRow record) {
+    public void setOffsetRow(InternalRow record) {
         this.record = record;
+    }
+
+    @Override
+    public boolean canGetStringAsBytes() {
+        return true;
     }
 
     @Override
@@ -86,12 +94,17 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public BigDecimal getDecimal() {
-        return BigDecimal.valueOf(getDouble());
+        return record.getDecimal(idx, dorisType.getPrecision(), dorisType.getScale()).toBigDecimal();
     }
 
     @Override
     public String getString() {
         return record.getString(idx).toString();
+    }
+
+    @Override
+    public byte[] getStringAsBytes() {
+        return record.getString(idx).toBytes();
     }
 
     @Override

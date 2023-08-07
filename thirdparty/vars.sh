@@ -197,10 +197,10 @@ LEVELDB_SOURCE=leveldb-1.23
 LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.5.0.tar.gz"
-BRPC_NAME="brpc-1.5.0.tar.gz"
-BRPC_SOURCE="brpc-1.5.0"
-BRPC_MD5SUM="d1b6d9b615292dfa5cefa227822c5996"
+BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.4.0.tar.gz"
+BRPC_NAME="brpc-1.4.0.tar.gz"
+BRPC_SOURCE="brpc-1.4.0"
+BRPC_MD5SUM="6af9d50822c33a3abc56a1ec0af0e0bc"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -298,6 +298,12 @@ JEMALLOC_DORIS_NAME="jemalloc-5.3.0.tar.bz2"
 JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
+# libunwind
+LIBUNWIND_DOWNLOAD="http://download.savannah.nongnu.org/releases/libunwind/libunwind-1.6.2.tar.gz"
+LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
+LIBUNWIND_SOURCE="libunwind-1.6.2"
+LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
+
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
 CCTZ_NAME="cctz-2.3.tar.gz"
@@ -386,10 +392,10 @@ PDQSORT_FILE="pdqsort.h"
 PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
 # benchmark
-BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/v1.5.6.tar.gz"
-BENCHMARK_NAME=benchmark-1.5.6.tar.gz
-BENCHMARK_SOURCE=benchmark-1.5.6
-BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
+BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
+BENCHMARK_NAME=v1.8.0.tar.gz
+BENCHMARK_SOURCE=benchmark-1.8.0
+BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
@@ -453,10 +459,10 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.4-for-doris.tar.gz"
-HADOOP_LIBS_NAME="hadoop-3.3.4.4-for-doris.tar.gz"
-HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.4-for-doris"
-HADOOP_LIBS_MD5SUM="00f0042dd3900ba016f079ee9c550efb"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.5-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.4.5-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.5-for-doris"
+HADOOP_LIBS_MD5SUM="15b7be1747b27c37923b0cb9db6cff8c"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -499,6 +505,7 @@ export TP_ARCHIVES=(
     'ORC'
     'JEMALLOC_ARROW'
     'JEMALLOC_DORIS'
+    'LIBUNWIND'
     'CCTZ'
     'DATATABLES'
     'BOOTSTRAP_TABLE_JS'

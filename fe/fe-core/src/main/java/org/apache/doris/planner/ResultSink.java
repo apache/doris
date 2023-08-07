@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -42,9 +41,7 @@ public class ResultSink extends DataSink {
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(prefix);
-        if (VectorizedUtil.isVectorized()) {
-            strBuilder.append("V");
-        }
+        strBuilder.append("V");
         strBuilder.append("RESULT SINK\n");
         if (fetchOption != null) {
             strBuilder.append(prefix).append("   ").append("OPT TWO PHASE\n");

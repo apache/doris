@@ -67,8 +67,10 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
+import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
+import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
@@ -116,6 +118,8 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -516,6 +520,21 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_UPDATE_SCHEDULER_JOB:
+            case OperationType.OP_DELETE_SCHEDULER_JOB:
+            case OperationType.OP_CREATE_SCHEDULER_JOB: {
+                Job job = Job.readFields(in);
+                data = job;
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_SCHEDULER_TASK:
+            case OperationType.OP_DELETE_SCHEDULER_TASK: {
+                JobTask task = JobTask.readFields(in);
+                data = task;
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_LOAD_JOB: {
                 data = org.apache.doris.load.loadv2.LoadJob.read(in);
                 isRead = true;
@@ -816,6 +835,10 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DELETE_ANALYSIS_TASK: {
                 data = AnalyzeDeletionLog.read(in);
+                break;
+            }
+            case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
+                data = AutoIncrementIdUpdateLog.read(in);
                 isRead = true;
                 break;
             }
@@ -826,6 +849,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_GC_BINLOG: {
                 data = BinlogGcInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BARRIER: {
+                data = BarrierLog.read(in);
                 isRead = true;
                 break;
             }

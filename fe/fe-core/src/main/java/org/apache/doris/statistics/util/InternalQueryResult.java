@@ -100,7 +100,7 @@ public class InternalQueryResult {
             List<PrimitiveType> types = getTypes();
             int index = getColumnIndex(columnName);
             if (index == -1) {
-                throw new DdlException("The column name does not exist.");
+                throw new DdlException(String.format("The column name:[%s] does not exist.", columnName));
             }
             return types.get(index);
         }
@@ -117,9 +117,14 @@ public class InternalQueryResult {
         public String getColumnValue(String columnName) throws DdlException {
             int index = getColumnIndex(columnName);
             if (index == -1) {
-                throw new DdlException("The column name does not exist.");
+                throw new DdlException(String.format("The column name:[%s] does not exist.", columnName));
             }
             return values.get(index);
+        }
+
+        public String getColumnValueWithDefault(String columnName, String defaultVal) throws DdlException {
+            String val = getColumnValue(columnName);
+            return val == null ? defaultVal : val;
         }
 
         public Object getColumnValue(int index) throws DdlException {

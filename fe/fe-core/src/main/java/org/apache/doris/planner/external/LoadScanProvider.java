@@ -31,7 +31,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -53,6 +52,7 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class LoadScanProvider {
 
@@ -182,17 +182,30 @@ public class LoadScanProvider {
         TableIf targetTable = getTargetTable();
         if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()) {
             String sequenceCol = ((OlapTable) targetTable).getSequenceMapCol();
-            if (sequenceCol == null) {
+            if (sequenceCol != null) {
+                String finalSequenceCol = sequenceCol;
+                Optional<ImportColumnDesc> foundCol = columnDescs.descs.stream()
+                        .filter(c -> c.getColumnName().equalsIgnoreCase(finalSequenceCol)).findAny();
+                // if `columnDescs.descs` is empty, that means it's not a partial update load, and user not specify
+                // column name.
+                if (foundCol.isPresent() || columnDescs.descs.isEmpty()) {
+                    columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                            new SlotRef(null, sequenceCol)));
+                } else if (!fileGroupInfo.isPartialUpdate()) {
+                    throw new UserException("Table " + targetTable.getName()
+                            + " has sequence column, need to specify the sequence column");
+                }
+            } else {
                 sequenceCol = context.fileGroup.getSequenceCol();
+                columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
+                        new SlotRef(null, sequenceCol)));
             }
-            columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                    new SlotRef(null, sequenceCol)));
         }
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
-                VectorizedUtil.isVectorized(), fileGroupInfo.isPartialUpdate());
+                fileGroupInfo.isPartialUpdate());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {

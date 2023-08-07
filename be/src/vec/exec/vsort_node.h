@@ -97,6 +97,10 @@ private:
 
     std::unique_ptr<Sorter> _sorter;
 
+    RuntimeProfile::Counter* _child_get_next_timer = nullptr;
+    RuntimeProfile::Counter* _sink_timer = nullptr;
+    RuntimeProfile::Counter* _get_next_timer = nullptr;
+
     static constexpr size_t ACCUMULATED_PARTIAL_SORT_THRESHOLD = 256;
 };
 

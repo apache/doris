@@ -89,7 +89,7 @@ protected:
 
 protected:
     std::unique_ptr<TextConverter> _text_converter;
-    const TFileScanRangeParams& _params;
+    const TFileScanRangeParams* _params;
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 
@@ -156,6 +156,10 @@ protected:
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    std::unique_ptr<std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>>
+            _partition_columns;
+    std::unique_ptr<std::unordered_map<std::string, VExprContextSPtr>> _missing_columns;
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _open_reader_timer = nullptr;
@@ -178,6 +182,7 @@ private:
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
+    Status _check_output_block_types();
     Status _cast_to_input_block(Block* block);
     Status _fill_columns_from_path(size_t rows);
     Status _fill_missing_columns(size_t rows);
@@ -185,9 +190,7 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
-    Status _split_conjuncts();
-    Status _split_conjuncts_expr(const VExprContextSPtr& context,
-                                 const VExprSPtr& conjunct_expr_root);
+    Status _process_conjuncts_for_dict_filter();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {

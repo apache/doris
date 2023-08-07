@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
@@ -150,8 +151,9 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public PhysicalPartitionTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            getLogicalProperties(), children.get(0));
+        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit,
+                partitionLimit, groupExpression, getLogicalProperties(), physicalProperties,
+                statistics, children.get(0));
     }
 
     @Override
@@ -161,9 +163,10 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
-    public PhysicalPartitionTopN<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            Optional.empty(), logicalProperties.get(), child());
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
@@ -182,5 +185,16 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
             "hasGlobalLimit", hasGlobalLimit,
             "partitionLimit", partitionLimit
         );
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalPartitionTopN<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+            groupExpression, null, physicalProperties, statistics, child());
     }
 }

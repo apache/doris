@@ -39,7 +39,6 @@ import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -141,7 +140,9 @@ import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
+import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -155,6 +156,7 @@ import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.loadv2.LoadManagerAdapter;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
@@ -171,6 +173,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterMultiMaterializedView;
+import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
@@ -190,7 +193,6 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
-import org.apache.doris.persist.StorageInfoV2;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
@@ -208,9 +210,13 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.scheduler.AsyncJobRegister;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.JobTaskManager;
+import org.apache.doris.scheduler.registry.PersistentJobRegister;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsAutoAnalyzer;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
@@ -225,6 +231,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -233,7 +240,6 @@ import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -250,11 +256,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -324,8 +328,12 @@ public class Env {
     private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
+    private PersistentJobRegister persistentJobRegister;
+    private AsyncJobManager asyncJobManager;
+    private JobTaskManager jobTaskManager;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
+    private Daemon feDiskUpdater;  // Update fe disk info
     private Daemon replayer;
     private Daemon timePrinter;
     private Daemon listener;
@@ -409,7 +417,7 @@ public class Env {
 
     // Thread pools for pending and loading task, separately
     private MasterTaskExecutor pendingLoadTaskScheduler;
-    private MasterTaskExecutor loadingLoadTaskScheduler;
+    private PriorityMasterTaskExecutor<LoadTask> loadingLoadTaskScheduler;
 
     private LoadJobScheduler loadJobScheduler;
 
@@ -579,7 +587,9 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
-
+        this.jobTaskManager = new JobTaskManager();
+        this.asyncJobManager = new AsyncJobManager();
+        this.persistentJobRegister = new AsyncJobRegister(asyncJobManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -632,8 +642,8 @@ public class Env {
         // The loadingLoadTaskScheduler's queue size is unlimited, so that it can receive all loading tasks
         // created after pending tasks finish. And don't worry about the high concurrency, because the
         // concurrency is limited by Config.desired_max_waiting_jobs and Config.async_loading_load_task_pool_size.
-        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading-load-task-scheduler",
-                Config.async_loading_load_task_pool_size, Integer.MAX_VALUE, !isCheckpointCatalog);
+        this.loadingLoadTaskScheduler = new PriorityMasterTaskExecutor<>("loading-load-task-scheduler",
+                Config.async_loading_load_task_pool_size, LoadTask.COMPARATOR, LoadTask.class, !isCheckpointCatalog);
 
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);
@@ -898,6 +908,9 @@ public class Env {
         // 6. start state listener thread
         createStateListener();
         listener.start();
+
+        // 7. create fe disk updater
+        createFeDiskUpdater();
 
         if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
             // If not using bdb, we need to notify the FE type transfer manually.
@@ -1350,6 +1363,18 @@ public class Env {
             editLog.logAddFirstFrontend(self);
 
             initLowerCaseTableNames();
+        } else {
+            if (journalVersion <= FeMetaVersion.VERSION_114) {
+                // if journal version is less than 114, which means it is upgraded from version before 2.0.
+                // When upgrading from 1.2 to 2.0, we need to make sure that the parallelism of query remain unchanged
+                // when switch to pipeline engine, otherwise it may impact the load of entire cluster
+                // because the default parallelism of pipeline engine is higher than previous version.
+                // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
+                int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
+                VariableMgr.setGlobalPipelineTask(newVal);
+                LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
+                        + "to parallel_fragment_exec_instance_num: {}", newVal);
+            }
         }
 
         getPolicyMgr().createDefaultStoragePolicy();
@@ -1499,6 +1524,8 @@ public class Env {
         getInternalCatalog().getEsRepository().start();
         // domain resolver
         domainResolver.start();
+        // fe disk updater
+        feDiskUpdater.start();
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -1608,7 +1635,7 @@ public class Env {
                     + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
-                    MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
+                    MetaHelper.getFile(Storage.VERSION_FILE, dir));
             MetaHelper.complete(Storage.VERSION_FILE, dir);
             return true;
         } catch (Exception e) {
@@ -1626,13 +1653,19 @@ public class Env {
         try {
             String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
             String infoUrl = "http://" + hostPort + "/info";
-            StorageInfo info = getStorageInfo(infoUrl);
+            ResponseBody<StorageInfo> responseBody = MetaHelper
+                    .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
+            if (responseBody.getCode() != RestApiStatusCode.OK.code) {
+                LOG.warn("get image failed,responseBody:{}", responseBody);
+                throw new IOException(responseBody.toString());
+            }
+            StorageInfo info = responseBody.getData();
             long version = info.getImageSeq();
             if (version > localImageVersion) {
                 String url = "http://" + hostPort + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
-                MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
+                MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getFile(filename, dir));
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
@@ -1662,42 +1695,6 @@ public class Env {
         }
 
         return containSelf;
-    }
-
-    private StorageInfo getStorageInfo(String url) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-
-        HttpURLConnection connection = null;
-        try {
-            connection = HttpURLUtil.getConnectionWithNodeIdent(url);
-            connection.setConnectTimeout(HTTP_TIMEOUT_SECOND * 1000);
-            connection.setReadTimeout(HTTP_TIMEOUT_SECOND * 1000);
-
-            String response;
-            try (BufferedReader bufferedReader = new BufferedReader(
-                    new InputStreamReader(connection.getInputStream()))) {
-                String line;
-                StringBuilder sb = new StringBuilder();
-                while ((line = bufferedReader.readLine()) != null) {
-                    sb.append(line);
-                }
-                response = sb.toString();
-            }
-
-            // For http v2, the response body for "/info" api changed from
-            // StorageInfo to StorageInfoV2.
-            // So we need to make it compatible with old api.
-            try {
-                return mapper.readValue(response, StorageInfo.class);
-            } catch (Exception e) {
-                // try new response body
-                return mapper.readValue(response, StorageInfoV2.class).data;
-            }
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
     }
 
     public StatisticsCache getStatisticsCache() {
@@ -1918,10 +1915,6 @@ public class Env {
 
     // load binlogs
     public long loadBinlogs(DataInputStream dis, long checksum) throws IOException {
-        if (!Config.enable_feature_binlog) {
-            return checksum;
-        }
-
         binlogManager.read(dis, checksum);
         LOG.info("finished replay binlogMgr from image");
         return checksum;
@@ -1942,6 +1935,30 @@ public class Env {
     public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
         loadManager.readFields(in);
         LOG.info("finished replay loadJobsV2 from image");
+        return checksum;
+    }
+
+    public long loadAsyncJobManager(DataInputStream in, long checksum) throws IOException {
+        asyncJobManager.readFields(in);
+        LOG.info("finished replay asyncJobMgr from image");
+        return checksum;
+    }
+
+    public long saveAsyncJobManager(CountingDataOutputStream out, long checksum) throws IOException {
+        asyncJobManager.write(out);
+        LOG.info("finished save analysisMgr to image");
+        return checksum;
+    }
+
+    public long loadJobTaskManager(DataInputStream in, long checksum) throws IOException {
+        jobTaskManager.readFields(in);
+        LOG.info("finished replay jobTaskMgr from image");
+        return checksum;
+    }
+
+    public long saveJobTaskManager(CountingDataOutputStream out, long checksum) throws IOException {
+        jobTaskManager.write(out);
+        LOG.info("finished save jobTaskMgr to image");
         return checksum;
     }
 
@@ -2300,6 +2317,15 @@ public class Env {
             @Override
             protected void runAfterCatalogReady() {
                 globalTransactionMgr.removeExpiredAndTimeoutTxns();
+            }
+        };
+    }
+
+    public void createFeDiskUpdater() {
+        feDiskUpdater = new Daemon("feDiskUpdater", FeConstants.heartbeat_interval_second * 1000L) {
+            @Override
+            protected void runOneCycle() {
+                ExecuteEnv.getInstance().refreshAndGetDiskInfo(true);
             }
         };
     }
@@ -2821,7 +2847,14 @@ public class Env {
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
                                   long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion, false);
+                hidePassword, false, specificVersion, false, false);
+    }
+
+    public static void getSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+                                  long specificVersion) {
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
+                hidePassword, false, specificVersion, false, true);
     }
 
     /**
@@ -2833,7 +2866,7 @@ public class Env {
                                   List<String> addPartitionStmt, List<String> createRollupStmt,
                                   boolean separatePartition,
                                   boolean hidePassword, boolean getDdlForLike, long specificVersion,
-                                  boolean getBriefDdl) {
+                                  boolean getBriefDdl, boolean getDdlForSync) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3026,6 +3059,15 @@ public class Env {
                 sb.append(partition.getVisibleVersion()).append("\"");
             }
 
+            // mark this table is being synced
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED).append("\" = \"");
+            sb.append(String.valueOf(olapTable.isBeingSynced() || getDdlForSync)).append("\"");
+            // mark this table if it is a auto bucket table
+            if (getDdlForSync && olapTable.isAutoBucket()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET).append("\" = \"");
+                sb.append("true").append("\"");
+            }
+
             // colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
@@ -3066,7 +3108,7 @@ public class Env {
             }
 
             // unique key table with merge on write
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
                 sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
             }
@@ -3106,6 +3148,37 @@ public class Env {
             if (olapTable.skipWriteIndexOnLoad()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
                 sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
+            }
+
+            // compaction policy
+            if (olapTable.getCompactionPolicy() != null && !olapTable.getCompactionPolicy().equals("")
+                    && !olapTable.getCompactionPolicy().equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY).append("\" = \"");
+                sb.append(olapTable.getCompactionPolicy()).append("\"");
+            }
+
+            // time series compaction goal size
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
+            }
+
+            // time series compaction file count threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
+            }
+
+            // time series compaction time threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
             // dynamic schema
@@ -3665,6 +3738,18 @@ public class Env {
 
     public SyncJobManager getSyncJobManager() {
         return this.syncJobManager;
+    }
+
+    public PersistentJobRegister getJobRegister() {
+        return persistentJobRegister;
+    }
+
+    public AsyncJobManager getAsyncJobManager() {
+        return asyncJobManager;
+    }
+
+    public JobTaskManager getJobTaskManager() {
+        return jobTaskManager;
     }
 
     public SmallFileMgr getSmallFileMgr() {
@@ -4388,8 +4473,9 @@ public class Env {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table, false);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(table.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME,
                 TimeUtils.getCurrentFormatTime());
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                logProperties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        logProperties);
         editLog.logDynamicPartition(info);
     }
 
@@ -4461,9 +4547,9 @@ public class Env {
     public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         table.setReplicaAllocation(properties);
-        // log
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                properties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        properties);
         editLog.logModifyReplicationNum(info);
         LOG.debug("modify table[{}] replication num to {}", table.getName(),
                 properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
@@ -4480,7 +4566,7 @@ public class Env {
         }
         tableProperty.buildInMemory()
                 .buildStoragePolicy()
-                .buildCcrEnable();
+                .buildIsBeingSynced();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -4488,8 +4574,9 @@ public class Env {
             table.getPartitionInfo().setStoragePolicy(partition.getId(), tableProperty.getStoragePolicy());
         }
 
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                properties);
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        properties);
         editLog.logModifyInMemory(info);
     }
 
@@ -4498,8 +4585,9 @@ public class Env {
 
         table.setBinlogConfig(newBinlogConfig);
 
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(),
-                newBinlogConfig.toProperties());
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        newBinlogConfig.toProperties());
         editLog.logUpdateBinlogConfig(info);
     }
 
@@ -4739,6 +4827,10 @@ public class Env {
 
     public boolean isNullResultWithOneNullParamFunction(String funcName) {
         return functionSet.isNullResultWithOneNullParamFunctions(funcName);
+    }
+
+    public boolean isAggFunctionName(String name) {
+        return functionSet.isAggFunctionName(name);
     }
 
     @Deprecated
@@ -5339,18 +5431,6 @@ public class Env {
         return count;
     }
 
-    public AnalysisTaskScheduler getAnalysisJobScheduler() {
-        return analysisManager.taskScheduler;
-    }
-
-    // TODO:
-    //  1. handle partition level analysis statement properly
-    //  2. support sample job
-    //  3. support period job
-    public void createAnalysisJob(AnalyzeTblStmt analyzeTblStmt) throws DdlException {
-        analysisManager.createAnalysisJob(analyzeTblStmt);
-    }
-
     public AnalysisManager getAnalysisManager() {
         return analysisManager;
     }
@@ -5378,5 +5458,9 @@ public class Env {
     public void cleanQueryStats(CleanQueryStatsInfo info) throws DdlException {
         queryStats.clear(info);
         editLog.logCleanQueryStats(info);
+    }
+
+    public void replayAutoIncrementIdUpdateLog(AutoIncrementIdUpdateLog log) throws Exception {
+        getInternalCatalog().replayAutoIncrementIdUpdateLog(log);
     }
 }

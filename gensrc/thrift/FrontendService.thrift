@@ -468,6 +468,7 @@ struct TMasterOpRequest {
     21: optional map<string, string> trace_carrier
     22: optional string clientNodeHost
     23: optional i32 clientNodePort
+    24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
 }
 
 struct TColumnDefinition {
@@ -528,7 +529,7 @@ struct TBeginTxnRequest {
     2: optional string user
     3: optional string passwd
     4: optional string db
-    5: optional list<string> tables
+    5: optional list<i64> table_ids
     6: optional string user_ip
     7: optional string label
     8: optional i64 auth_code
@@ -617,6 +618,7 @@ struct TStreamLoadMultiTablePutResult {
     1: required Status.TStatus status
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
+    3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
 }
 
 struct TKafkaRLTaskProgress {
@@ -757,6 +759,17 @@ struct TFrontendPingFrontendRequest {
    2: required string token
 }
 
+struct TDiskInfo {
+    1: required string dirType
+    2: required string dir
+    3: required string filesystem
+    4: required i64 blocks
+    5: required i64 used
+    6: required i64 available
+    7: required i32 useRate
+    8: required string mountedOn
+}
+
 struct TFrontendPingFrontendResult {
     1: required TFrontendPingFrontendStatusCode status
     2: required string msg
@@ -764,6 +777,8 @@ struct TFrontendPingFrontendResult {
     4: required i32 rpcPort
     5: required i64 replayedJournalId
     6: required string version
+    7: optional i64 lastStartupTime
+    8: optional list<TDiskInfo> diskInfos
 }
 
 struct TPropertyVal {
@@ -805,6 +820,8 @@ struct TMetadataTableRequestParams {
   2: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
   3: optional PlanNodes.TBackendsMetadataParams backends_metadata_params
   4: optional list<string> columns_name
+  5: optional PlanNodes.TFrontendsMetadataParams frontends_metadata_params
+  6: optional Types.TUserIdentity current_user_ident
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -945,15 +962,24 @@ struct TGetBinlogRequest {
     3: optional string passwd
     4: optional string db
     5: optional string table
-    6: optional string user_ip
-    7: optional string token
-    8: optional i64 prev_commit_seq
+    6: optional i64 table_id
+    7: optional string user_ip
+    8: optional string token
+    9: optional i64 prev_commit_seq
 }
 
 enum TBinlogType {
   UPSERT = 0,
   ADD_PARTITION = 1,
   CREATE_TABLE = 2,
+  DROP_PARTITION = 3,
+  DROP_TABLE = 4,
+  ALTER_JOB = 5,
+  MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 6,
+  DUMMY = 7,
+  ALTER_DATABASE_PROPERTY = 8,
+  MODIFY_TABLE_PROPERTY = 9,
+  BARRIER = 10,
 }
 
 struct TBinlog {
@@ -963,6 +989,9 @@ struct TBinlog {
     4: optional i64 db_id
     5: optional list<i64> table_ids
     6: optional string data
+    7: optional i64 belong  // belong == -1 if type is not DUMMY
+    8: optional i64 table_ref // only use for gc
+    9: optional bool remove_enable_cache
 }
 
 struct TGetBinlogResult {
@@ -1040,6 +1069,32 @@ struct TGetMasterTokenResult {
     2: optional string token
 }
 
+typedef TGetBinlogRequest TGetBinlogLagRequest
+
+struct TGetBinlogLagResult {
+    1: optional Status.TStatus status
+    2: optional i64 lag
+}
+
+struct TUpdateFollowerStatsCacheRequest {
+    1: optional string key;
+    2: optional string colStats;
+}
+
+struct TAutoIncrementRangeRequest {
+    1: optional i64 db_id;
+    2: optional i64 table_id;
+    3: optional i64 column_id;
+    4: optional i64 length
+    5: optional i64 lower_bound // if set, values in result range must larger than `lower_bound`
+}
+
+struct TAutoIncrementRangeResult {
+    1: optional Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1102,4 +1157,10 @@ service FrontendService {
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
+
+    TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
+
+    Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
+
+    TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 }

@@ -33,9 +33,9 @@ import java.util.Optional;
  * Subquery Expression.
  */
 public abstract class SubqueryExpr extends Expression {
+
     protected final LogicalPlan queryPlan;
     protected final List<Slot> correlateSlots;
-
     protected final Optional<Expression> typeCoercionExpr;
 
     public SubqueryExpr(LogicalPlan subquery) {
@@ -59,6 +59,10 @@ public abstract class SubqueryExpr extends Expression {
     }
 
     public Expression getSubqueryOutput() {
+        return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
+    }
+
+    public Expression getSubqueryOutput(LogicalPlan queryPlan) {
         return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
     }
 

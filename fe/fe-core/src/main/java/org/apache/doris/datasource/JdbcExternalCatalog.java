@@ -28,16 +28,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 
 @Getter
 public class JdbcExternalCatalog extends ExternalCatalog {
-    private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
-
     private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
             JdbcResource.JDBC_URL,
             JdbcResource.DRIVER_URL,

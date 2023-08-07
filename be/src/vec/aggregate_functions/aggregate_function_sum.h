@@ -177,13 +177,30 @@ public:
         }
     }
 
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+    }
+
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         DCHECK(col.item_size() == sizeof(Data))
                 << "size is not equal: " << col.item_size() << " " << sizeof(Data);
-        col.resize(1);
-        reinterpret_cast<Data*>(col.get_data().data())->sum = this->data(place).sum;
+        size_t old_size = col.size();
+        col.resize(old_size + 1);
+        (reinterpret_cast<Data*>(col.get_data().data()) + old_size)->sum = this->data(place).sum;
     }
 
     MutableColumnPtr create_serialize_column() const override {

@@ -346,6 +346,17 @@ public:
         }
     }
 
+    bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
+        for (size_t i = 0; i != count; ++i) {
+            const auto found = _values->find(dict_words[i].data, dict_words[i].size) ^ _opposite;
+            if (found == (PT == PredicateType::IN_LIST)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;
@@ -370,6 +381,8 @@ public:
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
+            // IN predicate can not use ngram bf, just return true to accept
+            if (bf->is_ngram_bf()) return true;
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
@@ -397,7 +410,9 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return PT == PredicateType::IN_LIST; }
+    bool can_do_bloom_filter(bool ngram) const override {
+        return PT == PredicateType::IN_LIST && !ngram;
+    }
 
 private:
     template <typename LeftT, typename RightT>

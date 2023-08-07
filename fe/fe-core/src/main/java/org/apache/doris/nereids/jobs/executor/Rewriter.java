@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.rewrite.CostBasedRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
-import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
@@ -31,20 +31,25 @@ import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
+import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
-import org.apache.doris.nereids.rules.rewrite.BuildCTEAnchorAndCTEProducer;
-import org.apache.doris.nereids.rules.rewrite.CTEProducerRewrite;
+import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
+import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
+import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
+import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
+import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
@@ -61,8 +66,9 @@ import org.apache.doris.nereids.rules.rewrite.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
-import org.apache.doris.nereids.rules.rewrite.InlineCTE;
+import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.NormalizeAggregate;
@@ -70,12 +76,18 @@ import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
+import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
+import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
+import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
+import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.ReplaceLimitNode;
+import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
@@ -89,17 +101,15 @@ import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApp
 import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithoutAggregate;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * Apply rules to optimize logical plan.
+ * Apply rules to rewrite logical plan.
  */
 public class Rewriter extends AbstractBatchJobExecutor {
 
-    public static final List<RewriteJob> REWRITE_JOBS = jobs(
-            bottomUp(new InlineCTE()),
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS = jobs(
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
@@ -119,11 +129,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     topDown(
                             // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
-                            // in the ExpressionNormalization, so must invoke in another job, or else run into
-                            // dead loop
+                            // in the ExpressionNormalization, so must invoke in another job, otherwise dead loop.
                             new ExtractSingleTableExpressionFromDisjunction()
                     )
             ),
+            // subquery unnesting relay on ExpressionNormalization to extract common factor expression
             topic("Subquery unnesting",
                     costBased(
                             custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
@@ -145,9 +155,15 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new ApplyToJoin()
                     )
             ),
-            // we should eliminate hint again because some hint maybe exist in the CTE or subquery.
-            // so this rule should invoke after "Subquery unnesting"
+            // we should eliminate hint after "Subquery unnesting" because some hint maybe exist in the CTE or subquery.
             custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
+            topic("Eliminate optimization",
+                    bottomUp(
+                            new EliminateLimit(),
+                            new EliminateFilter(),
+                            new EliminateAggregate()
+                    )
+            ),
             // please note: this rule must run before NormalizeAggregate
             topDown(new AdjustAggregateNullableForEmptySet()),
             // The rule modification needs to be done after the subquery is unnested,
@@ -196,7 +212,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     topDown(
                             new EliminateDedupJoinCondition()
-                    )
+                    ),
+                    // eliminate useless not null or inferred not null
+                    // TODO: wait InferPredicates to infer more not null.
+                    bottomUp(new EliminateNotNull()),
+                    topDown(new ConvertInnerOrCrossJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -209,31 +229,37 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
                     // this can help to translate plan to backend
-                    topDown(new PushFilterInsideJoin())
+                    topDown(new PushFilterInsideJoin()),
+                    topDown(new ExpressionNormalization())
             ),
 
-            custom(RuleType.CHECK_DATATYPES, CheckDataTypes::new),
+            custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
 
             // this rule should invoke after ColumnPruning
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
 
-            // we need to execute this rule at the end of rewrite
-            // to avoid two consecutive same project appear when we do optimization.
-            topic("Others optimization",
-                    bottomUp(ImmutableList.<RuleFactory>builder().addAll(ImmutableList.of(
-                            new EliminateNotNull(),
-                            new EliminateLimit(),
-                            new EliminateFilter(),
-                            new EliminateAggregate(),
-                            new MergeSetOperations(),
-                            new PushdownLimit(),
-                            new BuildAggForUnion()
-                            // after eliminate filter, the project maybe can push down again,
-                            // so we add push down rules
-                    )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
+            topic("Set operation optimization",
+                    // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
+                    topDown(new PushProjectThroughUnion(), new MergeProjects()),
+                    bottomUp(new MergeSetOperations()),
+                    bottomUp(new PushProjectIntoOneRowRelation()),
+                    topDown(new MergeOneRowRelationIntoUnion()),
+                    costBased(topDown(new InferSetOperatorDistinct())),
+                    topDown(new BuildAggForUnion())
             ),
-            topic("Window optimization",
+
+            // topic("Distinct",
+            //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
+            // ),
+
+            topic("Limit optimization",
                     topDown(
+                            // TODO: the logical plan should not contains any phase information,
+                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
+                            //       generate one PhysicalLimit if current distribution is gather or two
+                            //       PhysicalLimits with gather exchange
+                            new ReplaceLimitNode(),
+                            new SplitLimit(),
                             new PushdownLimit(),
                             new PushdownTopNThroughWindow(),
                             new PushdownFilterThroughWindow()
@@ -242,19 +268,16 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // TODO: these rules should be implementation rules, and generate alternative physical plans.
             topic("Table/Physical optimization",
                     topDown(
-                            // TODO: the logical plan should not contains any phase information,
-                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
-                            //       generate one PhysicalLimit if current distribution is gather or two
-                            //       PhysicalLimits with gather exchange
-                            new SplitLimit(),
                             new PruneOlapScanPartition(),
-                            new PruneFileScanPartition()
+                            new PruneFileScanPartition(),
+                            new PushConjunctsIntoJdbcScan()
                     )
             ),
             topic("MV optimization",
                     topDown(
                             new SelectMaterializedIndexWithAggregate(),
                             new SelectMaterializedIndexWithoutAggregate(),
+                            new EliminateFilter(),
                             new PushdownFilterThroughProject(),
                             new MergeProjects(),
                             new PruneOlapScanTablet()
@@ -263,6 +286,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
             ),
+            topic("topn optimize",
+                    topDown(new DeferMaterializeTopNResult())
+            ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
                     custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
@@ -270,28 +296,78 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PushdownFilterThroughProject(),
                             new MergeProjects()
                     ),
-                    custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
+                    custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
+                            new CheckMatchExpression(),
+                            new CheckMultiDistinct(),
                             new CheckAfterRewrite()
-                    )),
-            topic("MATERIALIZED CTE", topDown(
+                    )
+            ),
+            topic("Push project and filter on cte consumer to cte producer",
+                    topDown(
                             new CollectFilterAboveConsumer(),
-                            new CollectProjectAboveConsumer(),
-                            new BuildCTEAnchorAndCTEProducer()),
-                    topDown(new CTEProducerRewrite()))
+                            new CollectProjectAboveConsumer()
+                    )
+            ),
+
+            topic("eliminate empty relation",
+                bottomUp(new EliminateEmptyRelation())
+            )
     );
+
+    private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS
+            = getWholeTreeRewriteJobs(true);
+
+    private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS_WITHOUT_COST_BASED
+            = getWholeTreeRewriteJobs(false);
 
     private final List<RewriteJob> rewriteJobs;
 
-    public Rewriter(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        this.rewriteJobs = REWRITE_JOBS;
-    }
-
-    public Rewriter(CascadesContext cascadesContext, List<RewriteJob> rewriteJobs) {
+    private Rewriter(CascadesContext cascadesContext, List<RewriteJob> rewriteJobs) {
         super(cascadesContext);
         this.rewriteJobs = rewriteJobs;
+    }
+
+    public static Rewriter getWholeTreeRewriterWithoutCostBasedJobs(CascadesContext cascadesContext) {
+        return new Rewriter(cascadesContext, WHOLE_TREE_REWRITE_JOBS_WITHOUT_COST_BASED);
+    }
+
+    public static Rewriter getWholeTreeRewriter(CascadesContext cascadesContext) {
+        return new Rewriter(cascadesContext, WHOLE_TREE_REWRITE_JOBS);
+    }
+
+    public static Rewriter getCteChildrenRewriter(CascadesContext cascadesContext, List<RewriteJob> jobs) {
+        return new Rewriter(cascadesContext, jobs);
+    }
+
+    public static Rewriter getWholeTreeRewriterWithCustomJobs(CascadesContext cascadesContext, List<RewriteJob> jobs) {
+        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(jobs));
+    }
+
+    private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
+        List<RewriteJob> withoutCostBased = Rewriter.CTE_CHILDREN_REWRITE_JOBS.stream()
+                    .filter(j -> !(j instanceof CostBasedRewriteJob))
+                    .collect(Collectors.toList());
+        return getWholeTreeRewriteJobs(withCostBased ? CTE_CHILDREN_REWRITE_JOBS : withoutCostBased);
+    }
+
+    private static List<RewriteJob> getWholeTreeRewriteJobs(List<RewriteJob> jobs) {
+        return jobs(
+                topic("cte inline and pull up all cte anchor",
+                        custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
+                        custom(RuleType.CTE_INLINE, CTEInline::new)
+                ),
+                topic("process limit session variables",
+                        custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
+                ),
+                topic("rewrite cte sub-tree",
+                        custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(jobs))
+                ),
+                topic("whole plan check",
+                        custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
+                )
+        );
     }
 
     @Override

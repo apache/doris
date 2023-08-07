@@ -28,6 +28,7 @@ import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.DomainResolver;
 import org.apache.doris.catalog.Env;
@@ -1809,6 +1810,287 @@ public class AuthTest {
                 "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt2.analyze(analyzer));
 
         // 3. grant resource prov to role on db.table
+        tablePattern = new TablePattern("db1", "*");
+        GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt3.analyze(analyzer));
+    }
+
+    @Test
+    public void testWorkloadGroupPriv() {
+        UserIdentity userIdentity = new UserIdentity("testUser", "%");
+        String role = "role0";
+        String workloadGroupName = "g1";
+        WorkloadGroupPattern workloadGroupPattern = new WorkloadGroupPattern(workloadGroupName);
+        String anyWorkloadGroup = "%";
+        WorkloadGroupPattern anyWorkloadGroupPattern = new WorkloadGroupPattern(anyWorkloadGroup);
+        List<AccessPrivilege> usagePrivileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
+        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+
+        // ------ grant|revoke workload group to|from user ------
+        // 1. create user with no role
+        CreateUserStmt createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // 2. grant usage_priv on workload group to user
+        GrantStmt grantStmt = new GrantStmt(userIdentity, null, workloadGroupPattern, usagePrivileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 3. revoke usage_priv on workload group from user
+        RevokeStmt revokeStmt = new RevokeStmt(userIdentity, null, workloadGroupPattern, usagePrivileges);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertFalse(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        // 3.1 grant 'notBelongToWorkloadGroupPrivileges'
+        for (int i = 0; i < Privilege.notBelongToWorkloadGroupPrivileges.length; i++) {
+            List<AccessPrivilege> notAllowedPrivileges = Lists.newArrayList(
+                    AccessPrivilege.fromName(Privilege.notBelongToWorkloadGroupPrivileges[i].getName()));
+            grantStmt = new GrantStmt(userIdentity, null, workloadGroupPattern, notAllowedPrivileges);
+            try {
+                grantStmt.analyze(analyzer);
+                Assert.fail(String.format("Can not grant/revoke %s to/from any other users or roles",
+                        Privilege.notBelongToWorkloadGroupPrivileges[i]));
+            } catch (UserException e) {
+                e.printStackTrace();
+            }
+        }
+        // 4. drop user
+        DropUserStmt dropUserStmt = new DropUserStmt(userIdentity);
+        try {
+            dropUserStmt.analyze(analyzer);
+            auth.dropUser(dropUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // ------ grant|revoke workload group to|from role ------
+        // 1. create role
+        CreateRoleStmt roleStmt = new CreateRoleStmt(role);
+        try {
+            roleStmt.analyze(analyzer);
+            auth.createRole(roleStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+        // grant usage_priv on workload group to role
+        grantStmt = new GrantStmt(null, role, workloadGroupPattern, usagePrivileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+
+        // 2. create user with role
+        createUserStmt = new CreateUserStmt(false, userDesc, role);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 3. revoke usage_priv on workload group from role
+        revokeStmt = new RevokeStmt(null, role, workloadGroupPattern, usagePrivileges);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // also revoke from user with this role
+        Assert.assertFalse(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+
+        // 4. drop user and role
+        dropUserStmt = new DropUserStmt(userIdentity);
+        try {
+            dropUserStmt.analyze(analyzer);
+            auth.dropUser(dropUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        DropRoleStmt dropRoleStmt = new DropRoleStmt(role);
+        try {
+            dropRoleStmt.analyze(analyzer);
+            auth.dropRole(dropRoleStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // ------ grant|revoke any workload group to|from user ------
+        // 1. create user with no role
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // 2. grant usage_priv on workload group '%' to user
+        grantStmt = new GrantStmt(userIdentity, null, anyWorkloadGroupPattern, usagePrivileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName, PrivPredicate.USAGE));
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, anyWorkloadGroup, PrivPredicate.USAGE));
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName,
+                PrivPredicate.SHOW_WORKLOAD_GROUP));
+
+        // 3. revoke usage_priv on workload group '%' from user
+        revokeStmt = new RevokeStmt(userIdentity, null, anyWorkloadGroupPattern, usagePrivileges);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertFalse(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkWorkloadGroupPriv(userIdentity, anyWorkloadGroup, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName,
+                PrivPredicate.SHOW_WORKLOAD_GROUP));
+        Assert.assertFalse(accessManager.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
+
+        // 4. drop user
+        dropUserStmt = new DropUserStmt(userIdentity);
+        try {
+            dropUserStmt.analyze(analyzer);
+            auth.dropUser(dropUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // ------ grant|revoke any workload group to|from role ------
+        // 1. create role
+        roleStmt = new CreateRoleStmt(role);
+        try {
+            roleStmt.analyze(analyzer);
+            auth.createRole(roleStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+        // grant usage_priv on workload group '%' to role
+        grantStmt = new GrantStmt(null, role, anyWorkloadGroupPattern, usagePrivileges);
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e1) {
+            e1.printStackTrace();
+            Assert.fail();
+        }
+
+        // 2. create user with role
+        createUserStmt = new CreateUserStmt(false, userDesc, role);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName, PrivPredicate.USAGE));
+        Assert.assertTrue(accessManager.checkWorkloadGroupPriv(userIdentity, anyWorkloadGroup, PrivPredicate.USAGE));
+
+        // 3. revoke usage_priv on workload group '%' from role
+        revokeStmt = new RevokeStmt(null, role, anyWorkloadGroupPattern, usagePrivileges);
+        try {
+            revokeStmt.analyze(analyzer);
+            auth.revoke(revokeStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        // also revoke from user with this role
+        Assert.assertFalse(accessManager.checkWorkloadGroupPriv(userIdentity, workloadGroupName, PrivPredicate.USAGE));
+        Assert.assertFalse(accessManager.checkWorkloadGroupPriv(userIdentity, anyWorkloadGroup, PrivPredicate.USAGE));
+
+        // 4. drop user and role
+        dropUserStmt = new DropUserStmt(userIdentity);
+        try {
+            dropUserStmt.analyze(analyzer);
+            auth.dropUser(dropUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+        dropRoleStmt = new DropRoleStmt(role);
+        try {
+            dropRoleStmt.analyze(analyzer);
+            auth.dropRole(dropRoleStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // ------ error case ------
+        boolean hasException = false;
+        createUserStmt = new CreateUserStmt(false, userDesc, null);
+        try {
+            createUserStmt.analyze(analyzer);
+            auth.createUser(createUserStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        // 1. grant db table priv to workload group
+        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        grantStmt = new GrantStmt(userIdentity, null, workloadGroupPattern, privileges);
+        hasException = false;
+        try {
+            grantStmt.analyze(analyzer);
+            auth.grant(grantStmt);
+        } catch (UserException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertTrue(hasException);
+
+        // 2. grant workload group priv to db table
+        TablePattern tablePattern = new TablePattern("db1", "*");
+        GrantStmt grantStmt2 = new GrantStmt(userIdentity, null, tablePattern, usagePrivileges);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Can not grant/revoke USAGE_PRIV to/from database or table", () -> grantStmt2.analyze(analyzer));
+
+        // 3. grant workload group prov to role on db.table
         tablePattern = new TablePattern("db1", "*");
         GrantStmt grantStmt3 = new GrantStmt(userIdentity, "test_role", tablePattern, usagePrivileges);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,

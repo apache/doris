@@ -24,7 +24,6 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
-import org.apache.doris.statistics.util.BlockingCounter;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -32,8 +31,6 @@ import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
-import mockit.Mocked;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -44,8 +41,6 @@ import java.util.concurrent.BlockingQueue;
 
 public class AnalysisTaskExecutorTest extends TestWithFeService {
 
-    @Mocked
-    AnalysisTaskScheduler analysisTaskScheduler;
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -74,25 +69,12 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .build();
         OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisJobInfo);
 
-        new MockUp<AnalysisTaskScheduler>() {
-            public synchronized BaseAnalysisTask getPendingTasks() {
-                return analysisJob;
-            }
-        };
-
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
+        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
         BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "taskQueue");
         AnalysisTaskWrapper analysisTaskWrapper = new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob);
         Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
         b.put(analysisTaskWrapper);
         analysisTaskExecutor.start();
-        BlockingCounter counter = Deencapsulation.getField(analysisTaskExecutor, "blockingCounter");
-        int sleepTime = 500;
-        while (counter.getVal() != 0 && sleepTime > 0) {
-            sleepTime -= 100;
-            Thread.sleep(100);
-        }
-        Assertions.assertEquals(0, counter.getVal());
     }
 
     @Test
@@ -108,11 +90,17 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         new MockUp<OlapAnalysisTask>() {
             @Mock
             public void execSQL(String sql) throws Exception {
-
             }
         };
 
-        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
+        new MockUp<StatisticsCache>() {
+
+            @Mock
+            public void syncLoadColStats(long tableId, long idxId, String colName) {
+            }
+        };
+
+        AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(1);
         HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
         colToPartitions.put("col1", Collections.singleton("t1"));
         AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setJobId(0).setTaskId(0)
@@ -124,22 +112,16 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .setColToPartitions(colToPartitions)
                 .build();
         OlapAnalysisTask task = new OlapAnalysisTask(analysisInfo);
-        new MockUp<AnalysisTaskScheduler>() {
-            @Mock
-            public synchronized BaseAnalysisTask getPendingTasks() {
-                return task;
-            }
-        };
+
         new MockUp<AnalysisManager>() {
             @Mock
             public void updateTaskStatus(AnalysisInfo info, AnalysisState jobState, String message, long time) {}
         };
         new Expectations() {
             {
-                task.execute();
-                times = 1;
+                task.doExecute();
             }
         };
-        Deencapsulation.invoke(analysisTaskExecutor, "doFetchAndExecute");
+        Deencapsulation.invoke(analysisTaskExecutor, "submitTask", task);
     }
 }

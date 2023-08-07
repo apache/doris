@@ -25,6 +25,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -33,6 +34,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 public class Frontend implements Writable {
     @SerializedName("role")
@@ -51,8 +53,10 @@ public class Frontend implements Writable {
     private int rpcPort;
 
     private long replayedJournalId;
+    private long lastStartupTime;
     private long lastUpdateTime;
     private String heartbeatErrMsg = "";
+    private List<FeDiskInfo> diskInfos;
 
     private boolean isAlive = false;
 
@@ -114,8 +118,16 @@ public class Frontend implements Writable {
         return heartbeatErrMsg;
     }
 
+    public long getLastStartupTime() {
+        return lastStartupTime;
+    }
+
     public long getLastUpdateTime() {
         return lastUpdateTime;
+    }
+
+    public List<FeDiskInfo> getDiskInfos() {
+        return diskInfos;
     }
 
     /**
@@ -138,6 +150,8 @@ public class Frontend implements Writable {
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
+            lastStartupTime = hbResponse.getFeStartTime();
+            diskInfos = hbResponse.getDiskInfos();
             isChanged = true;
         } else {
             if (isAlive) {

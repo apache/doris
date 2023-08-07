@@ -177,6 +177,7 @@ TEST(VTimestampFunctionsTest, second_test) {
 
 TEST(VTimestampFunctionsTest, from_unix_test) {
     std::string func_name = "from_unixtime";
+    TimezoneUtils::load_timezone_names();
 
     InputTypeSet input_types = {TypeIndex::Int32};
 
@@ -192,11 +193,12 @@ TEST(VTimestampFunctionsTest, timediff_test) {
 
     DataSet data_set = {
             {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 12:00:00")}, 0.0},
-            {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 13:01:02")}, -3662.0},
+            {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 13:01:02")},
+             (double)-3662.0 * 1e6},
             {{std::string("2019-00-18 12:00:00"), std::string("2019-07-18 13:01:02")}, Null()},
             {{std::string("2019-07-18 12:00:00"), std::string("2019-07-00 13:01:02")}, Null()}};
 
-    check_function<DataTypeTime, true>(func_name, input_types, data_set);
+    check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
 }
 
 TEST(VTimestampFunctionsTest, date_format_test) {
@@ -538,6 +540,7 @@ TEST(VTimestampFunctionsTest, makedate_test) {
 }
 
 TEST(VTimestampFunctionsTest, convert_tz_test) {
+    TimezoneUtils::load_timezone_names();
     std::string func_name = "convert_tz";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::String, TypeIndex::String};
@@ -859,7 +862,7 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
                             {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
                             {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
 
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
+        check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
     }
 
     {
@@ -867,11 +870,12 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
 
         DataSet data_set = {
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18 00:00:00")}, 0.0},
-                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")}, 10.0},
+                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")},
+                 10000000.0},
                 {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18 00:00:00")}, Null()},
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00 00:00:00")}, Null()}};
 
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
+        check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
     }
 }
 
@@ -1677,6 +1681,7 @@ TEST(VTimestampFunctionsTest, seconds_sub_v2_test) {
 }
 
 TEST(VTimestampFunctionsTest, convert_tz_v2_test) {
+    TimezoneUtils::load_timezone_names();
     std::string func_name = "convert_tz";
 
     InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String, TypeIndex::String};

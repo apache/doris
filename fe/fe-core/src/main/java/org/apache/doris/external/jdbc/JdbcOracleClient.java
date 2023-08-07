@@ -47,11 +47,15 @@ public class JdbcOracleClient extends JdbcClient {
         if (oracleType.startsWith("INTERVAL")) {
             oracleType = oracleType.substring(0, 8);
         } else if (oracleType.startsWith("TIMESTAMP")) {
-            if (oracleType.equals("TIMESTAMPTZ") || oracleType.equals("TIMESTAMPLTZ")) {
+            if (oracleType.contains("TIME ZONE") || oracleType.contains("LOCAL TIME ZONE")) {
                 return Type.UNSUPPORTED;
             }
             // oracle can support nanosecond, will lose precision
-            return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+            int scale = fieldSchema.getDecimalDigits();
+            if (scale > 6) {
+                scale = 6;
+            }
+            return ScalarType.createDatetimeV2Type(scale);
         }
         switch (oracleType) {
             /**
@@ -110,9 +114,9 @@ public class JdbcOracleClient extends JdbcClient {
             case "RAW":
             case "LONG RAW":
             case "INTERVAL":
+            case "CLOB":
                 return ScalarType.createStringType();
             case "BLOB":
-            case "CLOB":
             case "NCLOB":
             case "BFILE":
             case "BINARY_FLOAT":

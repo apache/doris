@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.RelationId;
 
 import java.util.List;
 
@@ -25,5 +26,8 @@ import java.util.List;
  * Relation base interface
  */
 public interface Relation {
+
+    RelationId getRelationId();
+
     List<Slot> getOutput();
 }

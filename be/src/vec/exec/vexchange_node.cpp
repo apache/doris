@@ -31,6 +31,7 @@
 #include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
@@ -104,6 +105,7 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         return Status::OK();
     }
     auto status = _stream_recvr->get_next(block, eos);
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     // In vsortrunmerger, it will set eos=true, and block not empty
     // so that eos==true, could not make sure that block not have valid data
     if (!*eos || block->rows() > 0) {

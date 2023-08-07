@@ -65,8 +65,7 @@ VCollectIterator::~VCollectIterator() {
 }
 
 void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, bool force_merge,
-                            bool is_reverse,
-                            std::vector<std::pair<int, int>> rs_readers_segment_offsets) {
+                            bool is_reverse) {
     _reader = reader;
 
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
@@ -92,21 +91,18 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
          (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
           _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
-        // When we use scanner pooling + query with topn_with_limit, we need it because we initialize our rs_reader
-        // in out method but not upstream user. At time we init readers, we will need to use it.
-        _rs_readers_segment_offsets = rs_readers_segment_offsets;
     } else {
         _topn_limit = 0;
     }
 }
 
-Status VCollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
+Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
     if (use_topn_next()) {
-        _rs_readers.push_back(rs_reader);
+        _rs_splits.push_back(rs_splits);
         return Status::OK();
     }
 
-    std::unique_ptr<LevelIterator> child(new Level0Iterator(rs_reader, _reader));
+    std::unique_ptr<LevelIterator> child(new Level0Iterator(rs_splits.rs_reader, _reader));
     _children.push_back(child.release());
     return Status::OK();
 }
@@ -231,19 +227,19 @@ Status VCollectIterator::current_row(IteratorRowRef* ref) const {
     if (LIKELY(_inner_iter)) {
         *ref = *_inner_iter->current_row_ref();
         if (ref->row_pos == -1) {
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         } else {
             return Status::OK();
         }
     }
-    return Status::Error<DATA_ROW_BLOCK_ERROR>();
+    return Status::Error<DATA_ROW_BLOCK_ERROR>("inner iter is nullptr");
 }
 
 Status VCollectIterator::next(IteratorRowRef* ref) {
     if (LIKELY(_inner_iter)) {
         return _inner_iter->next(ref);
     } else {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
 }
 
@@ -255,17 +251,24 @@ Status VCollectIterator::next(Block* block) {
     if (LIKELY(_inner_iter)) {
         return _inner_iter->next(block);
     } else {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
 }
 
 Status VCollectIterator::_topn_next(Block* block) {
     if (_topn_eof) {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
 
     auto clone_block = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
+    // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+    auto all_column_names = mutable_block.get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            mutable_block.erase(name);
+        }
+    }
 
     if (!_reader->_reader_context.read_orderby_key_columns) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -281,23 +284,20 @@ Status VCollectIterator::_topn_next(Block* block) {
             row_pos_comparator);
 
     if (_is_reverse) {
-        std::reverse(_rs_readers.begin(), _rs_readers.end());
+        std::reverse(_rs_splits.begin(), _rs_splits.end());
     }
 
-    bool segment_empty = _rs_readers_segment_offsets.empty();
-    for (size_t i = 0; i < _rs_readers.size(); i++) {
-        const auto& rs_reader = _rs_readers[i];
+    for (size_t i = 0; i < _rs_splits.size(); i++) {
+        const auto& rs_split = _rs_splits[i];
         // init will prune segment by _reader_context.conditions and _reader_context.runtime_conditions
-        RETURN_IF_ERROR(
-                rs_reader->init(&_reader->_reader_context,
-                                segment_empty ? std::pair {0, 0} : _rs_readers_segment_offsets[i]));
+        RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader->_reader_context, rs_split));
 
         // read _topn_limit rows from this rs
         size_t read_rows = 0;
         bool eof = false;
         while (read_rows < _topn_limit && !eof) {
             block->clear_column_data();
-            auto status = rs_reader->next_block(block);
+            auto status = rs_split.rs_reader->next_block(block);
             if (!status.ok()) {
                 if (status.is<END_OF_FILE>()) {
                     eof = true;
@@ -314,6 +314,13 @@ Status VCollectIterator::_topn_next(Block* block) {
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
+            // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+            auto all_column_names = block->get_names();
+            for (auto& name : all_column_names) {
+                if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+                    block->erase(name);
+                }
+            }
 
             // update read rows
             read_rows += block->rows();
@@ -435,9 +442,14 @@ Status VCollectIterator::_topn_next(Block* block) {
                << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
+    // append a column to indicate scanner filter_block is already done
+    auto filtered_datatype = std::make_shared<DataTypeUInt8>();
+    auto filtered_column = filtered_datatype->create_column_const(block->rows(), (uint8_t)1);
+    block->insert(
+            {filtered_column, filtered_datatype, BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED});
 
     _topn_eof = true;
-    return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>();
+    return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>("");
 }
 
 bool VCollectIterator::BlockRowPosComparator::operator()(const size_t& lpos,
@@ -521,7 +533,7 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
     } while (!_is_empty());
     _ref.row_pos = -1;
     _current = -1;
-    return Status::Error<END_OF_FILE>();
+    return Status::Error<END_OF_FILE>("");
 }
 
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
@@ -553,7 +565,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
             return res;
         }
         if (res.is<END_OF_FILE>() && block->rows() == 0) {
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
         if (UNLIKELY(_reader->_reader_context.record_rowids)) {
             RETURN_IF_ERROR(_rs_reader->current_block_row_locations(&_block_row_locations));
@@ -617,12 +629,12 @@ VCollectIterator::Level1Iterator::~Level1Iterator() {
 // Read next row into *row.
 // Returns
 //      OK when read successfully.
-//      Status::Error<END_OF_FILE>() and set *row to nullptr when EOF is reached.
+//      Status::Error<END_OF_FILE>("") and set *row to nullptr when EOF is reached.
 //      Others when error happens
 Status VCollectIterator::Level1Iterator::next(IteratorRowRef* ref) {
     if (UNLIKELY(_cur_child == nullptr)) {
         _ref.reset();
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
     if (_merge) {
         return _merge_next(ref);
@@ -634,11 +646,11 @@ Status VCollectIterator::Level1Iterator::next(IteratorRowRef* ref) {
 // Read next block
 // Returns
 //      OK when read successfully.
-//      Status::Error<END_OF_FILE>() and set *row to nullptr when EOF is reached.
+//      Status::Error<END_OF_FILE>("") and set *row to nullptr when EOF is reached.
 //      Others when error happens
 Status VCollectIterator::Level1Iterator::next(Block* block) {
     if (UNLIKELY(_cur_child == nullptr)) {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
     if (_merge) {
         return _merge_next(block);
@@ -721,7 +733,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
         } else {
             _ref.reset();
             _cur_child = nullptr;
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
@@ -758,7 +770,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
             return _normal_next(ref);
         } else {
             _cur_child = nullptr;
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
     } else {
         _cur_child = nullptr;
@@ -856,7 +868,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
             return _normal_next(block);
         } else {
             _cur_child = nullptr;
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
     } else {
         _cur_child = nullptr;
@@ -870,7 +882,7 @@ Status VCollectIterator::Level1Iterator::current_block_row_locations(
     if (!_merge) {
         if (UNLIKELY(_cur_child == nullptr)) {
             block_row_locations->clear();
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
         return _cur_child->current_block_row_locations(block_row_locations);
     } else {

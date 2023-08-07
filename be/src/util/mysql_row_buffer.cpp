@@ -81,25 +81,6 @@ MysqlRowBuffer<is_binary_format>::MysqlRowBuffer()
           _len_pos(0) {}
 
 template <bool is_binary_format>
-MysqlRowBuffer<is_binary_format>::MysqlRowBuffer(MysqlRowBuffer<is_binary_format>&& other) {
-    if (other._buf == other._default_buf) {
-        auto other_length = other.length();
-        memcpy(_default_buf, other._buf, other_length);
-        _buf = _default_buf;
-        _pos = _buf + other_length;
-    } else {
-        _buf = other._buf;
-        other._buf = other._default_buf;
-        _pos = other._pos;
-    }
-    _buf_size = other._buf_size;
-    _dynamic_mode = other._dynamic_mode;
-    _field_count = other._field_count;
-    _field_pos = other._field_pos;
-    _len_pos = other._len_pos;
-}
-
-template <bool is_binary_format>
 void MysqlRowBuffer<is_binary_format>::start_binary_row(uint32_t num_cols) {
     assert(is_binary_format);
     int bit_fields = (num_cols + 9) / 8;
@@ -214,6 +195,13 @@ static char* add_time(double data, char* pos, bool dynamic_mode) {
     return pos + length;
 }
 
+static char* add_timev2(double data, char* pos, bool dynamic_mode, int scale) {
+    int length = timev2_to_buffer_from_double(data, pos + !dynamic_mode, scale);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
 template <typename DateType>
 static char* add_datetime(const DateType& data, char* pos, bool dynamic_mode) {
     int length = data.to_buffer(pos + !dynamic_mode);
@@ -441,6 +429,25 @@ int MysqlRowBuffer<is_binary_format>::push_time(double data) {
     return 0;
 }
 
+template <bool is_binary_format>
+int MysqlRowBuffer<is_binary_format>::push_timev2(double data, int scale) {
+    if (is_binary_format && !_dynamic_mode) {
+        char buff[8];
+        _field_pos++;
+        float8store(buff, data);
+        return append(buff, 8);
+    }
+    // 1 for string trail, 1 for length, other for time str
+    int ret = reserve(2 + MAX_TIME_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserve failed.";
+        return ret;
+    }
+
+    _pos = add_timev2(data, _pos, _dynamic_mode, scale);
+    return 0;
+}
 template <bool is_binary_format>
 template <typename DateType>
 int MysqlRowBuffer<is_binary_format>::push_vec_datetime(DateType& data) {

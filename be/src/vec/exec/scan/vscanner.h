@@ -108,6 +108,8 @@ public:
 
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
 
+    int64_t get_scanner_wait_worker_timer() { return _scanner_wait_worker_timer; }
+
     void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
 
     RuntimeState* runtime_state() { return _state; }
@@ -124,7 +126,13 @@ public:
     bool need_to_close() { return _need_to_close; }
 
     void mark_to_need_to_close() {
-        _update_counters_before_close();
+        // If the scanner is failed during init or open, then not need update counters
+        // because the query is fail and the counter is useless. And it may core during
+        // update counters. For example, update counters depend on scanner's tablet, but
+        // the tablet == null when init failed.
+        if (_is_open) {
+            _update_counters_before_close();
+        }
         _need_to_close = true;
     }
 

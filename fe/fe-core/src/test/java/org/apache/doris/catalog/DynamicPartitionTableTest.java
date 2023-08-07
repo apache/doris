@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -80,6 +81,15 @@ public class DynamicPartitionTableTest {
     @AfterClass
     public static void tearDown() {
         UtFrameUtils.cleanDorisFeDir(runningDir);
+    }
+
+    private static void changeBeDisk(TStorageMedium storageMedium) {
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackends();
+        for (Backend be : backends) {
+            for (DiskInfo diskInfo : be.getDisks().values()) {
+                diskInfo.setStorageMedium(storageMedium);
+            }
+        }
     }
 
     private static void createTable(String sql) throws Exception {
@@ -970,6 +980,8 @@ public class DynamicPartitionTableTest {
 
     @Test
     public void testHotPartitionNum() throws Exception {
+        changeBeDisk(TStorageMedium.SSD);
+
         Database testDb =
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
         // 1. hour
@@ -1188,9 +1200,11 @@ public class DynamicPartitionTableTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testHotPartitionNumAbnormal() throws Exception {
+    public void testHotPartitionNumAbnormalLT0() throws Exception {
+        changeBeDisk(TStorageMedium.SSD);
+
         // dynamic_partition.hot_partition_num must larger than 0.
-        String createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl1` (\n"
+        String createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl1_lt0` (\n"
                 + "  `k1` datetime NULL COMMENT \"\",\n"
                 + "  `k2` int NULL COMMENT \"\"\n"
                 + ") ENGINE=OLAP\n"
@@ -1207,6 +1221,32 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.prefix\" = \"p\",\n"
                 + "\"dynamic_partition.buckets\" = \"1\",\n"
                 + "\"dynamic_partition.hot_partition_num\" = \"-1\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+    }
+
+    @Test(expected = DdlException.class)
+    public void testHotPartitionNumAbnormalMissSSD() throws Exception {
+        changeBeDisk(TStorageMedium.HDD);
+
+        // when dynamic_partition.hot_partition_num > 0, it require ssd storage medium.
+        String createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl1_miss_ssd` (\n"
+                + "  `k1` datetime NULL COMMENT \"\",\n"
+                + "  `k2` int NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "PARTITION BY RANGE(`k1`)\n"
+                + "()\n"
+                + "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.start\" = \"-3\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"hour\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"1\",\n"
+                + "\"dynamic_partition.hot_partition_num\" = \"1\"\n"
                 + ");";
         createTable(createOlapTblStmt);
     }

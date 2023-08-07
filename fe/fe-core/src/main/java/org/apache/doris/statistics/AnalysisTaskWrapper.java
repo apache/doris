@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.Util;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -62,16 +63,17 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         } finally {
             if (!task.killed) {
                 if (except != null) {
-                    LOG.warn("Failed to execute task", except);
+                    LOG.warn("Analyze {} failed.", task.toString(), except);
                     Env.getCurrentEnv().getAnalysisManager()
                             .updateTaskStatus(task.info,
-                                    AnalysisState.FAILED, except.getMessage(), -1);
+                                    AnalysisState.FAILED, Util.getRootCauseMessage(except), System.currentTimeMillis());
                 } else {
+                    LOG.debug("Analyze {} finished, cost time:{}", task.toString(),
+                            System.currentTimeMillis() - startTime);
                     Env.getCurrentEnv().getAnalysisManager()
                             .updateTaskStatus(task.info,
                                     AnalysisState.FINISHED, "", System.currentTimeMillis());
                 }
-                LOG.warn("{} finished, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
             }
         }
     }
@@ -83,6 +85,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         } catch (Exception e) {
             LOG.warn(String.format("Cancel job failed job info : %s", msg));
         }
+        // Interrupt thread when it's writing metadata would cause FE crush.
         return super.cancel(false);
     }
 

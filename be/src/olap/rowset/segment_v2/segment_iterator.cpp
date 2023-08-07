@@ -374,6 +374,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
                                                           &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
+            iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
@@ -490,6 +491,26 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                    condition_row_ranges);
     _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
+
+    /// Low cardinality optimization is currently not very stable, so to prevent data corruption,
+    /// we are temporarily disabling its use in data compaction.
+    if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
+        RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
+        for (auto cid : cids) {
+            RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
+            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            uint32_t unique_cid = _schema->unique_id(cid);
+            RETURN_IF_ERROR(_column_iterators[unique_cid]->get_row_ranges_by_dict(
+                    _opts.col_id_to_predicates.at(cid).get(), &tmp_row_ranges));
+            RowRanges::ranges_intersection(dict_row_ranges, tmp_row_ranges, &dict_row_ranges);
+        }
+
+        pre_size = condition_row_ranges->count();
+        RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
+                                       condition_row_ranges);
+        _opts.stats->rows_dict_filtered += (pre_size - condition_row_ranges->count());
+    }
+
     return Status::OK();
 }
 
@@ -692,6 +713,9 @@ Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
 
 Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return Status::OK();
+    }
     int32_t unique_id = _schema->unique_id(pred->column_id());
     RETURN_IF_ERROR(pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(), num_rows(),
                                    output_result));
@@ -732,7 +756,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res;
+                         << ", error msg: " << res.to_string();
             return res;
         }
 
@@ -773,6 +797,7 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    such as: where A = '' and B = ','
         //    the predicate of A and B need downgrade without index query.
         // above case can downgrade without index query
+        LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
         return true;
     }
     return false;
@@ -799,6 +824,7 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* pre
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t unique_id) {
     bool has_fulltext_index =
+            _inverted_index_iterators.count(unique_id) > 0 &&
             _inverted_index_iterators[unique_id] != nullptr &&
             _inverted_index_iterators[unique_id]->get_inverted_index_reader_type() ==
                     InvertedIndexReaderType::FULLTEXT;
@@ -940,6 +966,9 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
 
 Status SegmentIterator::_apply_inverted_index() {
     SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return Status::OK();
+    }
     size_t input_rows = _row_bitmap.cardinality();
     std::vector<ColumnPredicate*> remaining_predicates;
     std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
@@ -983,6 +1012,19 @@ Status SegmentIterator::_init_return_column_iterators() {
                     new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
             continue;
         }
+        std::set<ColumnId> del_cond_id_set;
+        _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
+        std::vector<bool> tmp_is_pred_column;
+        tmp_is_pred_column.resize(_schema->columns().size(), false);
+        for (auto predicate : _col_predicates) {
+            auto cid = predicate->column_id();
+            tmp_is_pred_column[cid] = true;
+        }
+        // handle delete_condition
+        for (auto cid : del_cond_id_set) {
+            tmp_is_pred_column[cid] = true;
+        }
+
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
@@ -992,6 +1034,9 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
+            // If the col is predicate column, then should read the last page to check
+            // if the column is full dict encoding
+            iter_opts.is_predicate_column = tmp_is_pred_column[cid];
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
@@ -1111,8 +1156,10 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     DCHECK(pk_index_reader != nullptr);
 
     std::string index_key;
+    // when is_include is false, we shoudle append KEY_NORMAL_MARKER to the
+    // encode key. Otherwise, we will get an incorrect upper bound.
     encode_key_with_padding<RowCursor, true, true>(
-            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
+            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include, true);
     if (index_key < _segment->min_key()) {
         *rowid = 0;
         return Status::OK();

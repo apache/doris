@@ -63,6 +63,12 @@ hdfs(
 - `dfs.client.read.shortcircuit`：（选填）
 - `dfs.domain.socket.path`：（选填）
 
+访问 HA 模式 HDFS 相关参数：
+- `dfs.nameservices`：（选填）
+- `dfs.ha.namenodes.your-nameservices`：（选填）
+- `dfs.namenode.rpc-address.your-nameservices.your-namenode`：（选填）
+- `dfs.client.failover.proxy.provider.your-nameservices`：（选填）
+
 文件格式相关参数
 - `format`：(必填) 目前支持 `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`
 - `column_separator`：(选填) 列分割符, 默认为`,`。 
@@ -81,7 +87,10 @@ hdfs(
     <version since="dev">下面2个参数是用于csv格式的导入</version>
 
 - `trim_double_quotes`： 布尔类型，选填，默认值为 `false`，为 `true` 时表示裁剪掉 csv 文件每个字段最外层的双引号
-- `skip_lines`： 整数类型，选填，默认值为0，含义为跳过csv文件的前几行。当设置format设置为 `csv_with_names` 或 `csv_with_names_and_types` 时，该参数会失效 
+- `skip_lines`： 整数类型，选填，默认值为0，含义为跳过csv文件的前几行。当设置format设置为 `csv_with_names` 或 `csv_with_names_and_types` 时，该参数会失效
+
+其他参数：
+- `path_partition_keys`：（选填）指定文件路径中携带的分区列名，例如/path/to/city=beijing/date="2023-07-09", 则填写`path_partition_keys="city,date"`，将会自动从路径中读取相应列名和列值进行导入。
 
 ### Examples
 
@@ -92,6 +101,29 @@ MySQL [(none)]> select * from hdfs(
             "fs.defaultFS" = "hdfs://127.0.0.1:8424",
             "hadoop.username" = "doris",
             "format" = "csv");
++------+---------+------+
+| c1   | c2      | c3   |
++------+---------+------+
+| 1    | alice   | 18   |
+| 2    | bob     | 20   |
+| 3    | jack    | 24   |
+| 4    | jackson | 19   |
+| 5    | liming  | 18   |
++------+---------+------+
+```
+
+读取并访问 HA 模式的 HDFS 存储上的csv格式文件
+```sql
+MySQL [(none)]> select * from hdfs(
+            "uri" = "hdfs://127.0.0.1:842/user/doris/csv_format_test/student.csv",
+            "fs.defaultFS" = "hdfs://127.0.0.1:8424",
+            "hadoop.username" = "doris",
+            "format" = "csv",
+            "dfs.nameservices" = "my_hdfs",
+            "dfs.ha.namenodes.my_hdfs" = "nn1,nn2",
+            "dfs.namenode.rpc-address.my_hdfs.nn1" = "nanmenode01:8020",
+            "dfs.namenode.rpc-address.my_hdfs.nn2" = "nanmenode02:8020",
+            "dfs.client.failover.proxy.provider.my_hdfs" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
 +------+---------+------+
 | c1   | c2      | c3   |
 +------+---------+------+

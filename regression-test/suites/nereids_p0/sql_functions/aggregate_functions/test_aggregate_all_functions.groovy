@@ -490,7 +490,7 @@ suite("test_aggregate_all_functions") {
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
 
-    qt_select44 """select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
+    qt_select44 """select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from nereids_test_query_db.test  """
 
     qt_select45 """select * from ${tableName_12} order by id,level"""
 
@@ -532,6 +532,7 @@ suite("test_aggregate_all_functions") {
         inputIterator rows.iterator()
     }
 
+    sql """sync"""
     qt_select48 """select dt, id, quantile_percent(quantile_union(price), 0) from ${tableName_21} group by dt, id order by dt, id"""
 
     qt_select49 """select dt, id, quantile_percent(quantile_union(price), 0.5) from ${tableName_21} group by dt, id order by dt, id"""

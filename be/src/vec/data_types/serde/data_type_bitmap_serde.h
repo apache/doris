@@ -33,6 +33,17 @@ class Arena;
 
 class DataTypeBitMapSerDe : public DataTypeSerDe {
 public:
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support serialize bitmap column to buffer";
+    }
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support deserialize from buffer to bitmap";
+        return Status::NotSupported("Not support deserialize from buffer to bitmap");
+    }
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
@@ -41,7 +52,7 @@ public:
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_bytemap,
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override {
         LOG(FATAL) << "Not support write bitmap column to arrow";
@@ -50,26 +61,17 @@ public:
                                 int end, const cctz::time_zone& ctz) const override {
         LOG(FATAL) << "Not support read bitmap column from arrow";
     }
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
-                                      end, col_const);
-    }
 
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
-                                      end, col_const);
-    }
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
 
 private:
     // Bitmap is binary data which is not shown by mysql.
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, bool col_const) const;
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

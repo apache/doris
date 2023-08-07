@@ -35,8 +35,8 @@ under the License.
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
 (
-    column_definition_list,
-    [index_definition_list]
+    column_definition_list
+    [, index_definition_list]
 )
 [engine_type]
 [keys_type]
@@ -56,7 +56,7 @@ distribution_desc
 * `column_definition`
     列定义：
 
-    `column_name column_type [KEY] [aggr_type] [NULL] [default_value] [column_comment]`
+    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [column_comment]`
     * `column_type`
         列类型，支持以下类型：
         ```
@@ -87,7 +87,7 @@ distribution_desc
         CHAR[(length)]
             定长字符串。长度范围：1 ~ 255。默认为1
         VARCHAR[(length)]
-            变长字符串。长度范围：1 ~ 65533。默认为1
+            变长字符串。长度范围：1 ~ 65533。默认为65533
         HLL (1~16385个字节)
             HyperLogLog 列类型，不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
             必须配合 HLL_UNION 聚合类型使用。
@@ -101,12 +101,17 @@ distribution_desc
         SUM：求和。适用数值类型。
         MIN：求最小值。适合数值类型。
         MAX：求最大值。适合数值类型。
-        REPLACE：替换。对于维度列相同的行，指标列会按照导入的先后顺序，后倒入的替换先导入的。
+        REPLACE：替换。对于维度列相同的行，指标列会按照导入的先后顺序，后导入的替换先导入的。
         REPLACE_IF_NOT_NULL：非空值替换。和 REPLACE 的区别在于对于null值，不做替换。这里要注意的是字段默认值要给NULL，而不能是空字符串，如果是空字符串，会给你替换成空字符串。
         HLL_UNION：HLL 类型的列的聚合方式，通过 HyperLogLog 算法聚合。
         BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。
         ```
-        
+    * `AUTO_INCREMENT`(仅在master分支可用)
+            
+        是否为自增列，自增列可以用来为新插入的行生成一个唯一标识。在插入表数据时如果没有指定自增列的值，则会自动生成一个合法的值。当自增列被显示地插入NULL时，其值也会被替换为生成的合法值。需要注意的是，处于性能考虑，BE会在内存中缓存部分自增列的值，所以自增列自动生成的值只能保证单调性和唯一性，无法保证严格的连续性。
+        一张表中至多有一个列是自增列，自增列必须是BIGINT类型，且必须为NOT NULL。
+        Duplicate模型表和Unique模型表均支持自增列。
+
   * `default_value`
         列默认值，当导入数据未指定该列的值时，系统将赋予该列default_value。
           
@@ -293,6 +298,16 @@ UNIQUE KEY(k1, k2)
 
     根据 Tag 设置副本分布情况。该属性可以完全覆盖 `replication_num` 属性的功能。
 
+* `is_being_synced`  
+
+    用于标识此表是否是被CCR复制而来并且正在被syncer同步，默认为 `false`。  
+
+    如果设置为 `true`：  
+    `colocate_with`，`storage_policy`属性将被擦除  
+    `dynamic partition`，`auto bucket`功能将会失效，即在`show create table`中显示开启状态，但不会实际生效。当`is_being_synced`被设置为 `false` 时，这些功能将会恢复生效。  
+
+    这个属性仅供CCR外围模块使用，在CCR同步的过程中不要手动设置。
+
 * `storage_medium/storage_cooldown_time`
 
     数据存储介质。`storage_medium` 用于声明表数据的初始存储介质，而 `storage_cooldown_time` 用于设定到期时间。示例：
@@ -382,6 +397,36 @@ UNIQUE KEY(k1, k2)
     重复写索引的CPU和IO资源消耗，提升高吞吐导入的性能。
 
     `"skip_write_index_on_load" = "false"`
+
+* `compaction_policy`
+
+    配置这个表的 compaction 的合并策略，仅支持配置为 time_series 或者 size_based
+
+    time_series: 当 rowset 的磁盘体积积攒到一定大小时进行版本合并。合并后的 rowset 直接晋升到 base compaction 阶段。在时序场景持续导入的情况下有效降低 compact 的写入放大率
+
+    此策略将使用 time_series_compaction 为前缀的参数调整 compaction 的执行
+
+    `"compaction_policy" = ""`
+
+* `time_series_compaction_goal_size_mbytes`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整每次 compaction 输入的文件的大小，输出的文件大小和输入相当
+
+    `"time_series_compaction_goal_size_mbytes" = "1024"`
+
+* `time_series_compaction_file_count_threshold`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整每次 compaction 输入的文件数量的最小值
+
+    一个 tablet 中，文件数超过该配置，就会触发 compaction
+
+    `"time_series_compaction_file_count_threshold" = "2000"`
+
+* `time_series_compaction_time_threshold_seconds`
+
+    compaction 的合并策略为 time_series 时，将使用此参数来调整 compaction 的最长时间间隔，即长时间未执行过 compaction 时，就会触发一次 compaction，单位为秒
+
+    `"time_series_compaction_time_threshold_seconds" = "3600"`
 
 * 动态分区相关
 

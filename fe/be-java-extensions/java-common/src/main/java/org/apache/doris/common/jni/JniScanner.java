@@ -20,10 +20,14 @@ package org.apache.doris.common.jni;
 
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.common.jni.vec.NativeColumnValue;
 import org.apache.doris.common.jni.vec.ScanPredicate;
+import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.common.jni.vec.VectorTable;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
 
 public abstract class JniScanner {
     protected VectorTable vectorTable;
@@ -41,12 +45,21 @@ public abstract class JniScanner {
     // Scan data and save as vector table
     protected abstract int getNext() throws IOException;
 
+    // parse table schema
+    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
+        throw new UnsupportedOperationException();
+    }
+
     protected void initTableInfo(ColumnType[] requiredTypes, String[] requiredFields, ScanPredicate[] predicates,
             int batchSize) {
         this.types = requiredTypes;
         this.fields = requiredFields;
         this.predicates = predicates;
         this.batchSize = batchSize;
+    }
+
+    protected void appendNativeData(int index, NativeColumnValue value) {
+        vectorTable.appendNativeData(index, value);
     }
 
     protected void appendData(int index, ColumnValue value) {
@@ -59,6 +72,11 @@ public abstract class JniScanner {
 
     public VectorTable getTable() {
         return vectorTable;
+    }
+
+    public String getTableSchema() throws IOException {
+        TableSchema tableSchema = parseTableSchema();
+        return tableSchema.getTableSchema();
     }
 
     public long getNextBatchMeta() throws IOException {
@@ -79,12 +97,21 @@ public abstract class JniScanner {
         return getMetaAddress(numRows);
     }
 
+    /**
+     * Get performance metrics. The key should be pattern like "metricType:metricName".
+     * Support three metric types: timer, counter and bytes.
+     * The c++ side will attach metricName into profile automatically.
+     */
+    public Map<String, String> getStatistics() {
+        return Collections.emptyMap();
+    }
+
     private long getMetaAddress(int numRows) {
         vectorTable.setNumRows(numRows);
         return vectorTable.getMetaAddress();
     }
 
-    protected void resetTable() {
+    public void resetTable() {
         if (vectorTable != null) {
             vectorTable.reset();
         }
@@ -94,7 +121,7 @@ public abstract class JniScanner {
         vectorTable.releaseColumn(fieldId);
     }
 
-    protected void releaseTable() {
+    public void releaseTable() {
         if (vectorTable != null) {
             vectorTable.close();
         }

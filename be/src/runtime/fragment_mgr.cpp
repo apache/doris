@@ -138,7 +138,7 @@ public:
     }
 
     // Update status of this fragment execute
-    Status update_status(Status status) {
+    Status update_status(const Status& status) {
         std::lock_guard<std::mutex> l(_status_lock);
         if (!status.ok() && _exec_status.ok()) {
             _exec_status = status;
@@ -183,6 +183,11 @@ private:
     int _backend_num;
     TNetworkAddress _coord_addr;
 
+    // This context is shared by all fragments of this host in a query.
+    // _query_ctx should be the last one to be destructed, because _executor's
+    // destruct method will call close and it will depend on query context,
+    // for example runtime profile.
+    std::shared_ptr<QueryContext> _query_ctx;
     PlanFragmentExecutor _executor;
     vectorized::VecDateTimeValue _start_time;
 
@@ -195,9 +200,6 @@ private:
 
     int _timeout_second;
     std::atomic<bool> _cancelled {false};
-
-    // This context is shared by all fragments of this host in a query
-    std::shared_ptr<QueryContext> _query_ctx;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
@@ -213,12 +215,12 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
         : _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
+          _query_ctx(std::move(query_ctx)),
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3, std::placeholders::_4)),
           _set_rsc_info(false),
           _timeout_second(-1),
-          _query_ctx(std::move(query_ctx)),
           _report_status_cb_impl(report_status_cb_impl) {
     _start_time = vectorized::VecDateTimeValue::local_time();
     _coord_addr = _query_ctx->coord_addr;
@@ -348,6 +350,10 @@ FragmentMgr::~FragmentMgr() {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.clear();
         _query_ctx_map.clear();
+        for (auto& pipeline : _pipeline_map) {
+            pipeline.second->close_sink();
+        }
+        _pipeline_map.clear();
     }
 }
 
@@ -494,7 +500,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             coord->reportExecStatus(res, params);
         }
 
-        rpc_status = Status(res.status);
+        rpc_status = Status(Status::create(res.status));
     } catch (TException& e) {
         std::stringstream msg;
         msg << "ReportExecStatus() to " << req.coord_addr << " failed:\n" << e.what();
@@ -571,7 +577,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->need_rollback = true;
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-                -1 /* total_length */, true /* use_proto */, stream_load_ctx->id);
+                -1 /* total_length */, true /* use_proto */);
         stream_load_ctx->body_sink = pipe;
         stream_load_ctx->pipe = pipe;
         stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
@@ -672,6 +678,12 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         query_ctx->query_id = query_id;
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
+
+        // set file scan range params
+        if (params.__isset.file_scan_params) {
+            query_ctx->file_scan_range_params_map = params.file_scan_params;
+        }
+
         query_ctx->coord_addr = params.coord;
         LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id.hi, query_ctx->query_id.lo)
                   << " coord_addr " << query_ctx->coord_addr
@@ -722,7 +734,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                 auto status = taskgroup::TaskGroupInfo::parse_group_info(params.workload_groups[0],
                                                                          &task_group_info);
                 if (status.ok()) {
-                    auto tg = taskgroup::TaskGroupManager::instance()->get_or_create_task_group(
+                    auto tg = _exec_env->task_group_manager()->get_or_create_task_group(
                             task_group_info);
                     tg->add_mem_tracker_limiter(query_ctx->query_mem_tracker);
                     query_ctx->set_task_group(tg);
@@ -1276,9 +1288,19 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
         UpdateRuntimeFilterParamsV2 params(request, attach_data, pool);
         int filter_id = request->filter_id();
-        IRuntimeFilter* real_filter = nullptr;
-        RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filter(filter_id, &real_filter));
-        RETURN_IF_ERROR(real_filter->update_filter(&params, start_apply));
+        std::vector<IRuntimeFilter*> filters;
+        RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(filter_id, filters));
+
+        IRuntimeFilter* first_filter = nullptr;
+        for (auto filter : filters) {
+            if (!first_filter) {
+                RETURN_IF_ERROR(filter->update_filter(&params, start_apply));
+                first_filter = filter;
+            } else {
+                filter->copy_from_other(first_filter);
+                filter->signal();
+            }
+        }
     }
 
     return Status::OK();

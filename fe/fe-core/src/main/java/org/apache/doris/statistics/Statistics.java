@@ -27,11 +27,14 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 public class Statistics {
+    private static int K_BYTES = 1024;
+
     private final double rowCount;
 
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
-    private double computeSize;
+    // the byte size of one tuple
+    private double tupleSize;
 
     @Deprecated
     private double width;
@@ -108,10 +111,9 @@ public class Statistics {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
             columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
-            double nullFactor = (rowCount - columnStatistic.numNulls) / rowCount;
-            columnStatisticBuilder.setNumNulls(nullFactor * rowCount);
+            columnStatisticBuilder.setNumNulls(rowCount - columnStatistic.numNulls);
             columnStatisticBuilder.setCount(rowCount);
-            statistics.addColumnStats(entry.getKey(), columnStatisticBuilder.build());
+            expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
         }
         return statistics;
     }
@@ -146,13 +148,23 @@ public class Statistics {
         return this;
     }
 
-    public double computeSize() {
-        if (computeSize <= 0) {
-            computeSize = Math.max(1, expressionToColumnStats.values().stream()
-                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum)
-            ) * rowCount;
+    private double computeTupleSize() {
+        if (tupleSize <= 0) {
+            double tempSize = 0.0;
+            for (ColumnStatistic s : expressionToColumnStats.values()) {
+                tempSize += s.avgSizeByte;
+            }
+            tupleSize = Math.max(1, tempSize);
         }
-        return computeSize;
+        return tupleSize;
+    }
+
+    public double computeSize() {
+        return computeTupleSize() * rowCount;
+    }
+
+    public double dataSizeFactor() {
+        return computeTupleSize() / K_BYTES;
     }
 
     @Override
@@ -229,5 +241,16 @@ public class Statistics {
                 }
             }
         }
+    }
+
+    public String detail(String prefix) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(prefix).append("rows=").append(rowCount).append("\n");
+        builder.append(prefix).append("tupleSize=").append(computeTupleSize()).append("\n");
+
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            builder.append(prefix).append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
+        }
+        return builder.toString();
     }
 }
