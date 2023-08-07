@@ -192,6 +192,19 @@ struct UInt256 {
         return *this;
     }
 };
+
+#pragma pack(1)
+struct UInt136 {
+    UInt8 a;
+    UInt64 b;
+    UInt64 c;
+
+    bool operator==(const UInt136 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+
+    bool operator!=(const UInt136 rhs) const { return !operator==(rhs); }
+};
+#pragma pack()
+
 } // namespace doris::vectorized
 
 /// Overload hash for type casting

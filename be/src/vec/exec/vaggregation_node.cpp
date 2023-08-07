@@ -276,47 +276,41 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
             key_byte_size += _probe_key_sz[i];
         }
 
+        if (!has_null) {
+            bitmap_size = 0;
+        }
+
         if (bitmap_size + key_byte_size > sizeof(UInt256)) {
             use_fixed_key = false;
         }
 
         if (use_fixed_key) {
-            if (has_null) {
-                if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                    if (_is_first_phase) {
-                        _agg_data->init(AggregatedDataVariants::Type::int64_keys, has_null);
-                    } else {
-                        _agg_data->init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                    }
-                } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                    if (_is_first_phase)
-                        _agg_data->init(AggregatedDataVariants::Type::int128_keys, has_null);
-                    else
-                        _agg_data->init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
+            if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
+                if (_is_first_phase) {
+                    _agg_data->init(AggregatedDataVariants::Type::int64_keys, has_null);
                 } else {
-                    if (_is_first_phase)
-                        _agg_data->init(AggregatedDataVariants::Type::int256_keys, has_null);
-                    else
-                        _agg_data->init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
+                    _agg_data->init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
+                }
+            } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
+                if (_is_first_phase) {
+                    _agg_data->init(AggregatedDataVariants::Type::int128_keys, has_null);
+                } else {
+                    _agg_data->init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
+                }
+            } else if (bitmap_size + key_byte_size <= sizeof(UInt136)) {
+                if (_is_first_phase) {
+                    _agg_data->init(AggregatedDataVariants::Type::int136_keys, has_null);
+                } else {
+                    _agg_data->init(AggregatedDataVariants::Type::int136_keys_phase2, has_null);
                 }
             } else {
-                if (key_byte_size <= sizeof(UInt64)) {
-                    if (_is_first_phase)
-                        _agg_data->init(AggregatedDataVariants::Type::int64_keys, has_null);
-                    else
-                        _agg_data->init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                } else if (key_byte_size <= sizeof(UInt128)) {
-                    if (_is_first_phase)
-                        _agg_data->init(AggregatedDataVariants::Type::int128_keys, has_null);
-                    else
-                        _agg_data->init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
+                if (_is_first_phase) {
+                    _agg_data->init(AggregatedDataVariants::Type::int256_keys, has_null);
                 } else {
-                    if (_is_merge)
-                        _agg_data->init(AggregatedDataVariants::Type::int256_keys, has_null);
-                    else
-                        _agg_data->init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
+                    _agg_data->init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
                 }
             }
+
         } else {
             _agg_data->init(AggregatedDataVariants::Type::serialized);
         }
