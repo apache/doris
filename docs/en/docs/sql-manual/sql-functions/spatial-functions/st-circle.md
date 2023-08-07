@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ST_GeometryFromText,ST_GeomFromText",
+    "title": "ST_CIRCLE",
     "language": "en"
 }
 ---
@@ -24,24 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ST_GeometryFromText,ST_GeomFromText
+## ST_Circle
 ### Description
 #### Syntax
 
-`GEOMETRY ST_GeometryFromText (VARCHAR wkt)`
+`GEOMETRY ST_Circle(DOUBLE center_lng, DOUBLE center_lat, DOUBLE radius)`
 
 
-Converting a WKT (Well Known Text) into a corresponding memory geometry
+Convert a WKT (Well Known Text) into a circle on the earth's sphere. Where `center_lng'denotes the longitude of the center of a circle,
+` Center_lat` denotes the latitude of the center of a circle, radius` denotes the radius of a circle in meters.
 
 ### example
 
 ```
-mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
-+---------------------------------------------------------+
-| st_astext(st_geometryfromtext('LINESTRING (1 1, 2 2)')) |
-+---------------------------------------------------------+
-| LINESTRING (1 1, 2 2)                                   |
-+---------------------------------------------------------+
+mysql> SELECT ST_AsText(ST_Circle(111, 64, 10000));
++--------------------------------------------+
+| st_astext(st_circle(111.0, 64.0, 10000.0)) |
++--------------------------------------------+
+| CIRCLE ((111 64), 10000)                   |
++--------------------------------------------+
 ```
 ### keywords
-ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT
+ST_CIRCLE,ST,CIRCLE

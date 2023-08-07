@@ -1,7 +1,7 @@
 ---
 {
-    "title": "ST_Azimuth",
-    "language": "zh-CN"
+    "title": "ST_AZIMUTH",
+    "language": "en"
 }
 ---
 
@@ -32,20 +32,20 @@ under the License.
 
 ### description
 
-输入两个点，并返回由点 1 和点 2 形成的线段的方位角。方位角是点 1 的真北方向线与点 1 和点 2 形成的线段之间的角的弧度。
+Enter two point, and returns the azimuth of the line segment formed by points 1 and 2. The azimuth is the angle in radians measured between the line from point 1 facing true North to the line segment from point 1 to point 2.
 
-正角在球面上按顺时针方向测量。 例如，线段的方位角：
+The positive angle is measured clockwise on the surface of a sphere. For example, the azimuth for a line segment:
 
-* 指北是 0
-* 指东是 PI/2
-* 指南是 PI
-* 指西是 3PI/2
+* Pointing North is 0
+* Pointing East is PI/2
+* Pointing South is PI
+* Pointing West is 3PI/2
 
-ST_Azimuth 存在以下边缘情况：
+ST_Azimuth has the following edge cases:
 
-* 如果两个输入点相同，则返回 NULL。
-* 如果两个输入点是完全对映点，则返回 NULL。
-* 如果任一输入地理位置不是单点或为空地理位置，则会抛出错误。
+* If the two input points are the same, returns NULL.
+* If the two input points are exactly antipodal, returns NULL.
+* If either of the input geographies are not single points or are the empty geography, throws an error.
 
 ### example
 
@@ -73,6 +73,14 @@ mysql> SELECT st_azimuth(ST_Point(0, 0),ST_Point(0, 1));
 |                                                  0 |
 +----------------------------------------------------+
 1 row in set (0.01 sec)
+
+mysql> SELECT st_azimuth(ST_Point(0, 1),ST_Point(0, 1));
++----------------------------------------------------+
+| st_azimuth(st_point(0.0, 1.0), st_point(0.0, 1.0)) |
++----------------------------------------------------+
+|                                               NULL |
++----------------------------------------------------+
+1 row in set (0.02 sec)
 
 mysql> SELECT st_azimuth(ST_Point(-30, 0),ST_Point(150, 0));
 +--------------------------------------------------------+

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "ST_GeometryFromWKB,ST_GeomFromWKB",
-    "language": "zh-CN"
+    "title": "ST_GEOMETRYFROMWKB,ST_GEOMFROMWKB",
+    "language": "en"
 }
 ---
 
@@ -32,7 +32,7 @@ under the License.
 
 ### Description
 
-将一个标准 WKB（Well-known binary）转化为对应的内存的几何形式
+Converting a standard WKB (Well-known binary) into a corresponding memory geometry
 
 ### example
 

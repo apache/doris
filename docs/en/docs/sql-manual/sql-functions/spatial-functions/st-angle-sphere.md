@@ -1,7 +1,7 @@
 ---
 {
-    "title": "ST_Angle_Sphere",
-    "language": "zh-CN"
+    "title": "ST_ANGLE_SPHERE",
+    "language": "en"
 }
 ---
 
@@ -25,18 +25,16 @@ under the License.
 -->
 
 ## ST_Angle_Sphere
-
-### Syntax
+### description
+#### Syntax
 
 `DOUBLE ST_Angle_Sphere(DOUBLE x_lng, DOUBLE x_lat, DOUBLE y_lng, DOUBLE y_lat)`
 
-### description
 
-计算地球表面两点之间的圆心角，单位为 度。传入的参数分别为X点的经度，X点的纬度，Y点的经度，Y点的纬度。
+Calculates the central angle between two points on the Earth's surface. The incoming parameters are the longitude of point X, the latitude of point X, the longitude of point Y and the latitude of point Y.
 
-x_lng 和 y_lng 都是经度数据，合理的取值范围是 [-180, 180]。
-
-x_lat 和 y_lat 都是纬度数据，合理的取值范围是 [-90, 90]。
+x_lng and y_lng are Longitude values, must be in the range [-180, 180].
+x_lat and y_lat are Latitude values, must be in the range [-90, 90].
 
 ### example
 

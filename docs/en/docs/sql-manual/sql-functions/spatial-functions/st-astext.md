@@ -1,6 +1,6 @@
 ---
 {
-    "title": "St_Point",
+    "title": "ST_ASTEXT,ST_ASWKT",
     "language": "en"
 }
 ---
@@ -24,15 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## St_Point
+## ST_AsText,ST_AsWKT
 ### Description
 #### Syntax
 
-`POINT ST_Point(DOUBLE x, DOUBLE y)`
+`VARCHAR ST_AsText (GEOMETRY geo)`
 
 
-Given the X coordinate value, the Y coordinate value returns the corresponding Point.
-The current value is meaningful only for spherical sets, and X/Y corresponds to longitude/latitude.
+Converting a geometric figure into a WKT (Well Known Text) representation
 
 ### example
 
@@ -45,4 +44,4 @@ mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
 +---------------------------------+
 ```
 ### keywords
-ST_POINT,ST,POINT
+ST_ASTEXT,ST_ASWKT,ST,ASTEXT,ASWKT

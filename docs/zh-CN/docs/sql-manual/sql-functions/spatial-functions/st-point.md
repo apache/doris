@@ -1,7 +1,7 @@
 ---
 {
-    "title": "ST_Circle",
-    "language": "en"
+    "title": "ST_POINT",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,25 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ST_Circle
-### Description
+## ST_Point
+### description
 #### Syntax
 
-`GEOMETRY ST_Circle(DOUBLE center_lng, DOUBLE center_lat, DOUBLE radius)`
+`POINT ST_Point(DOUBLE x, DOUBLE y)`
 
 
-Convert a WKT (Well Known Text) into a circle on the earth's sphere. Where `center_lng'denotes the longitude of the center of a circle,
-` Center_lat` denotes the latitude of the center of a circle, radius` denotes the radius of a circle in meters.
+通过给定的X坐标值，Y坐标值返回对应的Point。
+当前这个值只是在球面集合上有意义，X/Y对应的是经度/纬度(longitude/latitude);ps:直接select ST_Point()会卡主，慎重！！！
 
 ### example
 
 ```
-mysql> SELECT ST_AsText(ST_Circle(111, 64, 10000));
-+--------------------------------------------+
-| st_astext(st_circle(111.0, 64.0, 10000.0)) |
-+--------------------------------------------+
-| CIRCLE ((111 64), 10000)                   |
-+--------------------------------------------+
+mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
++---------------------------------+
+| st_astext(st_point(24.7, 56.7)) |
++---------------------------------+
+| POINT (24.7 56.7)               |
++---------------------------------+
 ```
 ### keywords
-ST_CIRCLE,ST,CIRCLE
+ST_POINT,ST,POINT

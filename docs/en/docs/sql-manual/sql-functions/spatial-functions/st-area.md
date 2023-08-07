@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ST_Area",
+    "title": "ST_AREA",
     "language": "en"
 }
 ---

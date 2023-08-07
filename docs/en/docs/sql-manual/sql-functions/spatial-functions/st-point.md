@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ST_Polygon,ST_PolyFromText,ST_PolygonFromText",
+    "title": "ST_POINT",
     "language": "en"
 }
 ---
@@ -24,25 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ST_Polygon,ST_PolyFromText,ST_PolygonFromText
+## St_Point
 ### Description
 #### Syntax
 
-`GEOMETRY ST_Polygon (VARCHAR wkt)`
+`POINT ST_Point(DOUBLE x, DOUBLE y)`
 
 
-Converting a WKT (Well Known Text) into a corresponding polygon memory form
+Given the X coordinate value, the Y coordinate value returns the corresponding Point.
+The current value is meaningful only for spherical sets, and X/Y corresponds to longitude/latitude.
 
-
-#### example
+### example
 
 ```
-mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
-+------------------------------------------------------------------+
-| st_astext(st_polygon('POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))')) |
-+------------------------------------------------------------------+
-| POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))                          |
-+------------------------------------------------------------------+
+mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
++---------------------------------+
+| st_astext(st_point(24.7, 56.7)) |
++---------------------------------+
+| POINT (24.7 56.7)               |
++---------------------------------+
 ```
 ### keywords
-ST_POLYGON,ST_POLYFROMTEXT,ST_POLYGONFROMTEXT,ST,POLYGON,POLYFROMTEXT,POLYGONFROMTEXT
+ST_POINT,ST,POINT

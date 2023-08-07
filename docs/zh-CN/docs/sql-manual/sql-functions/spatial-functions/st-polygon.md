@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ST_AsText,ST_AsWKT",
+    "title": "ST_POLYGON,ST_POLYGONFROMTEXT",
     "language": "zh-CN"
 }
 ---
@@ -24,24 +24,24 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ST_AsText,ST_AsWKT
+## ST_Polygon,ST_PolyFromText,ST_PolygonFromText
 ### description
 #### Syntax
 
-`VARCHAR ST_AsText(GEOMETRY geo)`
+`GEOMETRY ST_Polygon(VARCHAR wkt)`
 
 
-将一个几何图形转化为WKT（Well Known Text）的表示形式
+将一个WKT（Well Known Text）转化为对应的多边形内存形式
 
 ### example
 
 ```
-mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
-+---------------------------------+
-| st_astext(st_point(24.7, 56.7)) |
-+---------------------------------+
-| POINT (24.7 56.7)               |
-+---------------------------------+
+mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
++------------------------------------------------------------------+
+| st_astext(st_polygon('POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))')) |
++------------------------------------------------------------------+
+| POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))                          |
++------------------------------------------------------------------+
 ```
 ### keywords
-ST_ASTEXT,ST_ASWKT,ST,ASTEXT,ASWKT
+ST_POLYGON,ST_POLYFROMTEXT,ST_POLYGONFROMTEXT,ST,POLYGON,POLYFROMTEXT,POLYGONFROMTEXT
