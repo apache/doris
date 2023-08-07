@@ -77,11 +77,13 @@ public class FederationBackendPolicyTest {
     }
 
     @Test
-    public void testGetNextBeWithPreLocations() throws UserException {
+    public void testGetNextLocalBe() throws UserException {
         FederationBackendPolicy policy = new FederationBackendPolicy();
         policy.init();
         Assertions.assertTrue(policy.numBackends() == 3);
-        List<String> preferredLocations = Arrays.asList("192.168.1.3");
-        Assertions.assertEquals(policy.getNextLocalBe(preferredLocations).getHost(), "192.168.1.3");
+        List<String> localHosts = Arrays.asList("192.168.1.3");
+        for (int i = 0; i < 100; i++) {
+            Assertions.assertEquals(policy.getNextLocalBe(localHosts).getHost(), "192.168.1.3");
+        }
     }
 }
