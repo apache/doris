@@ -240,4 +240,10 @@ suite("test_delete") {
     sql 'delete from test1 where length(x)=2'
     
     qt_delete_fn 'select * from test1 order by x'
+    
+    sql 'truncate table test1'
+
+    sql 'insert into test1 values("a", "a"), ("bb", "bb"), ("ccc", "ccc")'
+    
+    qt_delete_non_key 'delete from test1 where length(id) >= 2'
 }
