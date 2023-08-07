@@ -17,25 +17,8 @@
 
 package org.apache.doris.scheduler.disruptor;
 
-import com.lmax.disruptor.EventFactory;
-import lombok.Data;
+public enum TaskType {
+    AsyncJobTask,
 
-/**
- * This class represents an event task that can be produced and consumed by the Disruptor.
- * The event task contains the ID of the event job and the ID of the event task itself.
- * The class also provides an event factory to create instances of {@link TimerTaskEvent}.
- * <p>
- * it's used by {@link TimerTaskDisruptor} and {@link TimerTaskExpirationHandler}
- */
-@Data
-public class TimerTaskEvent {
-    /**
-     * If taskType == AsyncJobTask : id means AsyncJob id.
-     * If taskType == MemoryTask : id means MemoryTask id.
-     */
-    private Long id;
-
-    private TaskType taskType;
-
-    public static final EventFactory<TimerTaskEvent> FACTORY = TimerTaskEvent::new;
+    MemoryTask
 }

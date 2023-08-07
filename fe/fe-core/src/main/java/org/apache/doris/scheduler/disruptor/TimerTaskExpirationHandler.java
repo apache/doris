@@ -20,6 +20,8 @@ package org.apache.doris.scheduler.disruptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.constants.SystemJob;
+import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.scheduler.manager.AsyncJobManager;
@@ -69,7 +71,16 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
             onSystemEvent();
             return;
         }
-        onEventTask(event);
+        switch (event.getTaskType()) {
+            case AsyncJobTask:
+                onAsyncJobTask(event);
+                break;
+            case MemoryTask:
+                onMemoryTask(event);
+                break;
+            default:
+                break;
+        }
     }
 
     /**
@@ -78,8 +89,8 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
      * @param timerTaskEvent The event task to be processed.
      */
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
-    public void onEventTask(TimerTaskEvent timerTaskEvent) {
-        long jobId = timerTaskEvent.getJobId();
+    public void onAsyncJobTask(TimerTaskEvent timerTaskEvent) {
+        long jobId = timerTaskEvent.getId();
         Job job = asyncJobManager.getJob(jobId);
         if (job == null) {
             log.info("Event job is null, eventJobId: {}", jobId);
@@ -119,6 +130,21 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
         jobTaskManager.addJobTask(jobTask);
     }
 
+    public void onMemoryTask(TimerTaskEvent timerTaskEvent) {
+        Long taskId = timerTaskEvent.getId();
+        MemoryTaskExecutor taskExecutor = asyncJobManager.getMemoryTaskExecutor(taskId);
+        if (taskExecutor == null) {
+            log.info("Memory task executor is null, task id: {}", taskId);
+            return;
+        }
+
+        try {
+            taskExecutor.execute();
+        } catch (JobException e) {
+            log.warn("Memory task execute failed, taskId: {}, msg : {}", taskId, e.getMessage());
+        }
+    }
+
     /**
      * Handles a system event by scheduling batch scheduler tasks.
      */
@@ -137,7 +163,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
      * @return true if the event task is a system event, false otherwise.
      */
     private boolean checkIsSystemEvent(TimerTaskEvent event) {
-        return Objects.equals(event.getJobId(), SystemJob.SYSTEM_SCHEDULER_JOB.getId());
+        return Objects.equals(event.getId(), SystemJob.SYSTEM_SCHEDULER_JOB.getId());
     }
 
     private void updateJobStatusIfPastEndTime(Job job) {

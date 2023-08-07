@@ -21,6 +21,7 @@ import org.apache.doris.scheduler.manager.AsyncJobManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorOneArg;
+import com.lmax.disruptor.EventTranslatorTwoArg;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -69,8 +70,11 @@ public class TimerTaskDisruptor implements Closeable {
      * The default {@link EventTranslatorOneArg} to use for {@link #tryPublish(Long)}.
      * This is used to avoid creating a new object for each publish.
      */
-    private static final EventTranslatorOneArg<TimerTaskEvent, Long> TRANSLATOR
-            = (event, sequence, jobId) -> event.setJobId(jobId);
+    private static final EventTranslatorTwoArg<TimerTaskEvent, Long, TaskType> TRANSLATOR
+            = (event, sequence, jobId, taskType) -> {
+                event.setId(jobId);
+                event.setTaskType(taskType);
+            };
 
     public TimerTaskDisruptor(AsyncJobManager asyncJobManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
@@ -85,7 +89,7 @@ public class TimerTaskDisruptor implements Closeable {
     }
 
     /**
-     * Publishes an event to the disruptor.
+     * Publishes a job to the disruptor.
      *
      * @param jobId  job id
      */
@@ -95,23 +99,26 @@ public class TimerTaskDisruptor implements Closeable {
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, jobId);
+            disruptor.publishEvent(TRANSLATOR, jobId, TaskType.AsyncJobTask);
         } catch (Exception e) {
             log.error("tryPublish failed, jobId: {}", jobId, e);
         }
     }
 
-    public boolean tryPublish(TimerTaskEvent timerTaskEvent) {
+    /**
+     * Publishes a task to the disruptor.
+     *
+     * @param taskId  task id
+     */
+    public void tryPublishTask(Long taskId) {
         if (isClosed) {
-            log.info("tryPublish failed, disruptor is closed, eventJobId: {}", timerTaskEvent.getJobId());
-            return false;
+            log.info("tryPublish failed, disruptor is closed, taskId: {}", taskId);
+            return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, timerTaskEvent.getJobId());
-            return true;
+            disruptor.publishEvent(TRANSLATOR, taskId, TaskType.MemoryTask);
         } catch (Exception e) {
-            log.error("tryPublish failed, eventJobId: {}", timerTaskEvent.getJobId(), e);
-            return false;
+            log.error("tryPublish failed, taskId: {}", taskId, e);
         }
     }
 

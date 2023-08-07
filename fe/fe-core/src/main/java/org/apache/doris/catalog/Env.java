@@ -211,6 +211,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.scheduler.AsyncJobRegister;
+import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
 import org.apache.doris.scheduler.manager.AsyncJobManager;
 import org.apache.doris.scheduler.manager.JobTaskManager;
 import org.apache.doris.scheduler.registry.PersistentJobRegister;
@@ -589,6 +590,8 @@ public class Env {
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobTaskManager = new JobTaskManager();
         this.asyncJobManager = new AsyncJobManager();
+        TimerTaskDisruptor timerTaskDisruptor = new TimerTaskDisruptor(this.asyncJobManager);
+        this.asyncJobManager.setDisruptor(timerTaskDisruptor);
         this.persistentJobRegister = new AsyncJobRegister(asyncJobManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);

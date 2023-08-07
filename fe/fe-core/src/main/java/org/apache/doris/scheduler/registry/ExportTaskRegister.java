@@ -15,27 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.disruptor;
+package org.apache.doris.scheduler.registry;
 
-import com.lmax.disruptor.EventFactory;
-import lombok.Data;
+import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
 
-/**
- * This class represents an event task that can be produced and consumed by the Disruptor.
- * The event task contains the ID of the event job and the ID of the event task itself.
- * The class also provides an event factory to create instances of {@link TimerTaskEvent}.
- * <p>
- * it's used by {@link TimerTaskDisruptor} and {@link TimerTaskExpirationHandler}
- */
-@Data
-public class TimerTaskEvent {
-    /**
-     * If taskType == AsyncJobTask : id means AsyncJob id.
-     * If taskType == MemoryTask : id means MemoryTask id.
-     */
-    private Long id;
+public class ExportTaskRegister implements MemoryTaskRegister {
+    private final AsyncJobManager asyncJobManager;
 
-    private TaskType taskType;
+    public ExportTaskRegister(AsyncJobManager asyncJobManager) {
+        this.asyncJobManager = asyncJobManager;
+    }
 
-    public static final EventFactory<TimerTaskEvent> FACTORY = TimerTaskEvent::new;
+    @Override
+    public Long registerTask(MemoryTaskExecutor executor) {
+        return asyncJobManager.registerMemoryTask(executor);
+    }
+
+    @Override
+    public void cancelTask(Long taskId) {
+        return;
+    }
 }

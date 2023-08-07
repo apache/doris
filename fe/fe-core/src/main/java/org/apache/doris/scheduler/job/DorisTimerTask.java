@@ -27,8 +27,8 @@ import java.util.UUID;
 
 /**
  * This class represents a timer task that can be scheduled by a Netty timer.
- * When the timer task is triggered, it produces an event task using the Disruptor.
- * The event task contains the ID of the event and the ID of the task itself.
+ * When the timer task is triggered, it produces a Job task using the Disruptor.
+ * The Job task contains the ID of the Job and the ID of the task itself.
  */
 @Getter
 public class DorisTimerTask implements TimerTask {
