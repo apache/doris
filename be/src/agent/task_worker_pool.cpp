@@ -1264,10 +1264,12 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::agent_task_trace_threshold_sec) {
+            int64_t elapsed_time = static_cast<int64_t>(watch.elapsed_time());
+            if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
+                COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
                 std::stringstream ss;
                 profile->pretty_print(&ss);
-                LOG(WARNING) << "create tablet cost " << watch.elapsed_time() / 1e9 << std::endl
+                LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl
                              << ss.str();
             }
         });

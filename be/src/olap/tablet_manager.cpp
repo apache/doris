@@ -362,10 +362,10 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
 
     MonotonicStopWatch watch;
     watch.start();
-    auto tablet =
-            _create_tablet_meta_and_dir_unlocked(request, is_schema_change, base_tablet, data_dirs);
-    COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "CreateMeta", parent_timer_name),
-                   static_cast<int64_t>(watch.reset()));
+    auto create_meta_timer = ADD_CHILD_TIMER(profile, "CreateMeta", parent_timer_name);
+    auto tablet = _create_tablet_meta_and_dir_unlocked(request, is_schema_change, base_tablet,
+                                                       data_dirs, profile);
+    COUNTER_UPDATE(create_meta_timer, static_cast<int64_t>(watch.reset()));
     if (tablet == nullptr) {
         return nullptr;
     }
@@ -461,21 +461,28 @@ static string _gen_tablet_dir(const string& dir, int16_t shard_id, int64_t table
 
 TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         const TCreateTabletReq& request, const bool is_schema_change, const Tablet* base_tablet,
-        const std::vector<DataDir*>& data_dirs) {
+        const std::vector<DataDir*>& data_dirs, RuntimeProfile* profile) {
     string pending_id = StrCat(TABLET_ID_PREFIX, request.tablet_id);
     // Many attempts are made here in the hope that even if a disk fails, it can still continue.
+    std::string parent_timer_name = "CreateMeta";
     DataDir* last_dir = nullptr;
+    MonotonicStopWatch watch;
+    watch.start();
     for (auto& data_dir : data_dirs) {
         if (last_dir != nullptr) {
             // If last_dir != null, it means the last attempt to create a tablet failed
             last_dir->remove_pending_ids(pending_id);
         }
         last_dir = data_dir;
+        COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RemovePendingIds", parent_timer_name),
+                       static_cast<int64_t>(watch.reset()));
 
         TabletMetaSharedPtr tablet_meta;
         // if create meta failed, do not need to clean dir, because it is only in memory
         Status res = _create_tablet_meta_unlocked(request, data_dir, is_schema_change, base_tablet,
                                                   &tablet_meta);
+        COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "CreateMetaUnlock", parent_timer_name),
+                       static_cast<int64_t>(watch.reset()));
         if (!res.ok()) {
             LOG(WARNING) << "fail to create tablet meta. res=" << res
                          << ", root=" << data_dir->path();
@@ -506,6 +513,8 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         }
 
         TabletSharedPtr new_tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
+        COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "CreateTabletFromMeta", parent_timer_name),
+                       static_cast<int64_t>(watch.reset()));
         DCHECK(new_tablet != nullptr);
         return new_tablet;
     }
