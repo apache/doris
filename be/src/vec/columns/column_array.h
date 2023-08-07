@@ -97,7 +97,19 @@ public:
     void insert_data(const char* pos, size_t length) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
-    void update_hash_with_value(size_t n, SipHash& hash) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override;
+
+    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+                                const uint8_t* __restrict null_data = nullptr) const override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
@@ -179,6 +191,8 @@ public:
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
 
 private:
+    // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
+    // [[[2,1,5],[9,1]], [[1,2]]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
 

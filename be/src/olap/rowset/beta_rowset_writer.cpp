@@ -845,7 +845,10 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
          ++itr) {
         segments_encoded_key_bounds.push_back(*itr);
     }
-    if (!_is_segment_overlapping(segments_encoded_key_bounds)) {
+    // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
+    // the overlap property when key bounds are empty.
+    if (!segments_encoded_key_bounds.empty() &&
+        !_is_segment_overlapping(segments_encoded_key_bounds)) {
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
     }
 

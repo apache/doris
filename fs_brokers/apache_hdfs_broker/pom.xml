@@ -63,13 +63,13 @@ under the License.
         </mailingList>
     </mailingLists>
     <properties>
-        <palo.home>${basedir}/../../</palo.home>
+        <doris.home>${basedir}/../../</doris.home>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <log4j2.version>2.18.0</log4j2.version>
         <project.scm.id>github</project.scm.id>
-        <doris.shade.version>1.0.1-SNAPSHOT</doris.shade.version>
+        <doris.shade.version>1.0.1</doris.shade.version>
         <gcs.version>hadoop2-2.2.15</gcs.version>
 
         <netty.version>4.1.89.Final</netty.version>
@@ -387,7 +387,7 @@ under the License.
                 <artifactId>maven-thrift-plugin</artifactId>
                 <version>0.1.11</version>
                 <configuration>
-                    <thriftExecutable>${palo.home}/thirdparty/installed/bin/thrift</thriftExecutable>
+                    <thriftExecutable>${env.DORIS_THIRDPARTY}/installed/bin/thrift</thriftExecutable>
                     <thriftSourceRoot>${basedir}/src/main/resources/thrift/</thriftSourceRoot>
                     <outputDirectory>${basedir}/src/main/thrift/</outputDirectory>
                     <generator>java:fullcamel</generator>

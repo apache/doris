@@ -34,7 +34,7 @@ suite("test_dynamic_partition_with_alter") {
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
-    result = sql "show partitions from ${tbl}"
+    def result = sql "show partitions from ${tbl}"
     assertEquals(7, result.size())
 
     // modify distributed column comment, then try to add too more dynamic partition

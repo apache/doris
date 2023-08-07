@@ -267,8 +267,9 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
         throw new NotImplementedException();
     }
 
-    public void createTable(String tableName, long tableId) {
-        throw new NotImplementedException();
+    // Only used for sync hive metastore event
+    public void replayCreateTableFromEvent(String tableName, long tableId) {
+        throw new NotImplementedException("createTable() is not implemented");
     }
 }
 

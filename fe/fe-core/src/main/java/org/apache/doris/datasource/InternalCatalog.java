@@ -1763,7 +1763,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!ok || !countDownLatch.getStatus().ok()) {
-                errMsg = "Failed to create partition[" + partitionName + "]. Timeout.";
+                errMsg = "Failed to create partition[" + partitionName + "]. Timeout:" + (timeout / 1000) + " seconds.";
                 // clear tasks
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
@@ -2564,6 +2564,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                     origPartitions.put(partition.getName(), partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
                 }
+            }
+            // if table currently has no partitions, this sql like empty command and do nothing, should return directly
+            // at the same time, it will avoid throwing IllegalStateException when `bufferSize` equals zero
+            if (origPartitions.isEmpty()) {
+                return;
             }
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), IndexExtState.VISIBLE, false);
         } finally {

@@ -339,7 +339,7 @@ public:
     /// On subsequent calls of this method for sequence of column values of arbitrary types,
     ///  passed bytes to hash must identify sequence of values unambiguously.
     virtual void update_hash_with_value(size_t n, SipHash& hash) const {
-        LOG(FATAL) << "update_hash_with_value siphash not supported";
+        LOG(FATAL) << get_name() << "update_hash_with_value siphash not supported";
     }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
@@ -348,7 +348,7 @@ public:
     /// do xxHash here, faster than other hash method
     virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << "update_hashes_with_value siphash not supported";
+        LOG(FATAL) << get_name() << "update_hashes_with_value siphash not supported";
     };
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
@@ -357,16 +357,28 @@ public:
     /// do xxHash here, faster than other sip hash
     virtual void update_hashes_with_value(uint64_t* __restrict hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << "update_hashes_with_value xxhash not supported";
+        LOG(FATAL) << get_name() << "update_hashes_with_value xxhash not supported";
     };
+
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                          const uint8_t* __restrict null_data) const {
+        LOG(FATAL) << get_name() << " update_hash_with_value xxhash not supported";
+    }
 
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
     /// means all element need to do hash function, else only *null_data != 0 need to do hash func
     virtual void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
                                         const uint8_t* __restrict null_data = nullptr) const {
-        LOG(FATAL) << "update_crcs_with_value not supported";
+        LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
     };
+
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                       const uint8_t* __restrict null_data) const {
+        LOG(FATAL) << get_name() << " update_crc_with_value not supported";
+    }
 
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.

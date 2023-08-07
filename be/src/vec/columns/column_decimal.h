@@ -159,6 +159,10 @@ public:
                                   const uint8_t* __restrict null_data) const override;
     void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -263,6 +267,14 @@ protected:
             std::partial_sort(res.begin(), sort_end, res.end(),
                               [this](size_t a, size_t b) { return data[a] < data[b]; });
     }
+
+    void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint64_t& hash) const {
+        const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+        int64_t int_val = dec_val.int_value();
+        int32_t frac_val = dec_val.frac_value();
+        hash = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hash);
+        hash = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hash);
+    };
 };
 
 template <typename>

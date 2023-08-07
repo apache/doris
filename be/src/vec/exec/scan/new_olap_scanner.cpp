@@ -382,6 +382,10 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_vec_cond_timer, stats.vec_cond_ns);
     COUNTER_UPDATE(olap_parent->_short_cond_timer, stats.short_cond_ns);
     COUNTER_UPDATE(olap_parent->_block_init_timer, stats.block_init_ns);
+    COUNTER_UPDATE(olap_parent->_block_init_get_row_range_by_keys_timer,
+                   stats.block_init_get_row_range_by_keys_ns);
+    COUNTER_UPDATE(olap_parent->_block_init_get_row_range_by_conditions_timer,
+                   stats.block_init_get_row_range_by_conditions_ns);
     COUNTER_UPDATE(olap_parent->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(olap_parent->_block_init_seek_counter, stats.block_init_seek_num);
     COUNTER_UPDATE(olap_parent->_block_conditions_filtered_timer,

@@ -470,8 +470,8 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
     ostr << '[' << status.code_as_string() << ']';
     ostr << (status._err_msg ? status._err_msg->_msg : "");
 #ifdef ENABLE_STACKTRACE
-    if (status->_err_msg && !status->_err_msg._stack.empty()) {
-        ostr << '\n' << status->_err_msg._stack;
+    if (status._err_msg && !status._err_msg->_stack.empty()) {
+        ostr << '\n' << status._err_msg->_stack;
     }
 #endif
     return ostr;

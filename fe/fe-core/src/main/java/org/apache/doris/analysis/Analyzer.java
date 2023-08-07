@@ -43,6 +43,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
+import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -1868,7 +1869,7 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                Expr newConjunct = conjunct.getResultValue(true);
+                Expr newConjunct = conjunct.clone().getResultValue(true);
                 newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;
@@ -2425,10 +2426,12 @@ public class Analyzer {
      * Wrapper around getUnassignedConjuncts(List<TupleId> tupleIds).
      */
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
-        // constant conjuncts should be push down to all leaf node.
+        // constant conjuncts should be push down to all leaf node except agg node.
+        // (see getPredicatesBoundedByGroupbysSourceExpr method)
         // so we need remove constant conjuncts when expr is not a leaf node.
-        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
-        if (!node.getChildren().isEmpty()) {
+        List<Expr> unassigned = getUnassignedConjuncts(
+                node instanceof AggregationNode ? node.getTupleIds() : node.getTblRefIds());
+        if (!node.getChildren().isEmpty() && !(node instanceof AggregationNode)) {
             unassigned = unassigned.stream()
                     .filter(e -> !e.isConstant()).collect(Collectors.toList());
         }

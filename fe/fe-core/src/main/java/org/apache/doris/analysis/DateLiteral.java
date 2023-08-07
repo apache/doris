@@ -56,7 +56,6 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
 
@@ -262,6 +261,7 @@ public class DateLiteral extends LiteralExpr {
         } else {
             throw new AnalysisException("Error date literal type : " + type);
         }
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day) {
@@ -272,6 +272,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.type = ScalarType.getDefaultDateType(Type.DATE);
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, Type type) {
@@ -281,6 +282,7 @@ public class DateLiteral extends LiteralExpr {
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATE.getPrimitiveType())
                 || type.getPrimitiveType().equals(Type.DATEV2.getPrimitiveType()));
         this.type = type;
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second) {
@@ -291,6 +293,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, long microsecond,
@@ -304,6 +307,7 @@ public class DateLiteral extends LiteralExpr {
         this.microsecond = microsecond;
         Preconditions.checkArgument(type.isDatetimeV2());
         this.type = type;
+        analysisDone();
     }
 
     public DateLiteral(long year, long month, long day, long hour, long minute, long second, Type type) {
@@ -316,6 +320,7 @@ public class DateLiteral extends LiteralExpr {
         Preconditions.checkArgument(type.getPrimitiveType().equals(Type.DATETIME.getPrimitiveType())
                 || type.getPrimitiveType().equals(Type.DATETIMEV2.getPrimitiveType()));
         this.type = type;
+        analysisDone();
     }
 
     public DateLiteral(LocalDateTime dateTime, Type type) {
@@ -329,6 +334,7 @@ public class DateLiteral extends LiteralExpr {
             this.second = dateTime.getSecond();
             this.microsecond = dateTime.get(ChronoField.MICRO_OF_SECOND);
         }
+        analysisDone();
     }
 
     public DateLiteral(DateLiteral other) {
@@ -1068,7 +1074,10 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public int hashCode() {
-        return 31 * super.hashCode() + Objects.hashCode(unixTimestamp(TimeZone.getDefault()));
+        // do not invoke the super.hashCode(), just use the return value of getLongValue()
+        // a DateV2 DateLiteral obj may be equal to a Date DateLiteral
+        // if the return value of getLongValue() is the same
+        return Long.hashCode(getLongValue());
     }
 
     // parse the date string value in 'value' by 'format' pattern.

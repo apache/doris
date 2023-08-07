@@ -68,14 +68,18 @@ void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
+    // 'epoch' is a special mallctl -- it updates the statistics. Without it, all
+    // the following calls will return stale values. It increments and returns
+    // the current epoch number, which might be useful to log as a sanity check.
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
     je_mallctl("epoch", &epoch, &sz, &epoch, sz);
 
     // https://jemalloc.net/jemalloc.3.html
-    _s_allocator_cache_mem =
-            get_je_metrics(fmt::format("stats.arenas.{}.tcache_bytes", MALLCTL_ARENAS_ALL)) +
-            get_je_metrics("stats.metadata");
+    // https://www.bookstack.cn/read/aliyun-rds-core/4a0cdf677f62feb3.md
+    _s_allocator_cache_mem = get_je_all_arena_metrics("tcache_bytes") +
+                             get_je_metrics("stats.metadata") +
+                             get_je_all_arena_metrics("pdirty") * get_page_size();
     _s_allocator_cache_mem_str =
             PrettyPrinter::print(static_cast<uint64_t>(_s_allocator_cache_mem), TUnit::BYTES);
     _s_virtual_memory_used = get_je_metrics("stats.mapped");
@@ -105,6 +109,7 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
                 StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
         StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     }
+    je_purge_all_arena_dirty_pages();
 }
 
 // step1: free all cache
@@ -118,7 +123,8 @@ bool MemInfo::process_minor_gc() {
     std::string mem_available_str = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes. cost(us): {}", freed_mem,
+        je_purge_all_arena_dirty_pages();
+        LOG(INFO) << fmt::format("End Minor GC, Free Memory {} Bytes. cost(us): {}", freed_mem,
                                  watch.elapsed_time() / 1000);
     }};
 
@@ -152,7 +158,8 @@ bool MemInfo::process_full_gc() {
     std::string mem_available_str = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes. cost(us): {}", freed_mem,
+        je_purge_all_arena_dirty_pages();
+        LOG(INFO) << fmt::format("End Full GC Free, Memory {} Bytes. cost(us): {}", freed_mem,
                                  watch.elapsed_time() / 1000);
     }};
 

@@ -179,8 +179,9 @@ public class HiveMetaStoreCache {
         Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
+            String decodedPartitionName;
             try {
-                partitionName = URLDecoder.decode(partitionName, StandardCharsets.UTF_8.name());
+                decodedPartitionName = URLDecoder.decode(partitionName, StandardCharsets.UTF_8.name());
             } catch (UnsupportedEncodingException e) {
                 // It should not be here
                 throw new RuntimeException(e);
@@ -188,7 +189,7 @@ public class HiveMetaStoreCache {
             long partitionId = idx++;
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types);
             idToPartitionItem.put(partitionId, listPartitionItem);
-            partitionNameToIdMap.put(partitionName, partitionId);
+            partitionNameToIdMap.put(decodedPartitionName, partitionId);
         }
 
         Map<UniqueId, Range<PartitionKey>> uidToPartitionRange = null;
@@ -219,7 +220,14 @@ public class HiveMetaStoreCache {
         for (String part : parts) {
             String[] kv = part.split("=");
             Preconditions.checkState(kv.length == 2, partitionName);
-            values.add(new PartitionValue(kv[1], HIVE_DEFAULT_PARTITION.equals(kv[1])));
+            String decodedValue = null;
+            try {
+                decodedValue = URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
+            } catch (UnsupportedEncodingException e) {
+                // It should not be here
+                throw new RuntimeException(e);
+            }
+            values.add(new PartitionValue(decodedValue, HIVE_DEFAULT_PARTITION.equals(decodedValue)));
         }
         try {
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
@@ -256,6 +264,9 @@ public class HiveMetaStoreCache {
             // Otherwise, getSplits() may throw exception: "Not a file xxx"
             // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
             jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
+            // FileInputFormat.setInputPaths() will call FileSystem.get(), which will create new FileSystem
+            // and save it in FileSystem.Cache. We don't need this cache.
+            jobConf.set("fs.hdfs.impl.disable.cache", "true");
             FileInputFormat.setInputPaths(jobConf, finalLocation);
             try {
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
@@ -308,12 +319,12 @@ public class HiveMetaStoreCache {
     // convert oss:// to s3://
     private String convertToS3IfNecessary(String location) {
         LOG.debug("try convert location to s3 prefix: " + location);
-        if (location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                || location.startsWith(FeConstants.FS_PREFIX_OSS)
-                || location.startsWith(FeConstants.FS_PREFIX_S3A)
-                || location.startsWith(FeConstants.FS_PREFIX_S3N)) {
+        if ((location.startsWith(FeConstants.FS_PREFIX_COS)) && !(location.startsWith(FeConstants.FS_PREFIX_COSN))
+            || location.startsWith(FeConstants.FS_PREFIX_BOS)
+            || location.startsWith(FeConstants.FS_PREFIX_BOS)
+            || location.startsWith(FeConstants.FS_PREFIX_OSS)
+            || location.startsWith(FeConstants.FS_PREFIX_S3A)
+            || location.startsWith(FeConstants.FS_PREFIX_S3N)) {
             int pos = location.indexOf("://");
             if (pos == -1) {
                 throw new RuntimeException("No '://' found in location: " + location);
@@ -698,7 +709,7 @@ public class HiveMetaStoreCache {
                 return dummyKey.equals(((FileCacheKey) obj).dummyKey);
             }
             return location.equals(((FileCacheKey) obj).location)
-                && partitionValues.equals(((FileCacheKey) obj).partitionValues);
+                && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
 
         @Override

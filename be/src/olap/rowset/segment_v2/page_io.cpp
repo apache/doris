@@ -131,10 +131,13 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         return Status::Corruption("Bad page: too small size ({})", page_size);
     }
 
-    if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(page_size)) {
-        return Status::MemoryLimitExceeded(
-                fmt::format("Bad page: sys memory check failed, try alloc: {}", page_size));
-    }
+    // This will cause the query to be canceled very sensitively,
+    // Expect to wait for a period of time after the memory exceeds the limit,
+    // like mem_check in the Allocator in the Apache Doris master branch
+    // if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(page_size)) {
+    //     return Status::MemoryLimitExceeded(
+    //             fmt::format("Bad page: sys memory check failed, try alloc: {}", page_size));
+    // }
 
     // hold compressed page at first, reset to decompressed page later
     std::unique_ptr<char[]> page(new char[page_size]);
@@ -172,10 +175,10 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
         }
         SCOPED_RAW_TIMER(&opts.stats->decompress_ns);
         auto uncompressed_size = footer->uncompressed_size() + footer_size + 4;
-        if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(uncompressed_size)) {
-            return Status::MemoryLimitExceeded(fmt::format(
-                    "Bad page: sys memory check failed, try alloc: {}", uncompressed_size));
-        }
+        // if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(uncompressed_size)) {
+        //     return Status::MemoryLimitExceeded(fmt::format(
+        //             "Bad page: sys memory check failed, try alloc: {}", uncompressed_size));
+        // }
         std::unique_ptr<char[]> decompressed_page(new char[uncompressed_size]);
 
         // decompress page body

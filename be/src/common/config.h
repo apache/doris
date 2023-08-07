@@ -474,7 +474,7 @@ CONF_Int32(min_chunk_reserved_bytes, "1024");
 // of gperftools tcmalloc central lock.
 // Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
 // gperftools tcmalloc.
-CONF_mBool(disable_chunk_allocator_in_vec, "false");
+CONF_mBool(disable_chunk_allocator_in_vec, "true");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -920,6 +920,9 @@ CONF_mBool(enable_stack_trace, "true");
 
 // enable shrink memory, default is false
 CONF_Bool(enable_shrink_memory, "false");
+
+// Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
+CONF_mBool(allow_invalid_decimalv2_literal, "false");
 
 #ifdef BE_TEST
 // test s3

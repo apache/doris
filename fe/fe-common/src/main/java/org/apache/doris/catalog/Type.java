@@ -945,6 +945,23 @@ public abstract class Type {
         }
     }
 
+    public boolean isDecimalV3OrContainsDecimalV3() {
+        if (isDecimalV3()) {
+            return true;
+        } else if (isStructType()) {
+            for (StructField field : ((StructType) this).getFields()) {
+                if (field.getType().isDecimalV3()) {
+                    return true;
+                }
+            }
+        } else if (isMapType()) {
+            return ((MapType) this).getKeyType().isDecimalV3() || ((MapType) this).getValueType().isDecimalV3();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().isDecimalV3();
+        }
+        return false;
+    }
+
     /**
      * JDBC data type description
      * Returns the number of fractional digits for this type, or null if not applicable.

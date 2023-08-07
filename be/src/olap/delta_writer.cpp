@@ -34,6 +34,7 @@
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 
 namespace doris {
@@ -116,7 +117,8 @@ Status DeltaWriter::init() {
     }
 
     // check tablet version number
-    if (_tablet->version_count() > config::max_tablet_version_num) {
+    if (_tablet->version_count() > config::max_tablet_version_num &&
+        !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         //trigger quick compaction
         if (config::enable_quick_compaction) {
             StorageEngine::instance()->submit_quick_compaction_task(_tablet);

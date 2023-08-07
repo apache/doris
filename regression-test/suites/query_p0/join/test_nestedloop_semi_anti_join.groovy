@@ -78,4 +78,17 @@ suite("test_nestedloop_semi_anti_join", "query_p0") {
     """
     sql "DROP TABLE IF EXISTS ${tbl1}"
     sql "DROP TABLE IF EXISTS ${tbl2}"
+
+    sql """
+        CREATE TABLE ${tbl1} (id int)
+        DISTRIBUTED BY HASH(id)
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    sql "insert into ${tbl1} values (1),(2),(3);"
+
+    qt_nlj_left_semi "select a.id\n" +
+            "from ${tbl1} a\n" +
+            "join (select id from ${tbl1} where id = (select 1)) b on a.id = b.id"
+    sql "DROP TABLE IF EXISTS ${tbl1}"
 }

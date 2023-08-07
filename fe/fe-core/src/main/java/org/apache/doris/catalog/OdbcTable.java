@@ -130,6 +130,7 @@ public class OdbcTable extends Table {
             case POSTGRESQL:
             case CLICKHOUSE:
             case TRINO:
+            case PRESTO:
             case SAP_HANA:
                 return formatName(name, "\"", "\"", false, false);
             case ORACLE:

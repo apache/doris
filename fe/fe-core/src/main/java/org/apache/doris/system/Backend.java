@@ -674,7 +674,7 @@ public class Backend implements Writable {
      * handle Backend's heartbeat response.
      * return true if any port changed, or alive state is changed.
      */
-    public boolean handleHbResponse(BackendHbResponse hbResponse) {
+    public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
             if (!this.version.equals(hbResponse.getVersion())) {
@@ -720,7 +720,8 @@ public class Backend implements Writable {
             this.heartbeatFailureCounter = 0;
         } else {
             // Only set backend to dead if the heartbeat failure counter exceed threshold.
-            if (++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {
+            // And if it is a replay process, must set backend to dead.
+            if (isReplay || ++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {
                 if (isAlive.compareAndSet(true, false)) {
                     isChanged = true;
                     LOG.warn("{} is dead,", this.toString());

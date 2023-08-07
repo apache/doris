@@ -62,6 +62,8 @@ public class JdbcClient {
 
     private boolean isLowerCaseTableNames = false;
 
+    private static boolean convertDateToNull = false;
+
     // only used when isLowerCaseTableNames = true.
     private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
@@ -78,6 +80,7 @@ public class JdbcClient {
         } catch (DdlException e) {
             throw new JdbcClientException("Failed to parse db type from jdbcUrl: " + jdbcUrl, e);
         }
+        convertDateToNull = isConvertDatetimeToNull(jdbcUrl);
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             // TODO(ftw): The problem here is that the jar package is handled by FE
@@ -540,6 +543,9 @@ public class JdbcClient {
             case "TIMESTAMP":
             case "DATETIME":
             case "DATETIMEV2": // for jdbc catalog connecting Doris database
+                if (convertDateToNull) {
+                    fieldSchema.setAllowNull(true);
+                }
                 return ScalarType.getDefaultDateType(Type.DATETIME);
             case "FLOAT":
                 return Type.FLOAT;
@@ -946,5 +952,10 @@ public class JdbcClient {
                     true, -1));
         }
         return dorisTableSchema;
+    }
+ 
+    private boolean isConvertDatetimeToNull(String JdbcUrl) {
+        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
+        return JdbcUrl.contains("zeroDateTimeBehavior=convertToNull");
     }
 }

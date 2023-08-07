@@ -80,6 +80,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String CODEGEN_LEVEL = "codegen_level";
+    public static final String HAVE_QUERY_CACHE =  "have_query_cache";
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
@@ -261,11 +262,18 @@ public class SessionVariable implements Serializable, Writable {
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
+    public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+
+    public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
+    public boolean roundPreciseDecimalV2Value = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
@@ -351,7 +359,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean sqlAutoIsNull = false;
 
     @VariableMgr.VarAttr(name = SQL_SELECT_LIMIT)
-    public long sqlSelectLimit = 9223372036854775807L;
+    public long sqlSelectLimit = -1;
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = MAX_ALLOWED_PACKET)
@@ -397,6 +405,9 @@ public class SessionVariable implements Serializable, Writable {
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
+
+    @VariableMgr.VarAttr(name = HAVE_QUERY_CACHE, flag = VariableMgr.READ_ONLY)
+    public boolean haveQueryCache = false;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE)
@@ -685,6 +696,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
 
+    @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY)
+    public boolean enableStrongConsistencyRead = false;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -877,6 +891,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getCodegenLevel() {
         return codegenLevel;
+    }
+
+    public boolean getHaveQueryCache() {
+        return haveQueryCache;
     }
 
     /**

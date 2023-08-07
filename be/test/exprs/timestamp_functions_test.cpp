@@ -40,6 +40,7 @@ public:
     TimestampFunctionsTest() {}
 
     void SetUp() override {
+        TimezoneUtils::load_timezone_names();
         utils = new FunctionUtils();
         ctx = utils->get_fn_ctx();
     }
