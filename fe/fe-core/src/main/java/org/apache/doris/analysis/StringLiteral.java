@@ -199,9 +199,9 @@ public class StringLiteral extends LiteralExpr {
         return newLiteral;
     }
 
-    public boolean canConvertToDateV2(Type targetType) {
+    public boolean canConvertToDateType(Type targetType) {
         try {
-            Preconditions.checkArgument(targetType.isDateV2());
+            Preconditions.checkArgument(targetType.isDateType());
             new DateLiteral(value, targetType);
             return true;
         } catch (AnalysisException e) {

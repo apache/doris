@@ -135,3 +135,10 @@ abc	5
 a	a
 ccc	ccc
 
+-- !delete_date1 --
+1	abc	2021-01-01	100
+2	abc	2021-08-01	100
+
+-- !delete_date2 --
+2	abc	2021-08-01	100
+

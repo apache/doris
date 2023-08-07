@@ -240,7 +240,7 @@ suite("test_delete") {
     sql 'delete from test1 where length(x)=2'
     
     qt_delete_fn 'select * from test1 order by x'
-    
+
     sql 'truncate table test1'
 
     sql 'insert into test1 values("a", "a"), ("bb", "bb"), ("ccc", "ccc")'
@@ -250,4 +250,37 @@ suite("test_delete") {
         sql 'select * from test1 order by x'
         result([['a', 'a']])
     }
+
+    // test delete where date type
+    sql 'ADMIN SET FRONTEND CONFIG ("enable_date_conversion" = "false");'
+
+    sql 'ADMIN SET FRONTEND CONFIG ("disable_datev1" = "false");'
+
+    sql """ DROP TABLE IF EXISTS cost """
+    sql """
+    CREATE TABLE `cost` (
+    `id` bigint(20) NULL,
+    `name` varchar(20) NULL,
+    `date` date NULL,
+    `cost` bigint(20) SUM NULL
+    ) ENGINE=OLAP
+    AGGREGATE KEY(`id`, `name`, `date`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`, `name`) BUCKETS 8
+    PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql "insert into cost values (1, 'abc', '2021-01-01', 100), (2, 'abc', '2021-08-01', 100);"
+
+    qt_delete_date1 "select * from cost order by id"
+
+    sql "delete from cost where date = '2021-01-01';"
+
+    qt_delete_date2 "select * from cost order by id"
+
+    sql 'ADMIN SET FRONTEND CONFIG ("enable_date_conversion" = "true");'
+
+    sql 'ADMIN SET FRONTEND CONFIG ("disable_datev1" = "true");'
 }
