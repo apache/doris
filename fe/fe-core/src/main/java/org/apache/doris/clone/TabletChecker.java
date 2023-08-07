@@ -214,7 +214,7 @@ public class TabletChecker extends MasterDaemon {
         LOG.debug(stat.incrementalBrief());
     }
 
-    private static class CheckerCounter {
+    public static class CheckerCounter {
         public long totalTabletNum = 0;
         public long unhealthyTabletNum = 0;
         public long addToSchedulerTabletNum = 0;

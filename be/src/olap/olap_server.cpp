@@ -72,12 +72,12 @@
 #include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
-#include "util/priority_thread_pool.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 
 using std::string;
 
@@ -132,8 +132,8 @@ Status StorageEngine::start_bg_threads() {
 
     if (config::enable_segcompaction) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
-                .set_min_threads(config::segcompaction_max_threads)
-                .set_max_threads(config::segcompaction_max_threads)
+                .set_min_threads(config::segcompaction_num_threads)
+                .set_max_threads(config::segcompaction_num_threads)
                 .build(&_seg_compaction_thread_pool);
     }
     ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")

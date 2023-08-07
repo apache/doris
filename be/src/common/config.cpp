@@ -312,6 +312,8 @@ DEFINE_Int32(index_page_cache_percentage, "10");
 DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_Bool(disable_storage_row_cache, "true");
+// whether to disable pk page cache feature in storage
+DEFINE_Bool(disable_pk_storage_page_cache, "false");
 
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
@@ -514,6 +516,7 @@ DEFINE_Bool(enable_quadratic_probing, "false");
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
+DEFINE_mBool(enable_je_purge_dirty_pages, "true");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -908,14 +911,23 @@ DEFINE_Bool(hide_webserver_config_page, "false");
 
 DEFINE_Bool(enable_segcompaction, "true");
 
-// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
-DEFINE_Int32(segcompaction_threshold_segment_num, "10");
+// Max number of segments allowed in a single segcompaction task.
+DEFINE_Int32(segcompaction_batch_size, "10");
 
-// The segment whose row number above the threshold will be compacted during segcompaction
-DEFINE_Int32(segcompaction_small_threshold, "1048576");
+// Max row count allowed in a single source segment, bigger segments will be skipped.
+DEFINE_Int32(segcompaction_candidate_max_rows, "1048576");
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DEFINE_mInt32(segcompaction_max_threads, "10");
+// Max file size allowed in a single source segment, bigger segments will be skipped.
+DEFINE_Int64(segcompaction_candidate_max_bytes, "104857600");
+
+// Max total row count allowed in a single segcompaction task.
+DEFINE_Int32(segcompaction_task_max_rows, "1572864");
+
+// Max total file size allowed in a single segcompaction task.
+DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
+
+// Global segcompaction thread pool size.
+DEFINE_mInt32(segcompaction_num_threads, "5");
 
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
@@ -1017,6 +1029,7 @@ DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
+DEFINE_mString(dwarf_location_info_mode, "FAST");
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
@@ -1034,6 +1047,10 @@ DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 // enable window_funnel_function with different modes
 DEFINE_mBool(enable_window_funnel_function_v2, "false");
+
+DEFINE_Bool(enable_hdfs_hedged_read, "false");
+DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
+DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
 
 #ifdef BE_TEST
 // test s3
@@ -1401,7 +1418,7 @@ Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
+    static const std::string conffile = config::custom_config_dir + "/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {

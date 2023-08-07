@@ -293,7 +293,12 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 }
 
 void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    Status status = _do_compact_segments(segments);
+    Status status = Status::OK();
+    if (_cancelled) {
+        LOG(INFO) << "segcompaction worker is cancelled, skipping segcompaction task";
+    } else {
+        status = _do_compact_segments(segments);
+    }
     if (!status.ok()) {
         int16_t errcode = status.code();
         switch (errcode) {

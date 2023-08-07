@@ -395,7 +395,7 @@ public class StatisticsRepository {
         if (resultRows.size() == 1) {
             return TableStatistic.fromResultRow(resultRows.get(0));
         }
-        throw new DdlException("Query result is not as expected: " + sql);
+        return TableStatistic.UNKNOWN;
     }
 
     public static TableStatistic fetchTableLevelOfPartStats(long partId) throws DdlException {

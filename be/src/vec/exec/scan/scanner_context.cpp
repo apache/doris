@@ -62,6 +62,9 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
     if (_scanners.empty()) {
         _is_finished = true;
     }
+    if (limit < 0) {
+        limit = -1;
+    }
 }
 
 // After init function call, should not access _parent

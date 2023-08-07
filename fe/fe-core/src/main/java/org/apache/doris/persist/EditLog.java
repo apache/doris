@@ -364,11 +364,12 @@ public class EditLog {
                     exportMgr.replayCreateExportJob(job);
                     break;
                 }
-                case OperationType.OP_EXPORT_UPDATE_STATE:
+                case OperationType.OP_EXPORT_UPDATE_STATE: {
                     ExportJob.StateTransfer op = (ExportJob.StateTransfer) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
                     exportMgr.replayUpdateJobState(op);
                     break;
+                }
                 case OperationType.OP_FINISH_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();
                     DeleteHandler deleteHandler = env.getDeleteHandler();
@@ -1077,8 +1078,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BARRIER: {
-                    // the log only for barrier commit seq, not need to replay
-                    LOG.info("replay barrier");
+                    BarrierLog log = (BarrierLog) journal.getData();
+                    env.getBinlogManager().addBarrierLog(log, logId);
                     break;
                 }
                 case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
@@ -1893,8 +1894,11 @@ public class EditLog {
         return logEdit(OperationType.OP_GC_BINLOG, log);
     }
 
-    public long logBarrier() {
-        return logEdit(OperationType.OP_BARRIER, new BarrierLog());
+    public long logBarrier(BarrierLog log) {
+        long logId = logEdit(OperationType.OP_BARRIER, log);
+        Env.getCurrentEnv().getBinlogManager().addBarrierLog(log, logId);
+        LOG.info("logId {}, barrier {}", logId, log);
+        return logId;
     }
 
     public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {

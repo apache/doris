@@ -162,8 +162,8 @@
                 "advanced/variables",
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
-                "advanced/cold_hot_separation",
-                "advanced/compute_node",
+                "advanced/cold-hot-separation",
+                "advanced/compute-node",
                 "advanced/lateral-view"
             ]
         },
@@ -202,16 +202,16 @@
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/dlf",
-                        "lakehouse/multi-catalog/max_compute",
+                        "lakehouse/multi-catalog/max-compute",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc"
                     ]
                 },
                 "lakehouse/file",
                 "lakehouse/filecache",
-                "lakehouse/external_statistics",
+                "lakehouse/external-statistics",
                 "lakehouse/faq",
-                "lakehouse/fs_benchmark_tool"
+                "lakehouse/fs-benchmark-tool"
             ]
         },
         {
@@ -539,7 +539,8 @@
                                 "sql-manual/sql-functions/aggregate-functions/sequence_match",
                                 "sql-manual/sql-functions/aggregate-functions/sequence_count",
                                 "sql-manual/sql-functions/aggregate-functions/grouping",
-                                "sql-manual/sql-functions/aggregate-functions/grouping_id"
+                                "sql-manual/sql-functions/aggregate-functions/grouping_id",
+                                "sql-manual/sql-functions/aggregate-functions/count_by_enum"
                             ]
                         },
                         {
@@ -1109,7 +1110,6 @@
                         "admin-manual/maint-monitor/tablet-meta-tool",
                         "admin-manual/maint-monitor/monitor-alert",
                         "admin-manual/maint-monitor/tablet-local-debug",
-                        "admin-manual/maint-monitor/tablet-restore-tool",
                         "admin-manual/maint-monitor/metadata-operation",
                         "admin-manual/maint-monitor/automatic-service-start"
                     ]

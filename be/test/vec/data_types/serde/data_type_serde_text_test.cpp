@@ -70,15 +70,16 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
                                   {"doris be better"}),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING, {"doris be better"},
                                   {"doris be better"}),
-                // decimal ==> decimalv2(decimal<128>(27,9))           (17, 9)(first 0 will ignore)
+                // decimal ==> decimalv2(decimal<128>(27,9))
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL,
                                   {
+                                          // (17, 9)(first 0 will ignore)
                                           "012345678901234567.012345678",
                                           // (18, 8) (automatically fill 0 for scala)
                                           "123456789012345678.01234567",
                                           // (17, 10) (rounding last to make it fit)
                                           "12345678901234567.0123456779",
-                                          // (17, 11) (wrong)
+                                          // (17, 11) (rounding last to make it fit)
                                           "12345678901234567.01234567791",
                                           // (19, 8) (wrong)
                                           "1234567890123456789.01234567",
@@ -88,12 +89,13 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
                 // decimal32 ==>  decimal32(9,2)                       (7,2)         (6,3)         (7,3)           (8,1)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
                                   {"1234567.12", "123456.123", "1234567.123", "12345679.1"},
-                                  {"1234567.12", "123456.12", "", ""}),
+                                  {"1234567.12", "123456.12", "1234567.12", ""}),
                 // decimal64 ==> decimal64(18,9)                        (9, 9)                   (3,2)    (9, 10)                  (10, 9)
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL64,
-                                  {"123456789.123456789", "123.12", "123456789.0123456789",
-                                   "1234567890.123456789"},
-                                  {"123456789.123456789", "123.120000000", "", ""}),
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+                        {"123456789.123456789", "123.12", "123456789.0123456789",
+                         "1234567890.123456789"},
+                        {"123456789.123456789", "123.120000000", "123456789.012345679", ""}),
                 // decimal128I ==> decimal128I(38,18)                     (19,18)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
                                   {"01234567890123456789.123456789123456789",
@@ -111,7 +113,8 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
                                    "12345678901234567890.123456789110000000",
                                    "1234567890123456789.123456789123456789",
                                    "1234567890123456789.123456789012345679",
-                                   "123456789012345678.012345678901234568", ""}),
+                                   "123456789012345678.012345678901234568",
+                                   "12345678901234567890.123456789012345679"}),
 
         };
 
@@ -144,8 +147,8 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             VectorBufferWriter buffer_writer(*ser_col.get());
 
             for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
-                std::cout << "the ith : " << i << std::endl;
                 string test_str = std::get<1>(type_pair)[i];
+                std::cout << "the str : " << test_str << std::endl;
                 ReadBuffer rb_test(test_str.data(), test_str.size());
                 // deserialize
                 Status st =

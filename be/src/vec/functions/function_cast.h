@@ -887,9 +887,24 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         return try_read_int_text(x, rb);
     }
 
-    if constexpr (IsDataTypeDecimal<DataType>) {
+    if constexpr (IsDataTypeDecimalV2<DataType>) {
         UInt32 scale = additions;
-        return try_read_decimal_text(x, rb, DataType::max_precision(), scale);
+        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, DataType::max_precision(), scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeDecimal<Decimal32>, DataType>) {
+        UInt32 scale = additions;
+        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, DataType::max_precision(), scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeDecimal<Decimal64>, DataType>) {
+        UInt32 scale = additions;
+        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, DataType::max_precision(), scale);
+    }
+
+    if constexpr (IsDataTypeDecimal128I<DataType>) {
+        UInt32 scale = additions;
+        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, DataType::max_precision(), scale);
     }
 }
 

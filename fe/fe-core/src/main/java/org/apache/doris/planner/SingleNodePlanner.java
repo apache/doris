@@ -2687,7 +2687,12 @@ public class SingleNodePlanner {
         if (aggregateInfo == null || aggregateInfo.getGroupingExprs().isEmpty()) {
             return;
         }
-        final List<Expr> predicates = getBoundPredicates(analyzer, aggregateInfo.getOutputTupleDesc());
+        // The output of the 1st phase agg is the 1st phase intermediate.
+        // see createSecondPhaseAggInfo method
+        final List<Expr> predicates = getBoundPredicates(analyzer,
+                aggregateInfo.getSecondPhaseDistinctAggInfo() != null
+                        ? aggregateInfo.getIntermediateTupleDesc()
+                        : aggregateInfo.getOutputTupleDesc());
         if (predicates.isEmpty()) {
             return;
         }
@@ -2713,7 +2718,11 @@ public class SingleNodePlanner {
         }
         final AggregateInfo secondPhaseAggInfo = firstPhaseAggInfo.getSecondPhaseDistinctAggInfo();
 
-        final List<TupleId> firstPhaseTupleIds = Lists.newArrayList(firstPhaseAggInfo.getOutputTupleId());
+        // The output of the 1st phase agg is the 1st phase intermediate.
+        // see createSecondPhaseAggInfo method
+        final List<TupleId> firstPhaseTupleIds = Lists.newArrayList(
+                secondPhaseAggInfo != null ? firstPhaseAggInfo.getIntermediateTupleId()
+                        : firstPhaseAggInfo.getOutputTupleId());
         pushDownPredicatesPastAggregationOnePhase(secondPhaseAggInfo, analyzer, stmt, firstPhaseTupleIds);
         pushDownPredicatesPastAggregationOnePhase(firstPhaseAggInfo, analyzer, stmt, stmt.getTableRefIds());
     }

@@ -56,9 +56,10 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_text(IColumn& column, 
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     T val = 0;
-    if (!read_decimal_text_impl<T>(val, rb, precision, scale)) {
-        return Status::InvalidArgument("parse decimal fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (!read_decimal_text_impl<get_primitive_type(), T>(val, rb, precision, scale)) {
+        return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                       std::string(rb.position(), rb.count()).c_str(),
+                                       get_primitive_type());
     }
     column_data.emplace_back(val);
     return Status::OK();

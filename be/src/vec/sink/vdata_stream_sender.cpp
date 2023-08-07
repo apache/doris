@@ -401,6 +401,7 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_
           _split_block_hash_compute_timer(nullptr),
           _split_block_distribute_by_channel_timer(nullptr),
           _blocks_sent_counter(nullptr),
+          _peak_memory_usage_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _dest_node_id(0) {
     _cur_pb_block = &_pb_block1;
@@ -438,9 +439,8 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
                                     _dest_node_id, instances);
     _profile = _pool->add(new RuntimeProfile(title));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = std::make_unique<MemTracker>(
-            "VDataStreamSender:" + print_id(state->fragment_instance_id()), _profile, nullptr,
-            "PeakMemoryUsage");
+    _mem_tracker = std::make_unique<MemTracker>("VDataStreamSender:" +
+                                                print_id(state->fragment_instance_id()));
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
@@ -475,6 +475,9 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
                                profile()->total_time_counter()),
             "");
     _local_bytes_send_counter = ADD_COUNTER(profile(), "LocalBytesSent", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
+    _peak_memory_usage_counter =
+            profile()->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
     return Status::OK();
 }
 
@@ -504,6 +507,7 @@ void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType 
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     SCOPED_TIMER(_profile->total_time_counter());
+    _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     bool all_receiver_eof = true;
     for (auto channel : _channels) {
         if (!channel->is_receiver_eof()) {
@@ -686,15 +690,15 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         {
             // send last block
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-            if (_serializer->get_block() && _serializer->get_block()->rows() > 0) {
-                auto block = _serializer->get_block()->to_block();
+            if (_serializer && _serializer->get_block() && _serializer->get_block()->rows() > 0) {
+                Block block = _serializer->get_block()->to_block();
                 RETURN_IF_ERROR(
                         _serializer->serialize_block(&block, _cur_pb_block, _channels.size()));
                 Status status;
                 for (auto channel : _channels) {
                     if (!channel->is_receiver_eof()) {
                         if (channel->is_local()) {
-                            status = channel->send_local_block(block);
+                            status = channel->send_local_block(&block);
                         } else {
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                             status = channel->send_block(_cur_pb_block, false);
@@ -719,6 +723,9 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         }
     }
 
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    }
     DataSink::close(state, exec_status);
     return final_st;
 }

@@ -346,13 +346,13 @@ bool read_datetime_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& lo
     return ans;
 }
 
-template <typename T>
+template <PrimitiveType P, typename T>
 bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
     if constexpr (!std::is_same_v<Decimal128, T>) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<typename T::NativeType>(
+        x.value = StringParser::string_to_decimal<P, typename T::NativeType>(
                 (const char*)buf.position(), buf.count(), precision, scale, &result);
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
@@ -360,9 +360,9 @@ bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scal
     } else {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
-        x.value = StringParser::string_to_decimal<__int128>(buf.position(), buf.count(),
-                                                            DecimalV2Value::PRECISION,
-                                                            DecimalV2Value::SCALE, &result);
+        x.value = StringParser::string_to_decimal<TYPE_DECIMALV2, __int128>(
+                buf.position(), buf.count(), DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
+                &result);
 
         // only to match the is_all_read() check to prevent return null
         buf.position() = buf.end();
@@ -416,9 +416,9 @@ bool try_read_float_text(T& x, ReadBuffer& in) {
     return read_float_text_fast_impl<T>(x, in);
 }
 
-template <typename T>
+template <PrimitiveType P, typename T>
 bool try_read_decimal_text(T& x, ReadBuffer& in, UInt32 precision, UInt32 scale) {
-    return read_decimal_text_impl<T>(x, in, precision, scale);
+    return read_decimal_text_impl<P, T>(x, in, precision, scale);
 }
 
 template <typename T>

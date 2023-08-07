@@ -154,6 +154,12 @@ private:
     RuntimeProfile::Counter* _decompress_bytes;
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _peak_memory_usage_counter;
+
+    // Number of rows received
+    RuntimeProfile::Counter* _rows_produced_counter;
+    // Number of blocks received
+    RuntimeProfile::Counter* _blocks_produced_counter;
 
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
