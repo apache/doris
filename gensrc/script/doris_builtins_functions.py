@@ -2227,9 +2227,6 @@ visible_functions = [
     [['esquery'], 'BOOLEAN', ['STRING', 'VARCHAR'],
      '_ZN5doris11ESFunctions5matchEPN'
      '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
-    [['esquery'], 'BOOLEAN', ['VARIANT', 'VARCHAR'],
-     '_ZN5doris11ESFunctions5matchEPN'
-     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
 
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'],
