@@ -35,13 +35,16 @@ import com.google.common.collect.Sets;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.PrimitiveSink;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class FederationBackendPolicy {
     private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
@@ -100,6 +103,19 @@ public class FederationBackendPolicy {
 
     public Backend getNextConsistentBe(TScanRangeLocations scanRangeLocations) {
         return consistentHash.getNode(scanRangeLocations);
+    }
+
+    // Try to find a local BE, if not exists, use `getNextBe` instead
+    public Backend getNextLocalBe(List<String> hosts) {
+        List<Backend> candidateBackends = backends.stream()
+                    .filter(backend -> hosts.contains(backend.getHost()))
+                    .collect(Collectors.toList());
+        if (CollectionUtils.isEmpty(candidateBackends)) {
+            return getNextBe();
+        }
+        LOG.debug("Find {} BEs which belong(s) to the same node with the file split.", candidateBackends.size());
+        Random random = new Random(System.currentTimeMillis());
+        return candidateBackends.get(random.nextInt(candidateBackends.size()));
     }
 
     public int numBackends() {

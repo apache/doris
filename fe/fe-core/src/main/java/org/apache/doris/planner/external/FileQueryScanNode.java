@@ -74,6 +74,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -326,7 +327,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             TScanRangeLocation location = new TScanRangeLocation();
             // Use consistent hash to assign the same scan range into the same backend among different queries
             Backend selectedBackend = ConnectContext.get().getSessionVariable().enableFileCache
-                    ? backendPolicy.getNextConsistentBe(curLocations) : backendPolicy.getNextBe();
+                    ? backendPolicy.getNextConsistentBe(curLocations)
+                    : backendPolicy.getNextLocalBe(Arrays.asList(fileSplit.getHosts()));
             location.setBackendId(selectedBackend.getId());
             location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
             curLocations.addToLocations(location);
