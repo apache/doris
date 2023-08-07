@@ -106,6 +106,12 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
         CHECK(scan_range.__isset.params);
         _params = &(scan_range.params);
     }
+
+    // For load scanner, there are input and output tuple.
+    // For query scanner, there is only output tuple
+    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id);
+    _real_tuple_desc = _input_tuple_desc == nullptr ? _output_tuple_desc : _input_tuple_desc;
+    _is_load = (_input_tuple_desc != nullptr);
 }
 
 Status VFileScanner::prepare(
