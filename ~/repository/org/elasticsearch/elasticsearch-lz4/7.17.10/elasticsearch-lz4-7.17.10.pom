@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- This module was also published with a richer model, Gradle metadata,  -->
+  <!-- which should be used instead. Do not delete the following line which  -->
+  <!-- is to indicate to Gradle or any Gradle module metadata file consumer  -->
+  <!-- that they should prefer consuming it instead. -->
+  <!-- do_not_remove: published-with-gradle-metadata -->
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.elasticsearch</groupId>
+  <artifactId>elasticsearch-lz4</artifactId>
+  <version>7.17.10</version>
+  <dependencies>
+    <dependency>
+      <groupId>org.lz4</groupId>
+      <artifactId>lz4-java</artifactId>
+      <version>1.8.0</version>
+      <scope>compile</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>*</artifactId>
+          <groupId>*</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.elasticsearch</groupId>
+      <artifactId>elasticsearch-core</artifactId>
+      <version>7.17.10</version>
+      <scope>compile</scope>
+    </dependency>
+  </dependencies>
+  <name>elasticsearch-lz4</name>
+  <description>Elasticsearch subproject :libs:elasticsearch-lz4</description>
+  <url>https://github.com/elastic/elasticsearch.git</url>
+  <scm>
+    <url>https://github.com/elastic/elasticsearch.git</url>
+  </scm>
+  <inceptionYear>2009</inceptionYear>
+  <licenses>
+    <license>
+      <name>Elastic License 2.0</name>
+      <url>https://raw.githubusercontent.com/elastic/elasticsearch/v7.17.10/licenses/ELASTIC-LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+    <license>
+      <name>Server Side Public License, v 1</name>
+      <url>https://www.mongodb.com/licensing/server-side-public-license</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>Elastic</name>
+      <url>https://www.elastic.co</url>
+    </developer>
+  </developers>
+</project>

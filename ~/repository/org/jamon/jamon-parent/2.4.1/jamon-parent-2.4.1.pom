@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.jamon</groupId>
+    <artifactId>jamon-parent</artifactId>
+    <name>Jamon Parent</name>
+    <version>2.4.1</version>
+    <parent>
+      <groupId>org.sonatype.oss</groupId>
+      <artifactId>oss-parent</artifactId>
+      <version>7</version>
+      <relativePath />
+    </parent>
+    <packaging>pom</packaging>
+    <description>Jamon base pom</description>
+    <url>http://www.jamon.org/</url>
+    <issueManagement>
+        <url>https://sourceforge.net/p/jamon/bugs/</url>
+        <system>SourceForge</system>
+    </issueManagement>
+    <inceptionYear>2003</inceptionYear>
+    <prerequisites>
+        <maven>2.0.6</maven>
+    </prerequisites>
+    <licenses>
+        <license>
+            <url>http://www.mozilla.org/MPL/2.0</url>
+            <name>Mozilla Public License Version 2.0</name>
+        </license>
+    </licenses>
+    <mailingLists>
+        <mailingList>
+            <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=jamon-announce</archive>
+            <name>jamon-announce</name>
+            <post>jamon-announce@lists.sourceforge.net</post>
+            <subscribe>http://lists.sourceforge.net/mailman/listinfo/jamon-announce</subscribe>
+            <unsubscribe>http://lists.sourceforge.net/mailman/listinfo/jamon-announce</unsubscribe>
+        </mailingList>
+        <mailingList>
+            <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=jamon-users</archive>
+            <name>jamon-users</name>
+            <post>jamon-users@lists.sourceforge.net</post>
+            <subscribe>http://lists.sourceforge.net/mailman/listinfo/jamon-users</subscribe>
+            <unsubscribe>http://lists.sourceforge.net/mailman/listinfo/jamon-users</unsubscribe>
+        </mailingList>
+        <mailingList>
+            <archive>http://sourceforge.net/mailarchive/forum.php?forum_name=jamon-hackers</archive>
+            <name>jamon-hackers</name>
+            <post>jamon-hackers@lists.sourceforge.net</post>
+            <subscribe>http://lists.sourceforge.net/mailman/listinfo/jamon-hackers</subscribe>
+            <unsubscribe>http://lists.sourceforge.net/mailman/listinfo/jamon-hackers</unsubscribe>
+        </mailingList>
+    </mailingLists>
+    <organization>
+        <name>Jamon developers</name>
+        <url>http://www.jamon.org/</url>
+    </organization>
+    <scm>
+        <url>https://sourceforge.net/p/jamon/code/HEAD/tree/releases/jamon-parent/jamon-parent-2.4.1</url>
+        <connection>scm:svn:https://svn.code.sf.net/p/jamon/code/releases/jamon-parent/jamon-parent-2.4.1</connection>
+        <developerConnection>scm:svn:https://svn.code.sf.net/p/jamon/code/releases/jamon-parent/jamon-parent-2.4.1</developerConnection>
+    </scm>
+    <developers>
+        <developer>
+            <name>Jay Sachs</name>
+            <id>jaysachs</id>
+            <email>jay@jamon.org</email>
+        </developer>
+        <developer>
+            <name>Ian Robertson</name>
+            <id>iroberts</id>
+            <email>ian@red-bean.com</email>
+        </developer>
+    </developers>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>jamon</id>
+            <layout>default</layout>
+            <name>Jamon</name>
+            <releases />
+            <snapshots />
+            <url>http://maven.jamon.org/</url>
+        </pluginRepository>
+    </pluginRepositories>
+
+    <build>
+       <extensions>
+           <extension>
+               <groupId>org.apache.maven.wagon</groupId>
+               <artifactId>wagon-ssh-external</artifactId>
+               <version>2.5</version>
+           </extension>
+       </extensions>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-release-plugin</artifactId>
+              <version>2.4.2</version>
+              <configuration>
+                <tagBase>https://svn.code.sf.net/p/jamon/code/releases/${project.artifactId}</tagBase>
+                <!-- don't have maven replace our DRY svn urls with
+                     hard-coded ones.  Requires running svn revert
+                     pom.xml after a release, but otherwise is good. -->
+                <remoteTagging>false</remoteTagging>
+                <suppressCommitBeforeTag>true</suppressCommitBeforeTag>
+                <updateWorkingCopyVersions>false</updateWorkingCopyVersions>
+                <developmentVersion>trunk-SNAPSHOT</developmentVersion>
+              </configuration>
+            </plugin>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-deploy-plugin</artifactId>
+              <version>2.8.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-site-plugin</artifactId>
+                <version>3.3</version>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+    </build>
+
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-project-info-reports-plugin</artifactId>
+                <version>2.4</version>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>dependencies</report>
+                            <report>index</report>
+                            <report>project-team</report>
+                            <report>mailing-list</report>
+                            <report>issue-tracking</report>
+                            <report>license</report>
+                            <report>scm</report>
+                            <report>summary</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <version>2.2</version>
+                <artifactId>maven-changelog-plugin</artifactId>
+                <configuration>
+                  <type>range</type>
+                  <range>365</range>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-changes-plugin</artifactId>
+                <version>2.4</version>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>changes-report</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+                <configuration>
+                  <issueLinkTemplate>http://sourceforge.net/support/tracker.php?aid=%ISSUE%</issueLinkTemplate>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>versions-maven-plugin</artifactId>
+                <version>1.2</version>
+                <reportSets>
+                    <reportSet>
+                        <reports>
+                            <report>dependency-updates-report</report>
+                            <report>plugin-updates-report</report>
+                            <report>property-updates-report</report>
+                        </reports>
+                    </reportSet>
+                </reportSets>
+            </plugin>
+        </plugins>
+    </reporting>
+</project>

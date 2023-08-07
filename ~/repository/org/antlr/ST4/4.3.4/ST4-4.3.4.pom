@@ -1,0 +1,135 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.sonatype.oss</groupId>
+		<artifactId>oss-parent</artifactId>
+		<version>9</version>
+	</parent>
+
+	<groupId>org.antlr</groupId>
+	<artifactId>ST4</artifactId>
+	<packaging>jar</packaging>
+
+	<version>4.3.4</version>
+
+	<name>StringTemplate 4</name>
+	<description>StringTemplate is a java template engine for generating source code,
+		web pages, emails, or any other formatted text output.
+
+		StringTemplate is particularly good at multi-targeted code generators,
+		multiple site skins, and internationalization/localization.
+
+		It evolved over years of effort developing jGuru.com.
+
+		StringTemplate also powers the ANTLR 3 and 4 code generator. Its distinguishing characteristic
+		is that unlike other engines, it strictly enforces model-view separation.
+
+		Strict separation makes websites and code generators more flexible
+		and maintainable; it also provides an excellent defense against malicious
+		template authors.
+	</description>
+    
+    <licenses>
+	    <license>
+		    <name>The BSD License</name>
+		    <url>http://www.antlr.org/license.html</url>
+		    <distribution>repo</distribution>
+	    </license>
+    </licenses>
+
+	<dependencies>
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+            <version>4.13.2</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.antlr</groupId>
+			<artifactId>antlr-runtime</artifactId>
+			<version>3.5.3</version>
+			<scope>compile</scope>
+		</dependency>
+    </dependencies>
+
+	<properties>
+	    <maven.compiler.source>1.8</maven.compiler.source>
+	    <maven.compiler.target>1.8</maven.compiler.target>
+	    <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+	</properties>
+
+	<build>
+		<sourceDirectory>src</sourceDirectory>
+		<testSourceDirectory>test</testSourceDirectory>
+        <testResources>
+            <testResource>
+                <directory>test/resources</directory>
+            </testResource>
+        </testResources>
+		<plugins>
+            <plugin>
+               <groupId>org.apache.maven.plugins</groupId>
+               <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.3.1</version>
+                <configuration>
+                    <javadocVersion>1.8</javadocVersion>
+                    <failOnError>false</failOnError>
+                    <additionalOptions>-Xdoclint:none</additionalOptions>
+                    <additionalJOption>-Xdoclint:none</additionalJOption>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>deploy</phase>
+                        <goals>
+                            <goal>javadoc</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.2.0</version>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+                <version>2.22.0</version>
+				<configuration>
+					<argLine>-Dfile.encoding=UTF-8</argLine>
+					<additionalClasspathElements>
+						<!-- Include prepared jar so we can try to load templates from it;
+							see TestGroupsFromCLASSPATH.java -->
+						<additionalClasspathElement>test/test.jar</additionalClasspathElement>
+					</additionalClasspathElements>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.antlr</groupId>
+				<artifactId>antlr3-maven-plugin</artifactId>
+				<version>3.5.2</version>
+				<configuration>
+					<sourceDirectory>src</sourceDirectory>
+					<libDirectory>src/org/stringtemplate/v4/compiler</libDirectory>
+					<verbose>true</verbose>
+				</configuration>
+				<executions>
+					<execution>
+						<goals>
+							<goal>antlr</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+        </plugins>
+	</build>
+
+	<scm>
+		<url>https://github.com/antlr/stringtemplate4/tree/master</url>
+		<connection>scm:git:git://github.com/antlr/stringtemplate4.git</connection>
+		<developerConnection>scm:git:git@github.com:antlr/stringtemplate4.git</developerConnection>
+		<tag>HEAD</tag>
+	</scm>
+</project>

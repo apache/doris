@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+ ~ Copyright (c) 2010-2011 Sonatype, Inc.
+ ~ All rights reserved. This program and the accompanying materials
+ ~ are made available under the terms of the Eclipse Public License v1.0
+ ~ and Apache License v2.0 which accompanies this distribution.
+ ~ The Eclipse Public License is available at
+ ~   http://www.eclipse.org/legal/epl-v10.html
+ ~ The Apache License v2.0 is available at
+ ~   http://www.apache.org/licenses/LICENSE-2.0.html
+ ~ You may elect to redistribute this code under either of these licenses.
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.sonatype.sisu</groupId>
+    <artifactId>sisu-parent</artifactId>
+    <version>2.3.0</version>
+  </parent>
+
+  <packaging>pom</packaging>
+
+  <artifactId>sisu-inject</artifactId>
+
+  <name>Sisu-Inject</name>
+
+  <modules>
+    <module>containers</module>
+    <module>registries</module>
+  </modules>
+
+  <properties>
+    <sisu.guice.version>3.1.0</sisu.guice.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+
+      <dependency>
+        <groupId>org.sonatype.sisu</groupId>
+        <artifactId>sisu-guice</artifactId>
+        <version>${sisu.guice.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.sonatype.sisu</groupId>
+        <artifactId>sisu-guice</artifactId>
+        <version>${sisu.guice.version}</version>
+        <classifier>no_aop</classifier>
+      </dependency>
+
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <configuration>
+            <doclet>com.google.doclava.Doclava</doclet>
+            <docletPath>
+              ${project.basedir}/../../lib/doclava.jar:
+              ${project.basedir}/../../../lib/doclava.jar
+            </docletPath>
+            <!--
+             | bootclasspath required by Sun's JVM
+            -->
+            <bootclasspath>${sun.boot.class.path}</bootclasspath>
+            <excludePackageNames>*.internal</excludePackageNames>
+            <additionalparam>
+              -quiet
+              -federate JDK http://download.oracle.com/javase/6/docs/api/index.html?
+              -federationxml JDK http://doclava.googlecode.com/svn/static/api/openjdk-6.xml
+              -federate Guice http://google-guice.googlecode.com/svn/trunk/javadoc/
+              -federate OSGi http://osgi.org/javadoc/r4v42/index.html?
+              -federationxml OSGi https://raw.github.com/sonatype/sisu/master/sisu-inject/lib/osgi.xml
+              -hdf project.name "${project.name}"
+              -d ${project.build.directory}/apidocs
+            </additionalparam>
+            <useStandardDocletOptions>false</useStandardDocletOptions>
+            <!--
+             | Apple's JVM sometimes requires more memory
+            -->
+            <additionalJOption>-J-Xmx1024m</additionalJOption>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+</project>

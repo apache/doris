@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one
+   or more contributor license agreements.  See the NOTICE file
+   distributed with this work for additional information
+   regarding copyright ownership.  The ASF licenses this file
+   to you under the Apache License, Version 2.0 (the
+   "License"); you may not use this file except in compliance
+   with the License.  You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing,
+   software distributed under the License is distributed on an
+   "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+   KIND, either express or implied.  See the License for the
+   specific language governing permissions and limitations
+   under the License.    
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.apache</groupId>
+    <artifactId>apache</artifactId>
+    <version>7</version>
+  </parent>
+  <groupId>org.apache.ivy</groupId>
+  <artifactId>ivy</artifactId>
+  <version>2.4.0</version>
+  <name>Apache Ivy</name>
+  <url>http://ant.apache.org/ivy/</url>
+  <scm>
+    <connection>scm:svn:http://svn.apache.org/repos/asf/ant/ivy/core/trunk/</connection>
+    <developerConnection>scm:svn:https://svn.apache.org/repos/asf/ant/ivy/core/trunk</developerConnection>
+    <url>http://svn.apache.org/repos/asf/ant/ivy/core/trunk</url>
+  </scm>
+  <mailingLists>
+    <mailingList>
+      <name>Ant/Ivy Developers List</name>
+      <subscribe>dev-subscribe@ant.apache.org</subscribe>
+      <unsubscribe>dev-unsubscribe@ant.apache.org</unsubscribe>
+      <post>dev@ant.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/ant-dev</archive>
+    </mailingList>
+    <mailingList>
+      <name>Ivy Users List</name>
+      <subscribe>ivy-user-subscribe@ant.apache.org</subscribe>
+      <unsubscribe>ivy-user-unsubscribe@ant.apache.org</unsubscribe>
+      <post>ivy-user@ant.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/ant-ivy-user</archive>
+    </mailingList>
+  </mailingLists>
+  <issueManagement>
+    <system>jira</system>
+    <url>http://issues.apache.org/jira/browse/IVY</url>
+  </issueManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.ant</groupId>
+      <artifactId>ant</artifactId>
+      <version>1.7.1</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.ant</groupId>
+      <artifactId>ant-nodeps</artifactId>
+      <version>1.7.1</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.ant</groupId>
+      <artifactId>ant-trax</artifactId>
+      <version>1.7.1</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>commons-httpclient</groupId>
+      <artifactId>commons-httpclient</artifactId>
+      <version>3.0</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>oro</groupId>
+      <artifactId>oro</artifactId>
+      <version>2.0.8</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>commons-vfs</groupId>
+      <artifactId>commons-vfs</artifactId>
+      <version>1.0</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.jcraft</groupId>
+      <artifactId>jsch</artifactId>
+      <version>0.1.50</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.jcraft</groupId>
+      <artifactId>jsch.agentproxy</artifactId>
+      <version>0.0.6</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.jcraft</groupId>
+      <artifactId>jsch.agentproxy.connector-factory</artifactId>
+      <version>0.0.6</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>com.jcraft</groupId>
+      <artifactId>jsch.agentproxy.jsch</artifactId>
+      <version>0.0.6</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpg-jdk14</artifactId>
+      <version>1.45</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk14</artifactId>
+      <version>1.45</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>3.8.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>commons-lang</groupId>
+      <artifactId>commons-lang</artifactId>
+      <version>2.6</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.ant</groupId>
+      <artifactId>ant-testutil</artifactId>
+      <version>1.7.0</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>*</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>ant</groupId>
+      <artifactId>ant-launcher</artifactId>
+      <version>1.6.2</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>*</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>ant-contrib</groupId>
+      <artifactId>ant-contrib</artifactId>
+      <version>1.0b3</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>*</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>xerces</groupId>
+      <artifactId>xercesImpl</artifactId>
+      <version>2.6.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>xerces</groupId>
+      <artifactId>xmlParserAPIs</artifactId>
+      <version>2.6.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

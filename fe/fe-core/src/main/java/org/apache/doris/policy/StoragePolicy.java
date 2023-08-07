@@ -186,7 +186,7 @@ public class StoragePolicy extends Policy {
 
     private static Resource checkResourceIsExist(final String storageResource) throws AnalysisException {
         Resource resource = Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(storageResource))
-            .orElseThrow(()-> new AnalysisException("storage resource doesn't exist: " + storageResource)) ;
+            .orElseThrow(()-> new AnalysisException("storage resource doesn't exist: " + storageResource));
 
         Map<String, String> properties = resource.getCopiedProperties();
         switch (resource.getType()) {
@@ -218,8 +218,9 @@ public class StoragePolicy extends Policy {
                         "Missing [%s] in '%s' resource", HdfsResource.HADOOP_KERBEROS_KEYTAB, storageResource));
                 }
                 break;
-            default :
-                throw new AnalysisException("current storage policy just support resource type S3_COOLDOWN or HDFS_COOLDOWN");
+            default:
+                throw new AnalysisException(
+                    "current storage policy just support resource type S3_COOLDOWN or HDFS_COOLDOWN");
         }
         return resource;
     }

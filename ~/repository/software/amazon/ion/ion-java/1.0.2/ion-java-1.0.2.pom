@@ -1,0 +1,250 @@
+<project>
+
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>software.amazon.ion</groupId>
+  <artifactId>ion-java</artifactId>
+  <version>1.0.2</version>
+  <packaging>bundle</packaging>
+
+  <name>${project.groupId}:${project.artifactId}</name>
+  <description>
+    A Java implementation of the Amazon Ion data notation.
+  </description>
+  <url>https://github.com/amznlabs/ion-java/</url>
+
+  <licenses>
+    <license>
+      <name>The Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <developers>
+     <developer>
+       <name>Amazon Ion Team</name>
+       <email>ion-team@amazon.com</email>
+       <organization>Amazon Labs</organization>
+       <organizationUrl>https://github.com/amznlabs</organizationUrl>
+     </developer>
+   </developers>
+
+  <scm>
+    <connection>scm:git:git@github.com:amznlabs/ion-java.git</connection>
+    <developerConnection>scm:git:git@github.com:amznlabs/ion-java.git</developerConnection>
+    <url>git@github.com:amznlabs/ion-java.git</url>
+  </scm>
+
+  <!-- http://central.sonatype.org/pages/ossrh-guide.html -->
+  <distributionManagement>
+    <snapshotRepository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+    </snapshotRepository>
+    <repository>
+      <id>ossrh</id>
+      <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+    </repository>
+  </distributionManagement>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.build.timestamp.format>yyyy</maven.build.timestamp.format>
+    <build.year>${maven.build.timestamp}</build.year>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.12</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <sourceDirectory>src</sourceDirectory>
+    <testSourceDirectory>test</testSourceDirectory>
+    <plugins>
+      <plugin>
+        <!--
+        Since the format of maven.build.timestamp cannot be changed
+        during the build, define the build.time property here.
+        -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>1.8</version>
+        <executions>
+          <execution>
+            <phase>initialize</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <exportAntProperties>true</exportAntProperties>
+              <target>
+                <tstamp>
+                  <format property="build.time" pattern="yyyy-MM-dd'T'HH:mm:ssXXX"/>
+                </tstamp>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <!-- Run the unit tests. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.19.1</version>
+        <configuration>
+          <excludes>
+            <exclude>**/*TestCase.java</exclude>
+          </excludes>
+          <argLine>-ea -Xmx3000M</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <version>3.2.0</version>
+        <extensions>true</extensions>
+        <configuration>
+          <instructions>
+            <Export-Package>
+              !software.amazon.ion.apps.*,
+              !software.amazon.ion.impl.*,
+              software.amazon.ion.*,
+            </Export-Package>
+            <!-- This can be used to retrieve the compiled JarInfo. -->
+            <Main-Class>software.amazon.ion.impl.PrivateCommandLine</Main-Class>
+            <!-- Add these properties to the manifest so they may be retrieved at runtime. -->
+            <Ion-Java-Build-Time>${build.time}</Ion-Java-Build-Time>
+            <Ion-Java-Project-Version>${project.version}</Ion-Java-Project-Version>
+          </instructions>
+        </configuration>
+      </plugin>
+      <!-- TODO findbugs, checkstyle -->
+    </plugins>
+  </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <!-- TODO replace with coverage report? -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-report-plugin</artifactId>
+        <version>2.19.1</version>
+        <configuration>
+          <outputName>test-report</outputName>
+          <showSuccess>false</showSuccess>
+        </configuration>
+      </plugin>
+      <plugin>
+        <!-- Generate the Javadocs. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.10.3</version>
+        <reportSets>
+          <reportSet>
+            <configuration>
+              <excludePackageNames>software.amazon.ion.apps:software.amazon.ion.impl</excludePackageNames>
+              <sourceFileExcludes>
+                <exclude>**/*Private*</exclude>
+              </sourceFileExcludes>
+              <overview>${project.basedir}/src/software/amazon/ion/overview.html</overview>
+              <doctitle>Amazon Ion Java ${project.version} API Reference</doctitle>
+              <windowtitle>Ion Java ${project.version}</windowtitle>
+              <header>Amazon Ion Java ${project.version} API Reference</header>
+              <encoding>UTF-8</encoding>
+              <bottom><![CDATA[<center>Copyright &#169; 2007&ndash;${build.year} Amazon.com. All Rights Reserved.</center>]]></bottom>
+              <name>Ion Java Javadoc</name>
+              <additionalparam>-Xdoclint:none</additionalparam>
+            </configuration>
+            <reports>
+              <report>javadoc-no-fork</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+    </plugins>
+  </reporting>
+
+  <profiles>
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <!-- Package the source jar. -->
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>2.2.1</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <!-- Package the javadoc jar. -->
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>2.10.3</version>
+            <configuration>
+              <excludePackageNames>software.amazon.ion.apps:software.amazon.ion.impl</excludePackageNames>
+              <sourceFileExcludes>
+                <exclude>**/*Private*</exclude>
+              </sourceFileExcludes>
+              <overview>${project.basedir}/src/software/amazon/ion/overview.html</overview>
+              <doctitle>Amazon Ion Java ${project.version} API Reference</doctitle>
+              <windowtitle>Ion Java ${project.version}</windowtitle>
+              <header>Amazon Ion Java ${project.version} API Reference</header>
+              <encoding>UTF-8</encoding>
+              <bottom><![CDATA[<center>Copyright &#169; 2007&ndash;${build.year} Amazon.com. All Rights Reserved.</center>]]></bottom>
+              <name>Ion Java Javadoc</name>
+              <additionalparam>-Xdoclint:none</additionalparam>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <!-- GPG signing. -->
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>1.5</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <!-- Publish the artifacts. -->
+            <groupId>org.sonatype.plugins</groupId>
+            <artifactId>nexus-staging-maven-plugin</artifactId>
+            <version>1.6.3</version>
+            <extensions>true</extensions>
+            <configuration>
+              <serverId>ossrh</serverId>
+              <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+              <autoReleaseAfterClose>true</autoReleaseAfterClose>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>

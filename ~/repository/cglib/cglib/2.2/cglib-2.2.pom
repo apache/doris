@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>cglib</groupId>
+  <artifactId>cglib</artifactId>
+  <name>Code Generation Library</name>
+  <version>2.2</version>
+  <url>http://cglib.sourceforge.net/</url>
+  <licenses>
+    <license>
+            <name>ASF 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <scm>
+    <url>http://cglib.cvs.sourceforge.net/cglib</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>asm</groupId>
+      <artifactId>asm</artifactId>
+      <version>3.1</version>
+    </dependency>
+    <dependency>
+      <groupId>asm</groupId>
+      <artifactId>asm-util</artifactId>
+      <version>3.1</version>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>ant</groupId>
+      <artifactId>ant</artifactId>
+      <version>1.6.2</version>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
+</project>

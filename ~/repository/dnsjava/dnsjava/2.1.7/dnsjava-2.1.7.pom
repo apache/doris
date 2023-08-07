@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
+    xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <parent>
+        <groupId>org.sonatype.oss</groupId>
+        <artifactId>oss-parent</artifactId>
+        <version>7</version>
+    </parent>
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>dnsjava</groupId>
+    <artifactId>dnsjava</artifactId>
+    <version>2.1.7</version>
+    <name>dnsjava</name>
+    <description>dnsjava is an implementation of DNS in Java. It supports all defined record types (including the DNSSEC types), and unknown types. It can be used for queries, zone transfers, and dynamic updates. It includes a cache which can be used by clients, and a minimal implementation of a server. It supports TSIG authenticated messages, partial DNSSEC verification, and EDNS0. </description>
+    <url>http://www.dnsjava.org</url>
+    <licenses>
+        <license>
+            <name>BSD 2-Clause license</name>
+            <url>http://opensource.org/licenses/BSD-2-Clause</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <scm>
+        <connection>scm:git:https://github.com/dnsjava/dnsjava</connection>
+        <developerConnection>scm:git:git@github.com:dnsjava/dnsjava</developerConnection>
+        <url>https://github.com/dnsjava/dnsjava</url>
+        <tag>v2.1.6</tag>
+    </scm>
+    <developers>
+        <developer>
+            <id>bwelling</id>
+            <name>Brian Wellington</name>
+        </developer>
+    </developers>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <target.jdk>1.4</target.jdk>
+    </properties>
+
+    <build>
+        <sourceDirectory>./</sourceDirectory>
+        <testSourceDirectory>./tests</testSourceDirectory>
+        <resources>
+            <resource>
+                <directory>org/xbill/DNS/spi/</directory>
+                <targetPath>META-INF</targetPath>
+                <includes>
+                    <include>services/</include>
+                </includes>
+            </resource>
+        </resources>
+
+        <plugins>
+        
+        <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-gpg-plugin</artifactId>
+        <version>1.4</version>
+        <executions>
+          <execution>
+            <id>sign-artifacts</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>sign</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.0</version>
+                <configuration>
+                    <source>${target.jdk}</source>
+                    <target>${target.jdk}</target>
+                    <encoding>iso8859-1</encoding>
+                    <testExcludes>
+                        <!-- Exclude unit tests with external dependencies -->
+                        <exclude>**/DNSSECWithLunaProviderTest.java</exclude>
+                    </testExcludes>
+                    <includes>
+                        <include>*.java</include>
+                        <include>org/**/*.java</include>
+                    </includes>
+                    <excludes>
+                        <exclude>org/xbill/DNS/tests/**</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>2.2.1</version>
+                <configuration>
+                    <includes>
+                        <include>*.java</include>
+                        <include>org/**/*.java</include>
+                    </includes>
+                    <excludes>
+                        <exclude>org/xbill/DNS/tests/</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>2.4</version>
+                <configuration>
+                    <archive>
+                        <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+                        <manifestEntries>
+                            <Bundle-RequiredExecutionEnvironment>J2SE-1.4</Bundle-RequiredExecutionEnvironment>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <version>2.4.0</version>
+                <configuration>
+                    <instructions>
+                        <Export-Package>org.xbill.DNS;uses:="org.xbill.DNS.util",org.xbill.DNS.spi;uses:="org.xbill.DNS,sun.net.spi.nameservice",org.xbill.DNS.utils,org.xbill.DNS.windows</Export-Package>
+                    </instructions>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>2.7</version>
+                <configuration>
+                    <excludePackageNames>*.tests.*</excludePackageNames>
+                    <sourcepath>./org</sourcepath>
+                    <debug>true</debug>
+                    <windowtitle>dnsjava documentation</windowtitle>
+                    <footer></footer>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>3.8.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

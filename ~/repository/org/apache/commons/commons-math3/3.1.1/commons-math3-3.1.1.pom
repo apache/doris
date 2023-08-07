@@ -1,0 +1,448 @@
+<?xml version="1.0"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <parent>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-parent</artifactId>
+    <version>24</version>
+  </parent>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.apache.commons</groupId>
+  <artifactId>commons-math3</artifactId>
+  <version>3.1.1</version>
+  <name>Commons Math</name>
+
+  <inceptionYear>2003</inceptionYear>
+  <description>The Math project is a library of lightweight, self-contained mathematics and statistics components addressing the most common practical problems not immediately available in the Java programming language or commons-lang.</description>
+
+  <url>http://commons.apache.org/math/</url>
+
+  <issueManagement>
+    <system>jira</system>
+    <url>http://issues.apache.org/jira/browse/MATH</url>
+  </issueManagement>
+
+  <scm>
+    <connection>scm:svn:http://svn.apache.org/repos/asf/commons/proper/math/trunk</connection>
+    <developerConnection>scm:svn:https://svn.apache.org/repos/asf/commons/proper/math/trunk</developerConnection>
+    <url>http://svn.apache.org/viewvc/commons/proper/math/trunk</url>
+  </scm>
+  
+  <distributionManagement>
+    <site>
+      <id>people.apache.org</id>
+      <name>Commons Math</name>
+      <url>scp://people.apache.org/www/commons.apache.org/math</url>
+    </site>
+  </distributionManagement>
+
+  <developers>
+    <developer>
+      <name>Mikkel Meyer Andersen</name>
+      <id>mikl</id>
+      <email>mikl at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Bill Barker</name>
+      <id>billbarker</id>
+      <email>billbarker at apache dot org</email>
+    </developer>
+    <developer>
+      <name>S&#233;bastien Brisard</name>
+      <id>celestin</id>
+      <email>celestin at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Albert Davidson Chou</name>
+      <id>achou</id>
+      <email>achou at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Mark Diggory</name>
+      <id>mdiggory</id>
+      <email>mdiggory at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Robert Burrell Donkin</name>
+      <id>rdonkin</id>
+      <email>rdonkin at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Luc Maisonobe</name>
+      <id>luc</id>
+      <email>luc at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Tim O'Brien</name>
+      <id>tobrien</id>
+      <email>tobrien at apache dot org</email>
+    </developer>
+    <developer>
+      <name>J. Pietschmann</name>
+      <id>pietsch</id>
+      <email>j3322ptm at yahoo dot de</email>
+    </developer>
+    <developer>
+      <name>Dimitri Pourbaix</name>
+      <id>dimpbx</id>
+      <email>dimpbx at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Gilles Sadowski</name>
+      <id>erans</id>
+      <email>erans at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Phil Steitz</name>
+      <id>psteitz</id>
+      <email>psteitz at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Greg Sterijevski</name>
+      <id>gregs</id>
+      <email>gregs at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Brent Worden</name>
+      <id>brentworden</id>
+      <email>brentworden at apache dot org</email>
+    </developer>
+    <developer>
+      <name>Thomas Neidhart</name>
+      <id>tn</id>
+      <email>tn at apache dot org</email>
+    </developer>
+  </developers>
+  <contributors>
+    <contributor>
+      <name>Eldar Agalarov</name>
+    </contributor>
+    <contributor>
+      <name>C. Scott Ananian</name>
+    </contributor>
+    <contributor>
+      <name>Mark Anderson</name>
+    </contributor>
+    <contributor>
+      <name>R&#233;mi Arntzen</name>
+    </contributor>
+    <contributor>
+      <name>Jared Becksfort</name>
+    </contributor>
+    <contributor>
+      <name>Michael Bjorkegren</name>
+    </contributor>
+    <contributor>
+      <name>John Bollinger</name>
+    </contributor>
+    <contributor>
+      <name>Cyril Briquet</name>
+    </contributor>
+    <contributor>
+      <name>Dave Brosius</name>
+    </contributor>
+    <contributor>
+      <name>Dan Checkoway</name>
+    </contributor>
+    <contributor>
+      <name>Paul Cowan</name>
+    </contributor>
+    <contributor>
+      <name>Benjamin Croizet</name>
+    </contributor>
+    <contributor>
+      <name>Larry Diamond</name>
+    </contributor>
+    <contributor>
+      <name>Rodrigo di Lorenzo Lopes</name>
+    </contributor>
+    <contributor>
+      <name>Hasan Diwan</name>
+    </contributor>
+    <contributor>
+      <name>Ted Dunning</name>
+    </contributor>
+    <contributor>
+      <name>John Gant</name>
+    </contributor>
+    <contributor>
+      <name>Ken Geis</name>
+    </contributor>
+    <contributor>
+      <name>Bernhard Gr&#252;newaldt</name>
+    </contributor>
+    <contributor>
+      <name>Elliotte Rusty Harold</name>
+    </contributor>
+    <contributor>
+      <name>Dennis Hendriks</name>
+    </contributor>
+    <contributor>
+      <name>Reid Hochstedler</name>
+    </contributor>
+    <contributor>
+      <name>Matthias Hummel</name>
+    </contributor>
+    <contributor>
+      <name>Curtis Jensen</name>
+    </contributor>
+    <contributor>
+      <name>Ismael Juma</name>
+    </contributor>
+    <contributor>
+      <name>Eugene Kirpichov</name>
+    </contributor>
+    <contributor>
+      <name>Piotr Kochanski</name>
+    </contributor>
+    <contributor>
+      <name>Bob MacCallum</name>
+    </contributor>
+    <contributor>
+      <name>Jake Mannix</name>
+    </contributor>
+    <contributor>
+      <name>Benjamin McCann</name>
+    </contributor>
+    <contributor>
+      <name>Patrick Meyer</name>
+    </contributor>
+    <contributor>
+      <name>J. Lewis Muir</name>
+    </contributor>
+    <contributor>
+      <name>Christopher Nix</name>
+    </contributor>
+    <contributor>
+      <name>Fredrik Norin</name>
+    </contributor>
+    <contributor>
+      <name>Sujit Pal</name>
+    </contributor>
+    <contributor>
+      <name>Todd C. Parnell</name>
+    </contributor>
+    <contributor>
+      <name>Andreas Rieger</name>
+    </contributor>
+    <contributor>
+      <name>Bill Rossi</name>
+    </contributor>
+    <contributor>
+      <name>Matthew Rowles</name>
+    </contributor>
+    <contributor>
+      <name>Pavel Ryzhov</name>
+    </contributor>
+    <contributor>
+      <name>Joni Salonen</name>
+    </contributor>
+    <contributor>
+      <name>Michael Saunders</name>
+    </contributor>
+    <contributor>
+      <name>Christopher Schuck</name>
+    </contributor>
+    <contributor>
+      <name>Christian Semrau</name>
+    </contributor>
+    <contributor>
+      <name>David Stefka</name>
+    </contributor>
+    <contributor>
+      <name>Mauro Talevi</name>
+    </contributor>
+    <contributor>
+      <name>Radoslav Tsvetkov</name>
+    </contributor>
+    <contributor>
+      <name>Kim van der Linde</name>
+    </contributor>
+    <contributor>
+      <name>J&#246;rg Weimar</name>
+    </contributor>
+    <contributor>
+      <name>Christian Winter</name>
+    </contributor>
+    <contributor>
+      <name>Xiaogang Zhang</name>
+    </contributor>
+  </contributors>
+
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.10</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <properties>
+    <!-- Do not change: "math" is the name of the component even if the
+         name of the base package evolves with major release numbers
+         (see "commons.osgi.symbolicName", below). -->
+    <commons.componentid>math</commons.componentid>
+    <!-- This value must reflect the current name of the base package. -->
+    <commons.osgi.symbolicName>org.apache.commons.math3</commons.osgi.symbolicName>
+    <!-- do not use snapshot suffix here -->
+    <commons.release.version>3.1.1</commons.release.version>
+    <commons.release.desc>(requires Java 1.5+)</commons.release.desc>
+    <commons.rc.version>RC1</commons.rc.version>
+    <commons.binary.suffix>-bin</commons.binary.suffix>
+ 
+    <commons.release.2.version>2.2</commons.release.2.version>
+    <!-- override parent name, because 2.2 uses different artifactId -->
+    <commons.release.2.name>commons-math-${commons.release.2.version}</commons.release.2.name>
+    <commons.release.2.desc>(requires Java 1.5+)</commons.release.2.desc>
+    <commons.release.2.binary.suffix></commons.release.2.binary.suffix>
+ 
+    <commons.jira.id>MATH</commons.jira.id>
+    <commons.jira.pid>12310485</commons.jira.pid>
+    <commons.encoding>UTF-8</commons.encoding>
+    <maven.compile.source>1.5</maven.compile.source>
+    <maven.compile.target>1.5</maven.compile.target>
+    <math.pmd.version>2.7.1</math.pmd.version>
+  </properties> 
+
+  <build>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <includes>
+                <include>**/*Test.java</include>
+                <include>**/*TestBinary.java</include>
+                <include>**/*TestPermutations.java</include>
+              </includes>
+              <excludes>
+                <exclude>**/*AbstractTest.java</exclude>
+              </excludes>
+          </configuration>
+        </plugin>
+        <plugin>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <configuration>
+            <descriptors>
+              <descriptor>src/main/assembly/src.xml</descriptor>
+              <descriptor>src/main/assembly/bin.xml</descriptor>
+            </descriptors>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>clirr-maven-plugin</artifactId>
+          <version>${commons.clirr.version}</version>
+          <executions>
+            <execution>
+              <goals>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+      <plugin>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>${math.pmd.version}</version>
+        <configuration>
+          <targetJdk>${maven.compile.target}</targetJdk>  
+        </configuration>
+        </plugin>
+      </plugins>
+  </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-changes-plugin</artifactId>
+        <version>${commons.changes.version}</version>
+        <configuration>
+          <issueLinkTemplatePerSystem>
+            <default>%URL%/%ISSUE%</default>
+          </issueLinkTemplatePerSystem>
+          <!--  Add sample JIRA report - 'mvn changes:jira-report' or 'mvn site' -->
+          <onlyCurrentVersion>false</onlyCurrentVersion>
+          <columnNames>Fix Version,Key,Summary,Type,Resolution,Status</columnNames>
+          <!-- Sort cols have to be reversed in JIRA 4 -->
+          <sortColumnNames>Key DESC,Type,Fix Version DESC</sortColumnNames>
+          <resolutionIds>Fixed</resolutionIds>
+          <statusIds>Resolved,Closed</statusIds>
+          <!-- Don't include sub-task -->
+          <typeIds>Bug,New Feature,Task,Improvement,Wish,Test</typeIds>
+          <fixVersionIds>${commons.release.version}</fixVersionIds>
+          <!-- The default is 100 -->
+          <maxEntries>100</maxEntries>
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>changes-report</report>
+              <report>jira-report</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>findbugs-maven-plugin</artifactId>
+        <version>2.4.0</version>
+        <configuration>
+          <threshold>Normal</threshold>
+          <effort>Default</effort>
+          <excludeFilterFile>${basedir}/findbugs-exclude-filter.xml</excludeFilterFile>
+       </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>2.7</version>
+        <configuration>
+          <configLocation>${basedir}/checkstyle.xml</configLocation>
+          <enableRulesSummary>false</enableRulesSummary>
+          <headerLocation>${basedir}/license-header.txt</headerLocation>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>clirr-maven-plugin</artifactId>
+        <version>${commons.clirr.version}</version>
+        <configuration>
+          <minSeverity>${minSeverity}</minSeverity>
+         </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>${math.pmd.version}</version>
+        <configuration>
+          <targetJdk>${maven.compile.target}</targetJdk>  
+        </configuration>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>pmd</report>
+              <report>cpd</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+    </plugins>
+  </reporting>
+</project>
+

@@ -1,0 +1,721 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright (c) 2010, 2021 Oracle and/or its affiliates. All rights reserved.
+
+    This program and the accompanying materials are made available under the
+    terms of the Eclipse Public License v. 2.0, which is available at
+    http://www.eclipse.org/legal/epl-2.0.
+
+    This Source Code may also be made available under the following Secondary
+    Licenses when the conditions for such availability set forth in the
+    Eclipse Public License v. 2.0 are satisfied: GNU General Public License,
+    version 2 with the GNU Classpath Exception, which is available at
+    https://www.gnu.org/software/classpath/license.html.
+
+    SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.glassfish.jersey</groupId>
+        <artifactId>project</artifactId>
+        <version>2.35</version>
+    </parent>
+
+    <groupId>org.glassfish.jersey.core</groupId>
+    <artifactId>jersey-common</artifactId>
+    <packaging>jar</packaging>
+    <name>jersey-core-common</name>
+
+    <description>Jersey core common packages</description>
+
+    <licenses>
+        <license>
+            <name>EPL 2.0</name>
+            <url>http://www.eclipse.org/legal/epl-2.0</url>
+            <distribution>repo</distribution>
+            <comments>Except for Guava, JSR-166 files, Dropwizard Monitoring inspired classes, ASM and Jackson JAX-RS Providers.
+                See also https://github.com/eclipse-ee4j/jersey/blob/master/NOTICE.md</comments>
+        </license>
+        <license>
+            <name>The GNU General Public License (GPL), Version 2, With Classpath Exception</name>
+            <url>https://www.gnu.org/software/classpath/license.html</url>
+            <distribution>repo</distribution>
+            <comments>Except for Guava, and JSR-166 files.
+                See also https://github.com/eclipse-ee4j/jersey/blob/master/NOTICE.md</comments>
+        </license>
+        <license>
+            <name>Apache License, 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+            <comments>Google Guava @ org.glassfish.jersey.internal.guava</comments>
+        </license>
+        <license>
+            <name>Public Domain</name>
+            <url>https://creativecommons.org/publicdomain/zero/1.0/</url>
+            <distribution>repo</distribution>
+            <comments>JSR-166 Extension to JEP 266 @ org.glassfish.jersey.internal.jsr166</comments>
+        </license>
+    </licenses>
+
+    <build>
+        <resources>
+            <resource>
+                <directory>${basedir}/src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+
+        <testResources>
+          <testResource>
+            <directory>${basedir}/src/test/resources</directory>
+            <filtering>true</filtering>
+          </testResource>
+        </testResources>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <inherited>false</inherited>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <compilerArguments>
+                        <!-- Do not warn about using sun.misc.Unsafe -->
+                        <XDignore.symbol.file />
+                    </compilerArguments>
+                    <showWarnings>false</showWarnings>
+                    <fork>false</fork>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.sun.istack</groupId>
+                <artifactId>istack-commons-maven-plugin</artifactId>
+                <inherited>true</inherited>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <inherited>true</inherited>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <inherited>true</inherited>
+                <extensions>true</extensions>
+                <configuration>
+                    <instructions>
+                        <!-- Note: When you're changing these properties change them also in bundles/jaxrs-ri/pom.xml. -->
+                        <Import-Package>
+                            sun.misc.*;resolution:=optional,
+                            javax.activation.*;version="!";resolution:=optional,
+                            javax.imageio;resolution:=optional,
+                            javax.imageio.spi;resolution:=optional,
+                            javax.imageio.stream;resolution:=optional,
+                            javax.xml.bind;version="!";resolution:=optional,
+                            javax.xml.bind.annotation;version="!";resolution:=optional,
+                            javax.xml.bind.annotation.adapters;version="!";resolution:=optional,
+                            javax.xml.namespace;resolution:=optional,
+                            javax.xml.parsers;resolution:=optional,
+                            javax.xml.transform;resolution:=optional,
+                            javax.xml.transform.dom;resolution:=optional,
+                            javax.xml.transform.sax;resolution:=optional,
+                            javax.xml.transform.stream;resolution:=optional,
+                            org.w3c.dom;resolution:=optional,
+                            org.xml.sax;resolution:=optional,
+                            ${javax.annotation.osgi.version},
+                            *
+                        </Import-Package>
+                        <Bundle-ActivationPolicy>lazy</Bundle-ActivationPolicy>
+                        <Export-Package>org.glassfish.jersey.*;version=${project.version}</Export-Package>
+                        <Require-Capability>osgi.ee;filter:="(&amp;(osgi.ee=JavaSE)(version=1.8))"</Require-Capability>
+                    </instructions>
+                    <unpackBundle>true</unpackBundle>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>buildnumber-maven-plugin</artifactId>
+                <configuration>
+                    <format>{0,date,yyyy-MM-dd HH:mm:ss}</format>
+                    <items>
+                        <item>timestamp</item>
+                    </items>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>create</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Execute test classes in parallel - 1 thread per CPU core. -->
+                    <parallel>classesAndMethods</parallel>
+                    <perCoreThreadCount>true</perCoreThreadCount>
+                    <threadCount>1</threadCount>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>jakarta.ws.rs</groupId>
+            <artifactId>jakarta.ws.rs-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.osgi</groupId>
+            <artifactId>org.osgi.core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.hk2.external</groupId>
+            <artifactId>jakarta.inject</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.hk2</groupId>
+            <artifactId>osgi-resource-locator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-library</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <profile>
+            <id>jdk8</id>
+            <activation>
+                <jdk>1.8</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/main/jsr166</source>
+                                        <source>src/main/java8</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <dependencies>
+                            <dependency>
+                                <groupId>com.sun</groupId>
+                                <artifactId>tools</artifactId>
+                                <version>1.8.0</version>
+                                <scope>system</scope>
+                                <systemPath>${java.home}/../lib/tools.jar</systemPath>
+                            </dependency>
+                        </dependencies>
+                        <executions>
+                            <execution>
+                                <phase>validate</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <target>
+                                        <echo>Building for JDK8</echo>
+                                    </target>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <!-- need to compile this to be able to compile-2-java8 -->
+                                <id>compile-1-jsr166</id>
+                                <phase>process-resources</phase>
+                                <configuration>
+                                    <target>
+                                        <javac srcdir="${jsr166.sourceDirectory}" destdir="${project.build.outputDirectory}"
+                                               classpath="${project.build.outputDirectory}" includeantruntime="false" />
+                                    </target>
+                                </configuration>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <!-- Compile these files with jdk 8 and put them aside to be included in multirelase jar -->
+                                <!-- Multi-release jar is built by jdk 11+, but these classes are buildable by jdk 8 only -->
+                                <id>compile-2-java8</id>
+                                <phase>process-resources</phase>
+                                <configuration>
+                                    <target>
+                                        <mkdir dir="${java8.build.outputDirectory}" />
+                                        <javac srcdir="${java8.sourceDirectory}" destdir="${java8.build.outputDirectory}"
+                                               classpath="${project.build.outputDirectory}" includeantruntime="false" />
+                                    </target>
+                                </configuration>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>jdk11+</id>
+            <activation>
+                <jdk>[11,)</jdk>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.sun.activation</groupId>
+                    <artifactId>jakarta.activation</artifactId>
+                    <scope>provided</scope>
+                    <optional>true</optional>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-antrun-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <phase>validate</phase>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                                <configuration>
+                                    <target>
+                                        <echo>Building for JDK 11+</echo>
+                                    </target>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>compile-1-jsr166</id>
+                                <phase>process-resources</phase>
+                                <configuration>
+                                    <target>
+                                        <javac srcdir="${jsr166.sourceDirectory}" destdir="${project.build.outputDirectory}"
+                                               classpath="${project.build.outputDirectory}" includeantruntime="false" />
+                                    </target>
+                                </configuration>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <!-- build these java 11 specific classes to be put to META-INF/versions/11 later -->
+                                <id>compile-2-java11</id>
+                                <phase>process-resources</phase>
+                                <configuration>
+                                    <target>
+                                        <mkdir dir="${java11.build.outputDirectory}" />
+                                        <javac srcdir="${java11.sourceDirectory}" destdir="${java11.build.outputDirectory}"
+                                               classpath="${project.build.outputDirectory}" includeantruntime="false" release="11" />
+                                    </target>
+                                </configuration>
+                                <goals>
+                                    <goal>run</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>compile-0-addsources</id>
+                                <phase>process-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/main/jsr166</source>
+                                        <source>src/main/java11</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default-compile</id>
+                                <configuration>
+                                    <!-- compile everything to ensure module-info contains right entries -->
+                                    <release>11</release>
+                                </configuration>
+                            </execution>
+                       </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>copyJDK11FilesToMultiReleaseJar</id>
+            <activation>
+                <file>
+                    <!-- ${java11.build.outputDirectory} does not work here -->
+                    <exists>target/classes-java11/org/glassfish/jersey/internal/jsr166/SubmissionPublisher.class</exists>
+                </file>
+                <jdk>1.8</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.felix</groupId>
+                        <artifactId>maven-bundle-plugin</artifactId>
+                        <inherited>true</inherited>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <instructions>
+                                <Multi-Release>true</Multi-Release>
+                            </instructions>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <artifactId>maven-clean-plugin</artifactId>
+                        <!-- only one file set per execution works -->
+                        <executions>
+                            <execution>
+                                <id>remove-jdk11-generated-sources</id>
+                                <phase>initialize</phase>
+                                <goals>
+                                    <goal>clean</goal>
+                                </goals>
+                                <configuration>
+                                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                                    <filesets>
+                                        <fileset>
+                                            <directory>${project.build.directory}/generated-sources</directory>
+                                        </fileset>
+                                    </filesets>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>remove-jdk11-classes</id>
+                                <phase>initialize</phase>
+                                <goals>
+                                    <goal>clean</goal>
+                                </goals>
+                                <configuration>
+                                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                                    <filesets>
+                                        <fileset>
+                                            <directory>${project.build.directory}/classes</directory>
+                                        </fileset>
+                                    </filesets>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <inherited>true</inherited>
+                        <executions>
+                            <execution>
+                                <id>copy-jdk11-sources</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/generated-sources/rsrc-gen/META-INF/versions/11/org/glassfish/jersey/internal/jsr166</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${java11.sourceDirectory}/org/glassfish/jersey/internal/jsr166</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>copy-jdk11-classes-to-meta-inf</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}/META-INF/versions/11</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${java11.build.outputDirectory}</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>copyJDK8FilesToMultiReleaseJar</id>
+            <activation>
+                <file>
+                    <!-- ${java8.build.outputDirectory} does not work here -->
+                    <exists>target/classes-java8/org/glassfish/jersey/internal/jsr166/UnsafeAccessor.class</exists>
+                </file>
+                <jdk>[11,)</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.felix</groupId>
+                        <artifactId>maven-bundle-plugin</artifactId>
+                        <inherited>true</inherited>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <instructions>
+                                <Multi-Release>true</Multi-Release>
+                            </instructions>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <artifactId>maven-clean-plugin</artifactId>
+                        <!-- only one file set per execution works -->
+                        <executions>
+                            <execution>
+                                <id>remove-jdk11-jsr166-sources</id>
+                                <phase>initialize</phase>
+                                <goals>
+                                    <goal>clean</goal>
+                                </goals>
+                                <configuration>
+                                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                                    <filesets>
+                                        <fileset>
+                                            <directory>${project.build.directory}/generated-sources/rsrc-gen/org/glassfish/jersey/internal/jsr166</directory>
+                                        </fileset>
+                                    </filesets>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>remove-jdk11-jsr166-META-INF-sources</id>
+                                <phase>initialize</phase>
+                                <goals>
+                                    <goal>clean</goal>
+                                </goals>
+                                <configuration>
+                                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                                    <filesets>
+                                        <fileset>
+                                            <directory>${project.build.directory}/generated-sources/rsrc-gen/META-INF</directory>
+                                        </fileset>
+                                    </filesets>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>remove-jdk11-jsr166-classes</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>clean</goal>
+                                </goals>
+                                <configuration>
+                                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                                    <filesets>
+                                        <fileset>
+                                            <directory>${project.build.outputDirectory}/org/glassfish/jersey/internal/jsr166</directory>
+                                            <includes>
+                                                <include>*.class</include>
+                                            </includes>
+                                            <excludes>
+                                                <exclude>Flow*.class</exclude>
+                                                <exclude>SubmittableFlowPublisher.class</exclude>
+                                                <exclude>package-info.class</exclude>
+                                            </excludes>
+                                        </fileset>
+                                    </filesets>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <inherited>true</inherited>
+                        <executions>
+                            <execution>
+                                <id>copy-jdk8-classes-ouputDirectory</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${java8.build.outputDirectory}</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>copy-jdk8-sources</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/generated-sources/rsrc-gen/org/glassfish/jersey/internal/jsr166</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${java8.sourceDirectory}/org/glassfish/jersey/internal/jsr166</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>copy-jdk11-sources</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/generated-sources/rsrc-gen/META-INF/versions/11/org/glassfish/jersey/internal/jsr166</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${java11.sourceDirectory}/org/glassfish/jersey/internal/jsr166</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>copy-jdk11-classes-to-meta-inf</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}/META-INF/versions/11</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${java11.build.outputDirectory}</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.0.1</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                                <configuration>
+                                    <excludes>
+                                        <exclude>org/glassfish/jersey/internal/jsr166/Jdk9SubmissionPublisher.java</exclude>
+                                    </excludes>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>securityOff</id>
+            <properties>
+               <surefire.security.argline />
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/SecurityManagerConfiguredTest.java</exclude>
+                                <exclude>**/ReflectionHelperTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>sonar</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- disable parallel execution so that JaCoCo listener can properly work -->
+                            <parallel>none</parallel>
+                            <perCoreThreadCount>false</perCoreThreadCount>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <properties>
+        <surefire.security.argline>-Djava.security.manager -Djava.security.policy=${project.build.directory}/test-classes/surefire.policy</surefire.security.argline>
+        <jsr166.sourceDirectory>${project.basedir}/src/main/jsr166</jsr166.sourceDirectory>
+        <java8.build.outputDirectory>${project.build.directory}/classes-java8</java8.build.outputDirectory>
+        <java8.sourceDirectory>${project.basedir}/src/main/java8</java8.sourceDirectory>
+        <java11.build.outputDirectory>${project.build.directory}/classes-java11</java11.build.outputDirectory>
+        <java11.sourceDirectory>${project.basedir}/src/main/java11</java11.sourceDirectory>
+    </properties>
+
+</project>

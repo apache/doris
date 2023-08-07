@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+ ~ Copyright (c) 2010-2011 Sonatype, Inc.
+ ~ All rights reserved. This program and the accompanying materials
+ ~ are made available under the terms of the Eclipse Public License v1.0
+ ~ and Apache License v2.0 which accompanies this distribution.
+ ~ The Eclipse Public License is available at
+ ~   http://www.eclipse.org/legal/epl-v10.html
+ ~ The Apache License v2.0 is available at
+ ~   http://www.apache.org/licenses/LICENSE-2.0.html
+ ~ You may elect to redistribute this code under either of these licenses.
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.sonatype.sisu</groupId>
+    <artifactId>sisu-inject</artifactId>
+    <version>2.3.0</version>
+  </parent>
+
+  <packaging>pom</packaging>
+
+  <groupId>org.sonatype.sisu.inject</groupId>
+  <artifactId>containers</artifactId>
+
+  <name>Sisu-Inject : Containers</name>
+
+  <modules>
+    <module>guice-bean</module>
+    <module>guice-plexus</module>
+  </modules>
+
+</project>

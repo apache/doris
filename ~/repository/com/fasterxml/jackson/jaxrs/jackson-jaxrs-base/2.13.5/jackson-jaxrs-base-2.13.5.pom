@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <!-- This module was also published with a richer model, Gradle metadata,  -->
+  <!-- which should be used instead. Do not delete the following line which  -->
+  <!-- is to indicate to Gradle or any Gradle module metadata file consumer  -->
+  <!-- that they should prefer consuming it instead. -->
+  <!-- do_not_remove: published-with-gradle-metadata -->
+  <modelVersion>4.0.0</modelVersion> 
+  <parent>
+    <groupId>com.fasterxml.jackson.jaxrs</groupId>
+    <artifactId>jackson-jaxrs-providers</artifactId>
+    <version>2.13.5</version>
+  </parent>
+  <artifactId>jackson-jaxrs-base</artifactId>
+  <name>Jackson-JAXRS: base</name>
+  <packaging>bundle</packaging>
+  <description>Pile of code that is shared by all Jackson-based JAX-RS
+providers.
+  </description>
+
+  <properties>
+    <osgi.export>
+${project.groupId}.annotation.*;version=${project.version}
+,${project.groupId}.base.*;version=${project.version}
+,${project.groupId}.cfg.*;version=${project.version}
+,${project.groupId}.util.*;version=${project.version}
+</osgi.export>
+    <osgi.import>javax.ws.rs;version="${javax.ws.rs.version}"
+,javax.ws.rs.core;version="${javax.ws.rs.version}"
+,javax.ws.rs.ext;version="${javax.ws.rs.version}",
+*
+</osgi.import>
+  </properties>
+
+  <dependencies>
+    <!-- Extends Jackson core, mapper -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+    <!-- test deps should come from parent -->
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.moditect</groupId>
+        <artifactId>moditect-maven-plugin</artifactId>
+      </plugin>
+
+    </plugins>
+  </build>
+</project>

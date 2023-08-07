@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.sonatype.oss</groupId>
+    <artifactId>oss-parent</artifactId>
+    <version>7</version>
+  </parent>
+  <groupId>net.sf.py4j</groupId>
+  <artifactId>py4j</artifactId>
+  <version>0.10.7</version>
+  <name>Py4J</name>
+  <description>Py4J enables Python programs running in a Python interpreter to dynamically access Java objects in a Java Virtual Machine. Methods are called as if the Java objects resided in the Python interpreter and Java collections can be accessed through standard Python collection methods. Py4J also enables Java programs to call back Python objects.</description>
+  <licenses>
+    <license>
+      <name>The New BSD License</name>
+      <url>http://www.opensource.org/licenses/bsd-license.html</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>bartdag</id>
+      <name>Barthelemy Dagenais</name>
+      <url>http://infobart.com/</url>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git@github.com:bartdag/py4j.git</connection>
+    <developerConnection>scm:git:git@github.com:bartdag/py4j.git</developerConnection>
+    <url>git@github.com:bartdag/py4j.git</url>
+  </scm>
+  <properties>
+    <project.build.outputEncoding>UTF-8</project.build.outputEncoding>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.12</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.3</version>
+        <configuration>
+          <source>1.6</source>
+          <target>1.6</target>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

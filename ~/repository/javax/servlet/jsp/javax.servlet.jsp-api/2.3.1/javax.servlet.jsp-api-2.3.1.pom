@@ -1,0 +1,269 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
+
+    Copyright (c) 1997-2013 Oracle and/or its affiliates. All rights reserved.
+
+    The contents of this file are subject to the terms of either the GNU
+    General Public License Version 2 only ("GPL") or the Common Development
+    and Distribution License("CDDL") (collectively, the "License").  You
+    may not use this file except in compliance with the License.  You can
+    obtain a copy of the License at
+    https://glassfish.dev.java.net/public/CDDL+GPL_1_1.html
+    or packager/legal/LICENSE.txt.  See the License for the specific
+    language governing permissions and limitations under the License.
+
+    When distributing the software, include this License Header Notice in each
+    file and include the License file at packager/legal/LICENSE.txt.
+
+    GPL Classpath Exception:
+    Oracle designates this particular file as subject to the "Classpath"
+    exception as provided by Oracle in the GPL Version 2 section of the License
+    file that accompanied this code.
+
+    Modifications:
+    If applicable, add the following below the License Header, with the fields
+    enclosed by brackets [] replaced by your own identifying information:
+    "Portions Copyright [year] [name of copyright owner]"
+
+    Contributor(s):
+    If you wish your version of this file to be governed by only the CDDL or
+    only the GPL Version 2, indicate your decision by adding "[Contributor]
+    elects to include this software in this distribution under the [CDDL or GPL
+    Version 2] license."  If you don't indicate a single choice of license, a
+    recipient has the option to distribute your version of this file under
+    either the CDDL, the GPL Version 2 or to extend the choice of license to
+    its licensees as provided above.  However, if you add GPL Version 2 code
+    and therefore, elected the GPL Version 2 license, then the option applies
+    only if the new code is made subject to such option by the copyright
+    holder.
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <parent>
+        <groupId>net.java</groupId>
+        <artifactId>jvnet-parent</artifactId>
+        <version>1</version>
+    </parent>
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>javax.servlet.jsp</groupId>
+    <artifactId>javax.servlet.jsp-api</artifactId>
+    <version>2.3.1</version>
+    <packaging>jar</packaging>
+    <name>JavaServer Pages(TM) API</name>
+
+    <properties>
+        <spec.version>2.3</spec.version>
+        <extensionName>javax.servlet.jsp</extensionName>
+        <bundle.symbolicName>javax.servlet.jsp-api</bundle.symbolicName>
+        <vendorName>Oracle Corporation</vendorName>
+        <findbugs.version>2.4.0</findbugs.version>
+        <findbugs.exclude />
+        <findbugs.threshold>High</findbugs.threshold>
+    </properties>
+
+    <developers>
+        <developer>
+            <id>kchung</id>
+            <name>Kin-man Chung</name>
+            <url>http://blogs.sun.com/kchung/</url>
+            <organization>Oracle Corporation</organization>
+            <roles>
+                <role>lead</role>
+            </roles>
+        </developer>
+    </developers>
+
+    <url>http://jsp.java.net</url>
+    <organization>
+        <name>GlassFish Community</name>
+        <url>http://glassfish.org</url>
+    </organization>
+    <licenses>
+        <license>
+            <name>CDDL + GPLv2 with classpath exception</name>
+            <url>http://glassfish.dev.java.net/nonav/public/CDDL+GPL.html</url>
+            <distribution>repo</distribution>
+            <comments>A business-friendly OSS license</comments>
+        </license>
+    </licenses>
+    <issueManagement>
+        <system>jira</system>
+        <url>http://java.net/jira/browse/JSP</url>
+    </issueManagement>
+    <mailingLists>
+        <mailingList>
+            <name>JSP Developer</name>
+            <archive>dev@jsp.java.net</archive>
+        </mailingList>
+    </mailingLists>
+    <scm>
+        <connection>scm:svn:https://svn.java.net/svn/jsp~svn/tags/javax.servlet.jsp-api-2.3.1</connection>
+        <developerConnection>scm:svn:https://svn.java.net/svn/jsp~svn/tags/javax.servlet.jsp-api-2.3.1</developerConnection>
+        <url>http://java.net/projects/jsp/sources/svn/show/tags/javax.servlet.jsp-api-2.3.1</url>
+    </scm>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <version>1.4.3</version>
+                <configuration>
+                    <supportedProjectTypes>
+                        <supportedProjectType>jar</supportedProjectType>
+                    </supportedProjectTypes>
+                    <instructions>
+                        <Bundle-SymbolicName>${bundle.symbolicName}</Bundle-SymbolicName>
+                        <_include>-osgi.bundle</_include>
+                    </instructions>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <!-- Use default to include version in jar file name -->
+                    <!--finalName>${project.artifactId}</finalName-->
+                    <archive>
+                        <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+                        <manifestEntries>
+                            <Extension-Name>${extensionName}</Extension-Name>
+                            <!--Specification-Title>${specificationTitle}</Specification-Title-->
+                            <Specification-Version>${spec.version}</Specification-Version>
+                            <Specification-Vendor>${vendorName}</Specification-Vendor>
+                            <!--Implementation-Title>${implementationTitle}</Implementation-Title-->
+                            <Implementation-Version>${project.version}</Implementation-Version>
+                            <Implementation-Vendor>${vendorName}</Implementation-Vendor>
+                            <!--Implementation-Vendor-Id>com.sun</Implementation-Vendor-Id-->
+                        </manifestEntries>
+                    </archive>
+                    <excludes>
+                        <exclude>**/*.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.0</version>
+                <configuration>
+                    <source>1.7</source>
+                    <target>1.7</target>
+                    <compilerArgument>-Xlint:unchecked</compilerArgument>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version> 2.1 </version>
+                <configuration>
+                    <includePom>true</includePom>
+                </configuration>
+                <executions>
+                    <execution>
+                       <id>attach-sources</id>
+                       <goals>
+                           <goal>jar-no-fork</goal> 
+                       </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <executions>
+                  <execution>
+                    <id>attach-javadocs</id>
+                      <goals>
+                          <goal>jar</goal>
+                      </goals>
+                    <configuration>
+                      <groups>
+                        <group>
+                          <title>JavaServer Pages API Documentation</title>
+                          <packages>javax.servlet.jsp</packages>
+                        </group>
+                      </groups>
+                      <bottom>
+<![CDATA[Copyright &#169; 2013,
+    <a href="http://www.oracle.com">Oracle</a>
+    and/or its affiliates. All Rights Reserved.
+    Use is subject to
+  <a href="{@docRoot}/doc-files/final-spec-license.html" target="_top">license terms</a>.
+]]>
+                            </bottom>
+                    </configuration>
+                  </execution>
+                </executions>
+            </plugin>   
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <version>${findbugs.version}</version>
+                <configuration>
+                    <threshold>${findbugs.threshold}</threshold>
+                    <excludeFilterFile>${findbugs.exclude}</excludeFilterFile>
+                    <findbugsXmlOutput>true</findbugsXmlOutput>
+                    <findbugsXmlWithMessages>true</findbugsXmlWithMessages>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>                           
+                <artifactId>maven-release-plugin</artifactId>                         
+                <configuration>                                                       
+                    <mavenExecutorId>forked-path</mavenExecutorId>                
+                    <useReleaseProfile>false</useReleaseProfile>                  
+                    <arguments>${release.arguments}</arguments>
+                </configuration>                                                      
+            </plugin>                    
+        </plugins>
+        <resources>
+            <resource>
+                <directory>src/main/java</directory>
+                <includes>
+                    <include>**/*.properties</include>
+                </includes>
+            </resource>
+        </resources>
+    </build>
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <version>${findbugs.version}</version>
+                <configuration>
+                    <threshold>${findbugs.threshold}</threshold>
+                    <excludeFilterFile>${findbugs.exclude}</excludeFilterFile>
+                </configuration>
+            </plugin>
+        </plugins>
+    </reporting>
+
+    <dependencies>
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>3.0.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>javax.el</groupId>
+            <artifactId>javax.el-api</artifactId>
+            <version>[3.0-b08,)</version>
+            <scope>provided</scope>
+        </dependency>
+   </dependencies>
+</project>

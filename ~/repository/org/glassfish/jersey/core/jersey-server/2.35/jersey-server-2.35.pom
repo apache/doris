@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright (c) 2010, 2021 Oracle and/or its affiliates. All rights reserved.
+
+    This program and the accompanying materials are made available under the
+    terms of the Eclipse Public License v. 2.0, which is available at
+    http://www.eclipse.org/legal/epl-2.0.
+
+    This Source Code may also be made available under the following Secondary
+    Licenses when the conditions for such availability set forth in the
+    Eclipse Public License v. 2.0 are satisfied: GNU General Public License,
+    version 2 with the GNU Classpath Exception, which is available at
+    https://www.gnu.org/software/classpath/license.html.
+
+    SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.glassfish.jersey</groupId>
+        <artifactId>project</artifactId>
+        <version>2.35</version>
+    </parent>
+
+    <groupId>org.glassfish.jersey.core</groupId>
+    <artifactId>jersey-server</artifactId>
+    <packaging>jar</packaging>
+    <name>jersey-core-server</name>
+
+    <description>Jersey core server implementation</description>
+
+    <licenses>
+        <license>
+            <name>EPL 2.0</name>
+            <url>http://www.eclipse.org/legal/epl-2.0</url>
+            <distribution>repo</distribution>
+            <comments>Except for Guava, JSR-166 files, Dropwizard Monitoring inspired classes, ASM and Jackson JAX-RS Providers.
+                See also https://github.com/eclipse-ee4j/jersey/blob/master/NOTICE.md</comments>
+        </license>
+        <license>
+            <name>The GNU General Public License (GPL), Version 2, With Classpath Exception</name>
+            <url>https://www.gnu.org/software/classpath/license.html</url>
+            <distribution>repo</distribution>
+            <comments>Except for Dropwizard Monitoring inspired classes and ASM.
+                See also https://github.com/eclipse-ee4j/jersey/blob/master/NOTICE.md</comments>
+        </license>
+        <license>
+            <name>Apache License, 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+            <comments>Dropwizard Monitoring inspired classes @ org.glassfish.jersey.server.internal.monitoring.core</comments>
+        </license>
+        <license>
+            <name>Modified BSD</name>
+            <url>http://asm.objectweb.org/license.html</url>
+            <distribution>repo</distribution>
+            <comments>ASM @ jersey.repackaged.org.objectweb.asm</comments>
+        </license>
+    </licenses>
+
+    <build>
+        <testResources>
+            <testResource>
+                <directory>${basedir}/src/test/resources</directory>
+                <filtering>true</filtering>
+            </testResource>
+        </testResources>
+
+        <plugins>
+            <plugin>
+                <groupId>com.sun.istack</groupId>
+                <artifactId>istack-commons-maven-plugin</artifactId>
+                <inherited>true</inherited>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <inherited>true</inherited>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <inherited>true</inherited>
+                <extensions>true</extensions>
+                <configuration>
+                    <instructions>
+                        <!-- Note: When you're changing these properties change them also in bundles/jaxrs-ri/pom.xml. -->
+                        <Export-Package>
+                            org.glassfish.jersey.server.*;version=${project.version},
+                            com.sun.research.ws.wadl.*;version=${project.version}
+                        </Export-Package>
+                        <Import-Package>
+                            ${javax.annotation.osgi.version},
+                            javax.xml.bind;version="!";resolution:=optional,
+                            javax.xml.bind.annotation;version="!";resolution:=optional,
+                            javax.xml.bind.annotation.adapters;version="!";resolution:=optional,
+                            javax.xml.namespace;resolution:=optional,
+                            javax.xml.parsers;resolution:=optional,
+                            javax.xml.transform;resolution:=optional,
+                            javax.xml.transform.sax;resolution:=optional,
+                            javax.xml.transform.stream;resolution:=optional,
+                            javax.validation.*;resolution:=optional;version="${range;[==,3);${javax.validation.api.version}}",
+                            *
+                        </Import-Package>
+                    </instructions>
+                    <unpackBundle>true</unpackBundle>
+                </configuration>
+            </plugin>
+            <plugin>
+                <!--
+                Note: If you need to re-generate WADL classes do so by invoking:
+
+                    mvn com.sun.tools.xjc.maven2:maven-jaxb-plugin:generate
+                -->
+                <groupId>com.sun.tools.xjc.maven2</groupId>
+                <artifactId>maven-jaxb-plugin</artifactId>
+                <dependencies>
+                    <dependency>
+                        <groupId>jakarta.xml.bind</groupId>
+                        <artifactId>jakarta.xml.bind-api</artifactId>
+                        <version>${jaxb.api.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>com.sun.xml.bind</groupId>
+                        <artifactId>jaxb-impl</artifactId>
+                        <version>${jaxb.ri.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>com.sun.xml.bind</groupId>
+                        <artifactId>jaxb-xjc</artifactId>
+                        <version>${jaxb.ri.version}</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <generateDirectory>${basedir}/src/main/java</generateDirectory>
+                    <generatePackage>com.sun.research.ws.wadl</generatePackage>
+                    <catalog>${basedir}/etc/catalog.xml</catalog>
+                    <schemaDirectory>${basedir}/etc</schemaDirectory>
+                    <includeSchemas>
+                        <includeSchema>wadl.xsd</includeSchema>
+                    </includeSchemas>
+                    <removeOldOutput>true</removeOldOutput>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Execute test classes in parallel - 1 thread per CPU core. -->
+                    <parallel>classes</parallel>
+                    <perCoreThreadCount>true</perCoreThreadCount>
+                    <threadCount>1</threadCount>
+                    <forkCount>1C</forkCount>
+                    <reuseForks>true</reuseForks>
+                    <systemPropertiesFile>${project.basedir}/etc/systemPropertiesFile</systemPropertiesFile>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+
+        <dependency>
+            <groupId>org.glassfish.jersey.core</groupId>
+            <artifactId>jersey-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.glassfish.jersey.core</groupId>
+            <artifactId>jersey-client</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.ws.rs</groupId>
+            <artifactId>jakarta.ws.rs-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.glassfish.hk2.external</groupId>
+            <artifactId>jakarta.inject</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.osgi</groupId>
+            <artifactId>org.osgi.core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.xml.bind</groupId>
+            <artifactId>jakarta.xml.bind-api</artifactId>
+            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jersey.media</groupId>
+            <artifactId>jersey-media-jaxb</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-library</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jboss</groupId>
+            <artifactId>jboss-vfs</artifactId>
+            <version>3.2.6.Final</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.glassfish.jersey.inject</groupId>
+            <artifactId>jersey-hk2</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <profile>
+            <id>jdk11+</id>
+            <activation>
+                <jdk>[11,)</jdk>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.sun.xml.bind</groupId>
+                    <artifactId>jaxb-osgi</artifactId>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>securityOff</id>
+            <properties>
+                <surefire.security.argline />
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/SecurityManagerConfiguredTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>sonar</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- disable parallel execution so that JaCoCo listener can properly work -->
+                            <parallel>none</parallel>
+                            <perCoreThreadCount>false</perCoreThreadCount>
+                            <forkCount>1</forkCount>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <artifactId>maven-shade-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>shade-archive</id>
+                                <phase>none</phase>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <properties>
+        <surefire.security.argline>-Djava.security.manager -Djava.security.policy=${project.build.directory}/test-classes/server.policy</surefire.security.argline>
+    </properties>
+
+</project>

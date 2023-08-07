@@ -1,0 +1,638 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright (c) 2011, 2017 Oracle and/or its affiliates. All rights reserved.
+
+    This program and the accompanying materials are made available under the
+    terms of the Eclipse Public License v. 2.0, which is available at
+    http://www.eclipse.org/legal/epl-2.0.
+
+    This Source Code may also be made available under the following Secondary
+    Licenses when the conditions for such availability set forth in the
+    Eclipse Public License v. 2.0 are satisfied: GNU General Public License,
+    version 2 with the GNU Classpath Exception, which is available at
+    https://www.gnu.org/software/classpath/license.html.
+
+    SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>javax.ws.rs</groupId>
+    <artifactId>javax.ws.rs-api</artifactId>
+    <version>2.1.1</version>
+    <packaging>${packaging.type}</packaging>
+    <name>javax.ws.rs-api</name>
+    <description>Java API for RESTful Web Services</description>
+
+    <url>https://github.com/eclipse-ee4j/jaxrs-api</url>
+
+    <organization>
+        <name>Eclipse Foundation</name>
+        <url>https://www.eclipse.org/org/foundation/</url>
+    </organization>
+
+    <developers>
+        <developer>
+            <id>developers</id>
+            <name>JAX-RS API Developers</name>
+            <email>jaxrs-dev@eclipse.org</email>
+            <url>https://github.com/eclipse-ee4j/jaxrs-api/graphs/contributors</url>
+        </developer>
+    </developers>
+
+    <issueManagement>
+        <system>Github</system>
+        <url>https://github.com/eclipse-ee4j/jaxrs-api/issues</url>
+    </issueManagement>
+
+    <mailingLists>
+        <mailingList>
+            <name>JAX-RS Developer Discussions</name>
+            <archive>jaxrs-dev@eclipse.org</archive>
+        </mailingList>
+    </mailingLists>
+
+    <licenses>
+        <license>
+            <name>EPL 2.0</name>
+            <url>http://www.eclipse.org/legal/epl-2.0</url>
+            <distribution>repo</distribution>
+        </license>
+        <license>
+            <name>GPL2 w/ CPE</name>
+            <url>https://www.gnu.org/software/classpath/license.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <scm>
+        <connection>scm:git:https://github.com/eclipse-ee4j/jaxrs-api</connection>
+        <url>https://github.com/eclipse-ee4j/jaxrs-api</url>
+        <tag>HEAD</tag>
+    </scm>
+
+    <profiles>
+        <profile>
+            <id>final</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <properties>
+                <!-- Final API bundle version properties -->
+                <spec.version>${next.final.spec.version}</spec.version>
+                <new.spec.version />
+                <milestone.number />
+                <non.final>false</non.final>
+            </properties>
+        </profile>
+        <profile>
+            <!-- Use it with release-perform goal to skip another test run. -->
+            <id>skip-tests</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <properties>
+                <skip.release.tests>true</skip.release.tests>
+            </properties>
+        </profile>
+        <profile>
+            <id>release</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <!-- Enables step-by-step staging deployment -->
+                            <groupId>org.sonatype.plugins</groupId>
+                            <artifactId>nexus-staging-maven-plugin</artifactId>
+                            <version>1.6.7</version>
+                        </plugin>
+                        <plugin>
+                            <!-- Newer version then in parent -->
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-gpg-plugin</artifactId>
+                            <version>1.6</version>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-release-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>sign-release</id>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-deploy-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip> <!-- To prefer nexus-staging-maven-plugin -->
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.plugins</groupId>
+                        <artifactId>nexus-staging-maven-plugin</artifactId>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>default-deploy</id>
+                                <phase>deploy</phase>
+                                <goals>
+                                    <goal>deploy</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <serverId>ossrh</serverId>
+                            <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+                            <autoReleaseAfterClose>false</autoReleaseAfterClose>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+
+            <distributionManagement>
+                <repository>
+                    <id>ossrh</id>
+                    <name>Sonatype Nexus Releases</name>
+                    <url>https://oss.sonatype.org/service/local/staging/deploy/maven2</url>
+                </repository>
+
+                <snapshotRepository>
+                    <id>ossrh</id>
+                    <name>Sonatype Nexus Snapshots</name>
+                    <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+                </snapshotRepository>
+            </distributionManagement>
+        </profile>
+        <profile>
+            <id>jdk9+</id>
+            <activation>
+                <jdk>[9,)</jdk>
+            </activation>
+            <properties>
+                <!-- TODO: maven-bundle-plugin doesn't understand module-info yet. -->
+                <packaging.type>jar</packaging.type>
+            </properties>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-compiler-plugin</artifactId>
+                            <version>${maven.compiler.plugin.version}</version>
+                            <executions>
+                                <execution>
+                                    <id>default-compile</id>
+                                    <configuration>
+                                        <!-- compile everything to ensure module-info contains right entries -->
+                                        <release>9</release>
+                                    </configuration>
+                                </execution>
+                                <execution>
+                                    <id>base-compile</id>
+                                    <goals>
+                                        <goal>compile</goal>
+                                    </goals>
+                                    <!-- recompile everything for target VM except the module-info.java -->
+                                    <configuration>
+                                        <excludes>
+                                            <exclude>module-info.java</exclude>
+                                        </excludes>
+                                        <source>${java.version}</source>
+                                        <target>${java.version}</target>
+                                    </configuration>
+                                </execution>
+                            </executions>
+                            <configuration>
+                                <source>${java.version}</source>
+                                <target>${java.version}</target>
+                            </configuration>
+                        </plugin>
+                        <plugin>
+                            <artifactId>maven-surefire-plugin</artifactId>
+                            <configuration>
+                                <argLine>--add-modules java.xml.bind</argLine>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+        </profile>
+        <profile>
+            <id>jdk8-</id>
+            <activation>
+                <jdk>(,9)</jdk>
+            </activation>
+            <properties>
+                <packaging.type>bundle</packaging.type>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <!-- TODO: overriding paren pom (profile jvnet-release) - we should find nicer way -->
+                        <!-- 1.8- javadoc cannot handle module-info -->
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>${maven.javadoc.plugin.version}</version>
+                        <configuration combine.self="override">
+                            <doctitle>${apidocs.title}</doctitle>
+                            <bottom>
+                                <![CDATA[Copyright &#169; 1996-2017,
+                                <a href="http://www.oracle.com">Oracle</a>
+                                and/or its affiliates. All Rights Reserved.
+                                ]]>
+                            </bottom>
+                            <additionalparam>-Xdoclint:none</additionalparam>
+                            <!--javaApiLinks>
+                                <property>
+                                    <name>api_1.3</name>
+                                    <value>http://download.oracle.com/javase/1.3/docs/api/</value>
+                                </property>
+                                <property>
+                                    <name>api_1.4</name>
+                                    <value>http://download.oracle.com/javase/1.4.2/docs/api/</value>
+                                </property>
+                                <property>
+                                    <name>api_1.5</name>
+                                    <value>http://download.oracle.com/javase/1.5.0/docs/api/</value>
+                                </property>
+                                <property>
+                                    <name>api_1.6</name>
+                                    <value>http://download.oracle.com/javase/6/docs/api/</value>
+                                </property>
+                            </javaApiLinks-->
+                            <sourceFileExcludes>
+                                <fileExclude>module-info.java</fileExclude>
+                            </sourceFileExcludes>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-compiler-plugin</artifactId>
+                            <version>${maven.compiler.plugin.version}</version>
+                            <configuration>
+                                <source>${java.version}</source>
+                                <target>${java.version}</target>
+                                <excludes>
+                                    <exclude>module-info.java</exclude>
+                                </excludes>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+        </profile>
+    </profiles>
+
+    <build>
+        <finalName>${project.artifactId}</finalName>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>2.5</version>
+                </plugin>
+                <plugin>
+                    <!-- This plugin generates the buildNumber property used in maven-bundle-plugin -->
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>buildnumber-maven-plugin</artifactId>
+                    <version>1.3</version>
+                    <configuration>
+                        <format>{0,date,MM/dd/yyyy hh:mm aa}</format>
+                        <items>
+                            <item>timestamp</item>
+                        </items>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>create</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <!-- This plugin generates the spec.* properties used in maven-bundle-plugin -->
+                    <groupId>org.glassfish.build</groupId>
+                    <artifactId>spec-version-maven-plugin</artifactId>
+                    <version>1.2</version>
+                    <configuration>
+                        <spec>
+                            <nonFinal>${non.final}</nonFinal>
+                            <jarType>api</jarType>
+                            <specVersion>${spec.version}</specVersion>
+                            <newSpecVersion>${new.spec.version}</newSpecVersion>
+                            <specBuild>${milestone.number}</specBuild>
+                            <specImplVersion>${project.version}</specImplVersion>
+                            <apiPackage>${project.groupId}</apiPackage>
+                        </spec>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>set-spec-properties</goal>
+                                <goal>check-module</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.felix</groupId>
+                    <artifactId>maven-bundle-plugin</artifactId>
+                    <version>${maven.bundle.plugin.version}</version>
+                    <extensions>true</extensions>
+                    <configuration>
+                        <instructions>
+                            <_failok>true</_failok>
+                            <Build-Id>${buildNumber}</Build-Id>
+                            <Bundle-Description>Java API for RESTful Web Services (JAX-RS)</Bundle-Description>
+                            <Bundle-Version>${spec.bundle.version}</Bundle-Version>
+                            <Bundle-SymbolicName>${spec.bundle.symbolic-name}</Bundle-SymbolicName>
+                            <DynamicImport-Package>*</DynamicImport-Package>
+                            <Extension-Name>${spec.extension.name}</Extension-Name>
+                            <Implementation-Version>${spec.implementation.version}</Implementation-Version>
+                            <Specification-Version>${spec.specification.version}</Specification-Version>
+                            <Specification-Vendor>Oracle Corporation</Specification-Vendor>
+                            <specversion>${spec.specification.version}</specversion>
+                            <Automatic-Module-Name>java.ws.rs</Automatic-Module-Name>
+                            <_versionpolicy>[$(version;==;$(@)),$(version;+;$(@)))</_versionpolicy>
+                            <_nodefaultversion>false</_nodefaultversion>
+                        </instructions>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>osgi-bundle</id>
+                            <phase>package</phase>
+                            <goals>
+                                <goal>bundle</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>${maven.javadoc.plugin.version}</version>
+                    <configuration>
+                        <doctitle>${apidocs.title}</doctitle>
+                        <bottom>
+                            <![CDATA[Copyright &#169; 1996-2017,
+                                <a href="http://www.oracle.com">Oracle</a>
+                                and/or its affiliates. All Rights Reserved.
+                            ]]>
+                        </bottom>
+                        <additionalparam>-Xdoclint:none</additionalparam>
+                        <!--javaApiLinks>
+                            <property>
+                                <name>api_1.3</name>
+                                <value>http://download.oracle.com/javase/1.3/docs/api/</value>
+                            </property>
+                            <property>
+                                <name>api_1.4</name>
+                                <value>http://download.oracle.com/javase/1.4.2/docs/api/</value>
+                            </property>
+                            <property>
+                                <name>api_1.5</name>
+                                <value>http://download.oracle.com/javase/1.5.0/docs/api/</value>
+                            </property>
+                            <property>
+                                <name>api_1.6</name>
+                                <value>http://download.oracle.com/javase/6/docs/api/</value>
+                            </property>
+                        </javaApiLinks-->
+                        <sourceFileExcludes>
+                            <fileExclude>module-info.java</fileExclude>
+                        </sourceFileExcludes>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>attach-javadocs</id>
+                            <goals>
+                                <goal>jar</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>2.3</version>
+                    <executions>
+                        <execution>
+                            <id>attach-sources</id>
+                            <goals>
+                                <goal>jar-no-fork</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>2.8.1</version>
+                    <configuration>
+                        <retryFailedDeploymentCount>10</retryFailedDeploymentCount>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-release-plugin</artifactId>
+                    <version>2.5.3</version>
+                    <!--
+                        To release a non-final version:
+                        ===============================
+                        mvn release:prepare -DdryRun=false -DreleaseVersion=<release-version> \
+                                -DdevelopmentVersion=<next-dev-version> -Dtag=<release-version> -Prelease
+
+                        mvn release:perform -DconnectionUrl="scm:git:file://<path-to-local-jaxrs-repo>" -Dtag=<release-version> \
+                                -Prelease,skip-tests
+
+                        To release a final version:
+                        ===========================
+                        mvn release:prepare -DdryRun=false -DreleaseVersion=<release-version> \
+                                -DdevelopmentVersion=<next-dev-version> -Dtag=<release-version> -Prelease,final
+
+                        mvn release:perform -DconnectionUrl="scm:git:file://<path-to-local-jaxrs-repo>" -Dtag=<release-version> \
+                                -Prelease,skip-tests,final
+                    -->
+                    <configuration>
+                        <arguments>-Dmaven.test.skip=${skip.release.tests} ${release.arguments}</arguments>
+                        <autoVersionSubmodules>true</autoVersionSubmodules>
+                        <mavenExecutorId>forked-path</mavenExecutorId>
+                        <preparationGoals>clean install</preparationGoals>
+                        <pushChanges>false</pushChanges>
+                        <useReleaseProfile>false</useReleaseProfile>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jxr-plugin</artifactId>
+                    <version>2.3</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>jxr</goal>
+                            </goals>
+                            <phase>validate</phase>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>2.12.1</version>
+                    <configuration>
+                        <outputDirectory>${project.build.directory}/checkstyle</outputDirectory>
+                        <outputFile>${project.build.directory}/checkstyle/checkstyle-result.xml</outputFile>
+                        <configLocation>${basedir}/../etc/config/checkstyle.xml</configLocation>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>checkstyle</goal>
+                            </goals>
+                            <phase>validate</phase>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.glassfish.copyright</groupId>
+                    <artifactId>glassfish-copyright-maven-plugin</artifactId>
+                    <version>1.39</version>
+                    <configuration>
+                        <excludeFile>${basedir}/../etc/config/copyright-exclude</excludeFile>
+                        <!--svn|mercurial|git - defaults to svn-->
+                        <scm>git</scm>
+                        <!-- turn on/off debugging -->
+                        <debug>false</debug>
+                        <!-- skip files not under SCM-->
+                        <scmOnly>true</scmOnly>
+                        <!-- turn off warnings -->
+                        <warn>true</warn>
+                        <!-- for use with repair -->
+                        <update>false</update>
+                        <!-- check that year is correct -->
+                        <ignoreYear>false</ignoreYear>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.glassfish.build</groupId>
+                <artifactId>spec-version-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>buildnumber-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jxr-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.glassfish.copyright</groupId>
+                <artifactId>glassfish-copyright-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.11</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <properties>
+        <apidocs.title>JAX-RS ${spec.version} API Specification ${spec.version.revision}</apidocs.title>
+        <java.version>1.8</java.version>
+
+        <maven.bundle.plugin.version>3.3.0</maven.bundle.plugin.version>
+        <maven.compiler.plugin.version>3.6.1</maven.compiler.plugin.version>
+        <maven.javadoc.plugin.version>2.10.4</maven.javadoc.plugin.version>
+
+        <last.final.spec.version>2.1</last.final.spec.version>
+        <milestone.number>01</milestone.number>
+        <next.final.spec.version>2.2</next.final.spec.version>
+        <new.spec.version>${next.final.spec.version}</new.spec.version>
+        <non.final>true</non.final>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <skip.release.tests>false</skip.release.tests>
+        <spec.version>${last.final.spec.version}</spec.version>
+        <spec.version.revision /> <!-- e.g. (Rev a) -->
+    </properties>
+
+    <distributionManagement>
+        <repository>
+            <id>repo.eclipse.org</id>
+            <name>JAX-RS API Repository - Releases</name>
+            <url>https://repo.eclipse.org/content/repositories/jax-rs-api-releases/</url>
+        </repository>
+
+        <snapshotRepository>
+            <id>repo.eclipse.org</id>
+            <name>JAX-RS API Repository - Snapshots</name>
+	    <url>https://repo.eclipse.org/content/repositories/jax-rs-api-snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
+
+</project>

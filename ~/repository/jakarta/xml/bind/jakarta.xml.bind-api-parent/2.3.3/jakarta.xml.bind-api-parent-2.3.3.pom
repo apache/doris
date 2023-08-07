@@ -1,0 +1,230 @@
+<?xml version="1.0"?>
+<!--
+
+    Copyright (c) 1997, 2020 Oracle and/or its affiliates. All rights reserved.
+
+    This program and the accompanying materials are made available under the
+    terms of the Eclipse Distribution License v. 1.0, which is available at
+    http://www.eclipse.org/org/documents/edl-v10.php.
+
+    SPDX-License-Identifier: BSD-3-Clause
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.eclipse.ee4j</groupId>
+        <artifactId>project</artifactId>
+        <version>1.0.6</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>jakarta.xml.bind</groupId>
+    <artifactId>jakarta.xml.bind-api-parent</artifactId>
+    <version>2.3.3</version>
+    <packaging>pom</packaging>
+    <name>Jakarta XML Binding</name>
+    <description>Jakarta XML Binding API</description>
+    <url>https://github.com/eclipse-ee4j/jaxb-api</url>
+
+    <scm>
+        <connection>scm:git:git://github.com/eclipse-ee4j/jaxb-api.git</connection>
+        <developerConnection>scm:git:git@github.com:eclipse-ee4j/jaxb-api.git</developerConnection>
+        <url>https://github.com/eclipse-ee4j/jaxb-api.git</url>
+        <tag>HEAD</tag>
+    </scm>
+
+    <licenses>
+        <license>
+            <name>Eclipse Distribution License - v 1.0</name>
+            <url>http://www.eclipse.org/org/documents/edl-v10.php</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Roman Grigoriadi</name>
+            <email>roman.grigoriadi@oracle.com</email>
+            <organization>Oracle Corporation</organization>
+        </developer>
+    </developers>
+
+    <issueManagement>
+        <system>github</system>
+        <url>https://github.com/eclipse-ee4j/jaxb-api/issues</url>
+    </issueManagement>
+
+    <mailingLists>
+        <mailingList>
+            <name>Jakarta XML Binding mailing list</name>
+            <post>jaxb-dev@eclipse.org</post>
+            <subscribe>https://accounts.eclipse.org/mailing-list/jaxb-dev</subscribe>
+            <unsubscribe>https://accounts.eclipse.org/mailing-list/jaxb-dev</unsubscribe>
+            <archive>https://dev.eclipse.org/mhonarc/lists/jaxb-dev</archive>
+        </mailingList>
+    </mailingLists>
+
+    <properties>
+        <copyright.exclude>${config.dir}/copyright-exclude</copyright.exclude>
+        <copyright.ignoreyear>false</copyright.ignoreyear>
+        <copyright.scmonly>true</copyright.scmonly>
+        <copyright.templatefile>${config.dir}/edl-copyright.txt</copyright.templatefile>
+        <copyright.update>false</copyright.update>
+        <spotbugs.exclude>${project.basedir}/exclude.xml</spotbugs.exclude>
+        <spotbugs.skip>false</spotbugs.skip>
+        <spotbugs.threshold>Low</spotbugs.threshold>
+        <spotbugs.version>3.1.12.1</spotbugs.version>
+
+        <release.spec.feedback>jaxb-dev@eclipse.org</release.spec.feedback>
+        <release.spec.date>Jul 2017</release.spec.date>
+        <api.package>javax.xml.bind</api.package>
+        <extension.name>jakarta.xml.bind</extension.name>
+        <spec.version>2.3</spec.version>
+        <impl.version>3</impl.version>
+        <activation.version>1.2.2</activation.version>
+        <config.dir>${project.basedir}/etc/config</config.dir>
+        <vendor.name>Eclipse Foundation</vendor.name>
+    </properties>
+
+    <modules>
+        <module>jaxb-api</module>
+        <module>jaxb-api-test</module>
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>jakarta.activation</groupId>
+                <artifactId>jakarta.activation-api</artifactId>
+                <version>${activation.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>buildnumber-maven-plugin</artifactId>
+                    <version>1.4</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>3.0.0</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.8.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.glassfish.copyright</groupId>
+                    <artifactId>glassfish-copyright-maven-plugin</artifactId>
+                    <version>2.3</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>2.20</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>3.1.1</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>3.0.0-M3</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.felix</groupId>
+                    <artifactId>maven-bundle-plugin</artifactId>
+                    <version>4.2.1</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.2.1</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.1.0</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.0.0-M1</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>3.1.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>com.github.spotbugs</groupId>
+                    <artifactId>spotbugs-maven-plugin</artifactId>
+                    <version>${spotbugs.version}</version>
+                    <configuration>
+                        <skip>${spotbugs.skip}</skip>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>1.8</source>
+                    <target>1.8</target>
+                    <compilerArgs>
+                        <arg>-Xlint:all</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.glassfish.copyright</groupId>
+                <artifactId>glassfish-copyright-maven-plugin</artifactId>
+                <configuration>
+                    <templateFile>${copyright.templatefile}</templateFile>
+                    <excludeFile>${copyright.exclude}</excludeFile>
+                    <!-- skip files not under SCM-->
+                    <scmOnly>${copyright.scmonly}</scmOnly>
+                    <!-- for use with repair -->
+                    <update>${copyright.update}</update>
+                    <!-- check that year is correct -->
+                    <ignoreYear>${copyright.ignoreyear}</ignoreYear>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                        </manifest>
+                        <manifestEntries>
+                            <Implementation-Build-Id>${project.version} - ${scmBranch}-${buildNumber}</Implementation-Build-Id>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+
+    </build>
+
+</project>

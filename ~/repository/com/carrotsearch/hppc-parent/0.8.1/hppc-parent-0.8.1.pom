@@ -1,0 +1,543 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.sonatype.oss</groupId>
+    <artifactId>oss-parent</artifactId>
+    <version>9</version>
+  </parent>
+
+  <prerequisites>
+    <maven>3.5.2</maven>
+  </prerequisites>
+
+  <groupId>com.carrotsearch</groupId>
+  <artifactId>hppc-parent</artifactId>
+  <version>0.8.1</version>
+  <packaging>pom</packaging>
+
+  <name>HPPC (parent POM)</name>
+  <description>Parent POM for HPPC projects (High Performance Primitive Collections)</description>
+  <url>http://labs.carrotsearch.com/hppc.html</url>
+
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <organization>
+    <name>Carrot Search s.c.</name>
+    <url>http://www.carrotsearch.com</url>
+  </organization>
+
+  <issueManagement>
+    <system>Jira</system>
+    <url>http://issues.carrot2.org/browse/HPPC</url>
+  </issueManagement>
+
+  <mailingLists>
+    <mailingList>
+      <name>Announcements and bug reports mailing list</name>
+      <subscribe>java-high-performance-primitive-collections+subscribe@googlegroups.com</subscribe>
+      <unsubscribe>java-high-performance-primitive-collections+unsubscribe@googlegroups.com</unsubscribe>
+      <post>java-high-performance-primitive-collections@googlegroups.com</post>
+    </mailingList>
+  </mailingLists>
+
+  <scm>
+    <url>git@github.com:carrotsearch/hppc.git</url>
+    <connection>scm:git:git@github.com:carrotsearch/hppc.git</connection>
+    <developerConnection>scm:git:git@github.com:carrotsearch/hppc.git</developerConnection>
+  </scm>
+
+  <developers>
+    <developer>
+      <id>dawid.weiss</id>
+      <name>Dawid Weiss</name>
+      <email>dawid.weiss@carrotsearch.com</email>
+    </developer>
+
+    <developer>
+      <id>stanislaw.osinski</id>
+      <name>Stanisław Osiński</name>
+      <email>stanislaw.osinski@carrotsearch.com</email>
+    </developer>
+  </developers>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.source>1.7</maven.compiler.source>
+    <maven.compiler.target>1.7</maven.compiler.target>
+
+    <version.guava>18.0</version.guava>
+    <version.junit>4.12</version.junit>
+    <version.jmh>1.21</version.jmh>
+    <version.assertj>2.0.0</version.assertj>
+    <version.randomizedtesting>2.6.1</version.randomizedtesting>
+    <version.antlr>4.7.1</version.antlr>
+    <version.velocity>2.0</version.velocity>
+    <version.forbiddenapis>2.5</version.forbiddenapis>
+
+    <version.fastutil>7.0.2</version.fastutil>
+    <version.koloboke>0.6.6</version.koloboke>
+
+    <version.maven-assembly-plugin>3.1.0</version.maven-assembly-plugin>
+    <version.maven-bundle-plugin>3.5.0</version.maven-bundle-plugin>
+    <version.maven-clean-plugin>3.1.0</version.maven-clean-plugin>
+    <version.maven-compiler-plugin>3.7.0</version.maven-compiler-plugin>
+    <version.maven-dependency-plugin>2.9</version.maven-dependency-plugin>
+    <version.maven-deploy-plugin>2.8.2</version.maven-deploy-plugin>
+    <version.maven-install-plugin>2.5.2</version.maven-install-plugin>
+    <version.maven-jar-plugin>3.1.0</version.maven-jar-plugin>
+    <version.maven-resources-plugin>3.1.0</version.maven-resources-plugin>
+    <version.maven-surefire-plugin>2.21.0</version.maven-surefire-plugin>
+    <version.maven-enforcer-plugin>3.0.0-M1</version.maven-enforcer-plugin>
+    <version.maven-javadoc-plugin>3.0.0</version.maven-javadoc-plugin>
+    <version.maven-versions-plugin>2.5</version.maven-versions-plugin>
+    <version.maven-buildhelper-plugin>1.9.1</version.maven-buildhelper-plugin>
+    <version.maven-shade-plugin>3.1.1</version.maven-shade-plugin>
+
+    <version.maven.api>3.2.3</version.maven.api>
+
+    <gpg.passphrase></gpg.passphrase>
+  </properties>
+
+  <modules>
+    <module>hppc</module>
+    <module>hppc-template-processor</module>
+    <module>hppc-benchmarks</module>
+    <module>hppc-examples</module>
+  </modules>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>${version.guava}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>junit</groupId>
+        <artifactId>junit</artifactId>
+        <version>${version.junit}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${version.assertj}</version>
+        <type>jar</type>
+      </dependency>
+
+      <dependency>
+        <groupId>com.carrotsearch.randomizedtesting</groupId>
+        <artifactId>randomizedtesting-runner</artifactId>
+        <version>${version.randomizedtesting}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-gpg-plugin</artifactId>
+          <version>1.6</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>${version.maven-assembly-plugin}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.antlr</groupId>
+          <artifactId>antlr4-maven-plugin</artifactId>
+          <version>${version.antlr}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>versions-maven-plugin</artifactId>
+          <version>${version.maven-versions-plugin}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>${version.maven-clean-plugin}</version>
+          <configuration>
+            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+            <filesets>
+              <fileset>
+                <directory>${project.build.directory}</directory>
+                <excludes>
+                  <exclude>eclipse/**</exclude>
+                </excludes>
+              </fileset>
+            </filesets>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${version.maven-compiler-plugin}</version>
+          <configuration>
+            <source>${maven.compiler.source}</source>
+            <target>${maven.compiler.target}</target>
+            <compilerArgs>
+              <arg>-Xlint</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <artifactId>maven-deploy-plugin</artifactId>
+          <version>${version.maven-deploy-plugin}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>${version.maven-install-plugin}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>${version.maven-jar-plugin}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>${version.maven-javadoc-plugin}</version>
+          <configuration>
+            <detectJavaApiLink>false</detectJavaApiLink>
+            <detectLinks>false</detectLinks>
+            <detectOfflineLinks>false</detectOfflineLinks>
+            <quiet>true</quiet>
+          </configuration>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>${version.maven-resources-plugin}</version>
+        </plugin>
+
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${version.maven-surefire-plugin}</version>
+          <executions>
+            <execution>
+              <id>default-test</id>
+              <phase>none</phase>
+            </execution>
+          </executions>
+        </plugin>
+
+        <plugin>
+          <groupId>com.carrotsearch.randomizedtesting</groupId>
+          <artifactId>junit4-maven-plugin</artifactId>
+          <version>${version.randomizedtesting}</version>
+          <executions>
+            <execution>
+              <id>junit4-tests</id>
+              <goals>
+                <goal>junit4</goal>
+              </goals>
+              <configuration>
+                <includes>
+                  <include>**/*Test.*</include>
+                </includes>
+                <excludes>
+                  <exclude>**/*$*</exclude>
+                  <exclude>**/Abstract*</exclude>
+                </excludes>
+  
+                <parallelism>auto</parallelism>
+                <maxMemory>750m</maxMemory>
+  
+                <listeners>
+                  <report-text 
+                    showThrowable="false" 
+                    showStackTraces="false" 
+                    showOutput="onError"
+                    showStatusOk="false" 
+                    showStatusError="false" 
+                    showStatusFailure="false" 
+                    showStatusIgnored="false"
+                    showSuiteSummary="true" />
+
+                  <report-json file="${project.build.directory}/surefire-reports/test-results.html" />
+                  <report-ant-xml dir="${project.build.directory}/surefire-reports/" mavenExtensions="true" />
+                </listeners>
+
+                <assertions>
+                  <enable package="com.carrotsearch" />
+                </assertions>
+              </configuration>
+            </execution>
+          </executions>          
+        </plugin>
+
+        <plugin>
+          <groupId>de.thetaphi</groupId>
+          <artifactId>forbiddenapis</artifactId>
+          <version>${version.forbiddenapis}</version>
+
+          <executions>
+            <execution>
+              <id>check-forbidden-apis</id>
+              <configuration>
+                <targetVersion>1.7</targetVersion>
+                <internalRuntimeForbidden>true</internalRuntimeForbidden>
+                <failOnUnsupportedJava>false</failOnUnsupportedJava>
+                <failOnMissingClasses>false</failOnMissingClasses>
+                <excludes><!-- Override in subprojects. -->
+                </excludes>
+                <bundledSignatures>
+                  <bundledSignature>jdk-unsafe</bundledSignature>
+                  <bundledSignature>jdk-deprecated</bundledSignature>
+                  <bundledSignature>jdk-system-out</bundledSignature>
+                </bundledSignatures>
+              </configuration>
+              <goals>
+                <goal>check</goal>
+              </goals>
+            </execution>
+            <execution>
+              <id>check-forbidden-apis-tests</id>
+              <configuration>
+                <targetVersion>1.7</targetVersion>
+                <internalRuntimeForbidden>true</internalRuntimeForbidden>
+                <failOnUnsupportedJava>false</failOnUnsupportedJava>
+                <failOnMissingClasses>false</failOnMissingClasses>
+                <excludes><!-- Override in subprojects. -->
+                </excludes>
+                <bundledSignatures>
+                  <bundledSignature>jdk-unsafe</bundledSignature>
+                  <bundledSignature>jdk-deprecated</bundledSignature>
+                </bundledSignatures>
+              </configuration>
+              <goals>
+                <goal>testCheck</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${version.maven-enforcer-plugin}</version>
+        <executions>
+          <execution>
+            <id>enforce-environment</id>
+            <phase>verify</phase>
+            <inherited>false</inherited>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion>
+                  <version>1.7.0</version>
+                </requireJavaVersion>
+                <requireMavenVersion>
+                  <version>${version.maven.api}</version>
+                </requireMavenVersion>
+              </rules>
+            </configuration>
+          </execution>
+          <execution>
+            <id>enforce-maven</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <phase>none</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>quick</id>
+      <properties>
+        <skipTests>true</skipTests>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>eclipse-builds</id>
+      <activation>
+        <property>
+          <name>m2e.version</name>
+        </property>
+      </activation>
+      <build>
+        <directory>target/eclipse</directory>
+      </build>
+    </profile>
+
+    <profile>
+      <id>eclipse</id>
+      <activation>
+        <property>
+          <name>m2e.version</name>
+        </property>
+      </activation>
+      <properties>
+        <!-- Skip compilation, installation or testing. -->
+        <maven.test.skip>true</maven.test.skip>
+        <maven.main.skip>true</maven.main.skip>
+        <forbiddenapis.skip>true</forbiddenapis.skip>
+        <skipTests>true</skipTests>
+      </properties>
+      <build>
+        <defaultGoal>install antrun:run</defaultGoal>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <artifactId>maven-antrun-plugin</artifactId>
+              <version>1.8</version>
+              <executions>
+                <execution>
+                  <id>default-cli</id>
+                  <phase>none</phase>
+                  <inherited>false</inherited>
+                  <configuration>
+                    <target>
+                      <presetdef name="copy">
+                        <copy overwrite="true" />
+                      </presetdef>
+                      <condition property="onwin">
+                        <os family="windows" />
+                      </condition>
+
+                      <fileset id="id:settings" dir="etc/eclipse/settings" />
+                      <copy todir="hppc-template-processor/.settings"><fileset refid="id:settings" /></copy>
+                      <copy todir="hppc/.settings">                   <fileset refid="id:settings" /></copy>
+                      <copy todir="hppc-benchmarks/.settings">        <fileset refid="id:settings" /></copy>
+                      <copy todir="hppc-examples/.settings">          <fileset refid="id:settings" /></copy>
+
+                      <copy todir=".">
+                        <fileset dir="etc/eclipse/configs" />
+                        <filtermapper>
+                          <replacestring from="_" to="." />
+                        </filtermapper>
+                        <filterchain unless:true="${onwin}" xmlns:unless="ant:unless">
+                          <tokenfilter>
+                            <filetokenizer />
+                            <replacestring from=".bat" to="" />
+                          </tokenfilter>
+                        </filterchain>
+                      </copy>
+                    </target>
+                  </configuration>
+                  <goals>
+                    <goal>run</goal>
+                  </goals>
+                </execution>
+              </executions>
+              <dependencies>
+                <dependency>
+                  <groupId>org.apache.ant</groupId>
+                  <artifactId>ant</artifactId>
+                  <version>1.9.4</version>
+                </dependency>
+              </dependencies>
+            </plugin>
+
+            <plugin>
+              <groupId>org.eclipse.m2e</groupId>
+              <artifactId>lifecycle-mapping</artifactId>
+              <version>1.0.0</version>
+              <configuration>
+                <lifecycleMappingMetadata>
+                  <pluginExecutions>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>de.thetaphi</groupId>
+                        <artifactId>forbiddenapis</artifactId>
+                        <versionRange>[0.0.0,)</versionRange>
+                        <goals>
+                          <goal>check</goal>
+                          <goal>testCheck</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <ignore />
+                      </action>
+                    </pluginExecution>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>com.carrotsearch</groupId>
+                        <artifactId>hppc-template-processor</artifactId>
+                        <versionRange>[0.0.0,)</versionRange>
+                        <goals>
+                          <goal>template-processor</goal>
+                          <goal>add-source</goal>
+                          <goal>add-test-source</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <execute>
+                          <runOnIncremental>false</runOnIncremental>
+                          <runOnConfiguration>true</runOnConfiguration>
+                        </execute>
+                      </action>
+                    </pluginExecution>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-plugin-plugin</artifactId>
+                        <versionRange>[3.4,)</versionRange>
+                        <goals>
+                          <goal>descriptor</goal>
+                          <goal>helpmojo</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <ignore></ignore>
+                      </action>
+                    </pluginExecution>
+                    <pluginExecution>
+                      <pluginExecutionFilter>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-enforcer-plugin</artifactId>
+                        <versionRange>[0.0,)</versionRange>
+                        <goals>
+                          <goal>enforce</goal>
+                        </goals>
+                      </pluginExecutionFilter>
+                      <action>
+                        <ignore></ignore>
+                      </action>
+                    </pluginExecution>
+                  </pluginExecutions>
+                </lifecycleMappingMetadata>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+  </profiles>
+</project>
+

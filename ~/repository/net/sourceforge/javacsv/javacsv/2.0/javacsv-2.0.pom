@@ -1,0 +1,21 @@
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>net.sourceforge.javacsv</groupId>
+  <artifactId>javacsv</artifactId>
+  <version>2.0</version>
+  <packaging>jar</packaging>
+  <name>Java CVS Reader and Writer</name>
+  <url>http://javacsv.sourceforge.net/</url>
+  <description>Java CSV is a small fast open source java library for reading and writing CSV and plain delimited text files. All kinds of CSV files can be handled, text qualified, Excel formatted, etc.</description>
+  <licenses>
+    <license>
+      <name>GNU Library or Lesser General Public License</name>
+      <url>http://www.gnu.org/licenses/lgpl.html</url>
+    </license>
+  </licenses>
+  <scm>  
+    <connection>scm:cvs:pserver:anonymous:@javacsv.cvs.sourceforge.net:/cvsroot/javacsv:javacsv</connection>
+    <url>http://javacsv.cvs.sourceforge.net/javacsv/javacsv</url>
+  </scm>
+</project>
+

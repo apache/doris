@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.codehaus.plexus</groupId>
+    <artifactId>plexus-components</artifactId>
+    <version>1.3.1</version>
+  </parent>
+
+  <artifactId>plexus-compiler</artifactId>
+  <version>2.2</version>
+  <packaging>pom</packaging>
+
+  <name>Plexus Compiler</name>
+  <description>Plexus Compiler is a Plexus component to use different compilers through a uniform API.</description>
+
+  <modules>
+    <module>plexus-compiler-api</module>
+    <module>plexus-compiler-manager</module>
+    <module>plexus-compilers</module>
+    <module>plexus-compiler-test</module>
+  </modules>
+  
+  <scm>
+    <connection>scm:git:git@github.com:sonatype/plexus-compiler.git</connection>
+    <developerConnection>scm:git:git@github.com:sonatype/plexus-compiler.git</developerConnection>
+    <url>http://github.com/sonatype/plexus-compiler</url>
+    <tag>plexus-compiler-2.2</tag>
+  </scm>
+  <issueManagement>
+    <system>jira</system>
+    <url>http://jira.codehaus.org/browse/PLXCOMP/component/12541</url>
+  </issueManagement>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.codehaus.plexus</groupId>
+        <artifactId>plexus-compiler-api</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.codehaus.plexus</groupId>
+        <artifactId>plexus-compiler-test</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.codehaus.plexus</groupId>
+      <artifactId>plexus-container-default</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.plexus</groupId>
+        <artifactId>plexus-component-metadata</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>generate-metadata</goal>
+              <goal>merge-metadata</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-gpg-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <!--
+      Make sure maven.repo.local is passed through to the tests if set or the tests will fail to resolve artifacts
+      (c.f. SUREFIRE-491).
+      -->
+      <id>maven.repo.local</id>
+      <activation>
+        <property>
+          <name>maven.repo.local</name>
+        </property>
+      </activation>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-surefire-plugin</artifactId>
+              <configuration>
+                <systemProperties combine.children="append">
+                  <property>
+                    <name>maven.repo.local</name>
+                    <value>${maven.repo.local}</value>
+                  </property>
+                </systemProperties>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+  </profiles>
+</project>

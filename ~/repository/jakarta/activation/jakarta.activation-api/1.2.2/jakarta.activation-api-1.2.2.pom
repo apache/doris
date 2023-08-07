@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!--
+
+    Copyright (c) 1997, 2019 Oracle and/or its affiliates. All rights reserved.
+
+    This program and the accompanying materials are made available under the
+    terms of the Eclipse Distribution License v. 1.0, which is available at
+    http://www.eclipse.org/org/documents/edl-v10.php.
+
+    SPDX-License-Identifier: BSD-3-Clause
+
+-->
+<!--
+    This project builds the Activation API jar file, which contains only
+    the javax.activation.* API definitions and is *only* intended to be used
+    for programs to compile against.  Note that it includes none of the
+    implementation-specific classes that the javax.activation.* classes rely on.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                http://maven.apache.org/maven-v4_0_0.xsd">
+    <parent>
+        <groupId>com.sun.activation</groupId>
+        <artifactId>all</artifactId>
+        <version>1.2.2</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>jakarta.activation</groupId>
+    <artifactId>jakarta.activation-api</artifactId>
+    <packaging>jar</packaging>
+    <name>Jakarta Activation API jar</name>
+    <properties>
+        <activation.extensionName>
+            jakarta.activation
+        </activation.extensionName>
+        <activation.moduleName>
+            jakarta.activation
+        </activation.moduleName>
+        <activation.packages.export>
+            javax.activation.*; version=${activation.spec.version},
+	    !com.sun.*
+        </activation.packages.export>
+        <activation.packages.import>
+	    !com.sun.*
+        </activation.packages.import>
+        <activation.bundle.symbolicName>
+            jakarta.activation-api
+        </activation.bundle.symbolicName>
+    </properties>
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <!-- download the binaries -->
+                        <id>get-binaries</id>
+                        <phase>process-sources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <!-- download the sources -->
+                        <id>get-sources</id>
+                        <phase>process-sources</phase>
+                        <goals>
+                            <goal>unpack</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>com.sun.activation</groupId>
+                                    <artifactId>jakarta.activation</artifactId>
+                                    <version>${project.version}</version>
+                                    <classifier>sources</classifier>
+                                    <outputDirectory>
+                                        ${project.build.directory}/sources
+                                    </outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+                <configuration>
+                    <artifactItems>
+                        <artifactItem>
+                            <groupId>com.sun.activation</groupId>
+                            <artifactId>jakarta.activation</artifactId>
+                            <version>${project.version}</version>
+                        </artifactItem>
+                    </artifactItems>
+                    <outputDirectory>
+                        ${project.build.outputDirectory}
+                    </outputDirectory>
+		    <!--
+			Include all the implementation source files so that
+			javadoc run as part of "deploy" will find all the
+			required classes.
+
+			Don't include the metadata files from the original
+			jar file.
+		    -->
+		    <excludes>
+			META-INF/**
+		    </excludes>
+                </configuration>
+            </plugin>
+
+	    <!--
+		 Skip compiling since the dependency plugin pulled in
+		 the sources and class files.
+	    -->
+	    <plugin>
+		<artifactId>maven-compiler-plugin</artifactId>
+		<executions>
+		    <execution>
+			<id>default-compile</id>
+			<configuration>
+			    <skipMain>true</skipMain>
+			</configuration>
+		    </execution>
+		</executions>
+	    </plugin>
+
+	    <!--
+		Don't include the implementation classes in the jar files.
+	    -->
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <finalName>${project.artifactId}</finalName>
+		    <excludes>
+			<exclude>com/**</exclude>
+		    </excludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <artifactId>maven-source-plugin</artifactId>
+                <configuration>
+		    <excludes>
+			<exclude>com/**</exclude>
+		    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

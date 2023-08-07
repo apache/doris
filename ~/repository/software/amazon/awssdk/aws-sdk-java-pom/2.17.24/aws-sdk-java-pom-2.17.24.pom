@@ -1,0 +1,1200 @@
+<?xml version="1.0"?>
+<!--
+  ~ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License").
+  ~ You may not use this file except in compliance with the License.
+  ~ A copy of the License is located at
+  ~
+  ~  http://aws.amazon.com/apache2.0
+  ~
+  ~ or in the "license" file accompanying this file. This file is distributed
+  ~ on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+  ~ express or implied. See the License for the specific language governing
+  ~ permissions and limitations under the License.
+  -->
+
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>software.amazon.awssdk</groupId>
+    <artifactId>aws-sdk-java-pom</artifactId>
+    <version>2.17.24</version>
+    <packaging>pom</packaging>
+    <name>AWS Java SDK :: Parent</name>
+    <description>The Amazon Web Services SDK for Java provides Java APIs
+        for building software on AWS' cost-effective, scalable, and reliable
+        infrastructure products. The AWS Java SDK allows developers to code
+        against APIs for all of Amazon's infrastructure web services (Amazon
+        S3, Amazon EC2, Amazon SQS, Amazon Relational Database Service, Amazon
+        AutoScaling, etc).
+    </description>
+    <url>https://aws.amazon.com/sdkforjava</url>
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://aws.amazon.com/apache2.0</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>amazonwebservices</id>
+            <organization>Amazon Web Services</organization>
+            <organizationUrl>https://aws.amazon.com</organizationUrl>
+            <roles>
+                <role>developer</role>
+            </roles>
+        </developer>
+    </developers>
+
+    <modules>
+        <module>aws-sdk-java</module>
+        <module>core</module>
+        <module>services</module>
+        <module>services-custom</module>
+        <module>bom</module>
+        <module>bom-internal</module>
+        <module>codegen</module>
+        <module>http-client-spi</module>
+        <module>http-clients</module>
+        <module>codegen-maven-plugin</module>
+        <module>bundle</module>
+        <module>build-tools</module>
+        <module>metric-publishers</module>
+        <module>release-scripts</module>
+        <module>utils</module>
+        <module>codegen-lite</module>
+        <module>codegen-lite-maven-plugin</module>
+        <module>archetypes</module>
+        <module>third-party</module>
+        <module>test/http-client-tests</module>
+        <module>test/protocol-tests</module>
+        <module>test/protocol-tests-core</module>
+        <module>test/service-test-utils</module>
+        <module>test/test-utils</module>
+        <module>test/codegen-generated-classes-test</module>
+        <module>test/sdk-benchmarks</module>
+        <module>test/module-path-tests</module>
+        <module>test/tests-coverage-reporting</module>
+        <module>test/stability-tests</module>
+        <module>test/sdk-native-image-test</module>
+        <module>test/s3-benchmarks</module>
+        <module>test/auth-sts-testing</module>
+    </modules>
+    <scm>
+        <url>https://github.com/aws/aws-sdk-java-v2.git</url>
+    </scm>
+    <properties>
+        <awsjavasdk.version>${project.version}</awsjavasdk.version>
+        <awsjavasdk.previous.version>2.17.23</awsjavasdk.previous.version>
+        <jackson.version>2.12.3</jackson.version>
+        <jackson.databind.version>2.12.3</jackson.databind.version>
+        <jacksonjr.version>2.12.3</jacksonjr.version>
+        <eventstream.version>1.0.1</eventstream.version>
+        <commons.lang.version>3.12.0</commons.lang.version>
+        <wiremock.version>2.18.0</wiremock.version>
+        <slf4j.version>1.7.30</slf4j.version>
+        <log4j.version>1.2.17</log4j.version>
+        <commons.io.version>2.5</commons.io.version>
+        <equalsverifier.version>3.5</equalsverifier.version>
+        <!-- Update netty-open-ssl-version accordingly whenever we update netty version-->
+        <!-- https://github.com/netty/netty/blob/4.1/pom.xml#L384 -->
+        <netty.version>4.1.66.Final</netty.version>
+        <unitils.version>3.4.6</unitils.version>
+        <xmlunit.version>1.3</xmlunit.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spotbugs.version>4.1.4</spotbugs.version>
+        <netty-reactive-streams-http.version>2.0.5</netty-reactive-streams-http.version>
+        <javapoet.verion>1.13.0</javapoet.verion>
+        <org.eclipse.jdt.version>3.10.0</org.eclipse.jdt.version>
+        <org.eclipse.text.version>3.5.101</org.eclipse.text.version>
+        <rxjava.version>2.2.21</rxjava.version>
+        <commons-codec.verion>1.10</commons-codec.verion>
+        <jmh.version>1.29</jmh.version>
+        <awscrt.version>0.13.14</awscrt.version>
+
+        <!--Test dependencies -->
+        <junit.version>4.13.1</junit.version>
+        <junit5.version>5.7.1</junit5.version>
+        <hamcrest.version>1.3</hamcrest.version>
+        <mockito.version>1.10.19</mockito.version>
+        <mockito2.version>2.28.2</mockito2.version>
+        <assertj.version>3.8.0</assertj.version>
+        <guava.version>29.0-jre</guava.version>
+        <jimfs.version>1.1</jimfs.version>
+        <testng.version>7.1.0</testng.version> <!-- TCK Tests -->
+        <commons-lang.verson>2.6</commons-lang.verson>
+        <netty-open-ssl-version>2.0.40.Final</netty-open-ssl-version>
+        <dynamodb-local.version>1.16.0</dynamodb-local.version>
+        <sqllite.version>1.0.392</sqllite.version>
+
+        <!-- build plugin dependencies-->
+        <maven.surefire.version>2.22.2</maven.surefire.version>
+        <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
+        <maven-checkstyle-plugin.version>3.1.2</maven-checkstyle-plugin.version>
+        <maven-failsafe-plugin.version>2.22.2</maven-failsafe-plugin.version>
+        <maven-jar-plugin.version>3.1.1</maven-jar-plugin.version>
+        <maven-javadoc-plugin.version>3.0.1</maven-javadoc-plugin.version>
+        <maven.build.timestamp.format>yyyy</maven.build.timestamp.format>
+        <maven-dependency-plugin.version>3.1.1</maven-dependency-plugin.version>
+        <maven-gpg-plugin.version>1.6</maven-gpg-plugin.version>
+        <checkstyle.version>8.42</checkstyle.version>
+        <jacoco-maven-plugin.version>0.8.5</jacoco-maven-plugin.version>
+        <nexus-staging-maven-plugin.version>1.6.8</nexus-staging-maven-plugin.version>
+        <exec-maven-plugin.version>1.6.0</exec-maven-plugin.version>
+        <maven-deploy-plugin.version>2.8.2</maven-deploy-plugin.version>
+        <build-helper-maven-plugin.version>3.0.0</build-helper-maven-plugin.version>
+        <japicmp-maven-plugin.version>0.14.4</japicmp-maven-plugin.version>
+
+        <!-- These properties are used by Step functions for its dependencies -->
+        <json-path.version>2.4.0</json-path.version>
+
+        <!-- These properties are used by SWF for its dependencies -->
+        <spring.version>3.0.7.RELEASE</spring.version>
+        <freemarker.version>2.3.9</freemarker.version>
+        <aspectj.version>1.8.2</aspectj.version>
+
+        <jre.version>1.8</jre.version>
+        <httpcomponents.httpclient.version>4.5.13</httpcomponents.httpclient.version>
+        <httpcomponents.httpcore.version>4.4.11</httpcomponents.httpcore.version>
+
+        <!-- Reactive Streams version -->
+        <reactive-streams.version>1.0.3</reactive-streams.version>
+
+        <skip.unit.tests>${skipTests}</skip.unit.tests>
+    </properties>
+
+    <dependencyManagement>
+        <!-- Internal dependencies are managed in the bom-internal module. -->
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Internal dependencies are managed in the bom-internal module. -->
+    </dependencies>
+
+    <build>
+        <finalName>aws-sdk-java-${project.artifactId}-${awsjavasdk.version}</finalName>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${maven-compiler-plugin.version}</version>
+                    <configuration>
+                        <source>${jre.version}</source>
+                        <target>${jre.version}</target>
+                        <encoding>UTF-8</encoding>
+                        <forceJavacCompilerUse>true</forceJavacCompilerUse>
+                        <compilerArgument>-proc:none</compilerArgument>
+                        <fork>false</fork>
+                        <compilerArgument>-proc:none</compilerArgument>
+                        <excludes>
+                            <exclude>software/amazon/awssdk/services/kinesis/model/SubscribeToShardEvent.java</exclude>
+                            <exclude>software/amazon/awssdk/services/kinesis/KinesisAsyncClient.java</exclude>
+                            <exclude>software/amazon/awssdk/services/kinesis/DefaultKinesisAsyncClient.java</exclude>
+                            <exclude>software/amazon/awssdk/services/kinesis/DefaultKinesisBaseClientBuilder.java</exclude>
+                            <exclude>software/amazon/awssdk/services/sms/model/InternalError.java</exclude>
+                            <exclude>software/amazon/awssdk/services/kinesis/transform/SubscribeToShardResponseUnmarshaller.java</exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>${maven-javadoc-plugin.version}</version>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>${maven-dependency-plugin.version}</version>
+                </plugin>
+
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven.surefire.version}</version>
+                    <configuration>
+                        <argLine>${argLine}</argLine>
+                        <excludes>
+                            <exclude>**/*StabilityTest.java</exclude>
+                            <exclude>**/*StabilityTests.java</exclude>
+                            <exclude>**/*CucumberTest.java</exclude>
+                            <exclude>**/*IntegrationTest.java</exclude>
+                            <exclude>**/*IntegrationTests.java</exclude>
+                            <exclude>**/*IntegTest.java</exclude>
+                            <exclude>**/*IntegrationTestCase.java</exclude>
+                        </excludes>
+                        <includes>
+                            <include>**/Test*.java</include>
+                            <include>**/*Tests.java</include>
+                            <include>**/*Test.java</include>
+                            <include>**/*TestCase.java</include>
+                        </includes>
+                        <skipTests>${skip.unit.tests}</skipTests>
+                    </configuration>
+                    <!-- Have to explicitly set surefire provider because reactivestreamsTCK is using TestNG-->
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.apache.maven.surefire</groupId>
+                            <artifactId>surefire-junit47</artifactId>
+                            <version>${maven.surefire.version}</version>
+                        </dependency>
+                    </dependencies>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>${build-helper-maven-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>add-integ-sources</id>
+                            <phase>generate-sources</phase>
+                            <goals>
+                                <goal>add-test-source</goal>
+                            </goals>
+                            <configuration>
+                                <sources>
+                                    <source>${basedir}/src/it/java</source>
+                                </sources>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>add-integ-resources</id>
+                            <phase>generate-sources</phase>
+                            <goals>
+                                <goal>add-test-resource</goal>
+                            </goals>
+                            <configuration>
+                                <resources>
+                                    <resource>
+                                        <directory>${basedir}/src/it/resources</directory>
+                                    </resource>
+                                </resources>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>add-generated-sources</id>
+                            <phase>generate-sources</phase>
+                            <goals>
+                                <goal>add-source</goal>
+                            </goals>
+                            <configuration>
+                                <sources>
+                                    <source>${basedir}/target/generated-sources/sdk</source>
+                                </sources>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>add-license-notice</id>
+                            <phase>generate-sources</phase>
+                            <goals>
+                                <goal>add-resource</goal>
+                            </goals>
+                            <configuration>
+                                <resources>
+                                    <resource>
+                                        <directory>${maven.multiModuleProjectDirectory}</directory>
+                                        <includes>
+                                            <include>LICENSE.txt</include>
+                                            <include>NOTICE.txt</include>
+                                        </includes>
+                                        <targetPath>META-INF</targetPath>
+                                    </resource>
+                                </resources>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>com.github.spotbugs</groupId>
+                    <artifactId>spotbugs-maven-plugin</artifactId>
+                    <version>${spotbugs.version}</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>software.amazon.awssdk</groupId>
+                            <artifactId>build-tools</artifactId>
+                            <version>1.0</version>
+                        </dependency>
+                    </dependencies>
+                    <executions>
+                        <execution>
+                            <id>findbugs</id>
+                            <phase>process-classes</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                    <configuration>
+                        <failOnError>true</failOnError>
+                        <fork>false</fork>
+                        <spotbugsXmlOutput>true</spotbugsXmlOutput>
+                        <excludeFilterFile>software/amazon/awssdk/spotbugs-suppressions.xml</excludeFilterFile>
+                        <threshold>Low</threshold>
+                        <effort>Max</effort>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>${maven-checkstyle-plugin.version}</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>${checkstyle.version}</version>
+                        </dependency>
+                        <dependency>
+                            <groupId>software.amazon.awssdk</groupId>
+                            <artifactId>build-tools</artifactId>
+                            <version>1.0</version>
+                        </dependency>
+                    </dependencies>
+                    <executions>
+                        <execution>
+                            <id>checkstyle</id>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                    <configuration>
+                        <configLocation>software/amazon/awssdk/checkstyle.xml</configLocation>
+                        <suppressionsLocation>software/amazon/awssdk/checkstyle-suppressions.xml</suppressionsLocation>
+                        <consoleOutput>true</consoleOutput>
+                        <failsOnError>true</failsOnError>
+                        <logViolationsToConsole>true</logViolationsToConsole>
+                        <failOnViolation>true</failOnViolation>
+                        <excludes>**/module-info.java</excludes>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>${maven-jar-plugin.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>${build-helper-maven-plugin.version}</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven-compiler-plugin.version}</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>${maven-javadoc-plugin.version}</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>${maven-dependency-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>analyze-only</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <failOnWarning>true</failOnWarning>
+                    <ignoreNonCompile>true</ignoreNonCompile>
+                    <ignoredUsedUndeclaredDependencies>
+                        <!--Ignore used undeclared test dependencies -->
+                        <ignoredUsedUndeclaredDependency>junit:*:*</ignoredUsedUndeclaredDependency>
+                        <ignoredUsedUndeclaredDependency>software.amazon.awssdk:test-utils</ignoredUsedUndeclaredDependency>
+                        <ignoredUsedUndeclaredDependency>org.hamcrest:*</ignoredUsedUndeclaredDependency>
+                        <ignoredUsedUndeclaredDependency>org.testng:testng</ignoredUsedUndeclaredDependency>
+                        <ignoredUsedUndeclaredDependency>org.mockito:*</ignoredUsedUndeclaredDependency>
+                        <ignoredUsedUndeclaredDependency>org.junit.platform:*</ignoredUsedUndeclaredDependency>
+                        <ignoredUsedUndeclaredDependency>org.opentest4j:*</ignoredUsedUndeclaredDependency>
+
+                        <!-- TODO: fix this once we start to generate pom.xml for individual services -->
+                        <ignoredUsedUndeclaredDependency>org.reactivestreams:reactive-streams</ignoredUsedUndeclaredDependency>
+                        <ignoredUsedUndeclaredDependency>com.fasterxml.jackson.core:*</ignoredUsedUndeclaredDependency>
+                        <ignoredUsedUndeclaredDependency>org.slf4j:slf4j-api</ignoredUsedUndeclaredDependency>
+                    </ignoredUsedUndeclaredDependencies>
+                    <ignoredUnusedDeclaredDependencies>
+                        <!-- TODO: fix this when we've re-merged with netty-reactive-streams -->
+                        <ignoredUnusedDeclaredDependency>com.typesafe.netty:*</ignoredUnusedDeclaredDependency>
+                        <ignoredUnusedDeclaredDependency>software.amazon.awssdk:aws-sdk-java</ignoredUnusedDeclaredDependency>
+                    </ignoredUnusedDeclaredDependencies>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${maven-checkstyle-plugin.version}</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>default-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-site</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <!--
+                        Prepares the property pointing to the JaCoCo runtime agent which
+                        is passed as VM argument when Maven the Failsafe plugin is executed.
+                    -->
+                    <execution>
+                        <id>pre-integration-test</id>
+                        <phase>integration-test</phase>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>post-integration-test</id>
+                        <phase>post-integration-test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <excludes>
+                        <exclude>software/amazon/awssdk/modulepath/tests/**/*.class</exclude>
+                        <exclude>software/amazon/awssdk/nativeimagetest/**/*.class</exclude>
+                        <exclude>software/amazon/awssdk/testutils/service/**/*.class</exclude>
+                        <exclude>**/*Benchmark.class</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>${spotbugs.version}</version>
+            </plugin>
+
+            <!-- https://siom79.github.io/japicmp/MavenPlugin.html -->
+            <plugin>
+                <groupId>com.github.siom79.japicmp</groupId>
+                <artifactId>japicmp-maven-plugin</artifactId>
+                <version>${japicmp-maven-plugin.version}</version>
+                <configuration>
+                    <oldVersion>
+                        <dependency>
+                            <groupId>${project.groupId}</groupId>
+                            <artifactId>${project.artifactId}</artifactId>
+                            <version>${awsjavasdk.previous.version}</version>
+                            <type>jar</type>
+                        </dependency>
+                    </oldVersion>
+                    <newVersion>
+                        <file>
+                            <path>${project.build.directory}/aws-sdk-java-${project.artifactId}-${project.version}.${project.packaging}</path>
+                        </file>
+                    </newVersion>
+                    <parameter>
+                        <onlyModified>true</onlyModified>
+                        <excludes>
+                            <exclude>*.internal.*</exclude>
+                        </excludes>
+
+                        <excludeModules>
+                            <excludeModule>codegen-lite-maven-plugin</excludeModule>
+                            <excludeModule>codegen-maven-plugin</excludeModule>
+                            <excludeModule>codegen</excludeModule>
+                            <excludeModule>codegen-lite</excludeModule>
+                            <excludeModule>.*tests*</excludeModule>
+                            <excludeModule>.*test*</excludeModule>
+                            <excludeModule>protocol-tests-core</excludeModule>
+                            <excludeModule>tests-coverage-reporting</excludeModule>
+                            <excludeModule>aws-sdk-java</excludeModule>
+                            <excludModeule>archetype-lambda</excludModeule>
+                            <excludeModule>archetype-app-quickstart</excludeModule>
+                            <excludeModule>archetype-tools</excludeModule>
+                            <excludeModule>sdk-benchmarks</excludeModule>
+                            <excludeModule>bundle</excludeModule>
+                            <excludeModule>s3-benchmarks</excludeModule>
+                            <!-- ignore crt because it's in preview TODO: remove this when CRT is GA -->
+                            <excludModeule>aws-crt-client</excludModeule>
+                            <excludModeule>s3-transfer-manager</excludModeule>
+                        </excludeModules>
+                        <ignoreMissingOldVersion>true</ignoreMissingOldVersion>
+                        <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
+                        <breakBuildOnSourceIncompatibleModifications>true</breakBuildOnSourceIncompatibleModifications>
+                        <overrideCompatibilityChangeParameters>
+                            <overrideCompatibilityChangeParameter>
+                                <compatibilityChange>METHOD_NEW_DEFAULT</compatibilityChange>
+                                <binaryCompatible>true</binaryCompatible>
+                                <sourceCompatible>true</sourceCompatible>
+                            </overrideCompatibilityChangeParameter>
+                            <overrideCompatibilityChangeParameter>
+                                <compatibilityChange>METHOD_ADDED_TO_INTERFACE</compatibilityChange>
+                                <binaryCompatible>true</binaryCompatible>
+                                <sourceCompatible>true</sourceCompatible>
+                            </overrideCompatibilityChangeParameter>
+                        </overrideCompatibilityChangeParameters>
+                    </parameter>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>cmp</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>sonar-generate</id>
+            <properties>
+                <checkstyle.skip>true</checkstyle.skip>
+                <spotbugs.skip>true</spotbugs.skip>
+                <mdep.analyze.skip>true</mdep.analyze.skip>
+                <japicmp.skip>true</japicmp.skip>
+            </properties>
+        </profile>
+
+        <profile>
+            <id>publishing</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>${maven-gpg-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.plugins</groupId>
+                        <artifactId>nexus-staging-maven-plugin</artifactId>
+                        <version>${nexus-staging-maven-plugin.version}</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <serverId>sonatype-nexus-staging</serverId>
+                            <nexusUrl>https://aws.oss.sonatype.org</nexusUrl>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>disable-java8-doclint</id>
+            <activation>
+                <jdk>[1.8,)</jdk>
+            </activation>
+            <properties>
+                <additionalparam>-Xdoclint:none</additionalparam>
+            </properties>
+        </profile>
+
+        <profile>
+            <id>quick</id>
+            <properties>
+                <checkstyle.skip>true</checkstyle.skip>
+                <spotbugs.skip>true</spotbugs.skip>
+                <skip.unit.tests>true</skip.unit.tests>
+                <mdep.analyze.skip>true</mdep.analyze.skip>
+                <japicmp.skip>true</japicmp.skip>
+            </properties>
+        </profile>
+
+        <profile>
+            <id>integration-tests</id>
+            <activation>
+                <property>
+                    <name>doRelease</name>
+                </property>
+            </activation>
+            <properties>
+                <checkstyle.skip>true</checkstyle.skip>
+                <spotbugs.skip>true</spotbugs.skip>
+                <skip.unit.tests>true</skip.unit.tests>
+                <mdep.analyze.skip>true</mdep.analyze.skip>
+                <japicmp.skip>true</japicmp.skip>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>${maven-failsafe-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <phase>integration-test</phase>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                                <configuration>
+                                    <!-- Sets the VM argument line used when integration tests are run. -->
+                                    <argLine>${argLine}</argLine>
+                                    <includes>
+                                        <include>**/*IntegrationTest.java</include>
+                                        <include>**/*IntegrationTests.java</include>
+                                        <include>**/*IntegTest.java</include>
+                                        <include>**/RunCucumberTest.java</include>
+                                    </includes>
+                                    <excludes>
+                                        <exclude>**/SimpleMethodsIntegrationTest.java</exclude>
+                                    </excludes>
+                                    <trimStackTrace>false</trimStackTrace>
+                                    <rerunFailingTestsCount>2</rerunFailingTestsCount>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>stability-tests</id>
+            <activation>
+                <property>
+                    <name>doRelease</name>
+                </property>
+            </activation>
+            <properties>
+                <checkstyle.skip>true</checkstyle.skip>
+                <spotbugs.skip>true</spotbugs.skip>
+                <skip.unit.tests>true</skip.unit.tests>
+                <mdep.analyze.skip>true</mdep.analyze.skip>
+                <japicmp.skip>true</japicmp.skip>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>${maven-failsafe-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <phase>integration-test</phase>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                                <configuration>
+                                    <argLine>-Dio.netty.leakDetection.level=advanced</argLine>
+                                    <includes>
+                                        <include>**/*StabilityTest.java</include>
+                                        <include>**/*StabilityTests.java</include>
+                                    </includes>
+                                    <trimStackTrace>false</trimStackTrace>
+                                    <rerunFailingTestsCount>2</rerunFailingTestsCount>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>simple-method-integration-tests</id>
+            <activation>
+                <property>
+                    <name>doRelease</name>
+                </property>
+            </activation>
+            <properties>
+                <checkstyle.skip>true</checkstyle.skip>
+                <spotbugs.skip>true</spotbugs.skip>
+                <skip.unit.tests>true</skip.unit.tests>
+                <mdep.analyze.skip>true</mdep.analyze.skip>
+                <japicmp.skip>true</japicmp.skip>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>${maven-failsafe-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <phase>integration-test</phase>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                                <configuration>
+                                    <includes>
+                                        <include>**/SimpleMethodsIntegrationTest.java</include>
+                                    </includes>
+                                    <trimStackTrace>false</trimStackTrace>
+                                    <rerunFailingTestsCount>2</rerunFailingTestsCount>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>public-javadoc</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>${maven-javadoc-plugin.version}</version>
+                        <configuration>
+                            <minmemory>128m</minmemory>
+                            <maxmemory>8g</maxmemory>
+                            <includeDependencySources>false</includeDependencySources>
+                            <show>public</show>
+                            <author>false</author>
+                            <version>true</version>
+                            <use>false</use>
+                            <notree>true</notree>
+                            <nodeprecatedlist>true</nodeprecatedlist>
+                            <additionalJOptions>
+                                <additionalJOption>--allow-script-in-comments</additionalJOption>
+                            </additionalJOptions>
+                            <windowtitle>AWS SDK for Java - ${awsjavasdk.version}</windowtitle>
+                            <encoding>UTF-8</encoding>
+                            <docencoding>UTF-8</docencoding>
+                            <doctitle>AWS SDK for Java API Reference - ${awsjavasdk.version}</doctitle>
+                            <packagesheader>AWS SDK for Java</packagesheader>
+                            <excludePackageNames>:*.codegen:software.amazon.awssdk.services.protocol*</excludePackageNames>
+                            <groups>
+                                <group>
+                                    <title>Greengrass</title>
+                                    <packages>software.amazon.awssdk.services.greengrass*</packages>
+                                </group>
+                                <group>
+                                    <title>Athena</title>
+                                    <packages>software.amazon.awssdk.services.athena*</packages>
+                                </group>
+                                <group>
+                                    <title>Marketplace Entitlement</title>
+                                    <packages>software.amazon.awssdk.services.marketplaceentitlement*</packages>
+                                </group>
+                                <group>
+                                    <title>CodeStar</title>
+                                    <packages>software.amazon.awssdk.services.codestar*</packages>
+                                </group>
+                                <group>
+                                    <title>Lex Model Building</title>
+                                    <packages>software.amazon.awssdk.services.lexmodelbuilding*</packages>
+                                </group>
+                                <group>
+                                    <title>Resource Groups Tagging API</title>
+                                    <packages>software.amazon.awssdk.services.resourcegroupstaggingapi*</packages>
+                                </group>
+                                <group>
+                                    <title>S3 Control</title>
+                                    <packages>software.amazon.awssdk.services.s3control*</packages>
+                                </group>
+                                <group>
+                                    <title>S3</title>
+                                    <packages>software.amazon.awssdk.services.s3*</packages>
+                                </group>
+                                <group>
+                                    <title>Glacier</title>
+                                    <packages>software.amazon.awssdk.services.glacier*</packages>
+                                </group>
+                                <group>
+                                    <title>DynamoDB</title>
+                                    <packages>software.amazon.awssdk.services.dynamo*</packages>
+                                </group>
+                                <group>
+                                    <title>EC2</title>
+                                    <packages>software.amazon.awssdk.services.ec2*</packages>
+                                </group>
+                                <group>
+                                    <title>SQS</title>
+                                    <packages>software.amazon.awssdk.services.sqs*</packages>
+                                </group>
+                                <group>
+                                    <title>SNS</title>
+                                    <packages>software.amazon.awssdk.services.sns*</packages>
+                                </group>
+                                <group>
+                                    <title>Relational Database Service</title>
+                                    <packages>software.amazon.awssdk.services.rds*</packages>
+                                </group>
+                                <group>
+                                    <title>Route 53</title>
+                                    <packages>software.amazon.awssdk.services.route53*</packages>
+                                </group>
+                                <group>
+                                    <title>Simple Workflow Service</title>
+                                    <!-- TODO: Unify Packages -->
+                                    <packages>software.amazon.awssdk.services.swf*:software.amazon.awssdk.services.simpleworkflow*</packages>
+                                </group>
+                                <group>
+                                    <title>Elastic MapReduce</title>
+                                    <packages>software.amazon.awssdk.services.emr*</packages>
+                                </group>
+                                <group>
+                                    <title>Simple Email Service</title>
+                                    <!-- TODO: Unify Packages -->
+                                    <packages>software.amazon.awssdk.services.ses*:software.amazon.awssdk.services.simpleemail*</packages>
+                                </group>
+                                <group>
+                                    <title>Elastic Load Balancing</title>
+                                    <packages>software.amazon.awssdk.services.elasticloadbalancing*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudSearch</title>
+                                    <packages>software.amazon.awssdk.services.cloudsearch*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudWatch</title>
+                                    <packages>software.amazon.awssdk.services.cloudwatch*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudWatch Logs</title>
+                                    <packages>software.amazon.awssdk.services.logs*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudWatch Events</title>
+                                    <packages>software.amazon.awssdk.services.cloudwatchevents*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudFront</title>
+                                    <packages>software.amazon.awssdk.services.cloudfront*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudDirectory</title>
+                                    <packages>software.amazon.awssdk.services.clouddirectory*</packages>
+                                </group>
+                                <group>
+                                    <title>Cognito</title>
+                                    <packages>software.amazon.awssdk.services.cognito*</packages>
+                                </group>
+                                <group>
+                                    <title>AutoScaling</title>
+                                    <packages>software.amazon.awssdk.services.autoscaling*</packages>
+                                </group>
+                                <group>
+                                    <title>Kinesis</title>
+                                    <packages>software.amazon.awssdk.services.kinesis*:software.amazon.awssdk.services.firehose*</packages>
+                                </group>
+                                <group>
+                                    <title>Redshift</title>
+                                    <packages>software.amazon.awssdk.services.redshift*</packages>
+                                </group>
+                                <group>
+                                    <title>ElastiCache</title>
+                                    <packages>software.amazon.awssdk.services.elasticache*</packages>
+                                </group>
+                                <group>
+                                    <title>Elastic Transcoder</title>
+                                    <packages>software.amazon.awssdk.services.elastictranscoder*</packages>
+                                </group>
+                                <group>
+                                    <title>OpsWorks</title>
+                                    <packages>software.amazon.awssdk.services.opsworks*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudFormation</title>
+                                    <packages>software.amazon.awssdk.services.cloudformation*</packages>
+                                </group>
+                                <group>
+                                    <title>Data Pipeline</title>
+                                    <packages>software.amazon.awssdk.services.datapipeline*</packages>
+                                </group>
+                                <group>
+                                    <title>Direct Connect</title>
+                                    <packages>software.amazon.awssdk.services.directconnect*</packages>
+                                </group>
+                                <group>
+                                    <title>Elastic Beanstalk</title>
+                                    <packages>software.amazon.awssdk.services.elasticbeanstalk*</packages>
+                                </group>
+                                <group>
+                                    <title>Identity and Access Management</title>
+                                    <packages>software.amazon.awssdk.services.iam*</packages>
+                                </group>
+                                <group>
+                                    <title>Security Token Service</title>
+                                    <packages>software.amazon.awssdk.services.sts*</packages>
+                                </group>
+                                <group>
+                                    <title>Storage Gateway Service</title>
+                                    <packages>software.amazon.awssdk.services.storagegateway*</packages>
+                                </group>
+                                <group>
+                                    <title>Support</title>
+                                    <packages>software.amazon.awssdk.services.support*</packages>
+                                </group>
+                                <group>
+                                    <title>Transcribe Streaming</title>
+                                    <packages>software.amazon.awssdk.services.transcribestreaming*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudTrail</title>
+                                    <packages>software.amazon.awssdk.services.cloudtrail*</packages>
+                                </group>
+                                <group>
+                                    <title>Config</title>
+                                    <packages>software.amazon.awssdk.services.config*</packages>
+                                </group>
+                                <group>
+                                    <title>Certificate Manager</title>
+                                    <packages>software.amazon.awssdk.services.acm*</packages>
+                                </group>
+                                <group>
+                                    <title>Key Management</title>
+                                    <packages>software.amazon.awssdk.services.kms*</packages>
+                                </group>
+                                <group>
+                                    <title>Lambda</title>
+                                    <packages>software.amazon.awssdk.services.lambda*</packages>
+                                </group>
+                                <group>
+                                    <title>EC2 Container Service</title>
+                                    <packages>software.amazon.awssdk.services.ecs*</packages>
+                                </group>
+                                <group>
+                                    <title>CloudHSM</title>
+                                    <packages>software.amazon.awssdk.services.cloudhsm*</packages>
+                                </group>
+                                <group>
+                                    <title>Simple Systems Management Service</title>
+                                    <packages>software.amazon.awssdk.services.ssm*</packages>
+                                </group>
+                                <group>
+                                    <title>WorkSpaces</title>
+                                    <packages>software.amazon.awssdk.services.workspaces*</packages>
+                                </group>
+                                <group>
+                                    <title>Machine Learning</title>
+                                    <packages>software.amazon.awssdk.services.machinelearning*</packages>
+                                </group>
+                                <group>
+                                    <title>Directory Service</title>
+                                    <packages>software.amazon.awssdk.services.directory*</packages>
+                                </group>
+                                <group>
+                                    <title>Elastic File System</title>
+                                    <packages>software.amazon.awssdk.services.efs*</packages>
+                                </group>
+                                <group>
+                                    <title>CodePipeline</title>
+                                    <packages>software.amazon.awssdk.services.codepipeline*</packages>
+                                </group>
+                                <group>
+                                    <title>CodeCommit</title>
+                                    <packages>software.amazon.awssdk.services.codecommit*</packages>
+                                </group>
+                                <group>
+                                    <title>Device Farm</title>
+                                    <packages>software.amazon.awssdk.services.devicefarm*</packages>
+                                </group>
+                                <group>
+                                    <title>Elasticsearch Service</title>
+                                    <packages>software.amazon.awssdk.services.elasticsearch*</packages>
+                                </group>
+                                <group>
+                                    <title>Marketplace Commerce Analytics</title>
+                                    <packages>software.amazon.awssdk.services.marketplacecommerceanalytics*</packages>
+                                </group>
+                                <group>
+                                    <title>WAF</title>
+                                    <packages>software.amazon.awssdk.services.waf*</packages>
+                                </group>
+                                <group>
+                                    <title>Inspector Service</title>
+                                    <packages>software.amazon.awssdk.services.inspector*</packages>
+                                </group>
+                                <group>
+                                    <title>IoT</title>
+                                    <packages>software.amazon.awssdk.services.iot*</packages>
+                                </group>
+                                <group>
+                                    <title>API Gateway</title>
+                                    <packages>software.amazon.awssdk.services.apigateway*</packages>
+                                </group>
+                                <group>
+                                    <title>EC2 Container Registry</title>
+                                    <packages>software.amazon.awssdk.services.ecr*</packages>
+                                </group>
+                                <group>
+                                    <title>GameLift</title>
+                                    <packages>software.amazon.awssdk.services.gamelift*</packages>
+                                </group>
+                                <group>
+                                    <title>Database Migration Service</title>
+                                    <packages>software.amazon.awssdk.services.databasemigration*</packages>
+                                </group>
+                                <group>
+                                    <title>Marketplace Metering Service</title>
+                                    <packages>software.amazon.awssdk.services.marketplacemetering*</packages>
+                                </group>
+                                <group>
+                                    <title>Cognito Identity Provider</title>
+                                    <packages>software.amazon.awssdk.services.cognitoidp*</packages>
+                                </group>
+                                <group>
+                                    <title>Application Discovery Service</title>
+                                    <packages>software.amazon.awssdk.services.applicationdiscovery*</packages>
+                                </group>
+                                <group>
+                                    <title>Application Auto Scaling</title>
+                                    <packages>software.amazon.awssdk.services.applicationautoscaling*</packages>
+                                </group>
+                                <group>
+                                    <title>Snowball</title>
+                                    <packages>software.amazon.awssdk.services.snowball*</packages>
+                                </group>
+                                <group>
+                                    <title>Service Catalog</title>
+                                    <packages>software.amazon.awssdk.services.servicecatalog*</packages>
+                                </group>
+                                <group>
+                                    <title>Budgets</title>
+                                    <packages>software.amazon.awssdk.services.budgets*</packages>
+                                </group>
+                                <group>
+                                    <title>Server Migration</title>
+                                    <packages>software.amazon.awssdk.services.sms*</packages>
+                                </group>
+                                <group>
+                                    <title>Rekognition</title>
+                                    <packages>software.amazon.awssdk.services.rekognition*</packages>
+                                </group>
+                                <group>
+                                    <title>Polly</title>
+                                    <packages>software.amazon.awssdk.services.polly*</packages>
+                                </group>
+                                <group>
+                                    <title>Lightsail</title>
+                                    <packages>software.amazon.awssdk.services.lightsail*</packages>
+                                </group>
+                                <group>
+                                    <title>AppStream</title>
+                                    <packages>software.amazon.awssdk.services.appstream*</packages>
+                                </group>
+                                <group>
+                                    <title>X-Ray</title>
+                                    <packages>software.amazon.awssdk.services.xray*</packages>
+                                </group>
+                                <group>
+                                    <title>OpsWorks for Chef Automate</title>
+                                    <packages>software.amazon.awssdk.services.opsworkscm*</packages>
+                                </group>
+                                <group>
+                                    <title>Pinpoint</title>
+                                    <packages>software.amazon.awssdk.services.pinpoint*</packages>
+                                </group>
+                                <group>
+                                    <title>Step Functions</title>
+                                    <!-- TODO: Unify Packages -->
+                                    <packages>software.amazon.awssdk.services.sfn*:software.amazon.awssdk.services.stepfunctions*</packages>
+                                </group>
+                                <group>
+                                    <title>Shield</title>
+                                    <packages>software.amazon.awssdk.services.shield*</packages>
+                                </group>
+                                <group>
+                                    <title>Health APIs and Notifications</title>
+                                    <packages>software.amazon.awssdk.services.health*</packages>
+                                </group>
+                                <group>
+                                    <title>Cost and Usage Report</title>
+                                    <packages>software.amazon.awssdk.services.costandusagereport*</packages>
+                                </group>
+                                <group>
+                                    <title>Code Build</title>
+                                    <packages>software.amazon.awssdk.services.codebuild*</packages>
+                                </group>
+                                <group>
+                                    <title>Batch</title>
+                                    <packages>software.amazon.awssdk.services.batch*</packages>
+                                </group>
+                                <group>
+                                    <title>Lex Runtime</title>
+                                    <packages>software.amazon.awssdk.services.lexruntime*</packages>
+                                </group>
+                                <group>
+                                    <title>Lex Model Building</title>
+                                    <packages>software.amazon.awssdk.services.lexmodelbuilding*</packages>
+                                </group>
+                                <group>
+                                    <title>Mechanical Turk Requester</title>
+                                    <packages>software.amazon.awssdk.services.mechanicalturkrequester*</packages>
+                                </group>
+                                <group>
+                                    <title>Organizations</title>
+                                    <packages>software.amazon.awssdk.services.organizations*</packages>
+                                </group>
+                                <group>
+                                    <title>WorkDocs</title>
+                                    <packages>software.amazon.awssdk.services.workdocs*</packages>
+                                </group>
+                                <group>
+                                    <title>CodeDeploy</title>
+                                    <packages>software.amazon.awssdk.services.codedeploy*</packages>
+                                </group>
+                                <group>
+                                    <title>Common</title>
+                                    <packages>software.amazon.awssdk*</packages>
+                                </group>
+                            </groups>
+                            <header><![CDATA[<h2>AWS SDK for Java API Reference - ${project.version}</h2>]]></header>
+                            <footer><![CDATA[
+                            <div style="margin:1.2em;"><a id="fdbk" target="_blank">Provide feedback</a></div>
+                            ]]>
+                            </footer>
+                            <bottom><![CDATA[
+                              <span id="awsdocs-legal-zone-copyright"></span>
+                              <script type="text/javascript">document.addEventListener("DOMContentLoaded",()=>{
+                                var a=document.createElement("meta"),b=document.createElement("meta"),c=document.createElement("script"),
+                                h=document.getElementsByTagName("head")[0],l=location.href,f=document.getElementById("fdbk");
+                                a.name="guide-name",a.content="API Reference";b.name="service-name",b.content="AWS SDK for Java";
+                                c.setAttribute("type","text/javascript"),c.setAttribute("src",
+                                "https://docs.aws.amazon.com/assets/js/awsdocs-boot.js");h.appendChild(a);h.appendChild(b);
+                                h.appendChild(c);f.setAttribute("href",
+                                "https://docs-feedback.aws.amazon.com/feedback.jsp?hidden_service_name="+
+                                encodeURI("AWS SDK for Java")+"&topic_url="+encodeURI(l))});
+                              </script>
+                              ]]>
+                            </bottom>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

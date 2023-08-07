@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+ ~ Copyright (c) 2010-2011 Sonatype, Inc.
+ ~ All rights reserved. This program and the accompanying materials
+ ~ are made available under the terms of the Eclipse Public License v1.0
+ ~ and Apache License v2.0 which accompanies this distribution.
+ ~ The Eclipse Public License is available at
+ ~   http://www.eclipse.org/legal/epl-v10.html
+ ~ The Apache License v2.0 is available at
+ ~   http://www.apache.org/licenses/LICENSE-2.0.html
+ ~ You may elect to redistribute this code under either of these licenses.
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.sonatype.sisu.inject</groupId>
+    <artifactId>guice-bean</artifactId>
+    <version>2.3.0</version>
+  </parent>
+
+  <packaging>bundle</packaging>
+
+  <groupId>org.sonatype.sisu</groupId>
+  <artifactId>sisu-inject-bean</artifactId>
+
+  <name>Sisu-Inject-Bean : Aggregate OSGi bundle</name>
+
+  <dependencies>
+    <!-- external dependencies -->
+    <dependency>
+      <groupId>org.sonatype.sisu</groupId>
+      <artifactId>sisu-guice</artifactId>
+      <classifier>no_aop</classifier>
+      <exclusions>
+        <exclusion>
+          <groupId>javax.inject</groupId>
+          <artifactId>javax.inject</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>aopalliance</groupId>
+          <artifactId>aopalliance</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- embedded dependencies -->
+    <dependency>
+      <groupId>org.sonatype.sisu.inject</groupId>
+      <artifactId>guice-bean-containers</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <!-- optional dependencies -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.osgi</groupId>
+      <artifactId>org.osgi.core</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.osgi</groupId>
+      <artifactId>org.osgi.compendium</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>org.testng</groupId>
+      <artifactId>testng</artifactId>
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <extensions>true</extensions>
+        <configuration>
+          <instructions>
+            <Main-Class>
+              org.sonatype.guice.bean.containers.Main
+            </Main-Class>
+            <Bundle-SymbolicName>
+              org.sonatype.inject;singleton:=true
+            </Bundle-SymbolicName>
+            <Bundle-ActivationPolicy>lazy</Bundle-ActivationPolicy>
+            <Bundle-Activator>
+              org.sonatype.guice.bean.containers.SisuActivator
+            </Bundle-Activator>
+            <DynamicImport-Package>
+              org.slf4j
+            </DynamicImport-Package>
+            <Export-Package>
+              <!-- provide these APIs as a convenience -->
+              javax.inject;javax.enterprise.inject;version=1,
+              org.aopalliance.aop;org.aopalliance.intercept;version=1,
+              <!-- our JRS330 extension API -->
+              org.sonatype.inject;-split-package:=merge-first;version=${project.version},
+              <!-- our implementation APIs -->
+              org.sonatype.guice.bean.*;x-internal:=true;version=${project.version}
+            </Export-Package>
+            <Require-Bundle>
+              org.sonatype.sisu.guava,
+              org.sonatype.sisu.guice
+            </Require-Bundle>
+            <Import-Package>
+              <!-- these APIs are substitutable -->
+              javax.inject;javax.enterprise.inject,
+              org.aopalliance.aop;org.aopalliance.intercept,
+              <!-- available via Require-Bundle -->
+              !com.google.*,
+              <!-- optional generated imports -->
+              *;resolution:=optional
+            </Import-Package>
+          </instructions>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>release</id>
+      <activation>
+        <property>
+          <name>aggregate-sources</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>aggregate-sources</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>unpack-dependencies</goal>
+                </goals>
+                <configuration>
+                  <classifier>sources</classifier>
+                  <failOnMissingClassifierArtifact>false</failOnMissingClassifierArtifact>
+                  <outputDirectory>${project.build.directory}/aggregate-sources</outputDirectory>
+                  <includes>
+                    javax/inject/*,javax/enterprise/inject/*,
+                    org/aopalliance/aop/*,org/aopalliance/intercept/*,
+                    org/sonatype/inject/**,org/sonatype/guice/bean/**
+                  </includes>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <artifactId>maven-jar-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+                <configuration>
+                  <classifier>sources</classifier>
+                  <classesDirectory>${project.build.directory}/aggregate-sources</classesDirectory>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <artifactId>maven-javadoc-plugin</artifactId>
+              <configuration>
+                <sourcepath>${project.build.directory}/aggregate-sources</sourcepath>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+    <profile>
+      <!--
+       | m2e profile - expose embedded dependencies
+      -->
+      <id>m2e</id>
+      <activation>
+        <property>
+          <name>m2e.version</name>
+        </property>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>org.sonatype.sisu.inject</groupId>
+          <artifactId>guice-bean-containers</artifactId>
+          <optional>false</optional>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
+
+</project>

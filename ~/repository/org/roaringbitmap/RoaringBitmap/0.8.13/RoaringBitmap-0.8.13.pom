@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.roaringbitmap</groupId>
+  <artifactId>RoaringBitmap</artifactId>
+  <version>0.8.13</version>
+  <name>org.roaringbitmap:RoaringBitmap</name>
+  <description>Roaring bitmaps are compressed bitmaps (also called bitsets) which tend to outperform conventional compressed bitmaps such as WAH or Concise.</description>
+  <url>https://github.com/RoaringBitmap/RoaringBitmap</url>
+  <licenses>
+    <license>
+      <name>Apache 2</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>lemire</id>
+      <name>Daniel Lemire</name>
+      <email>lemire@gmail.com</email>
+      <url>http://lemire.me/en/</url>
+      <roles>
+        <role>architect</role>
+        <role>developer</role>
+        <role>maintainer</role>
+      </roles>
+      <timezone>-5</timezone>
+      <properties>
+        <picUrl>http://lemire.me/fr/images/JPG/profile2011B_152.jpg</picUrl>
+      </properties>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/RoaringBitmap/RoaringBitmap.git</connection>
+    <developerConnection>scm:git:https://github.com/RoaringBitmap/RoaringBitmap.git</developerConnection>
+    <url>https://github.com/RoaringBitmap/RoaringBitmap</url>
+  </scm>
+  <issueManagement>
+    <system>GitHub Issue Tracking</system>
+    <url>https://github.com/RoaringBitmap/RoaringBitmap/issues</url>
+  </issueManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.roaringbitmap</groupId>
+      <artifactId>shims</artifactId>
+      <version>0.8.13</version>
+      <scope>runtime</scope>
+    </dependency>
+  </dependencies>
+</project>

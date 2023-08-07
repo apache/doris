@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+   Licensed to the Apache Software Foundation (ASF) under one or more
+   contributor license agreements.  See the NOTICE file distributed with
+   this work for additional information regarding copyright ownership.
+   The ASF licenses this file to You under the Apache License, Version 2.0
+   (the "License"); you may not use this file except in compliance with
+   the License.  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <prerequisites>
+    <maven>2.2.1</maven>
+  </prerequisites>
+
+  <parent>
+    <groupId>org.apache</groupId>
+    <artifactId>apache</artifactId>
+    <version>10</version>
+  </parent>
+
+  <groupId>org.apache.avro</groupId>
+  <artifactId>avro-toplevel</artifactId>
+  <version>1.8.2</version>
+  <packaging>pom</packaging>
+
+  <name>Apache Avro Toplevel</name>
+  <url>http://avro.apache.org</url>
+  <description>Avro toplevel pom</description>
+
+  <!-- This project is used for top level build tasks and artifact copying.
+       The RAT task is run to validate licenses.  The Enforcer plugin is used
+       to validate that java projects are the correct version.
+       Java artifacts are copied to the final build destination with a custom profile.
+       -->
+  <properties>
+    <avro.distDir>dist</avro.distDir>
+    <avro.docDir>build/avro-doc-${project.version}/api</avro.docDir>
+    <!-- dependency plugin versions -->
+    <apache-rat-tasks.version>0.7</apache-rat-tasks.version>
+
+    <!-- plugin versions -->
+    <antrun-plugin.version>1.7</antrun-plugin.version>
+    <enforcer-plugin.version>1.3.1</enforcer-plugin.version>
+    <rat.version>0.9</rat.version>
+  </properties>
+
+  <modules>
+    <module>lang/java</module>
+  </modules>
+
+  <scm>
+    <connection>scm:svn:http://svn.apache.org/repos/asf/avro/trunk</connection>
+    <developerConnection>scm:svn:https://svn.apache.org/repos/asf/avro/trunk</developerConnection>
+    <url>http://svn.apache.org/viewvc/avro/trunk</url>
+  </scm>
+
+  <issueManagement>
+    <system>jira</system>
+    <url>http://issues.apache.org/jira/browse/AVRO</url>
+  </issueManagement>
+
+  <inceptionYear>2009</inceptionYear>
+
+  <mailingLists>
+    <mailingList>
+      <name>Avro Developer List</name>
+      <subscribe>dev-subscribe@avro.apache.org</subscribe>
+      <unsubscribe>dev-unsubscribe@avro.apache.org</unsubscribe>
+      <post>dev@avro.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/avro-dev/</archive>
+    </mailingList>
+    <mailingList>
+      <name>Avro Users List</name>
+      <subscribe>users-subscribe@avro.apache.org</subscribe>
+      <unsubscribe>users-unsubscribe@avro.apache.org</unsubscribe>
+      <post>users@avro.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/avro-users/</archive>
+    </mailingList>
+    <mailingList>
+      <name>Avro Commits List</name>
+      <subscribe>commits-subscribe@avro.apache.org</subscribe>
+      <unsubscribe>commits-unsubscribe@avro.apache.org</unsubscribe>
+      <post>commits@avro.apache.org</post>
+      <archive>http://mail-archives.apache.org/mod_mbox/avro-commits/</archive>
+    </mailingList>
+  </mailingLists>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${enforcer-plugin.version}</version>
+        <inherited>false</inherited>
+        <configuration>
+          <rules>
+            <requireProperty>
+              <property>avro.version</property>
+              <message>*****!!!!!! Must have property avro.version set to enforce version. !!!!!!*****</message>
+            </requireProperty>
+            <requireProperty>
+              <property>project.version</property>
+              <regex>${avro.version}</regex>
+              <regexMessage>*****!!!!! Version of project must be ${avro.version} !!!!!*****</regexMessage>
+            </requireProperty>
+          </rules>
+          <fail>true</fail>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>dist</id>
+      <!-- Profile for generating all maven artifacts and documentation. -->
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <!-- build javadoc jars per jar for publishing to maven -->
+                <id>module-javadocs</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+              <execution>
+                <!-- build aggregate javadoc in parent only -->
+                <id>default-cli</id>
+                <goals>
+                  <goal>aggregate</goal>
+                </goals>
+                <inherited>false</inherited>
+                <configuration>
+                  <overview>avro/src/main/java/overview.html</overview>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <!-- builds source jars and attaches them to the project for publishing -->
+                <id>avro-java-sources</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <executions>
+              <execution>
+                <phase>package</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>sign</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>rat</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.rat</groupId>
+            <artifactId>apache-rat-plugin</artifactId>
+            <version>${rat.version}</version>
+            <executions>
+              <execution>
+                <phase>test</phase>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <excludeSubProjects>false</excludeSubProjects>
+              <excludes>
+                <!-- version control files -->
+                <!-- may not be in the root folder if using git-svn -->
+                <exclude>**/.git/**</exclude>
+                <exclude>**/.gitignore</exclude>
+                <!-- build or test files (some are generated files that we commit as-is for testing purposes) -->
+                <exclude>**/*.log</exclude>
+                <exclude>build/**</exclude>
+                <exclude>doc/build/**</exclude>
+                <exclude>lang/java/archetypes/**</exclude>
+                <exclude>lang/java/**/target/**</exclude>
+                <exclude>lang/js/node_modules/**</exclude>
+                <exclude>lang/csharp/build/doc/html/**</exclude>
+                <exclude>lang/c++/doc/html/**</exclude>
+                <exclude>lang/c++/build/**</exclude>
+                <exclude>lang/perl/pm_to_blib</exclude>
+                <exclude>lang/perl/blib/**/.exists</exclude>
+                <exclude>lang/py/build/**</exclude>
+                <exclude>lang/py3/avro_python3.egg-info/**</exclude>
+                <exclude>lang/ruby/Gemfile.lock</exclude>
+                <exclude>lang/ruby/avro.gemspec</exclude>
+                <exclude>lang/ruby/.gem/**</exclude>
+                <exclude>lang/ruby/pkg/**</exclude>
+                <exclude>lang/ruby/.bundle/**</exclude>
+                <exclude>lang/java/avro/src/test/java/org/apache/avro/specific/TestRecordWithLogicalTypes.java</exclude>
+                <exclude>lang/java/avro/src/test/java/org/apache/avro/specific/TestRecordWithoutLogicalTypes.java</exclude>
+                <exclude>lang/java/tools/src/test/compiler/output-string/avro/examples/baseball/Player.java</exclude>
+                <exclude>lang/java/tools/src/test/compiler/output-string/avro/examples/baseball/Position.java</exclude>
+                <exclude>lang/java/tools/src/test/compiler/output/Player.java</exclude>
+                <exclude>lang/java/tools/src/test/compiler/output/Position.java</exclude>
+                <exclude>lang/csharp/src/apache/test/Ipc/GeneratedFiles/**/*.cs</exclude>
+                <exclude>lang/csharp/src/apache/perf/com/foo/*.cs</exclude>
+                <exclude>lang/csharp/src/apache/ipc/org/apache/avro/ipc/*.cs</exclude>
+                <exclude>lang/java/mapred/src/test/resources/org/apache/avro/mapreduce/mapreduce-test-input.txt</exclude>
+                <exclude>lang/java/mapred/src/test/resources/org/apache/avro/mapreduce/mapreduce-test-input.avro/_SUCCESS</exclude>
+                <exclude>lang/java/protobuf/src/test/java/org/apache/avro/protobuf/Test.java</exclude>
+                <!-- data and schema files -->
+                <exclude>**/*.avro</exclude> <!-- binary format -->
+                <exclude>**/*.avsc</exclude> <!-- does not allow comments -->
+                <exclude>**/*.avpr</exclude> <!-- does not allow comments -->
+                <exclude>**/*.json</exclude> <!-- does not allow comments -->
+                <exclude>lang/c/tests/schema_tests/fail/*</exclude> <!-- C test cases -->
+                <exclude>lang/c/tests/schema_tests/pass/*</exclude> <!-- C test cases -->
+                <exclude>lang/c++/jsonschemas/*</exclude> <!-- C++ test cases -->
+                <!-- IDE settings and files -->
+                <exclude>**/.classpath</exclude>
+                <exclude>**/.project</exclude>
+                <exclude>**/.settings/**</exclude>
+                <exclude>**/.idea/**</exclude>
+                <exclude>**/*.iml</exclude>
+                <exclude>lang/csharp/Avro.sln</exclude> <!-- visual studio -->
+                <!-- build-related files -->
+                <exclude>BUILD.txt</exclude>
+                <exclude>**/VERSION.txt</exclude>
+                <exclude>**/dependency-reduced-pom.xml</exclude>
+                <exclude>lang/perl/.shipit</exclude>
+                <exclude>lang/perl/inc/Module/Install/*.pm</exclude>
+                <exclude>lang/perl/inc/Module/Install.pm</exclude>
+                <exclude>lang/perl/Makefile*</exclude>
+                <exclude>lang/perl/META.yml</exclude>
+                <exclude>lang/perl/MYMETA.yml</exclude>
+                <exclude>lang/py/userlogs/**</exclude>
+                <exclude>lang/c/src/avro-c.pc.in</exclude>
+                <exclude>lang/ruby/Manifest</exclude>
+                <exclude>lang/java/tools/userlogs/**</exclude>
+                <exclude>lang/java/mapred/userlogs/**</exclude>
+                <exclude>lang/java/archetypes/avro-service-archetype/src/test/integration/projects/basic/goal.txt</exclude>
+                <exclude>lang/js/test/mocha.opts</exclude>
+                <exclude>lang/csharp/TestResult.xml</exclude>
+                <exclude>lang/csharp/src/apache/*/obj/**/*.csproj.FilesWrittenAbsolute.txt</exclude>
+                <exclude>lang/js/coverage/**</exclude>
+                <!-- text documentation files -->
+                <exclude>CHANGES.txt</exclude>
+                <exclude>DIST_README.txt</exclude>
+                <exclude>lang/perl/Changes</exclude>
+                <exclude>lang/c/README.maintaining_win32.txt</exclude>
+                <exclude>lang/c/docs/index.txt</exclude>
+                <exclude>lang/csharp/README</exclude>
+                <exclude>lang/java/archetypes/avro-service-archetype/src/test/integration/projects/basic/archetype.properties</exclude> <!-- used to generate user projects -->
+                <!-- files and directories covered by LICENSE.txt -->
+                <exclude>lang/py/lib/simplejson/**</exclude>
+                <exclude>lang/c/jansson/**</exclude>
+                <exclude>lang/c/src/avro/msinttypes.h</exclude>
+                <exclude>lang/c/src/avro/msstdint.h</exclude>
+                <exclude>lang/c/src/st.c</exclude>
+                <exclude>lang/c/src/st.h</exclude>
+                <exclude>lang/c/tests/msdirent.h</exclude>
+                <exclude>lang/c++/m4/*.m4</exclude>
+                <exclude>lang/java/ipc/src/main/java/org/apache/avro/ipc/stats/static/protovis-r3.2.js</exclude>
+                <exclude>lang/java/ipc/src/main/java/org/apache/avro/ipc/stats/static/g.bar.js</exclude>
+                <exclude>lang/java/ipc/src/main/java/org/apache/avro/ipc/stats/static/jquery-1.4.2.min.js</exclude>
+                <!-- License files -->
+                <exclude>lang/java/tools/src/main/resources/META-INF/cddl-1.0.text</exclude>
+                <exclude>lang/java/tools/src/main/resources/META-INF/cddl-1.1.text</exclude>
+                <exclude>lang/java/tools/src/main/resources/META-INF/mpl-2.0.text</exclude>
+              </excludes>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>copy-artifacts</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>${antrun-plugin.version}</version>
+            <configuration>
+              <target name="copy-java-artifacts">
+                <mkdir dir="${avro.distDir}/java"/>
+                <copy todir="${avro.distDir}/java" verbose="true">
+                  <flattenmapper/>
+                  <fileset dir="lang/java/"
+                           includes="**/target/*${project.version}*.jar"
+                           excludes="**/original-*.jar **/*tests.jar"/>
+                </copy>
+
+                <mkdir dir="${avro.docDir}"/>
+                <copy todir="${avro.docDir}/java">
+                  <fileset dir="lang/java/target/site/apidocs"/>
+                </copy>
+                <copy todir="build/avro-doc-${project.version}/trevni">
+                  <fileset dir="lang/java/trevni/doc/target/site"/>
+                </copy>
+              </target>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>

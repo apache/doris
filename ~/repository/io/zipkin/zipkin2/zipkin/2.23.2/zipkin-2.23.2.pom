@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright 2015-2020 The OpenZipkin Authors
+
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+    in compliance with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software distributed under the License
+    is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+    or implied. See the License for the specific language governing permissions and limitations under
+    the License.
+
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.zipkin</groupId>
+    <artifactId>zipkin-parent</artifactId>
+    <version>2.23.2</version>
+  </parent>
+
+  <groupId>io.zipkin.zipkin2</groupId>
+  <artifactId>zipkin</artifactId>
+  <name>Zipkin Core Library</name>
+
+  <properties>
+    <!-- Matches Export-Package in bnd.bnd -->
+    <module.name>zipkin2</module.name>
+
+    <!--
+      MutablePublicArray: We share an array of hex chars in internal code
+      JdkObsolete: SortedMap was replaced by NavigableMap, but the focus is Sorted not Navigable
+    -->
+    <errorprone.args>-Xep:MutablePublicArray:OFF -Xep:JdkObsolete:OFF</errorprone.args>
+
+    <main.basedir>${project.basedir}/..</main.basedir>
+
+    <!-- CI should run the "release" profile during tests to ensure no 1.7 features are in use -->
+    <main.java.version>1.7</main.java.version>
+    <main.signature.artifact>java17</main.signature.artifact>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.jvnet</groupId>
+      <artifactId>animal-sniffer-annotation</artifactId>
+      <version>1.0</version>
+      <!-- annotations are not runtime retention, so don't need a runtime dep -->
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Internal classes used in SpanBytesDecoder.JSON_V[12] -->
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>${gson.version}</version>
+      <!-- this dependency is shaded out -->
+      <optional>true</optional>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Use of gson is internal only -->
+      <plugin>
+        <artifactId>maven-shade-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <minimizeJar>true</minimizeJar>
+              <filters>
+                <filter>
+                  <artifact>com.google.code.gson:gson</artifact>
+                  <includes>
+                    <include>com/google/gson/stream/JsonReader*.class</include>
+                    <include>com/google/gson/stream/JsonToken.class</include>
+                    <include>com/google/gson/stream/MalformedJsonException.class</include>
+                    <include>com/google/gson/internal/JsonReaderInternalAccess.class</include>
+                  </includes>
+                </filter>
+              </filters>
+              <relocations>
+                <relocation>
+                  <pattern>com.google.gson</pattern>
+                  <shadedPattern>zipkin2.internal.gson</shadedPattern>
+                </relocation>
+              </relocations>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <manifestEntries>
+                    <Automatic-Module-Name>${module.name}</Automatic-Module-Name>
+                  </manifestEntries>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+
+    <resources>
+      <!-- This adds the LICENSE and NOTICE file to the jar and -sources jar of each module -->
+      <resource>
+        <filtering>false</filtering>
+        <directory>${main.basedir}</directory>
+        <targetPath>META-INF/</targetPath>
+        <includes>
+          <include>LICENSE</include>
+          <include>NOTICE</include>
+        </includes>
+      </resource>
+    </resources>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>release</id>
+      <properties>
+        <!-- The core jar needs to be Java 1.6 bytecode -->
+        <main.java.version>1.6</main.java.version>
+        <main.signature.artifact>java16</main.signature.artifact>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>${maven-enforcer-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>enforce-java</id>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <!-- JDK 12+ can no longer generate Java 1.6 bytecode, so we require JDK 11.
+                         https://www.oracle.com/java/technologies/javase/12-relnote-issues.html -->
+                    <requireJavaVersion>
+                      <version>[1.8,12)</version>
+                    </requireJavaVersion>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+    <parent>
+        <groupId>org.sonatype.oss</groupId>
+        <artifactId>oss-parent</artifactId>
+        <version>9</version>
+    </parent>
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.antlr</groupId>
+    <artifactId>antlr-master</artifactId>
+    <packaging>pom</packaging>
+    <version>3.5.2</version>
+    <name>ANTLR 3 Master build control POM</name>
+    <description>Master build POM for ANTLR 3</description>
+    <url>http://antlr.org</url>
+    <inceptionYear>1992</inceptionYear>
+    <organization>
+        <name>ANTLR</name>
+        <url>http://www.antlr.org</url>
+    </organization>
+
+  <!--
+    What version of ANTLR are we building? This sets the
+    the version number for all other things that are built
+    as part of an ANTLR release, unless they override or
+    ignore it. We do this via a properites file for this
+    pom.
+    -->
+
+  <!--
+     This is the master pom for building the ANTLR
+     toolset and runtime (Java) at the specific level
+     defined above. Hence we specify here the modules that
+     this pom will build when we build this pom
+    -->
+
+    <modules>
+        <module>runtime/Java</module>
+        <module>tool</module>
+        <module>antlr3-maven-plugin</module>
+        <module>gunit</module>
+        <module>gunit-maven-plugin</module>
+        <module>antlr3-maven-archetype</module>
+        <module>antlr-complete</module>
+    </modules>
+
+  <!--
+    Make sure that the build is not platform dependent (I.E show that
+    all the files in the source tree are in UTF-8 format.
+    -->
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <java5.home>${env.JAVA5_HOME}</java5.home>
+        <java6.home>${env.JAVA6_HOME}</java6.home>
+        <bootclasspath.java5>${java5.home}/lib/rt.jar</bootclasspath.java5>
+        <bootclasspath.java6>${java6.home}/lib/rt.jar</bootclasspath.java6>
+        <bootclasspath.compile>${bootclasspath.java5}</bootclasspath.compile>
+        <bootclasspath.testCompile>${bootclasspath.java6}</bootclasspath.testCompile>
+    </properties>
+
+    <licenses>
+        <license>
+            <name>BSD licence</name>
+            <url>http://antlr.org/license.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <issueManagement>
+        <system>GitHub Issues</system>
+        <url>https://github.com/antlr/antlr3/issues</url>
+    </issueManagement>
+
+    <mailingLists>
+        <mailingList>
+            <name>antlr-discussion</name>
+            <archive>https://groups.google.com/forum/?fromgroups#!forum/antlr-discussion</archive>
+        </mailingList>
+    </mailingLists>
+
+    <scm>
+        <url>https://github.com/antlr/antlr3/tree/master</url>
+        <connection>scm:git:git://github.com/antlr/antlr3.git</connection>
+        <developerConnection>scm:git:git@github.com:antlr/antlr3.git</developerConnection>
+      <tag>3.5.2</tag>
+  </scm>
+  <!--
+
+    Tell Maven which other artifacts we need in order to
+    build, run and test the ANTLR jars.
+    This is the master pom, and so it only contains those
+    dependencies that are common to all the modules below
+    or are just included for test
+    -->
+    <dependencyManagement>
+
+        <dependencies>
+
+            <dependency>
+                <groupId>junit</groupId>
+                <artifactId>junit</artifactId>
+                <version>4.10</version>
+                <scope>test</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>antlr</groupId>
+                <artifactId>antlr</artifactId>
+                <version>2.7.7</version>
+                <scope>compile</scope>
+            </dependency>
+
+            <dependency>
+              <groupId>org.antlr</groupId>
+              <artifactId>stringtemplate</artifactId>
+              <version>3.2.1</version>
+              <scope>compile</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>org.antlr</groupId>
+                <artifactId>ST4</artifactId>
+                <version>4.0.8</version>
+                <scope>compile</scope>
+            </dependency>
+
+        </dependencies>
+
+    </dependencyManagement>
+
+    <profiles>
+        <profile>
+            <id>sonatype-oss-release</id>
+            <modules>
+                <module>antlr-complete</module>
+            </modules>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>default-compile</id>
+                                <configuration>
+                                    <source>1.5</source>
+                                    <target>1.5</target>
+                                    <compilerArgs>
+                                        <arg>-Xlint</arg>
+                                        <arg>-Xlint:-serial</arg>
+                                        <arg>-bootclasspath</arg>
+                                        <arg>${bootclasspath.compile}</arg>
+                                    </compilerArgs>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>default-testCompile</id>
+                                <configuration>
+                                    <source>1.6</source>
+                                    <target>1.6</target>
+                                    <compilerArgs>
+                                        <arg>-Xlint</arg>
+                                        <arg>-Xlint:-serial</arg>
+                                        <arg>-bootclasspath</arg>
+                                        <arg>${bootclasspath.testCompile}</arg>
+                                    </compilerArgs>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+    <build>
+
+        <defaultGoal>install</defaultGoal>
+
+        <!--
+            The following filter definition means that both the master
+            project and the sub projects will read in a file in the same
+            directory as the pom.xml is located and set any properties
+            that are defined there in the standard x=y format. These
+            properties can then be referenced via ${x} in any resource
+            file specified in any pom. So, there is a master antlr.config
+            file in the same location as this pom.xml file and here you can
+            define anything that is relevant to all the modules that we
+            build here. However each module also has an antlr.config file
+            where you can override property values from the master file or
+            define things that are only relevant to that module.
+          -->
+        <filters>
+            <filter>antlr.config</filter>
+        </filters>
+
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>2.4</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.1</version>
+                <configuration>
+                    <sourceDirectory>src</sourceDirectory>
+                    <showWarnings>true</showWarnings>
+                    <showDeprecation>true</showDeprecation>
+                    <compilerArgs>
+                        <arg>-Xlint</arg>
+                        <arg>-Xlint:-serial</arg>
+                    </compilerArgs>
+                </configuration>
+
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <source>1.5</source>
+                            <target>1.5</target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <configuration>
+                            <source>1.6</source>
+                            <target>1.6</target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-release-plugin</artifactId>
+                <!-- override the version inherited from the parent -->
+                <version>2.5</version>
+                <configuration>
+                    <arguments>-Psonatype-oss-release ${release.arguments}</arguments>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <!-- override the version inherited from the parent -->
+                <version>2.17</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <!-- override the version inherited from the parent -->
+                <version>2.5.3</version>
+                <configuration>
+                    <findbugsXmlOutput>true</findbugsXmlOutput>
+                    <xmlOutput>true</xmlOutput>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <!-- override the version inherited from the parent -->
+                <version>2.2.1</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <!-- override the version inherited from the parent -->
+                <version>2.9.1</version>
+                <configuration>
+                    <quiet>true</quiet>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-gpg-plugin</artifactId>
+                <!-- override the version inherited from the parent -->
+                <version>1.5</version>
+            </plugin>
+
+        </plugins>
+
+    </build>
+
+    <reporting>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>2.9.1</version>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jxr-plugin</artifactId>
+                <version>2.3</version>
+            </plugin>
+        </plugins>
+    </reporting>
+
+</project>

@@ -1,0 +1,441 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Copyright 2010 FuseSource Corp. 
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.fusesource</groupId>
+  <artifactId>fusesource-pom</artifactId>
+  <version>1.9</version>
+  <packaging>pom</packaging>
+
+  <name>FuseSource POM</name>
+  <description>This is a shared POM parent for FuseSource Maven projects</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <url>http://fusesource.com/</url>
+  <organization>
+    <name>FuseSource, Corp.</name>
+    <url>http://fusesource.com/</url>
+  </organization>
+
+  <licenses>
+    <license>
+      <name>The Apache Software License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <distributionManagement>
+    <repository>
+      <id>fusesource-nexus-staging</id>
+      <name>FuseSource Release Repository</name>
+      <url>http://repo.fusesource.com/nexus/service/local/staging/deploy/maven2</url>
+    </repository>
+    <snapshotRepository>
+      <id>fusesource-nexus-snapshots</id>
+      <name>FuseSource Nexus Snapshots</name>
+      <url>http://repo.fusesource.com/nexus/content/repositories/snapshots</url>
+    </snapshotRepository>
+  </distributionManagement>
+
+  <scm>
+    <connection>scm:git:git://forge.fusesource.com/mvnplugins.git</connection>
+    <developerConnection>scm:git:ssh://git@forge.fusesource.com/mvnplugins.git</developerConnection>
+    <url>http://github.com/chirino/mvnplugins/tree/master</url>
+  </scm>
+
+  <!-- including A developer as it's required by the maven poms going into central -->
+  <developers>
+    <developer>
+      <id>geeks</id>
+      <name>FuseSource Development Team</name>
+      <organization>FuseSource</organization>
+      <organizationUrl>http://fusesource.com/</organizationUrl>
+    </developer>
+  </developers>
+
+  <build>
+
+    <!-- to allow us to deploy via WebDAV -->
+    <extensions>
+      <extension>
+        <groupId>org.apache.maven.wagon</groupId>
+        <artifactId>wagon-webdav-jackrabbit</artifactId>
+        <version>1.0-beta-7</version>
+      </extension>
+    </extensions>
+
+     <pluginManagement>
+      <plugins>
+        <!-- set versions of common plugins for reproducibility, ordered alphabetically -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-antrun-plugin</artifactId>
+          <version>1.6</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>2.2.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>2.4.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>2.3.2</version>
+          <configuration>
+            <source>1.4</source>
+            <target>1.4</target>
+            <encoding>${project.build.sourceEncoding}</encoding>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-deploy-plugin</artifactId>
+          <version>2.6</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-docck-plugin</artifactId>
+          <version>1.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-enforcer-plugin</artifactId>
+          <version>1.0.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-gpg-plugin</artifactId>
+          <version>1.3</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>2.3.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-invoker-plugin</artifactId>
+          <version>1.5</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>2.3.1</version>
+          <configuration>
+            <archive>
+              <manifest>
+                <addDefaultSpecificationEntries>true</addDefaultSpecificationEntries>
+                <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+              </manifest>
+            </archive>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>2.5</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-plugin-plugin</artifactId>
+          <version>2.8</version>
+        </plugin>
+        
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-remote-resources-plugin</artifactId>
+          <version>1.2.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>2.5</version>
+          <configuration>
+            <encoding>${project.build.sourceEncoding}</encoding>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>2.1.2</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>2.6</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>clirr-maven-plugin</artifactId>
+          <version>2.3</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.plexus</groupId>
+          <artifactId>plexus-maven-plugin</artifactId>
+          <version>1.3.8</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.modello</groupId>
+          <artifactId>modello-maven-plugin</artifactId>
+          <version>1.5</version>
+        </plugin>
+        
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-release-plugin</artifactId>
+          <version>2.2.1</version>
+          <configuration>
+            <pushChanges>false</pushChanges>
+            <localCheckout>true</localCheckout>
+            <autoVersionSubmodules>true</autoVersionSubmodules>
+            <allowTimestampedSnapshots>false</allowTimestampedSnapshots>
+            <preparationGoals>clean install</preparationGoals>
+            <goals>deploy</goals>
+            <arguments>-Prelease</arguments>
+          </configuration>
+        </plugin>
+        
+      </plugins>
+    </pluginManagement>
+    
+    <plugins>
+
+      <!-- to allow us to use Git repositories -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-scm-plugin</artifactId>
+        <version>1.5</version>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.maven.scm</groupId>
+            <artifactId>maven-scm-provider-gitexe</artifactId>
+            <version>1.5</version>
+          </dependency>
+        </dependencies>
+      </plugin>
+        
+      <!-- Since site generation is not supported well /w Maven 3 yet -->
+      <!-- <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <version>2.1.1</version>
+        <dependencies>
+          <dependency>
+            <groupId>org.apache.maven.wagon</groupId>
+            <artifactId>wagon-webdav-jackrabbit</artifactId>
+            <version>1.0-beta-7</version>
+            <exclusions>
+              <exclusion>
+                <groupId>commons-logging</groupId>
+                <artifactId>commons-logging</artifactId>
+              </exclusion>
+            </exclusions>
+          </dependency>
+        </dependencies>
+      </plugin> -->
+      
+    </plugins>
+  </build>
+
+  <!-- Since site generation is not supported well /w Maven 3 yet -->
+  <!-- <reporting>
+    <plugins>
+      <plugin>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>2.1.2</version>
+      </plugin>
+    </plugins>
+  </reporting> -->
+
+  <profiles>
+
+    <!--
+      Run the release /w the -P release flag to enable the release profile.
+    -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          
+          <!-- We want to sign the artifact, the POM, and all attached artifacts -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <configuration>
+              <passphrase>${gpg.passphrase}</passphrase>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            
+            <configuration>
+              <encoding>${project.build.sourceEncoding}</encoding>
+            </configuration>
+            
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+      
+        </plugins>
+      </build>
+    </profile>
+    
+    <profile>
+      <id>enforce-no-snapshots</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>1.0</version>
+            <executions>
+              <execution>
+                <id>enforce-no-snapshots</id>
+                <goals><goal>enforce</goal></goals>
+                <configuration>
+                  <rules>
+                    <requireReleaseVersion>
+                      <message>No Snapshots Allowed!</message>
+                    </requireReleaseVersion>                
+                    <requireReleaseDeps>
+                      <message>No Snapshots Allowed!</message>
+                    </requireReleaseDeps>
+                  </rules>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile> 
+    
+    <!-- enables downloading from fusesource public repositories -->
+    <profile>
+      <id>download</id>
+      <repositories>
+        <repository>
+          <id>fusesource-releases</id>
+          <name>FuseSource Release Repository</name>
+          <url>http://repo.fusesource.com/nexus/content/groups/public</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+        <repository>
+          <id>fusesource-snapshots</id>
+          <name>FuseSource Snapshot Repository</name>
+          <url>http://repo.fusesource.com/nexus/content/groups/public-snapshots</url>
+          <releases><enabled>false</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>fusesource-releases</id>
+          <name>FuseSource Release Repository</name>
+          <url>http://repo.fusesource.com/nexus/content/groups/public</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+        <pluginRepository>
+          <id>fusesource-snapshots</id>
+          <name>FuseSource Snapshot Repository</name>
+          <url>http://repo.fusesource.com/nexus/content/groups/public-snapshots</url>
+          <releases><enabled>false</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>  
+    
+    <!-- enables the fusesource maven proxy repositories -->
+    <profile>
+      <id>fusesource-proxy</id>
+      <repositories>
+        <repository>
+          <id>fusesource-proxy</id>
+          <name>FuseSource Proxy Repository</name>
+          <url>http://repo.fusesource.com/nexus/content/groups/m2-proxy</url>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>fusesource-proxy</id>
+          <name>FuseSource Proxy Repository</name>
+          <url>http://repo.fusesource.com/nexus/content/groups/m2-proxy</url>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>  
+    
+    <!--
+      To generate a graph of the project dependencies, run: mvn -P graph
+      graph:project
+    -->
+    <profile>
+      <id>graph</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.fusesource.mvnplugins</groupId>
+            <artifactId>maven-graph-plugin</artifactId>
+            <version>1.15</version>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>    
+
+  </profiles>
+</project>

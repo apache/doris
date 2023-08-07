@@ -1,0 +1,31 @@
+﻿<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>dk.brics.automaton</groupId>
+	<artifactId>automaton</artifactId>
+	<version>1.11-8</version>
+	<packaging>jar</packaging>
+	<name>Automaton</name>
+	<description>A DFA/NFA (finite-state automata) implementation with
+		Unicode alphabet (UTF16) and support for the standard regular
+		expression operations (concatenation, union, Kleene star) and a number
+		of non-standard ones (intersection, complement, etc.) </description>
+	<url>http://www.brics.dk/automaton/</url>
+	<licenses>
+		<license>
+			<name>BSD</name>
+			<url>http://www.opensource.org/licenses/bsd-license.php</url>
+		</license>
+	</licenses>
+	<scm>
+		<url></url>
+		<connection></connection>
+	</scm>
+	<developers>
+		<developer>
+			<name>Anders Møller</name>
+			<email>amoeller@cs.au.dk</email>
+		</developer>
+	</developers>
+
+</project>

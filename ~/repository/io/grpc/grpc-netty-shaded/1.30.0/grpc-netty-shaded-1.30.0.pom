@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.grpc</groupId>
+  <artifactId>grpc-netty-shaded</artifactId>
+  <version>1.30.0</version>
+  <name>io.grpc:grpc-netty-shaded</name>
+  <description>gRPC: Netty Shaded</description>
+  <url>https://github.com/grpc/grpc-java</url>
+  <licenses>
+    <license>
+      <name>Apache 2.0</name>
+      <url>https://opensource.org/licenses/Apache-2.0</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>grpc.io</id>
+      <name>gRPC Contributors</name>
+      <email>grpc-io@googlegroups.com</email>
+      <url>https://grpc.io/</url>
+      <organization>gRPC Authors</organization>
+      <organizationUrl>https://www.google.com</organizationUrl>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/grpc/grpc-java.git</connection>
+    <developerConnection>scm:git:git@github.com:grpc/grpc-java.git</developerConnection>
+    <url>https://github.com/grpc/grpc-java</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>io.grpc</groupId>
+      <artifactId>grpc-core</artifactId>
+      <version>[1.30.0]</version>
+      <scope>compile</scope>
+    </dependency>
+  </dependencies>
+</project>

@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.codehaus.janino</groupId>
+    <artifactId>janino-parent</artifactId>
+    <version>3.1.9</version>
+    <relativePath>../janino-parent</relativePath>
+  </parent>
+
+  <artifactId>commons-compiler</artifactId>
+
+  <name>commons-compiler</name>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.felix</groupId>
+        <artifactId>maven-bundle-plugin</artifactId>
+        <configuration>
+          <instructions>
+            <Export-Package>
+              org.codehaus.commons.compiler,
+              org.codehaus.commons.compiler.io,
+              org.codehaus.commons.compiler.java8.java.util, 
+              org.codehaus.commons.compiler.java8.java.util.function,
+              org.codehaus.commons.compiler.java8.java.util.stream,
+              org.codehaus.commons.compiler.java9.java.lang.module,
+              org.codehaus.commons.compiler.lang,
+              org.codehaus.commons.compiler.samples,
+              org.codehaus.commons.compiler.util,
+              org.codehaus.commons.compiler.util.iterator,
+              org.codehaus.commons.compiler.util.reflect,
+              org.codehaus.commons.compiler.util.resource
+            </Export-Package>
+          </instructions>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <description>The &quot;commons-compiler&quot; API, including the &quot;IExpressionEvaluator&quot;, &quot;IScriptEvaluator&quot;, &quot;IClassBodyEvaluator&quot; and &quot;ISimpleCompiler&quot; interfaces.</description>
+  <dependencies>
+  	<dependency>
+  		<groupId>junit</groupId>
+  		<artifactId>junit</artifactId>
+  		<scope>test</scope>
+  	</dependency>
+  </dependencies>
+</project>
+
