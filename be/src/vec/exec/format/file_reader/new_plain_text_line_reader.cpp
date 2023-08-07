@@ -43,8 +43,16 @@
 namespace doris {
 
 const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_t length) {
-    _total_len = length;
-    size_t bound = update_reading_bound(start);
+    // _total_len = length;
+    // size_t bound = update_reading_bound(start);
+
+    _result = find_line_delim_func(start + _idx, length - _idx, line_delimiter.c_str(),
+                                   line_delimiter_len);
+    if (_result == nullptr) {
+        return nullptr;
+    }
+    size_t bound = _result - start + line_delimiter_len;
+
     read_line_impl(start, bound);
     return _result;
 }
