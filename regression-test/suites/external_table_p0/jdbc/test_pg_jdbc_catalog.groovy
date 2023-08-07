@@ -30,6 +30,8 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         String inDorisTable = "doris_in_tb";
         String test_insert = "test_insert";
 
+        sql """create database if not exists ${internal_db_name}; """
+
         sql """drop catalog if exists ${catalog_name} """
 
         sql """create catalog if not exists ${catalog_name} properties(

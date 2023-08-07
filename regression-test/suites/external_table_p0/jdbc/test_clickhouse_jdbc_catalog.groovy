@@ -29,6 +29,8 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
 
         String inDorisTable = "doris_in_tb";
 
+        sql """create database if not exists ${internal_db_name}; """
+
         sql """ drop catalog if exists ${catalog_name} """
 
         sql """ create catalog if not exists ${catalog_name} properties(
