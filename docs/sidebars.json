@@ -268,7 +268,7 @@
                                 "sql-manual/sql-functions/array-functions/array-filter",
                                 "sql-manual/sql-functions/array-functions/array-avg",
                                 "sql-manual/sql-functions/array-functions/array-sum",
-                                "sql-manual/sql-functions/array-functions/array_size",
+                                "sql-manual/sql-functions/array-functions/array-size",
                                 "sql-manual/sql-functions/array-functions/array-remove",
                                 "sql-manual/sql-functions/array-functions/array-slice",
                                 "sql-manual/sql-functions/array-functions/array-sort",
