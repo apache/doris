@@ -84,8 +84,7 @@ Status SpillStreamManager::spill_thread() {
 */
 
 Status SpillStreamManager::spill_stream(SpillStreamSPtr spill_stream) {
-    auto status = io_thread_pool_->submit_func([spill_stream] { spill_stream->spill(); });
-    RETURN_IF_ERROR(status);
+    RETURN_IF_ERROR(io_thread_pool_->submit_func([spill_stream] { spill_stream->spill(); }));
 
     return Status::WaitForIO("Spilling");
 }
