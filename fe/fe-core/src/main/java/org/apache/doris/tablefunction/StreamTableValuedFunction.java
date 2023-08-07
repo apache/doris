@@ -44,7 +44,6 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction {
             validParams.put(key, params.get(key));
         }
         parseProperties(validParams);
-        parseFile();
     }
 
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================

@@ -187,8 +187,6 @@ public class Coordinator {
     // Once this is set to true, errors from remote fragments are ignored.
     private boolean returnedAllResults;
 
-    private RuntimeProfile queryProfile;
-
     private List<RuntimeProfile> fragmentProfile;
 
     // populated in computeFragmentExecParams()
@@ -256,7 +254,7 @@ public class Coordinator {
     public List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
     // Runtime filter ID to the builder instance number
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
-    ConnectContext context;
+    private ConnectContext context;
 
     private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;

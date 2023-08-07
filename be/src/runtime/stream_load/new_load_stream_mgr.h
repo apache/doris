@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <cstddef>
-#include <future>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -44,12 +42,14 @@ public:
     ~NewLoadStreamMgr();
 
     Status put(const UniqueId& id, std::shared_ptr<StreamLoadContext> stream) {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _stream_map.find(id);
-        if (it != std::end(_stream_map)) {
-            return Status::InternalError("id already exist");
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
+                return Status::InternalError("id already exist");
+            }
+            _stream_map.emplace(id, stream);
         }
-        _stream_map.emplace(id, stream);
+
         VLOG_NOTICE << "put stream load pipe: " << id;
         return Status::OK();
     }

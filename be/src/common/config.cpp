@@ -484,15 +484,6 @@ DEFINE_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 DEFINE_mInt64(clean_stream_load_record_interval_secs, "1800");
 
-// use memory in stream load default
-DEFINE_Int64(stream_load_exec_mem_limit, "214748364"); // 2G
-// The buffer size to store stream table function schema info
-DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
-// The exec timeout of stream load default
-DEFINE_Int32(stream_load_timeout_second, "10");
-// The timeout of BE wait FE report status
-DEFINE_Int32(stream_load_report_timeout_second, "3");
-
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
 DEFINE_mInt32(olap_table_sink_send_interval_ms, "1");

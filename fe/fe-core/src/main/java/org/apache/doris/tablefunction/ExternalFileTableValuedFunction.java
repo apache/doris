@@ -48,7 +48,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
-import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -189,28 +188,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected void parseFile() throws AnalysisException {
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
-        // create dummy file status for stream load
-        if (getTFileType() == TFileType.FILE_STREAM) {
-            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
-            fileStatus.setPath("");
-            fileStatus.setIsDir(false);
-            fileStatus.setSize(-1); // must set to -1, means stream.
-            fileStatuses.add(fileStatus);
-        } else if (getTFileType() == TFileType.FILE_LOCAL) {
-            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
-            // get file path and file size
-            ConnectContext ctx = ConnectContext.get();
-            LoadTaskInfo loadInfo = ctx.getStreamLoadInfo();
-            fileStatus.setPath(loadInfo.getPath());
-            fileStatus.setIsDir(false);
-            fileStatus.setSize(loadInfo.getFileSize());
-            fileStatuses.add(fileStatus);
-        } else {
-            try {
-                BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
-            } catch (UserException e) {
-                throw new AnalysisException("parse file failed, path = " + path, e);
-            }
+        try {
+            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+        } catch (UserException e) {
+            throw new AnalysisException("parse file failed, path = " + path, e);
         }
     }
 

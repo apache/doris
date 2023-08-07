@@ -613,7 +613,6 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                 st = Status::InternalError("unknown stream load id: {}",
                                            UniqueId(params.load_id).to_string());
             }
-            stream_load_ctx->need_wait_restore_pipe = true;
         }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {

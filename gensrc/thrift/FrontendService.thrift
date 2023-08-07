@@ -627,7 +627,7 @@ struct TStreamLoadMultiTablePutResult {
 
 // StreamLoadWith request status
 struct TStreamLoadWithLoadStatusRequest {
-    1: required Types.TUniqueId loadId
+    1: optional Types.TUniqueId loadId
 }
 
 struct TStreamLoadWithLoadStatusResult {
