@@ -31,11 +31,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TSortType;
@@ -984,19 +984,14 @@ public class PropertyAnalyzer {
             replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
             totalReplicaNum += replicationNum;
 
-            // check whether locationVal exist on all Backend and the Backends num with locationVal has more than
-            // replicationNum, to avoid user set it success but failed to create table or dynamic partitions
-            short numBackendsWithLocationVal = 0;
-            SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-            List<Backend> backends = systemInfoService.getAllBackends();
-            for (Backend backend : backends) {
-                if (backend.getLocationTag().value.equals(locationVal)) {
-                    ++numBackendsWithLocationVal;
-                }
-            }
-            if (replicationNum > numBackendsWithLocationVal) {
-                throw new AnalysisException(
-                    "Backends with tag location " + locationVal + " is less than " + replicationNum + ".");
+            // Check if the current backends satisfy the ReplicaAllocation condition,
+            // to avoid user set it success but failed to create table or dynamic partitions
+            try {
+                SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                systemInfoService.selectBackendIdsForReplicaCreation(
+                        replicaAlloc, null, false, true);
+            } catch (DdlException ddlException) {
+                throw new AnalysisException(ddlException.getMessage());
             }
         }
         if (totalReplicaNum < Config.min_replication_num_per_tablet
