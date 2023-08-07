@@ -272,7 +272,7 @@ struct BitmapFromUnhex {
                 continue;
             }
 
-            res.push_back(std::move(bitmap));
+            res.emplace_back(std::move(bitmap));
         }
         return Status::OK();
     }
