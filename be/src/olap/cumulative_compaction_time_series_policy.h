@@ -51,7 +51,8 @@ public:
     int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
                            const int64_t max_compaction_score, const int64_t min_compaction_score,
                            std::vector<RowsetSharedPtr>* input_rowsets,
-                           Version* last_delete_version, size_t* compaction_score) override;
+                           Version* last_delete_version, size_t* compaction_score,
+                           bool allow_delete = false) override;
 
     /// The point must be updated after each cumulative compaction is completed.
     /// We want each rowset to do cumulative compaction once.

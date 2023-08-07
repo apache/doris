@@ -1051,6 +1051,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
+// Apply delete pred in cumu compaction
+DECLARE_mBool(enable_delete_when_cumu_compaction);
 
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);
