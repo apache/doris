@@ -1,6 +1,6 @@
 ---
 {
-    "title": "days_sub",
+    "title": "DAYS_SUB",
     "language": "en"
 }
 ---
