@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_different_column_orders", "p0") {
+suite("test_different_column_orders", "p0,external,hive,external_docker,external_docker_hive") {
     def q_parquet = {
         qt_q01 """
         select * from test_different_column_orders_parquet order by id;
@@ -43,10 +43,12 @@ suite("test_different_column_orders", "p0") {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
             String catalog_name = "test_different_column_orders"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
-                'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
             sql """use `${catalog_name}`.`default`"""
 

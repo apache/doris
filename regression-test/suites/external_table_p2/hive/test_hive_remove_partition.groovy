@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_remove_partition", "p2") {
+suite("test_hive_remove_partition", "p2,external,hive,external_remote,external_remote_hive") {
     def case1 = """select * from partition_manual_remove order by id;"""
 
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
