@@ -35,6 +35,8 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -981,6 +983,21 @@ public class PropertyAnalyzer {
             Short replicationNum = Short.valueOf(parts[1]);
             replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
             totalReplicaNum += replicationNum;
+
+            // check whether locationVal exist on all Backend and the Backends num with locationVal has more than
+            // replicationNum, to avoid user set it success but failed to create table or dynamic partitions
+            short numBackendsWithLocationVal = 0;
+            SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+            List<Backend> backends = systemInfoService.getAllBackends();
+            for (Backend backend : backends) {
+                if (backend.getLocationTag().value.equals(locationVal)) {
+                    ++numBackendsWithLocationVal;
+                }
+            }
+            if (replicationNum > numBackendsWithLocationVal) {
+                throw new AnalysisException(
+                    "Backends with tag location " + locationVal + " is less than " + replicationNum + ".");
+            }
         }
         if (totalReplicaNum < Config.min_replication_num_per_tablet
                 || totalReplicaNum > Config.max_replication_num_per_tablet) {
