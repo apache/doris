@@ -26,6 +26,7 @@ import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.scheduler.manager.AsyncJobManager;
 import org.apache.doris.scheduler.manager.JobTaskManager;
+import org.apache.doris.scheduler.manager.MemoryTaskManager;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +48,8 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
      */
     private AsyncJobManager asyncJobManager;
 
+    private MemoryTaskManager memoryTaskManager;
+
     private JobTaskManager jobTaskManager;
 
     /**
@@ -54,8 +57,9 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
      *
      * @param asyncJobManager The event job manager used to retrieve and execute event jobs.
      */
-    public TimerTaskExpirationHandler(AsyncJobManager asyncJobManager) {
+    public TimerTaskExpirationHandler(AsyncJobManager asyncJobManager, MemoryTaskManager memoryTaskManager) {
         this.asyncJobManager = asyncJobManager;
+        this.memoryTaskManager = memoryTaskManager;
     }
 
     /**
@@ -132,7 +136,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
 
     public void onMemoryTask(TimerTaskEvent timerTaskEvent) {
         Long taskId = timerTaskEvent.getId();
-        MemoryTaskExecutor taskExecutor = asyncJobManager.getMemoryTaskExecutor(taskId);
+        MemoryTaskExecutor taskExecutor = memoryTaskManager.getMemoryTaskExecutor(taskId);
         if (taskExecutor == null) {
             log.info("Memory task executor is null, task id: {}", taskId);
             return;

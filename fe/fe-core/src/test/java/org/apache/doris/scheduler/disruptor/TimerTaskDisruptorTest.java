@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.MemoryTaskManager;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -42,6 +43,9 @@ public class TimerTaskDisruptorTest {
     @Injectable
     private AsyncJobManager asyncJobManager;
 
+    @Injectable
+    private MemoryTaskManager memoryTaskManager;
+
     private static boolean testEventExecuteFlag = false;
 
     @Mocked
@@ -49,7 +53,7 @@ public class TimerTaskDisruptorTest {
 
     @BeforeEach
     public void init() {
-        timerTaskDisruptor = new TimerTaskDisruptor(asyncJobManager);
+        timerTaskDisruptor = new TimerTaskDisruptor(asyncJobManager, memoryTaskManager);
     }
 
     @Test

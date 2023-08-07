@@ -18,18 +18,18 @@
 package org.apache.doris.scheduler.registry;
 
 import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
-import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.MemoryTaskManager;
 
 public class ExportTaskRegister implements MemoryTaskRegister {
-    private final AsyncJobManager asyncJobManager;
+    private final MemoryTaskManager memoryTaskManager;
 
-    public ExportTaskRegister(AsyncJobManager asyncJobManager) {
-        this.asyncJobManager = asyncJobManager;
+    public ExportTaskRegister(MemoryTaskManager memoryTaskManager) {
+        this.memoryTaskManager = memoryTaskManager;
     }
 
     @Override
     public Long registerTask(MemoryTaskExecutor executor) {
-        return asyncJobManager.registerMemoryTask(executor);
+        return memoryTaskManager.registerMemoryTask(executor);
     }
 
     @Override

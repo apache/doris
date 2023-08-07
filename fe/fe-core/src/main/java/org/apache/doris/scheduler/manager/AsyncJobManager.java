@@ -26,7 +26,6 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
-import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
 import org.apache.doris.scheduler.job.DorisTimerTask;
 import org.apache.doris.scheduler.job.Job;
 
@@ -44,7 +43,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -74,12 +72,6 @@ public class AsyncJobManager implements Closeable, Writable {
      */
     private final HashedWheelTimer dorisTimer = new HashedWheelTimer(1, TimeUnit.SECONDS, 660);
 
-    /**
-     * key: taskId
-     * value: memory task executor of this task
-     * it's used to star task
-     */
-    private final ConcurrentHashMap<Long, MemoryTaskExecutor> taskExecutorMap = new ConcurrentHashMap<>(128);
     /**
      * Producer and Consumer model
      * disruptor is used to handle task
@@ -296,10 +288,6 @@ public class AsyncJobManager implements Closeable, Writable {
         return jobMap.get(jobId);
     }
 
-    public MemoryTaskExecutor getMemoryTaskExecutor(Long taskId) {
-        return taskExecutorMap.get(taskId);
-    }
-
     public Map<Long, Job> getAllJob() {
         return jobMap;
     }
@@ -391,13 +379,6 @@ public class AsyncJobManager implements Closeable, Writable {
         Map<Long, Timeout> timeoutMap = new ConcurrentHashMap<>();
         timeoutMap.put(task.getTaskId(), timeout);
         jobTimeoutMap.put(task.getJobId(), timeoutMap);
-    }
-
-    public Long registerMemoryTask(MemoryTaskExecutor executor) {
-        Long taskId = UUID.randomUUID().getMostSignificantBits();
-        taskExecutorMap.put(taskId, executor);
-        disruptor.tryPublishTask(taskId);
-        return taskId;
     }
 
     // cancel all task for one job

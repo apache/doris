@@ -214,6 +214,7 @@ import org.apache.doris.scheduler.AsyncJobRegister;
 import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
 import org.apache.doris.scheduler.manager.AsyncJobManager;
 import org.apache.doris.scheduler.manager.JobTaskManager;
+import org.apache.doris.scheduler.manager.MemoryTaskManager;
 import org.apache.doris.scheduler.registry.PersistentJobRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
@@ -331,6 +332,7 @@ public class Env {
 
     private PersistentJobRegister persistentJobRegister;
     private AsyncJobManager asyncJobManager;
+    private MemoryTaskManager memoryTaskManager;
     private JobTaskManager jobTaskManager;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -590,8 +592,10 @@ public class Env {
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobTaskManager = new JobTaskManager();
         this.asyncJobManager = new AsyncJobManager();
-        TimerTaskDisruptor timerTaskDisruptor = new TimerTaskDisruptor(this.asyncJobManager);
+        this.memoryTaskManager = new MemoryTaskManager();
+        TimerTaskDisruptor timerTaskDisruptor = new TimerTaskDisruptor(this.asyncJobManager, this.memoryTaskManager);
         this.asyncJobManager.setDisruptor(timerTaskDisruptor);
+        this.memoryTaskManager.setDisruptor(timerTaskDisruptor);
         this.persistentJobRegister = new AsyncJobRegister(asyncJobManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -3749,6 +3753,10 @@ public class Env {
 
     public AsyncJobManager getAsyncJobManager() {
         return asyncJobManager;
+    }
+
+    public MemoryTaskManager getMemoryTaskManager() {
+        return memoryTaskManager;
     }
 
     public JobTaskManager getJobTaskManager() {

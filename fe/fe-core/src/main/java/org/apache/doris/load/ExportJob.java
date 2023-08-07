@@ -90,13 +90,8 @@ public class ExportJob implements Writable {
 
     private static final String BROKER_PROPERTY_PREFIXES = "broker.";
 
-    public enum JobState {
-        PENDING,
-        IN_QUEUE,
-        EXPORTING,
-        FINISHED,
-        CANCELLED,
-    }
+    public static final MemoryTaskRegister register = new ExportTaskRegister(
+            Env.getCurrentEnv().getMemoryTaskManager());
 
     @SerializedName("id")
     private long id;

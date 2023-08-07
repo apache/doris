@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.MemoryTaskManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorOneArg;
@@ -76,13 +77,13 @@ public class TimerTaskDisruptor implements Closeable {
                 event.setTaskType(taskType);
             };
 
-    public TimerTaskDisruptor(AsyncJobManager asyncJobManager) {
+    public TimerTaskDisruptor(AsyncJobManager asyncJobManager, MemoryTaskManager memoryTaskManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
         disruptor = new Disruptor<>(TimerTaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
         WorkHandler<TimerTaskEvent>[] workers = new TimerTaskExpirationHandler[DEFAULT_CONSUMER_COUNT];
         for (int i = 0; i < DEFAULT_CONSUMER_COUNT; i++) {
-            workers[i] = new TimerTaskExpirationHandler(asyncJobManager);
+            workers[i] = new TimerTaskExpirationHandler(asyncJobManager, memoryTaskManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);
         disruptor.start();
