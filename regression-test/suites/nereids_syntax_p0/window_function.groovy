@@ -135,6 +135,10 @@ suite("window_function") {
         ) sub 
     """
 
+    order_qt_range """
+        SELECT c1, (sum(c1) over  (ORDER BY c1 range between UNBOUNDED preceding and CURRENT ROW)) FROM window_test;
+    """
+
     order_qt_cte """
         WITH cte as (select c1 as x from window_test) 
         SELECT x, (sum(x) over  (ORDER BY x range between UNBOUNDED preceding and CURRENT ROW)) FROM cte;

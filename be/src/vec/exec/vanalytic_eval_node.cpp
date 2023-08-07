@@ -355,6 +355,37 @@ Status VAnalyticEvalNode::_get_next_for_range(size_t current_block_rows) {
            _window_end_position < current_block_rows) {
         if (_current_row_position >= _order_by_end.pos) {
             _update_order_by_range();
+            if (current_block_rows < 15) {
+                auto& block = _input_blocks[_output_block_index];
+                if (block.columns() == 1) {
+                    auto column = block.get_by_position(0).column;
+                    if (column->is_nullable()) {
+                        column =
+                                static_cast<const ColumnNullable&>(*column).get_nested_column_ptr();
+                    }
+                    if (auto col = check_and_get_column<ColumnInt32>(column.get());
+                        col != nullptr) {
+                        std::string ss;
+                        for (size_t i = 0; i != col->size(); ++i) {
+                            if (i > 0) {
+                                ss += ", ";
+                            }
+                            ss += std::to_string(col->get_data()[i]);
+                        }
+                        LOG(INFO) << "*********** partition_by start: ("
+                                  << _partition_by_start.block_num << "," << _partition_by_start.pos
+                                  << ", " << _partition_by_start.row_num << "), end: ("
+                                  << _partition_by_end.block_num << "," << _partition_by_end.pos
+                                  << ", " << _partition_by_end.row_num << ")";
+                        LOG(INFO) << "*********** order range start: (" << _order_by_start.block_num
+                                  << "," << _order_by_start.pos << ", " << _order_by_start.row_num
+                                  << "), end: (" << _order_by_end.block_num << ","
+                                  << _order_by_end.pos << ", " << _order_by_end.row_num << ")";
+                        LOG(INFO) << "***** values: " << ss
+                                  << ", returned rows: " << _num_rows_returned;
+                    }
+                }
+            }
             _executor.execute(_order_by_start.pos, _order_by_end.pos, _order_by_start.pos,
                               _order_by_end.pos);
         }
