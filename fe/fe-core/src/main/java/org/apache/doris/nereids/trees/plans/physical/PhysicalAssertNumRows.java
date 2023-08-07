@@ -70,7 +70,7 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalAssertNumRows" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalAssertNumRows" + getGroupIdWithPrefix(),
                 "assertNumRowsElement", assertNumRowsElement);
     }
 

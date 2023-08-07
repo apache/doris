@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
@@ -161,7 +162,7 @@ public class PhysicalHashJoin<
             args.add("runtimeFilters");
             args.add(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.toList()));
         }
-        return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalHashJoin[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 args.toArray());
     }
 
@@ -173,7 +174,7 @@ public class PhysicalHashJoin<
                 Optional.empty(), getLogicalProperties(), physicalProperties, statistics,
                 children.get(0), children.get(1));
         if (groupExpression.isPresent()) {
-            newJoin.setMutableState("group", groupExpression.get().getOwnerGroup().getGroupId().asInt());
+            newJoin.setMutableState(MutableState.KEY_GROUP, groupExpression.get().getOwnerGroup().getGroupId().asInt());
         }
         return newJoin;
     }

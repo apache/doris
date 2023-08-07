@@ -209,23 +209,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.mutableState = this.mutableState.set(key, state);
     }
 
-    /**
-     * used in treeString()
-     *
-     * @return "" if groupExpression is empty, o.w. string format of group id
-     */
-    public String getGroupIdAsString() {
-        String groupId;
-        if (getGroupExpression().isPresent()) {
-            groupId = "@" + groupExpression.get().getOwnerGroup().getGroupId().asInt();
-        } else if (getMutableState("group").isPresent()) {
-            groupId = "@" + getMutableState("group").get();
-        } else {
-            groupId = "";
-        }
-        return groupId;
-    }
-
     @Override
     public boolean deepEquals(TreeNode o) {
         AbstractPlan that = (AbstractPlan) o;

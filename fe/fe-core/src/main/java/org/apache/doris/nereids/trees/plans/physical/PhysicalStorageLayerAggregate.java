@@ -73,7 +73,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + relationId.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalStorageLayerAggregate[" + relationId.asInt() + "]" + getGroupIdWithPrefix(),
                 "pushDownAggOp", aggOp,
                 "relation", relation,
                 "stats", statistics
