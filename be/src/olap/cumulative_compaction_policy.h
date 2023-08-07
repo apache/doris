@@ -71,7 +71,8 @@ public:
                                    const int64_t max_compaction_score,
                                    const int64_t min_compaction_score,
                                    std::vector<RowsetSharedPtr>* input_rowsets,
-                                   Version* last_delete_version, size_t* compaction_score) = 0;
+                                   Version* last_delete_version, size_t* compaction_score,
+                                   bool allow_delete = false) = 0;
 
     /// Update tablet's cumulative point after cumulative compaction finished. This function is pure virtual function.
     /// Each derived has its own update policy which depends on its concrete algorithm. When the cumulative point moves
@@ -133,7 +134,8 @@ public:
     int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
                            const int64_t max_compaction_score, const int64_t min_compaction_score,
                            std::vector<RowsetSharedPtr>* input_rowsets,
-                           Version* last_delete_version, size_t* compaction_score) override;
+                           Version* last_delete_version, size_t* compaction_score,
+                           bool allow_delete = false) override;
 
     /// SizeBased cumulative compaction policy implements update cumulative point function.
     /// Its main policy is judging the output rowset size whether satisfied the promotion size.

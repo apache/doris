@@ -128,11 +128,21 @@ Status BaseCompaction::pick_rowsets_to_compact() {
         return Status::Error<BE_NO_SUITABLE_VERSION>("_input_rowsets.size() is 1");
     }
 
+    // There are two occasions, first is that we set enable_delete_when_cumu_compaction false:
     // If there are delete predicate rowsets in tablet, start_version > 0 implies some rowsets before
     // delete version cannot apply these delete predicates, which can cause incorrect query result.
     // So we must abort this base compaction.
     // A typical scenario is that some rowsets before cumulative point are on remote storage.
-    if (_input_rowsets.front()->start_version() > 0) {
+    // For example, consider rowset[0,3] is on remote storage, now we pass [4,4],[5,5],[6,9]
+    // to do base compaction and rowset[5,5] is delete predicate rowset, if we allow them to do
+    // such procedure, then we'll get [4,9] while it will lose the delete predicate information in [5,5]
+    // which rusult in data in [0,3] will not be deleted.
+    // Another occasion is that we set enable_delete_when_cumu_compaction true:
+    // Then whatever the _input_rowsets.front()->start_version() > 0 or not, once the output
+    // rowset's start version is bigger than 2, we'll always remain the delete pred information inside
+    // the output rowset so the rowsets whose version is less than _input_rowsets.front()->start_version() > 0
+    // would apply the delete pred in the end.
+    if (!allow_delete_in_cumu_compaction() && _input_rowsets.front()->start_version() > 0) {
         bool has_delete_predicate = false;
         for (const auto& rs : _input_rowsets) {
             if (rs->rowset_meta()->has_delete_predicate()) {
