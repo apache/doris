@@ -85,7 +85,7 @@ public:
 
     static StorageEngine* instance() { return _s_instance; }
 
-    Status create_tablet(const TCreateTabletReq& request);
+    Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
