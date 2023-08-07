@@ -185,7 +185,7 @@ public class StoragePolicy extends Policy {
     }
 
     private static Resource checkResourceIsExist(final String storageResource) throws AnalysisException {
-       Resource resource =
+        Resource resource =
                 Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(storageResource))
                     .orElseThrow(() -> new AnalysisException("storage resource doesn't exist: " + storageResource));
 

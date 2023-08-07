@@ -63,8 +63,8 @@ public class PushStoragePolicyTask extends AgentTask {
                 StoragePolicy storagePolicy = (StoragePolicy) p;
                 String resourceName = storagePolicy.getStorageResource();
                 Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-                if (resource == null || (resource.getType() != ResourceType.S3 && 
-                    resource.getType() != ResourceType.HDFS)) {
+                if (resource == null || (resource.getType() != ResourceType.S3
+                    && resource.getType() != ResourceType.HDFS)) {
                     LOG.warn("can't find s3 resource or hdfs resource by name {}", resourceName);
                     return;
                 }
