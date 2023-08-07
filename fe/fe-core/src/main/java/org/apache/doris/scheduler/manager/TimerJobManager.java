@@ -25,7 +25,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.constants.JobStatus;
-import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
+import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 import org.apache.doris.scheduler.job.DorisTimerTask;
 import org.apache.doris.scheduler.job.Job;
 
@@ -47,7 +47,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
-public class AsyncJobManager implements Closeable, Writable {
+public class TimerJobManager implements Closeable, Writable {
 
     private final ConcurrentHashMap<Long, Job> jobMap = new ConcurrentHashMap<>(128);
 
@@ -78,9 +78,9 @@ public class AsyncJobManager implements Closeable, Writable {
      * disruptor will start a thread pool to handle task
      */
     @Setter
-    private TimerTaskDisruptor disruptor;
+    private TaskDisruptor disruptor;
 
-    public AsyncJobManager() {
+    public TimerJobManager() {
         dorisTimer.start();
         this.lastBatchSchedulerTimestamp = System.currentTimeMillis();
         batchSchedulerTasks();

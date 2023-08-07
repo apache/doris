@@ -210,9 +210,9 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.scheduler.AsyncJobRegister;
-import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
-import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.TimerJobRegister;
+import org.apache.doris.scheduler.disruptor.TaskDisruptor;
+import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.JobTaskManager;
 import org.apache.doris.scheduler.manager.MemoryTaskManager;
 import org.apache.doris.scheduler.registry.PersistentJobRegister;
@@ -331,7 +331,7 @@ public class Env {
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private PersistentJobRegister persistentJobRegister;
-    private AsyncJobManager asyncJobManager;
+    private TimerJobManager timerJobManager;
     private MemoryTaskManager memoryTaskManager;
     private JobTaskManager jobTaskManager;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -591,12 +591,12 @@ public class Env {
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobTaskManager = new JobTaskManager();
-        this.asyncJobManager = new AsyncJobManager();
+        this.timerJobManager = new TimerJobManager();
         this.memoryTaskManager = new MemoryTaskManager();
-        TimerTaskDisruptor timerTaskDisruptor = new TimerTaskDisruptor(this.asyncJobManager, this.memoryTaskManager);
-        this.asyncJobManager.setDisruptor(timerTaskDisruptor);
-        this.memoryTaskManager.setDisruptor(timerTaskDisruptor);
-        this.persistentJobRegister = new AsyncJobRegister(asyncJobManager);
+        TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, this.memoryTaskManager);
+        this.timerJobManager.setDisruptor(taskDisruptor);
+        this.memoryTaskManager.setDisruptor(taskDisruptor);
+        this.persistentJobRegister = new TimerJobRegister(timerJobManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -1946,13 +1946,13 @@ public class Env {
     }
 
     public long loadAsyncJobManager(DataInputStream in, long checksum) throws IOException {
-        asyncJobManager.readFields(in);
+        timerJobManager.readFields(in);
         LOG.info("finished replay asyncJobMgr from image");
         return checksum;
     }
 
     public long saveAsyncJobManager(CountingDataOutputStream out, long checksum) throws IOException {
-        asyncJobManager.write(out);
+        timerJobManager.write(out);
         LOG.info("finished save analysisMgr to image");
         return checksum;
     }
@@ -3751,8 +3751,8 @@ public class Env {
         return persistentJobRegister;
     }
 
-    public AsyncJobManager getAsyncJobManager() {
-        return asyncJobManager;
+    public TimerJobManager getAsyncJobManager() {
+        return timerJobManager;
     }
 
     public MemoryTaskManager getMemoryTaskManager() {

@@ -17,7 +17,7 @@
 
 package org.apache.doris.scheduler.job;
 
-import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
+import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 
 import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
@@ -40,12 +40,12 @@ public class DorisTimerTask implements TimerTask {
 
     private final Long startTimestamp;
 
-    private final TimerTaskDisruptor timerTaskDisruptor;
+    private final TaskDisruptor taskDisruptor;
 
-    public DorisTimerTask(Long jobId, Long startTimestamp, TimerTaskDisruptor timerTaskDisruptor) {
+    public DorisTimerTask(Long jobId, Long startTimestamp, TaskDisruptor taskDisruptor) {
         this.jobId = jobId;
         this.startTimestamp = startTimestamp;
-        this.timerTaskDisruptor = timerTaskDisruptor;
+        this.taskDisruptor = taskDisruptor;
     }
 
     @Override
@@ -53,6 +53,6 @@ public class DorisTimerTask implements TimerTask {
         if (timeout.isCancelled()) {
             return;
         }
-        timerTaskDisruptor.tryPublish(jobId);
+        taskDisruptor.tryPublish(jobId);
     }
 }

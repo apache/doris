@@ -17,7 +17,7 @@
 
 package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.MemoryTaskManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
@@ -44,9 +44,9 @@ import java.util.concurrent.TimeUnit;
  * <p>The work handler also handles system events by scheduling batch scheduler tasks.
  */
 @Slf4j
-public class TimerTaskDisruptor implements Closeable {
+public class TaskDisruptor implements Closeable {
 
-    private final Disruptor<TimerTaskEvent> disruptor;
+    private final Disruptor<TaskEvent> disruptor;
     private static final int DEFAULT_RING_BUFFER_SIZE = 1024;
 
     /**
@@ -71,19 +71,19 @@ public class TimerTaskDisruptor implements Closeable {
      * The default {@link EventTranslatorOneArg} to use for {@link #tryPublish(Long)}.
      * This is used to avoid creating a new object for each publish.
      */
-    private static final EventTranslatorTwoArg<TimerTaskEvent, Long, TaskType> TRANSLATOR
+    private static final EventTranslatorTwoArg<TaskEvent, Long, TaskType> TRANSLATOR
             = (event, sequence, jobId, taskType) -> {
                 event.setId(jobId);
                 event.setTaskType(taskType);
             };
 
-    public TimerTaskDisruptor(AsyncJobManager asyncJobManager, MemoryTaskManager memoryTaskManager) {
+    public TaskDisruptor(TimerJobManager timerJobManager, MemoryTaskManager memoryTaskManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
-        disruptor = new Disruptor<>(TimerTaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
+        disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
-        WorkHandler<TimerTaskEvent>[] workers = new TimerTaskExpirationHandler[DEFAULT_CONSUMER_COUNT];
+        WorkHandler<TaskEvent>[] workers = new TaskHandler[DEFAULT_CONSUMER_COUNT];
         for (int i = 0; i < DEFAULT_CONSUMER_COUNT; i++) {
-            workers[i] = new TimerTaskExpirationHandler(asyncJobManager, memoryTaskManager);
+            workers[i] = new TaskHandler(timerJobManager, memoryTaskManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);
         disruptor.start();

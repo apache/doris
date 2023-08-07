@@ -23,12 +23,12 @@ import lombok.Data;
 /**
  * This class represents an event task that can be produced and consumed by the Disruptor.
  * The event task contains the ID of the event job and the ID of the event task itself.
- * The class also provides an event factory to create instances of {@link TimerTaskEvent}.
+ * The class also provides an event factory to create instances of {@link TaskEvent}.
  * <p>
- * it's used by {@link TimerTaskDisruptor} and {@link TimerTaskExpirationHandler}
+ * it's used by {@link TaskDisruptor} and {@link TaskHandler}
  */
 @Data
-public class TimerTaskEvent {
+public class TaskEvent {
     /**
      * If taskType == AsyncJobTask : id means AsyncJob id.
      * If taskType == MemoryTask : id means MemoryTask id.
@@ -37,5 +37,5 @@ public class TimerTaskEvent {
 
     private TaskType taskType;
 
-    public static final EventFactory<TimerTaskEvent> FACTORY = TimerTaskEvent::new;
+    public static final EventFactory<TaskEvent> FACTORY = TaskEvent::new;
 }

@@ -20,7 +20,7 @@ package org.apache.doris.scheduler.disruptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.MemoryTaskManager;
 
 import mockit.Expectations;
@@ -35,13 +35,13 @@ import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.TimeUnit;
 
-public class TimerTaskDisruptorTest {
+public class TaskDisruptorTest {
 
     @Tested
-    private TimerTaskDisruptor timerTaskDisruptor;
+    private TaskDisruptor taskDisruptor;
 
     @Injectable
-    private AsyncJobManager asyncJobManager;
+    private TimerJobManager timerJobManager;
 
     @Injectable
     private MemoryTaskManager memoryTaskManager;
@@ -53,7 +53,7 @@ public class TimerTaskDisruptorTest {
 
     @BeforeEach
     public void init() {
-        timerTaskDisruptor = new TimerTaskDisruptor(asyncJobManager, memoryTaskManager);
+        taskDisruptor = new TaskDisruptor(timerJobManager, memoryTaskManager);
     }
 
     @Test
@@ -61,10 +61,10 @@ public class TimerTaskDisruptorTest {
         Job job = new Job("test", 6000L, null,
                 null, new TestExecutor());
         new Expectations() {{
-                asyncJobManager.getJob(anyLong);
+                timerJobManager.getJob(anyLong);
                 result = job;
             }};
-        timerTaskDisruptor.tryPublish(job.getJobId());
+        taskDisruptor.tryPublish(job.getJobId());
         Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> testEventExecuteFlag);
         Assertions.assertTrue(testEventExecuteFlag);
     }
@@ -80,6 +80,6 @@ public class TimerTaskDisruptorTest {
 
     @AfterEach
     public void after() {
-        timerTaskDisruptor.close();
+        taskDisruptor.close();
     }
 }

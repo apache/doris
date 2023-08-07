@@ -17,7 +17,7 @@
 
 package org.apache.doris.scheduler.manager;
 
-import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
+import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
 
 import lombok.Setter;
@@ -39,7 +39,7 @@ public class MemoryTaskManager {
      * disruptor will start a thread pool to handle task
      */
     @Setter
-    private TimerTaskDisruptor disruptor;
+    private TaskDisruptor disruptor;
 
     public MemoryTaskManager() {
     }
