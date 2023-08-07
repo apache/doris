@@ -246,5 +246,8 @@ suite("test_delete") {
     sql 'insert into test1 values("a", "a"), ("bb", "bb"), ("ccc", "ccc")'
     sql 'delete from test1 where length(id) >= 2'
 
-    qt_delete_non_key 'select * from test1 order by x'
+    test {
+        sql 'select * from test1 order by x'
+        result([['a', 'a']])
+    }
 }
