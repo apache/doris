@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -37,9 +36,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -657,104 +654,6 @@ public class DeleteHandler implements Writable {
     private void checkDeleteV2(OlapTable table, List<Partition> partitions,
             List<Predicate> conditions, List<String> deleteConditions)
             throws DdlException {
-        // check condition column is key column and condition value
-        // Here we use "getFullSchema()" to get all columns including VISIBLE and SHADOW columns
-        Map<String, Column> nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (Column column : table.getFullSchema()) {
-            nameToColumn.put(column.getName(), column);
-        }
-
-        for (Predicate condition : conditions) {
-            SlotRef slotRef = getSlotRef(condition);
-            String columnName = slotRef.getColumnName();
-            if (!nameToColumn.containsKey(columnName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
-            }
-
-            if (Column.isShadowColumn(columnName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Can not apply delete condition to shadow column");
-            }
-
-            // Check if this column is under schema change, if yes, there will be a shadow column related to it.
-            // And we don't allow doing delete operation when a condition column is under schema change.
-            String shadowColName = Column.getShadowName(columnName);
-            if (nameToColumn.containsKey(shadowColName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Column " + columnName + " is under"
-                        + " schema change operation. Do not allow delete operation");
-            }
-
-            Column column = nameToColumn.get(columnName);
-            // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
-            // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
-            // floating-point numbers, floating-point number not allowed in where clause
-            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
-                    || column.getDataType().isFloatingPointType()) {
-                // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column or storage model "
-                        + "is not duplicate or column type is float or double.");
-            }
-
-            if (condition instanceof BinaryPredicate) {
-                String value = null;
-                try {
-                    BinaryPredicate binaryPredicate = (BinaryPredicate) condition;
-                    // if a bool cond passed to be, be's zone_map cannot handle bool correctly,
-                    // change it to a tinyint type here;
-                    value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
-                    if (column.getDataType() == PrimitiveType.BOOLEAN) {
-                        if (value.toLowerCase().equals("true")) {
-                            binaryPredicate.setChild(1, LiteralExpr.create("1", Type.TINYINT));
-                        } else if (value.toLowerCase().equals("false")) {
-                            binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
-                        }
-                    } else if (column.getDataType() == PrimitiveType.DATE
-                            || column.getDataType() == PrimitiveType.DATETIME
-                            || column.getDataType() == PrimitiveType.DATEV2) {
-                        DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
-                        value = dateLiteral.getStringValue();
-                        binaryPredicate.setChild(1, LiteralExpr.create(value,
-                                Type.fromPrimitiveType(column.getDataType())));
-                    } else if (column.getDataType() == PrimitiveType.DATETIMEV2) {
-                        DateLiteral dateLiteral = new DateLiteral(value,
-                                ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE));
-                        value = dateLiteral.getStringValue();
-                        binaryPredicate.setChild(1, LiteralExpr.create(value,
-                                ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE)));
-                    }
-                    LiteralExpr.create(value, column.getType());
-                } catch (AnalysisException e) {
-                    // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
-                    throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
-                }
-            } else if (condition instanceof InPredicate) {
-                String value = null;
-                try {
-                    InPredicate inPredicate = (InPredicate) condition;
-                    for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                        value = inPredicate.getChild(i).getStringValue();
-                        if (column.getDataType() == PrimitiveType.DATE
-                                || column.getDataType() == PrimitiveType.DATETIME
-                                || column.getDataType() == PrimitiveType.DATEV2
-                                || column.getDataType() == PrimitiveType.DATETIMEV2) {
-                            DateLiteral dateLiteral = new DateLiteral(value,
-                                    column.getType());
-                            value = dateLiteral.getStringValue();
-                            inPredicate.setChild(i, LiteralExpr.create(value,
-                                    column.getType()));
-                        } else {
-                            LiteralExpr.create(value,
-                                    Type.fromPrimitiveType(column.getDataType()));
-                        }
-                    }
-                } catch (AnalysisException e) {
-                    throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
-                }
-            }
-
-            // set schema column name
-            slotRef.setCol(column.getName());
-        }
 
         // check materialized index.
         // only need to check the first partition, because each partition has same materialized views
@@ -789,10 +688,6 @@ public class DeleteHandler implements Writable {
             }
         }
 
-        if (deleteConditions == null) {
-            return;
-        }
-
         // save delete conditions
         for (Predicate condition : conditions) {
             if (condition instanceof BinaryPredicate) {
@@ -801,7 +696,7 @@ public class DeleteHandler implements Writable {
                 String columnName = slotRef.getColumnName();
                 StringBuilder sb = new StringBuilder();
                 sb.append(columnName).append(" ").append(binaryPredicate.getOp().name()).append(" \"")
-                        .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
+                        .append(binaryPredicate.getChild(1).getStringValue()).append("\"");
                 deleteConditions.add(sb.toString());
             } else if (condition instanceof IsNullPredicate) {
                 IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
