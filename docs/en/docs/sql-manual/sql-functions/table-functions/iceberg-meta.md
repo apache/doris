@@ -1,6 +1,6 @@
 ---
 {
-"title": "iceberg_meta",
+"title": "ICEBERG_META",
 "language": "en"
 }
 ---

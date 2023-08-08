@@ -1,7 +1,7 @@
 ---
 {
-    "title": "outer combinator",
-    "language": "en"
+    "title": "Outer 组合器",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,14 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## outer combinator
+## outer组合器
 
 ### description
 
+在table function的函数名后面添加`_outer`后缀使得函数行为从`non-outer`变为`outer`,在表函数生成0行数据时添加一行`Null`数据。
 #### syntax
 `explode_numbers(INT x)`
-
-Adding the `_outer` suffix after the function name of the table function changes the function behavior from `non-outer` to `outer`, and adds a row of `Null` data when the table function generates 0 rows of data.
 
 ### example
 
