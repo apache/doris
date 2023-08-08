@@ -478,7 +478,7 @@ struct StContains {
         auto shape_value = shape1->get_data_at(0);
         GeoParseStatus status;
 
-        std::unique_ptr<GeoShape> lhs_shape(GeoShape::from_wkt(shape_value.data, shape_value.size, &status));
+        std::unique_ptr<GeoShape> lhs_shape(GeoShape::from_wkb(shape_value.data, shape_value.size, &status));
         if (status != GEO_PARSE_OK || lhs_shape == nullptr) {
             return Status::InvalidArgument(to_string(status));
         }
