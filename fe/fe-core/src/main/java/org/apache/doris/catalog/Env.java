@@ -212,8 +212,8 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 import org.apache.doris.scheduler.manager.JobTaskManager;
-import org.apache.doris.scheduler.manager.MemoryTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.PersistentJobRegister;
 import org.apache.doris.scheduler.registry.TimerJobRegister;
 import org.apache.doris.service.ExecuteEnv;
@@ -332,7 +332,7 @@ public class Env {
 
     private PersistentJobRegister persistentJobRegister;
     private TimerJobManager timerJobManager;
-    private MemoryTaskManager memoryTaskManager;
+    private TransientTaskManager transientTaskManager;
     private JobTaskManager jobTaskManager;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -592,10 +592,10 @@ public class Env {
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobTaskManager = new JobTaskManager();
         this.timerJobManager = new TimerJobManager();
-        this.memoryTaskManager = new MemoryTaskManager();
-        TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, this.memoryTaskManager);
+        this.transientTaskManager = new TransientTaskManager();
+        TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, this.transientTaskManager);
         this.timerJobManager.setDisruptor(taskDisruptor);
-        this.memoryTaskManager.setDisruptor(taskDisruptor);
+        this.transientTaskManager.setDisruptor(taskDisruptor);
         this.persistentJobRegister = new TimerJobRegister(timerJobManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -3755,8 +3755,8 @@ public class Env {
         return timerJobManager;
     }
 
-    public MemoryTaskManager getMemoryTaskManager() {
-        return memoryTaskManager;
+    public TransientTaskManager getMemoryTaskManager() {
+        return transientTaskManager;
     }
 
     public JobTaskManager getJobTaskManager() {

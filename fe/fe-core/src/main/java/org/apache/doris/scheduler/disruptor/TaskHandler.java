@@ -21,12 +21,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.constants.SystemJob;
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.scheduler.manager.JobTaskManager;
-import org.apache.doris.scheduler.manager.MemoryTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +48,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
      */
     private TimerJobManager timerJobManager;
 
-    private MemoryTaskManager memoryTaskManager;
+    private TransientTaskManager transientTaskManager;
 
     private JobTaskManager jobTaskManager;
 
@@ -57,9 +57,9 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
      *
      * @param timerJobManager The event job manager used to retrieve and execute event jobs.
      */
-    public TaskHandler(TimerJobManager timerJobManager, MemoryTaskManager memoryTaskManager) {
+    public TaskHandler(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
         this.timerJobManager = timerJobManager;
-        this.memoryTaskManager = memoryTaskManager;
+        this.transientTaskManager = transientTaskManager;
     }
 
     /**
@@ -77,10 +77,10 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
         }
         switch (event.getTaskType()) {
             case TimerJobTask:
-                onTimerJobTask(event);
+                onTimerJobTaskHandle(event);
                 break;
-            case MemoryTask:
-                onMemoryTask(event);
+            case TransientTask:
+                onTransientTaskHandle(event);
                 break;
             default:
                 break;
@@ -93,7 +93,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
      * @param taskEvent The event task to be processed.
      */
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
-    public void onTimerJobTask(TaskEvent taskEvent) {
+    public void onTimerJobTaskHandle(TaskEvent taskEvent) {
         long jobId = taskEvent.getId();
         Job job = timerJobManager.getJob(jobId);
         if (job == null) {
@@ -134,9 +134,9 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
         jobTaskManager.addJobTask(jobTask);
     }
 
-    public void onMemoryTask(TaskEvent taskEvent) {
+    public void onTransientTaskHandle(TaskEvent taskEvent) {
         Long taskId = taskEvent.getId();
-        MemoryTaskExecutor taskExecutor = memoryTaskManager.getMemoryTaskExecutor(taskId);
+        TransientTaskExecutor taskExecutor = transientTaskManager.getMemoryTaskExecutor(taskId);
         if (taskExecutor == null) {
             log.info("Memory task executor is null, task id: {}", taskId);
             return;

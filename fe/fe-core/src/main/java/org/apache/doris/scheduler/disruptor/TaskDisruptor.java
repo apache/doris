@@ -18,8 +18,8 @@
 package org.apache.doris.scheduler.disruptor;
 
 import org.apache.doris.scheduler.constants.TaskType;
-import org.apache.doris.scheduler.manager.MemoryTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorOneArg;
@@ -78,13 +78,13 @@ public class TaskDisruptor implements Closeable {
                 event.setTaskType(taskType);
             };
 
-    public TaskDisruptor(TimerJobManager timerJobManager, MemoryTaskManager memoryTaskManager) {
+    public TaskDisruptor(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
         disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
         WorkHandler<TaskEvent>[] workers = new TaskHandler[DEFAULT_CONSUMER_COUNT];
         for (int i = 0; i < DEFAULT_CONSUMER_COUNT; i++) {
-            workers[i] = new TaskHandler(timerJobManager, memoryTaskManager);
+            workers[i] = new TaskHandler(timerJobManager, transientTaskManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);
         disruptor.start();
@@ -118,7 +118,7 @@ public class TaskDisruptor implements Closeable {
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, taskId, TaskType.MemoryTask);
+            disruptor.publishEvent(TRANSLATOR, taskId, TaskType.TransientTask);
         } catch (Exception e) {
             log.error("tryPublish failed, taskId: {}", taskId, e);
         }

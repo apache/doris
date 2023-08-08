@@ -19,20 +19,20 @@ package org.apache.doris.scheduler.manager;
 
 import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
 import lombok.Setter;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class MemoryTaskManager {
+public class TransientTaskManager {
     /**
      * key: taskId
      * value: memory task executor of this task
      * it's used to star task
      */
-    private final ConcurrentHashMap<Long, MemoryTaskExecutor> taskExecutorMap = new ConcurrentHashMap<>(128);
+    private final ConcurrentHashMap<Long, TransientTaskExecutor> taskExecutorMap = new ConcurrentHashMap<>(128);
 
     /**
      * Producer and Consumer model
@@ -42,14 +42,14 @@ public class MemoryTaskManager {
     @Setter
     private TaskDisruptor disruptor;
 
-    public MemoryTaskManager() {
+    public TransientTaskManager() {
     }
 
-    public MemoryTaskExecutor getMemoryTaskExecutor(Long taskId) {
+    public TransientTaskExecutor getMemoryTaskExecutor(Long taskId) {
         return taskExecutorMap.get(taskId);
     }
 
-    public Long registerMemoryTask(MemoryTaskExecutor executor) {
+    public Long registerMemoryTask(TransientTaskExecutor executor) {
         Long taskId = UUID.randomUUID().getMostSignificantBits();
         taskExecutorMap.put(taskId, executor);
         disruptor.tryPublishTask(taskId);

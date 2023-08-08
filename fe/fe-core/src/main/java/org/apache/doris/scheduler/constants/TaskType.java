@@ -20,5 +20,5 @@ package org.apache.doris.scheduler.constants;
 public enum TaskType {
     TimerJobTask,
 
-    MemoryTask
+    TransientTask
 }

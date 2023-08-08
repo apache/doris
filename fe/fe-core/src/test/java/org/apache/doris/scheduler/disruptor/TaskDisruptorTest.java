@@ -20,7 +20,7 @@ package org.apache.doris.scheduler.disruptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.manager.MemoryTaskManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 
 import mockit.Expectations;
@@ -44,7 +44,7 @@ public class TaskDisruptorTest {
     private TimerJobManager timerJobManager;
 
     @Injectable
-    private MemoryTaskManager memoryTaskManager;
+    private TransientTaskManager transientTaskManager;
 
     private static boolean testEventExecuteFlag = false;
 
@@ -53,7 +53,7 @@ public class TaskDisruptorTest {
 
     @BeforeEach
     public void init() {
-        taskDisruptor = new TaskDisruptor(timerJobManager, memoryTaskManager);
+        taskDisruptor = new TaskDisruptor(timerJobManager, transientTaskManager);
     }
 
     @Test

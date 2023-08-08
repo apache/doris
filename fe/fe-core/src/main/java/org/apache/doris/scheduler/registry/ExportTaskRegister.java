@@ -18,23 +18,23 @@
 package org.apache.doris.scheduler.registry;
 
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
-import org.apache.doris.scheduler.manager.MemoryTaskManager;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
-public class ExportTaskRegister implements MemoryTaskRegister {
-    private final MemoryTaskManager memoryTaskManager;
+public class ExportTaskRegister implements TransientTaskRegister {
+    private final TransientTaskManager transientTaskManager;
 
-    public ExportTaskRegister(MemoryTaskManager memoryTaskManager) {
-        this.memoryTaskManager = memoryTaskManager;
+    public ExportTaskRegister(TransientTaskManager transientTaskManager) {
+        this.transientTaskManager = transientTaskManager;
     }
 
     @Override
-    public Long registerTask(MemoryTaskExecutor executor) {
-        return memoryTaskManager.registerMemoryTask(executor);
+    public Long registerTask(TransientTaskExecutor executor) {
+        return transientTaskManager.registerMemoryTask(executor);
     }
 
     @Override
     public void cancelTask(Long taskId) throws JobException {
-        memoryTaskManager.cancelMemoryTask(taskId);
+        transientTaskManager.cancelMemoryTask(taskId);
     }
 }
