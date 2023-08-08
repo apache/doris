@@ -17,7 +17,7 @@
 
 suite("test_time_function") {
     sql """
-        set enable_nereids_planner=true,enable_fold_constant_by_be = false
+        set enable_nereids_planner=true,enable_fallback_to_original_planner=false
     """
     qt_select1 """
         select sec_to_time(time_to_sec(cast('16:32:18' as time)));

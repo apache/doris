@@ -541,19 +541,15 @@ struct ConvertImplGenericToString {
     }
 };
 //this is for data in compound type
-template <typename StringColumnType>
 struct ConvertImplGenericFromString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const size_t result, size_t input_rows_count) {
-        static_assert(std::is_same_v<StringColumnType, ColumnString>,
-                      "Can be used only to parse from ColumnString");
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type
         DCHECK(block.get_by_position(result).type != nullptr);
         auto data_type_to = block.get_by_position(result).type;
-        if (const StringColumnType* col_from_string =
-                    check_and_get_column<StringColumnType>(&col_from)) {
+        if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
             auto col_to = data_type_to->create_column();
 
             size_t size = col_from.size();
@@ -561,14 +557,14 @@ struct ConvertImplGenericFromString {
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
-
+            const bool is_complex = is_complex_type(data_type_to);
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 // Note: here we should handle the null element
                 if (val.size == 0) {
                     col_to->insert_default();
                     // empty string('') is an invalid format for complex type, set null_map to 1
-                    if (is_complex_type(data_type_to)) {
+                    if (is_complex) {
                         (*vec_null_map_to)[i] = 1;
                     }
                     continue;
@@ -1168,7 +1164,6 @@ using FunctionToFloat32 =
 using FunctionToFloat64 =
         FunctionConvert<DataTypeFloat64, NameToFloat64, ToNumberMonotonicity<Float64>>;
 
-using FunctionToTime = FunctionConvert<DataTypeTime, NameToFloat64, ToNumberMonotonicity<Float64>>;
 using FunctionToTimeV2 =
         FunctionConvert<DataTypeTimeV2, NameToFloat64, ToNumberMonotonicity<Float64>>;
 using FunctionToString = FunctionConvert<DataTypeString, NameToString, ToStringMonotonicity>;
@@ -1264,10 +1259,6 @@ struct FunctionTo<DataTypeDateV2> {
 template <>
 struct FunctionTo<DataTypeDateTimeV2> {
     using Type = FunctionToDateTimeV2;
-};
-template <>
-struct FunctionTo<DataTypeTime> {
-    using Type = FunctionToTime;
 };
 template <>
 struct FunctionTo<DataTypeTimeV2> {
@@ -1706,7 +1697,7 @@ private:
                                    const DataTypeHLL& to_type) const {
         /// Conversion from String through parsing.
         if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         }
 
         //TODO if from is not string, it must be HLL?
@@ -1725,7 +1716,7 @@ private:
                                      const DataTypeArray& to_type) const {
         /// Conversion from String through parsing.
         if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         }
 
         const auto* from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());
@@ -1833,7 +1824,7 @@ private:
         case TypeIndex::Float64:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
         case TypeIndex::String:
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         default:
             return &ConvertImplGenericToJsonb::execute;
         }
@@ -1843,7 +1834,7 @@ private:
     WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
         switch (from_type->get_type_id()) {
         case TypeIndex::String:
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         default:
             return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
         }
@@ -1870,7 +1861,7 @@ private:
                                       const DataTypeStruct& to_type) const {
         // support CAST AS Struct from string
         if (from_type->get_type_id() == TypeIndex::String) {
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         }
 
         // only support CAST AS Struct from struct or string types
@@ -2072,7 +2063,6 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTime> ||
                           std::is_same_v<ToDataType, DataTypeTimeV2>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
