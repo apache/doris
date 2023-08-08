@@ -378,7 +378,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             rowset->merge_rowset_meta(transient_rowset->rowset_meta());
 
             // erase segment cache cause we will add a segment to rowset
-            SegmentLoader::instance()->erase_segment(rowset->rowset_id());
+            SegmentLoader::instance()->erase_segments(rowset->rowset_id());
         }
         stats->partial_update_write_segment_us = MonotonicMicros() - t3;
         int64_t t4 = MonotonicMicros();
