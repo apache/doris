@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WORKLOAD_GROUP",
+    "title": "WORKLOAD_GROUPS",
     "language": "zh-CN"
 }
 ---
