@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <utility>
+#include <string>
 
 #include "geo/geo_common.h"
 #include "geo/util/GeoShape.h"
@@ -474,25 +475,25 @@ struct StContains {
         const auto size = shape1->size();
         MutableColumnPtr res = return_type->create_column();
 
-        int i;
-        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
+        auto shape_value = shape1->get_data_at(0);
+        GeoParseStatus status;
+
+        std::unique_ptr<GeoShape> lhs_shape(GeoShape::from_wkt(shape_value.data, shape_value.size, &status));
+        if (status != GEO_PARSE_OK || lhs_shape == nullptr) {
+            return Status::InvalidArgument(to_string(status));
+        }
+
+        std::unique_ptr<GeoShape> rhs_shape;
         for (int row = 0; row < size; ++row) {
-            auto lhs_value = shape1->get_data_at(row);
             auto rhs_value = shape2->get_data_at(row);
-            StringRef* strs[2] = {&lhs_value, &rhs_value};
-            for (i = 0; i < 2; ++i) {
-                shapes[i] = std::shared_ptr<GeoShape>(
-                        GeoShape::from_encoded(strs[i]->data, strs[i]->size));
-                if (shapes[i] == nullptr) {
-                    res->insert_data(nullptr, 0);
-                    break;
-                }
+            rhs_shape.reset(GeoShape::from_encoded(rhs_value.data, rhs_value.size));
+            if (rhs_shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                continue;
             }
 
-            if (i == 2) {
-                auto contains_value = shapes[0]->contains(shapes[1].get());
-                res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
-            }
+            auto contains_value = lhs_shape->contains(rhs_shape.get());
+            res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
