@@ -22,9 +22,13 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
@@ -93,6 +97,16 @@ public class OrExpansion extends OneExplorationRuleFactory {
                             leftProducer,
                             rightProducer);
 
+                    if (join.getJoinType().isLeftOuterJoin() || join.getJoinType().isFullOuterJoin()) {
+                        makeAntiJoin(ctx.statementContext, join, JoinType.LEFT_ANTI_JOIN,
+                                disjunctions, leftProducer, rightProducer);
+                    } else if (join.getJoinType().isRightOuterJoin() || join.getJoinType().isFullOuterJoin()) {
+                        makeAntiJoin(ctx.statementContext, join, JoinType.LEFT_ANTI_JOIN,
+                                disjunctions, leftProducer, rightProducer);
+                    } else {
+                        throw new RuntimeException("Expand " + join + " is unsupported");
+                    }
+
                     LogicalUnion union = new LogicalUnion(Qualifier.ALL, new ArrayList<>(join.getOutput()),
                             ImmutableList.of(),
                             false, joins);
@@ -100,6 +114,38 @@ public class OrExpansion extends OneExplorationRuleFactory {
                             rightProducer.getCteId(), rightProducer, union);
                     return new LogicalCTEAnchor<Plan, Plan>(leftProducer.getCteId(), leftProducer, intermediateAnchor);
                 }).toRule(RuleType.OR_EXPANSION);
+    }
+
+    private Plan makeAntiJoin(StatementContext ctx, LogicalJoin originJoin, JoinType type, List<Expression> hashCond,
+            LogicalCTEProducer<? extends Plan> leftProducer, LogicalCTEProducer<? extends Plan> rightProducer) {
+        LogicalCTEConsumer left = new LogicalCTEConsumer(ctx.getNextRelationId(), leftProducer.getCteId(), "",
+                leftProducer);
+        LogicalCTEConsumer right = new LogicalCTEConsumer(ctx.getNextRelationId(), rightProducer.getCteId(), "",
+                rightProducer);
+        LogicalJoin<? extends Plan, ? extends Plan> newJoin = new LogicalJoin<>(
+                type,
+                hashCond,
+                Lists.newArrayList(),
+                originJoin.getHint(),
+                originJoin.getMarkJoinSlotReference(),
+                left,
+                right
+        );
+
+        if (newJoin.getHashJoinConjuncts().stream().anyMatch(equalTo ->
+                equalTo.children().stream().anyMatch(e -> !(e instanceof Slot)))) {
+            newJoin = PushdownExpressionsInHashCondition.pushDownHashExpression(newJoin);
+        }
+
+        List<NamedExpression> projects = new ArrayList<>();
+        for (Slot slot : originJoin.getOutput()) {
+            if (newJoin.getOutputSet().contains(slot)) {
+                projects.add(slot);
+            } else {
+                projects.add(new Alias(new NullLiteral(), slot.getName()));
+            }
+        }
+        return new LogicalProject<>(projects, newJoin);
     }
 
     // extract disjunctions for this otherExpr and divide them into HashCond and OtherCond
