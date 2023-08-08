@@ -164,13 +164,8 @@ public:
                 break;
             }
             case vectorized::TypeIndex::GEOMETRY: {
-                std::unique_ptr<GeoShape> shape;
-                std::string string_temp;
-                size_t data_size = data_ref.size;
-                shape.reset(GeoShape::from_encoded(data_ref.data, data_size));
-                if(shape != nullptr ){
-                    string_temp = shape->as_wkt();
-                }
+                std::string string_temp =
+                        GeoShape::geo_tohex(std::string(data_ref.data, data_ref.size));
                 ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }
