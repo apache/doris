@@ -1,6 +1,6 @@
 ---
 {
-    "title": "array",
+    "title": "ARRAY",
     "language": "en"
 }
 ---
