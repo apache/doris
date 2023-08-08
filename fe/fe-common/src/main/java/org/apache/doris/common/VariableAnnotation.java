@@ -17,20 +17,25 @@
 
 package org.apache.doris.common;
 
-// Currently, this is for FE config and session variable.
-public class ExperimentalUtil {
-    public static final String EXPERIMENTAL_PREFIX = "experimental_";
+public enum VariableAnnotation {
+    NONE(""),
+    // A deprecated item and it will be deleted in future
+    DEPRECATED("deprecated_"),
+    // An experimental item, it will be shown with `experimental_` prefix
+    // And user can set it with or without `experimental_` prefix.
+    EXPERIMENTAL("experimental_"),
+    // A previous experimental item but now it is GA.
+    // it will be shown without `experimental_` prefix.
+    // But user can set it with or without `experimental_` prefix, for compatibility.
+    EXPERIMENTAL_ONLINE("");
+    private String prefix = "experimental_";
 
-    public enum ExperimentalType {
-        // Not an experimental item
-        NONE,
-        // An experimental item, it will be shown with `experimental_` prefix
-        // And user can set it with or without `experimental_` prefix.
-        EXPERIMENTAL,
-        // A previous experimental item but now it is GA.
-        // it will be shown without `experimental_` prefix.
-        // But user can set it with or without `experimental_` prefix, for compatibility.
-        EXPERIMENTAL_ONLINE
+    VariableAnnotation(String prefix) {
+        this.prefix = prefix;
+    }
+
+    public String getPrefix() {
+        return prefix;
     }
 }
 
