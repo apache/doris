@@ -1,6 +1,6 @@
 ---
 {
-    "title": "case",
+    "title": "CASE",
     "language": "en"
 }
 ---

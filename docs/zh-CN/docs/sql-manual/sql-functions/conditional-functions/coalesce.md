@@ -1,6 +1,6 @@
 ---
 {
-    "title": "coalesce",
+    "title": "COALESCE",
     "language": "zh-CN"
 }
 ---
