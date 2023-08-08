@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "vec/common/allocator.h"
+#include "vec/io/reader_buffer.h"
 
 namespace doris {
 
@@ -117,6 +118,29 @@ public:
         assert(n <= size);
         data += n;
         size -= n;
+    }
+
+    /// Drop the last "n" bytes from this slice.
+    ///
+    /// @pre n <= size
+    ///
+    /// @note Only the base and bounds of the slice are changed;
+    ///   the data is not modified.
+    ///
+    /// @param [in] n
+    ///   Number of bytes that should be dropped from the last.
+    void remove_suffix(size_t n) {
+        assert(n <= size);
+        size -= n;
+    }
+
+    void trim_prefix() {
+        // Remove leading and trailing spaces.
+        int32_t begin = 0;
+        while (begin < size && data[begin] == ' ') {
+            data += 1;
+            size -= 1;
+        }
     }
 
     /// Truncate the slice to the given number of bytes.
