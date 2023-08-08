@@ -55,7 +55,7 @@ CloudCanal 提供了完整的产品化能力，用户在可视化界面完成数
 
 ### 前置条件
 
-首先参考 [CloudCanal 快手开始](https://www.clougence.com/cc-doc/quick/quick_start) 完成 CloudCanal 社区版的安装和部署。
+首先参考 [CloudCanal 快速开始](https://www.clougence.com/cc-doc/quick/quick_start) 完成 CloudCanal 社区版的安装和部署。
 
 ### 添加数据源
 
