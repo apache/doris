@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_brown", "p2") {
+suite("test_external_brown", "p2,external,hive,external_remote,external_remote_hive") {
 
     def formats = ["_parquet", "_orc", ""]
     def CPUNetworkUtilization_order = """

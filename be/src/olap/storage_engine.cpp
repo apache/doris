@@ -68,7 +68,6 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
-#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
@@ -554,7 +553,7 @@ void StorageEngine::stop() {
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
-    THREAD_JOIN(_fd_cache_clean_thread);
+    THREAD_JOIN(_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
     THREAD_JOIN(_async_publish_thread);
     THREAD_JOIN(_cold_data_compaction_producer_thread);
@@ -615,10 +614,6 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
-}
-
-void StorageEngine::_start_clean_cache() {
-    CacheManager::instance()->for_each_cache_prune_stale();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {

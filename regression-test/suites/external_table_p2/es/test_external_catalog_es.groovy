@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 //import org.postgresql.Driver
-suite("test_external_catalog_es", "p2") {
+suite("test_external_catalog_es", "p2,external,es,external_remote,external_remote_es") {
 
     String enabled = context.config.otherConfigs.get("enableExternalEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {

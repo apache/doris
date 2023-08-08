@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -59,6 +58,8 @@ public class Group {
 
     private final List<GroupExpression> logicalExpressions = Lists.newArrayList();
     private final List<GroupExpression> physicalExpressions = Lists.newArrayList();
+    private final List<GroupExpression> enforcers = Lists.newArrayList();
+
     private LogicalProperties logicalProperties;
 
     // Map of cost lower bounds
@@ -210,6 +211,15 @@ public class Group {
         return null;
     }
 
+    public void addEnforcer(GroupExpression enforcer) {
+        enforcer.setOwnerGroup(this);
+        enforcers.add(enforcer);
+    }
+
+    public List<GroupExpression> getEnforcers() {
+        return enforcers;
+    }
+
     /**
      * Set or update lowestCostPlans: properties --> Pair.of(cost, expression)
      */
@@ -308,12 +318,12 @@ public class Group {
     public void mergeTo(Group target) {
         // move parentExpressions Ownership
         parentExpressions.keySet().forEach(parent -> target.addParentExpression(parent));
-        // PhysicalEnforcer isn't in groupExpressions, so mergeGroup() can't replace its children.
-        // So we need to manually replace the children of PhysicalEnforcer in here.
-        // TODO: SortEnforcer?
-        parentExpressions.keySet().stream().filter(ge -> ge.getPlan() instanceof PhysicalDistribute)
-                .forEach(ge -> ge.children().set(0, target));
-        parentExpressions.clear();
+
+        // move enforcers Ownership
+        enforcers.forEach(ge -> ge.children().set(0, target));
+        // TODO: dedup?
+        enforcers.forEach(enforcer -> target.addEnforcer(enforcer));
+        enforcers.clear();
 
         // move LogicalExpression PhysicalExpression Ownership
         Map<GroupExpression, GroupExpression> logicalSet = target.getLogicalExpressions().stream()
@@ -345,15 +355,7 @@ public class Group {
         physicalExpressions.clear();
 
         // Above we already replaceBestPlanGroupExpr, but we still need to moveLowestCostPlansOwnership.
-        // Because PhysicalEnforcer don't exist in physicalExpressions, so above `replaceBestPlanGroupExpr` can't
-        // move PhysicalEnforcer in lowestCostPlans. Following code can move PhysicalEnforcer in lowestCostPlans.
         lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
-            GroupExpression bestGroupExpression = costAndGroupExpr.second;
-            if (bestGroupExpression.getOwnerGroup() == this || bestGroupExpression.getOwnerGroup() == null) {
-                // move PhysicalEnforcer into target
-                Preconditions.checkState(bestGroupExpression.getPlan() instanceof PhysicalDistribute);
-                bestGroupExpression.setOwnerGroup(target);
-            }
             // move lowestCostPlans Ownership
             if (!target.lowestCostPlans.containsKey(physicalProperties)) {
                 target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
@@ -424,6 +426,10 @@ public class Group {
         str.append("  physical expressions:\n");
         for (GroupExpression physicalExpression : physicalExpressions) {
             str.append("    ").append(physicalExpression).append("\n");
+        }
+        str.append(" enforcers:\n");
+        for (GroupExpression enforcer : enforcers) {
+            str.append("    ").append(enforcer).append("\n");
         }
         return str.toString();
     }

@@ -15,8 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_oracle_jdbc_catalog", "p0") {
+suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_docker_oracle") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest");
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "oracle_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
@@ -28,14 +32,16 @@ suite("test_oracle_jdbc_catalog", "p0") {
 
         String inDorisTable = "doris_in_tb";
 
+        sql """create database if not exists ${internal_db_name}; """
+
         sql """drop catalog if exists ${catalog_name} """
 
         sql """create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
 
@@ -92,8 +98,8 @@ suite("test_oracle_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
                     "only_specified_database" = "true"
         );"""
@@ -107,8 +113,8 @@ suite("test_oracle_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
                     "only_specified_database" = "true",
                     "include_database_list" = "${ex_db_name}"
@@ -123,8 +129,8 @@ suite("test_oracle_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
                     "lower_case_table_names" = "true"
         );"""
@@ -142,8 +148,8 @@ suite("test_oracle_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
                     "lower_case_table_names" = "true"
         );"""

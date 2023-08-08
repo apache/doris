@@ -464,6 +464,13 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker nonMatch(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        assertMatches(memo, () -> !MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
     // TODO: remove it.
     public PlanChecker matchesNotCheck(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();

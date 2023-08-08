@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_catalog_hive_orc", "p0,external,hive") {
+suite("test_catalog_hive_orc", "p0,external,hive,external_docker,external_docker_hive") {
 
     def q01 = { 
         sql """set exec_mem_limit=8589934592"""
@@ -801,11 +801,12 @@ order by
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_port = context.config.otherConfigs.get("hms_port")
         String catalog_name = "test_catalog_hive_orc"
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
-            'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
         sql """switch ${catalog_name}"""
         sql """use `tpch1_orc`"""

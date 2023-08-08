@@ -15,15 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_clickhouse_jdbc_catalog", "p0") {
+suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,external_docker_clickhouse") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "clickhouse_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
         String clickhouse_port = context.config.otherConfigs.get("clickhouse_22_port");
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String s3_endpoint = getS3Endpoint()
+        String bucket = getS3BucketName()
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/clickhouse-jdbc-0.4.2-all.jar"
 
         String inDorisTable = "doris_in_tb";
+
+        sql """create database if not exists ${internal_db_name}; """
 
         sql """ drop catalog if exists ${catalog_name} """
 
@@ -31,8 +37,8 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="default",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:${clickhouse_port}/doris_test",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/clickhouse-jdbc-0.4.2-all.jar",
+                    "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${clickhouse_port}/doris_test",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
         );"""
 

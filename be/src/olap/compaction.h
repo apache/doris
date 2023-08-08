@@ -93,6 +93,9 @@ protected:
     void build_basic_info();
 
     void init_profile(const std::string& label);
+    [[nodiscard]] bool allow_delete_in_cumu_compaction() const {
+        return _allow_delete_in_cumu_compaction;
+    }
 
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
@@ -123,6 +126,7 @@ protected:
     TabletSchemaSPtr _cur_tablet_schema;
 
     std::unique_ptr<RuntimeProfile> _profile;
+    bool _allow_delete_in_cumu_compaction = false;
 
     RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;
     RuntimeProfile::Counter* _input_rowsets_counter = nullptr;

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_doris_jdbc_catalog", "p0") {
+suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_docker_doris") {
     qt_sql """select current_catalog()"""
 
     String jdbcUrl = context.config.jdbcUrl + "&sessionVariables=return_object_data_as_binary=true"
@@ -24,6 +24,8 @@ suite("test_doris_jdbc_catalog", "p0") {
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+
 
     String resource_name = "jdbc_resource_catalog_doris"
     String catalog_name = "doris_jdbc_catalog";
@@ -31,6 +33,8 @@ suite("test_doris_jdbc_catalog", "p0") {
     String doris_port = 9030;
     String inDorisTable = "doris_in_tb";
     String hllTable = "bowen_hll_test"
+
+    sql """create database if not exists ${internal_db_name}; """
 
     qt_sql """select current_catalog()"""
     sql """drop catalog if exists ${catalog_name} """

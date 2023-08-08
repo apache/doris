@@ -66,6 +66,7 @@
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/index_builder.h"
 #include "runtime/client_cache.h"
+#include "runtime/memory/cache_manager.h"
 #include "service/brpc.h"
 #include "service/point_query_executor.h"
 #include "util/brpc_client_cache.h"
@@ -176,11 +177,11 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
     LOG(INFO) << "tablet path check thread started";
 
-    // fd cache clean thread
+    // cache clean thread
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "fd_cache_clean_thread",
-            [this]() { this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
-    LOG(INFO) << "fd cache clean thread started";
+            "StorageEngine", "cache_clean_thread", [this]() { this->_cache_clean_callback(); },
+            &_cache_clean_thread));
+    LOG(INFO) << "cache clean thread started";
 
     // path scan and gc thread
     if (config::path_gc_check) {
@@ -247,17 +248,17 @@ Status StorageEngine::start_bg_threads() {
     return Status::OK();
 }
 
-void StorageEngine::_fd_cache_clean_callback() {
+void StorageEngine::_cache_clean_callback() {
     int32_t interval = 600;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        interval = config::cache_clean_interval;
+        interval = config::cache_prune_stale_interval;
         if (interval <= 0) {
-            LOG(WARNING) << "config of file descriptor clean interval is illegal: [" << interval
+            LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
                          << "], force set to 3600 ";
             interval = 3600;
         }
 
-        _start_clean_cache();
+        CacheManager::instance()->for_each_cache_prune_stale();
     }
 }
 

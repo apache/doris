@@ -223,8 +223,8 @@ suite("test_delete") {
 
     sql '''
         CREATE TABLE test1 (
-            x varchar NOT NULL,
-            id varchar NOT NULL
+            x varchar(10) NOT NULL,
+            id varchar(10) NOT NULL
         )
         ENGINE=OLAP
         UNIQUE KEY(`x`)COMMENT "OLAP"
@@ -240,4 +240,14 @@ suite("test_delete") {
     sql 'delete from test1 where length(x)=2'
     
     qt_delete_fn 'select * from test1 order by x'
+    
+    sql 'truncate table test1'
+
+    sql 'insert into test1 values("a", "a"), ("bb", "bb"), ("ccc", "ccc")'
+    sql 'delete from test1 where length(id) >= 2'
+
+    test {
+        sql 'select * from test1 order by x'
+        result([['a', 'a']])
+    }
 }

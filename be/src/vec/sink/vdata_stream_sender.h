@@ -97,13 +97,10 @@ public:
                       const std::vector<TPlanFragmentDestination>& destinations,
                       int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
 
-    VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-                      PlanNodeId dest_node_id,
+    VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
+                      const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                       const std::vector<TPlanFragmentDestination>& destinations,
                       int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
-
-    VDataStreamSender(ObjectPool* pool, const RowDescriptor& row_desc, int per_channel_buffer_size,
-                      bool send_query_statistics_with_every_batch);
 
     ~VDataStreamSender() override;
 
@@ -209,7 +206,7 @@ protected:
     bool _only_local_exchange = false;
     bool _enable_pipeline_exec = false;
 
-    std::unique_ptr<BlockSerializer> _serializer;
+    BlockSerializer _serializer;
 };
 
 class Channel {
@@ -234,10 +231,10 @@ public:
               _closed(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
-        std::string localhost = BackendOptions::get_localhost();
-        _is_local = (_brpc_dest_addr.hostname == localhost) &&
-                    (_brpc_dest_addr.port == config::brpc_port);
+              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
+              _is_local((_brpc_dest_addr.hostname == BackendOptions::get_localhost()) &&
+                        (_brpc_dest_addr.port == config::brpc_port)),
+              _serializer(_parent, _is_local) {
         if (_is_local) {
             VLOG_NOTICE << "will use local Exchange, dest_node_id is : " << _dest_node_id;
         }
@@ -385,7 +382,7 @@ protected:
     PBlock _ch_pb_block1;
     PBlock _ch_pb_block2;
 
-    std::unique_ptr<BlockSerializer> _serializer;
+    BlockSerializer _serializer;
 };
 
 #define HANDLE_CHANNEL_STATUS(state, channel, status)    \
@@ -490,7 +487,7 @@ public:
         bool serialized = false;
         _pblock = std::make_unique<PBlock>();
         RETURN_IF_ERROR(
-                _serializer->next_serialized_block(block, _pblock.get(), 1, &serialized, &rows));
+                _serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, &rows));
         if (serialized) {
             RETURN_IF_ERROR(send_current_block(false));
         }
@@ -506,7 +503,7 @@ public:
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         if (eos) {
             _pblock = std::make_unique<PBlock>();
-            RETURN_IF_ERROR(_serializer->serialize_block(_pblock.get(), 1));
+            RETURN_IF_ERROR(_serializer.serialize_block(_pblock.get(), 1));
         }
         RETURN_IF_ERROR(send_block(_pblock.release(), eos));
         return Status::OK();

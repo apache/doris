@@ -19,7 +19,7 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.datasource.JdbcExternalCatalog;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 
 public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> {
 

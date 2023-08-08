@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_yandex_nereids", "p2") {
+suite("test_external_yandex_nereids", "p2,external,hive,external_remote,external_remote_hive") {
 
     def formats = ["_parquet"]
     def duplicateAggregationKeys = "SELECT URL, EventDate, max(URL) FROM hitsSUFFIX WHERE CounterID = 1704509 AND UserID = 4322253409885123546 GROUP BY URL, EventDate, EventDate ORDER BY URL, EventDate;"

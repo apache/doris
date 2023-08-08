@@ -17,9 +17,15 @@
 
 import java.nio.charset.Charset;
 
-suite("test_jdbc_query_pg", "p0,external,pg") {
+suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
+
+
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String pg_14_port = context.config.otherConfigs.get("pg_14_port")
         String jdbcResourcePg14 = "jdbc_resource_pg_14"
@@ -43,8 +49,8 @@ suite("test_jdbc_query_pg", "p0,external,pg") {
                 "type"="jdbc",
                 "user"="postgres",
                 "password"="123456",
-                "jdbc_url"="jdbc:postgresql://127.0.0.1:$pg_14_port/postgres?currentSchema=doris_test",
-                "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+                "jdbc_url"="jdbc:postgresql://${externalEnvIp}:$pg_14_port/postgres?currentSchema=doris_test",
+                "driver_url"="${driver_url}",
                 "driver_class"="org.postgresql.Driver"
             );
             """

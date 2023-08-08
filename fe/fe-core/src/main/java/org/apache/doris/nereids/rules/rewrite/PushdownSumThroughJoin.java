@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
+ * TODO: distinct
  * Related paper "Eager aggregation and lazy aggregation".
  * <pre>
  * aggregate: Sum(x)
@@ -69,7 +70,7 @@ public class PushdownSumThroughJoin implements RewriteRuleFactory {
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
-                                    .allMatch(f -> f instanceof Sum && f.child(0) instanceof Slot);
+                                    .allMatch(f -> f instanceof Sum && !f.isDistinct() && f.child(0) instanceof Slot);
                         })
                         .then(agg -> pushSum(agg, agg.child(), ImmutableList.of()))
                         .toRule(RuleType.PUSHDOWN_SUM_THROUGH_JOIN),
@@ -80,7 +81,7 @@ public class PushdownSumThroughJoin implements RewriteRuleFactory {
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
-                                    .allMatch(f -> f instanceof Sum && f.child(0) instanceof Slot);
+                                    .allMatch(f -> f instanceof Sum && !f.isDistinct() && f.child(0) instanceof Slot);
                         })
                         .then(agg -> pushSum(agg, agg.child().child(), agg.child().getProjects()))
                         .toRule(RuleType.PUSHDOWN_SUM_THROUGH_JOIN)
