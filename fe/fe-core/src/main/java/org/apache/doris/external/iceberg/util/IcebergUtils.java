@@ -83,6 +83,9 @@ public class IcebergUtils {
             return 0;
         }
     };
+    static DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+            .withZone(ZoneId.systemDefault());
+    static long MILLIS_TO_NANO_TIME = 1000;
 
     /**
      * Create Iceberg schema from Doris ColumnDef.
@@ -341,7 +344,7 @@ public class IcebergUtils {
             }
             List<Object> valueList = new ArrayList<>();
             for (int i = 1; i < inExpr.getChildren().size(); ++i) {
-                if (!(inExpr.getChild(i) instanceof  LiteralExpr)) {
+                if (!(inExpr.getChild(i) instanceof LiteralExpr)) {
                     return null;
                 }
                 LiteralExpr literalExpr = (LiteralExpr) inExpr.getChild(i);
@@ -372,23 +375,23 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
-                    .withZone(ZoneId.systemDefault());
-            StringBuilder sb = new StringBuilder();
-            sb.append(dateLiteral.getYear())
-                    .append(dateLiteral.getMonth())
-                    .append(dateLiteral.getDay())
-                    .append(dateLiteral.getHour())
-                    .append(dateLiteral.getMinute())
-                    .append(dateLiteral.getSecond());
+
+            String formatDate = String.format("%04d%02d%02d%02d%02d%02d",
+                    dateLiteral.getYear(),
+                    dateLiteral.getMonth(),
+                    dateLiteral.getDay(),
+                    dateLiteral.getHour(),
+                    dateLiteral.getMinute(),
+                    dateLiteral.getSecond());
             Date date;
             try {
                 date = Date.from(
-                        LocalDateTime.parse(sb.toString(), formatter).atZone(ZoneId.systemDefault()).toInstant());
+                        LocalDateTime.parse(formatDate, dateFormatter).atZone(ZoneId.systemDefault()).toInstant());
             } catch (DateTimeParseException e) {
+                LOG.error("Failed to parse date from \"" + formatDate + "\".");
                 return null;
             }
-            return date.getTime();
+            return date.getTime() * MILLIS_TO_NANO_TIME;
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             return decimalLiteral.getValue();

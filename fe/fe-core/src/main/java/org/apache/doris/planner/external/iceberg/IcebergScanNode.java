@@ -56,6 +56,7 @@ import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
@@ -67,6 +68,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,6 +78,7 @@ import java.util.stream.Collectors;
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
+    public static final String DEFAULT_DATA_PATH = "/data/";
 
     private IcebergSource source;
     private Table icebergTable;
@@ -181,11 +184,25 @@ public class IcebergScanNode extends FileQueryScanNode {
         int formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         // Min split size is DEFAULT_SPLIT_SIZE(128MB).
         long splitSize = Math.max(ConnectContext.get().getSessionVariable().getFileSplitSize(), DEFAULT_SPLIT_SIZE);
+        HashSet<String> partitionPathSet = new HashSet<>();
+        String dataPath = icebergTable.location() + icebergTable.properties()
+                .getOrDefault(TableProperties.WRITE_DATA_LOCATION, DEFAULT_DATA_PATH);
+        boolean isPartitionedTable = icebergTable.spec().isPartitioned();
+
         CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
         try (CloseableIterable<CombinedScanTask> combinedScanTasks =
-                 TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
+                TableScanUtil.planTasks(fileScanTasks, splitSize, 1, 0)) {
             combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
                 String dataFilePath = splitTask.file().path().toString();
+
+                // Counts the number of partitions read
+                if (isPartitionedTable) {
+                    int last = dataFilePath.lastIndexOf("/");
+                    if (last > 0) {
+                        partitionPathSet.add(dataFilePath.substring(dataPath.length(), last));
+                    }
+                }
+
                 Path finalDataFilePath = S3Util.toScanRangeLocation(dataFilePath, source.getCatalog().getProperties());
                 IcebergSplit split = new IcebergSplit(
                         finalDataFilePath,
@@ -204,6 +221,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e.getCause());
         }
+
+        readPartitionNum = partitionPathSet.size();
 
         return splits;
     }
@@ -242,7 +261,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         if (latestHistory == null) {
             throw new NotFoundException("No version history at or before "
-                + Instant.ofEpochMilli(asOfTimestamp));
+                    + Instant.ofEpochMilli(asOfTimestamp));
         }
         return latestHistory.snapshotId();
     }
@@ -278,7 +297,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public TFileType getLocationType(String location) throws UserException {
         return getTFileType(location).orElseThrow(() ->
-            new DdlException("Unknown file location " + location + " for iceberg table " + icebergTable.name()));
+                new DdlException("Unknown file location " + location + " for iceberg table " + icebergTable.name()));
     }
 
     @Override
@@ -303,7 +322,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public List<String> getPathPartitionKeys() throws UserException {
         return icebergTable.spec().fields().stream().map(PartitionField::name).map(String::toLowerCase)
-            .collect(Collectors.toList());
+                .collect(Collectors.toList());
     }
 
     @Override
