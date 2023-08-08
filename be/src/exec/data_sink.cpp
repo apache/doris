@@ -151,7 +151,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        if (config::experimental_olap_table_sink_v2) {
+        if (state->query_options().enable_experimental_olap_table_sink_v2) {
             sink->reset(new stream_load::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
@@ -292,7 +292,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        if (config::experimental_olap_table_sink_v2) {
+        if (state->query_options().enable_experimental_olap_table_sink_v2) {
             sink->reset(new stream_load::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
         } else {
             sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));

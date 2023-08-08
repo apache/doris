@@ -227,6 +227,8 @@ struct TQueryOptions {
   75: optional bool enable_insert_strict = false;
 
   76: optional bool enable_inverted_index_query = true;
+
+  77: optional bool enable_experimental_olap_table_sink_v2 = false;
 }
 
 

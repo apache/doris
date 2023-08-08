@@ -544,6 +544,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_partial_update(false);
         }
     }
+    if (!http_req->header(HTTP_ENABLE_SINK_V2).empty()) {
+        if (iequal(http_req->header(HTTP_ENABLE_SINK_V2), "true")) {
+            request.__set_enable_sink_v2(true);
+        } else {
+            request.__set_enable_sink_v2(false);
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load

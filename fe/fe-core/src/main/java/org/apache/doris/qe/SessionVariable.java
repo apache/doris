@@ -371,6 +371,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
 
+    public static final String ENABLE_EXPERIMENTAL_OLAP_TABLE_SINK_V2 =
+            "enable_experimental_olap_table_sink_v2";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1071,6 +1074,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
     public int parallelSyncAnalyzeTaskNum = 2;
+
+    @VariableMgr.VarAttr(name = ENABLE_EXPERIMENTAL_OLAP_TABLE_SINK_V2, needForward = true)
+    public boolean enableExperimentalOlapTableSinkV2 = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2130,6 +2136,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
 
         tResult.setEnableInsertStrict(enableInsertStrict);
+        tResult.setEnableExperimentalOlapTableSinkV2(enableExperimentalOlapTableSinkV2);
 
         return tResult;
     }

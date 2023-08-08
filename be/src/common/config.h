@@ -780,8 +780,6 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// whether to use OlapTableSinkV2
-DECLARE_Bool(experimental_olap_table_sink_v2);
 // number of brpc stream per OlapTableSinkV2
 DECLARE_Int32(stream_cnt_per_sink);
 // max flush memtable parallelism per OlapTableSinkV2

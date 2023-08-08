@@ -88,6 +88,8 @@ public class StreamLoadTask implements LoadTaskInfo {
     private int skipLines = 0;
     private boolean enableProfile = false;
 
+    private boolean enableSinkV2 = false;
+
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
         this.id = id;
@@ -275,6 +277,15 @@ public class StreamLoadTask implements LoadTaskInfo {
         return isPartialUpdate;
     }
 
+    @Override
+    public boolean isEnableSinkV2() {
+        return enableSinkV2;
+    }
+
+    public void setEnableSinkV2(boolean enableSinkV2) {
+        this.enableSinkV2 = enableSinkV2;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
@@ -401,6 +412,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetPartialUpdate()) {
             isPartialUpdate = request.isPartialUpdate();
+        }
+        if (request.isSetEnableSinkV2()) {
+            this.enableSinkV2 = request.isEnableSinkV2();
         }
     }
 

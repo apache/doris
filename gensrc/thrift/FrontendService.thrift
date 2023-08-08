@@ -609,6 +609,7 @@ struct TStreamLoadPutRequest {
     48: optional i64 backend_id
     49: optional i32 version // version 1 means use load_sql
     50: optional string label
+    51: optional bool enable_sink_v2;
 }
 
 struct TStreamLoadPutResult {
