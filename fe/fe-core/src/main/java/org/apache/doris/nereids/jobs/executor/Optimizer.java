@@ -56,7 +56,9 @@ public class Optimizer {
                 || maxJoinCount > getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
         cascadesContext.getStatementContext().setDpHyp(isDpHyp);
         cascadesContext.getStatementContext().setOtherJoinReorder(false);
-        if (!getSessionVariable().isDisableJoinReorder() && isDpHyp) {
+        if (!getSessionVariable().isDisableJoinReorder() && isDpHyp
+                && maxJoinCount <= getSessionVariable().getMaxJoinNumberOfReorder()) {
+            //RightNow, dphyper can only order 64 join operators
             dpHypOptimize();
         }
 
