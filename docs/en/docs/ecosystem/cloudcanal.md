@@ -44,7 +44,7 @@ CloudCanal help users build a modern data stack in a simple way.
 - Supported Source endpoints and features：
 
   | Source Endpoints \ Feature | Schema Migration | Full Data | Incremental | Verification | 
--------------| --- | --- | --- | --- | --- |
+      | --- | --- | --- | --- | --- |
   | Oracle      | Yes | Yes | Yes | Yes |
   | PostgreSQL  | Yes | Yes | Yes | Yes |
   | Greenplum   | Yes | Yes | No | Yes |
