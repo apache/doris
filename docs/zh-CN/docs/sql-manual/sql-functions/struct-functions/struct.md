@@ -1,6 +1,6 @@
 ---
 {
-    "title": "struct",
+    "title": "STRUCT",
     "language": "zh-CN"
 }
 ---
