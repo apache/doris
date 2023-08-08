@@ -77,7 +77,7 @@ public class FederationBackendPolicyTest {
         }
         sw.stop();
         System.out.println("Invoke getNextBe() " + invokeTimes
-                    + " times cost [" + sw.elapsed(TimeUnit.MILLISECONDS) + "] seconds");
+                    + " times cost [" + sw.elapsed(TimeUnit.MILLISECONDS) + "] ms");
     }
 
     @Test
@@ -94,6 +94,6 @@ public class FederationBackendPolicyTest {
         }
         sw.stop();
         System.out.println("Invoke getNextLocalBe() " + invokeTimes
-                    + " times cost [" + sw.elapsed(TimeUnit.MILLISECONDS) + "] seconds");
+                    + " times cost [" + sw.elapsed(TimeUnit.MILLISECONDS) + "] ms");
     }
 }
