@@ -15,9 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jdbc_query_mysql", "p0,external,mysql") {
+suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docker_mysql") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_57_port = context.config.otherConfigs.get("mysql_57_port")
         String jdbcResourceMysql57 = "jdbc_resource_mysql_57_x"
@@ -37,8 +42,8 @@ suite("test_jdbc_query_mysql", "p0,external,mysql") {
                 "type"="jdbc",
                 "user"="root",
                 "password"="123456",
-                "jdbc_url"="jdbc:mysql://127.0.0.1:$mysql_57_port/doris_test",
-                "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+                "jdbc_url"="jdbc:mysql://${externalEnvIp}:$mysql_57_port/doris_test",
+                "driver_url"="${driver_url}",
                 "driver_class"="com.mysql.cj.jdbc.Driver"
             );
             """

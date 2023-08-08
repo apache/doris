@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_schema_evolution_iceberg_catalog", "p2") {
+suite("iceberg_schema_evolution_iceberg_catalog", "p2,external,iceberg,external_remote,external_remote_iceberg") {
     def rename1 = """select * from rename_test order by rename_1;"""
     def rename2 = """select * from rename_test where rename_1 in (3, 4) order by rename_1;"""
     def drop1 = """select * from drop_test order by orig1;"""

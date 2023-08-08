@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_multi_langs", "p2") {
+suite("test_multi_langs", "p2,external,hive,external_remote,external_remote_hive") {
 
     def formats = ["_parquet", "_orc", "_text"]
     def q1 = """select * from test_chineseSUFFIX where col1='是' order by id"""

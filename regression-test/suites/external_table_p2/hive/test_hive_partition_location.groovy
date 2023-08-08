@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_partition_location", "p2") {
+suite("test_hive_partition_location", "p2,external,hive,external_remote,external_remote_hive") {
     def one_partition1 = """select * from partition_location_1 order by id;"""
     def one_partition2 = """select * from partition_location_1 where part='part1';"""
     def one_partition3 = """select * from partition_location_1 where part='part2';"""
