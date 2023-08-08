@@ -581,15 +581,6 @@ public class Memo {
         groups.remove(source.getGroupId());
     }
 
-    /**
-     * Add enforcer expression into the target group.
-     */
-    public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
-        Preconditions.checkArgument(groupExpression != null);
-        groupExpression.setOwnerGroup(group);
-        // Don't add groupExpression into group's physicalExpressions, it will cause dead loop;
-    }
-
     private CopyInResult rewriteByExistedPlan(Group targetGroup, Plan existedPlan) {
         GroupExpression existedLogicalExpression = existedPlan instanceof GroupPlan
                 ? ((GroupPlan) existedPlan).getGroup().getLogicalExpression() // get first logicalGroupExpression
