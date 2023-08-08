@@ -486,8 +486,8 @@ struct StContains {
         std::unique_ptr<GeoShape> rhs_shape;
         for (int row = 0; row < size; ++row) {
             auto rhs_value = shape2->get_data_at(row);
-            rhs_shape.reset(GeoShape::from_encoded(rhs_value.data, rhs_value.size));
-            if (rhs_shape == nullptr) {
+            rhs_shape.reset(GeoShape::from_wkb(rhs_value.data, rhs_value.size, &status));
+            if (status != GEO_PARSE_OK || rhs_shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
             }

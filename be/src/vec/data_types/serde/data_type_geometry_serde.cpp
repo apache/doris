@@ -26,19 +26,13 @@ namespace vectorized {
         auto& data = assert_cast<const ColumnString&>(column);
         const auto col_index = index_check_const(row_idx, col_const);
         const auto geo_val = data.get_data_at(col_index);
-        // jsonb size == 0 is NULL
+        // geo size == 0 is NULL
         if (geo_val.data == nullptr || geo_val.size == 0) {
             if (UNLIKELY(0 != result.push_null())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            std::unique_ptr<GeoShape> shape;
-            std::string string_temp;
-            size_t data_size = geo_val.size;
-            shape.reset(GeoShape::from_encoded(geo_val.data, data_size));
-            if(shape != nullptr ){
-                string_temp = shape->as_wkt();
-            }
+            std::string string_temp = GeoShape::geo_tohex(std::string(geo_val.data, geo_val.size));
             if (UNLIKELY(0 != result.push_string(string_temp.c_str(), string_temp.size()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
