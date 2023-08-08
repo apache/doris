@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler;
+package org.apache.doris.scheduler.registry;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.PatternMatcher;
@@ -23,7 +23,6 @@ import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.scheduler.manager.TimerJobManager;
-import org.apache.doris.scheduler.registry.PersistentJobRegister;
 
 import lombok.extern.slf4j.Slf4j;
 

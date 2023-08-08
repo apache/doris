@@ -31,7 +31,7 @@ import java.util.UUID;
  * The Job task contains the ID of the Job and the ID of the task itself.
  */
 @Getter
-public class DorisTimerTask implements TimerTask {
+public class TimerJobTask implements TimerTask {
 
     private final Long jobId;
 
@@ -42,7 +42,7 @@ public class DorisTimerTask implements TimerTask {
 
     private final TaskDisruptor taskDisruptor;
 
-    public DorisTimerTask(Long jobId, Long startTimestamp, TaskDisruptor taskDisruptor) {
+    public TimerJobTask(Long jobId, Long startTimestamp, TaskDisruptor taskDisruptor) {
         this.jobId = jobId;
         this.startTimestamp = startTimestamp;
         this.taskDisruptor = taskDisruptor;

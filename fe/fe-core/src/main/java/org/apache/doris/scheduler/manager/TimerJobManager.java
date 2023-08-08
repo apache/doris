@@ -26,8 +26,8 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.disruptor.TaskDisruptor;
-import org.apache.doris.scheduler.job.DorisTimerTask;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.TimerJobTask;
 
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.Timeout;
@@ -361,7 +361,7 @@ public class TimerJobManager implements Closeable, Writable {
      *                         delay seconds, we just can be second precision
      */
     public void putOneTask(Long jobId, Long startExecuteTime) {
-        DorisTimerTask task = new DorisTimerTask(jobId, startExecuteTime, disruptor);
+        TimerJobTask task = new TimerJobTask(jobId, startExecuteTime, disruptor);
         if (isClosed) {
             log.info("putOneTask failed, scheduler is closed, jobId: {}", task.getJobId());
             return;

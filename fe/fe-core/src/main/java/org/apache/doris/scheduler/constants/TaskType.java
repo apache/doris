@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.disruptor;
+package org.apache.doris.scheduler.constants;
 
 public enum TaskType {
     TimerJobTask,

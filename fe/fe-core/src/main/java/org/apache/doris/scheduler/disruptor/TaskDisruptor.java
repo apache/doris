@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler.disruptor;
 
+import org.apache.doris.scheduler.constants.TaskType;
 import org.apache.doris.scheduler.manager.MemoryTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
 

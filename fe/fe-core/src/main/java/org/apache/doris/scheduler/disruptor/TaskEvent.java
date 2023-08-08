@@ -17,6 +17,8 @@
 
 package org.apache.doris.scheduler.disruptor;
 
+import org.apache.doris.scheduler.constants.TaskType;
+
 import com.lmax.disruptor.EventFactory;
 import lombok.Data;
 
