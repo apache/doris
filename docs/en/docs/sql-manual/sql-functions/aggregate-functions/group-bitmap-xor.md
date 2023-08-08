@@ -1,6 +1,6 @@
 ---
 {
-    "title": "group_bitmap_xor",
+    "title": "GROUP_BITMAP_XOR",
     "language": "en"
 }
 ---
