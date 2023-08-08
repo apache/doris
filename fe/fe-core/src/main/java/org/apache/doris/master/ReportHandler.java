@@ -1188,11 +1188,23 @@ public class ReportHandler extends Daemon {
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
                     visibleVersion, replicaAlloc, aliveBeIds);
 
-            if ((status.first == TabletStatus.FORCE_REDUNDANT && infoService.checkBackendScheduleAvailable(backendId))
+            // FORCE_REDUNDANT is a specific missing case.
+            // So it can add replica when it's in FORCE_REDUNDANT.
+            // But must be careful to avoid: delete a replica then add it back, then repeat forever.
+            // If this replica is sched available and existing another replica is sched unavailable,
+            // it's safe to add this replica.
+            // Because if the tablet scheduler want to delete a replica, it will choose the sched
+            // unavailable replica and avoid the repeating loop as above.
+            boolean canAddForceRedundant = status.first == TabletStatus.FORCE_REDUNDANT
+                    && infoService.checkBackendScheduleAvailable(backendId)
+                    && tablet.getReplicas().stream().anyMatch(
+                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
+
+            if (isColocateBackend
+                    || canAddForceRedundant
                     || status.first == TabletStatus.VERSION_INCOMPLETE
                     || status.first == TabletStatus.REPLICA_MISSING
-                    || status.first == TabletStatus.UNRECOVERABLE
-                    || isColocateBackend) {
+                    || status.first == TabletStatus.UNRECOVERABLE) {
                 long lastFailedVersion = -1L;
 
                 // For some partition created by old version's Doris
