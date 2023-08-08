@@ -35,6 +35,7 @@ import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
+import org.apache.doris.nereids.rules.rewrite.AuthChecker;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
@@ -291,6 +292,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
+                    topDown(new AuthChecker()),
                     custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
                     topDown(
                             new PushdownFilterThroughProject(),

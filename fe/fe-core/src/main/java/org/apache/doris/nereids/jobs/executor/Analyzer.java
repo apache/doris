@@ -35,7 +35,6 @@ import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
-import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 
 import java.util.List;
 import java.util.Objects;
@@ -83,7 +82,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(
                 new BindRelation(customTableResolver),
                 new CheckPolicy(),
-                new UserAuthentication(),
                 new BindExpression()
             ),
             topDown(new BindInsertTargetTable()),
