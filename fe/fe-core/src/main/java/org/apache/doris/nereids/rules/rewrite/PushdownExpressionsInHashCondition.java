@@ -71,7 +71,8 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
     /**
      * push down complex expression in hash condition
      */
-    public static Plan pushDownHashExpression(LogicalJoin<? extends Plan, ? extends Plan> join) {
+    public static LogicalJoin<? extends Plan, ? extends Plan> pushDownHashExpression(
+            LogicalJoin<? extends Plan, ? extends Plan> join) {
         Set<NamedExpression> leftProjectExprs = Sets.newHashSet();
         Set<NamedExpression> rightProjectExprs = Sets.newHashSet();
         Map<Expression, NamedExpression> exprReplaceMap = Maps.newHashMap();
