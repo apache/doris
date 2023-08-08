@@ -1,6 +1,6 @@
 ---
 {
-    "title": "makedate",
+    "title": "MAKEDATE",
     "language": "en"
 }
 ---
