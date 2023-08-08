@@ -52,7 +52,7 @@ public class AuthChecker implements RewriteRuleFactory {
                         .toRule(RuleType.RELATION_AUTHENTICATION));
     }
 
-    private Plan dealFilter(LogicalProject<LogicalFilter<LogicalRelation>> project) {
+    public static Plan dealFilter(LogicalProject<LogicalFilter<LogicalRelation>> project) {
         Plan plan = project.child(0);
         if (!(plan instanceof LogicalFilter)) {
             return project;
