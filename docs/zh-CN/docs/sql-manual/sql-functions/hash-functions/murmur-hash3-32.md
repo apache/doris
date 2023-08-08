@@ -1,6 +1,6 @@
 ---
 {
-    "title": "murmur_hash3_32",
+    "title": "MURMUR_HASH3_32",
     "language": "zh-CN"
 }
 ---
