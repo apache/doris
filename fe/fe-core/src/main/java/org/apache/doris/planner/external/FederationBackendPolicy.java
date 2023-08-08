@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.hash.Funnel;
 import com.google.common.hash.Hashing;
@@ -40,8 +41,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -49,6 +53,8 @@ import java.util.stream.Collectors;
 public class FederationBackendPolicy {
     private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
     private final List<Backend> backends = Lists.newArrayList();
+    private final Map<String, Backend> backendMap = Maps.newHashMap();
+    private final Random random = new Random(System.currentTimeMillis());
     private ConsistentHash<TScanRangeLocations, Backend> consistentHash;
 
     private int nextBe = 0;
@@ -90,6 +96,9 @@ public class FederationBackendPolicy {
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
         }
+        for (Backend backend : backends) {
+            backendMap.put(backend.getHost(), backend);
+        }
         int virtualNumber = Math.max(Math.min(512 / backends.size(), 32), 2);
         consistentHash = new ConsistentHash<>(Hashing.murmur3_128(), new ScanRangeHash(),
                 new BackendHash(), backends, virtualNumber);
@@ -107,14 +116,14 @@ public class FederationBackendPolicy {
 
     // Try to find a local BE, if not exists, use `getNextBe` instead
     public Backend getNextLocalBe(List<String> hosts) {
-        List<Backend> candidateBackends = backends.stream()
-                    .filter(backend -> hosts.contains(backend.getHost()))
+        List<Backend> candidateBackends = hosts.stream()
+                    .map(backendMap::get)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
         if (CollectionUtils.isEmpty(candidateBackends)) {
             return getNextBe();
         }
         LOG.debug("Find {} BEs which belong(s) to the same node with the file split.", candidateBackends.size());
-        Random random = new Random(System.currentTimeMillis());
         return candidateBackends.get(random.nextInt(candidateBackends.size()));
     }
 
@@ -122,8 +131,8 @@ public class FederationBackendPolicy {
         return backends.size();
     }
 
-    public List<Backend> getBackends() {
-        return backends;
+    public Collection<Backend> getBackends() {
+        return CollectionUtils.unmodifiableCollection(backends);
     }
 
     private static class BackendHash implements Funnel<Backend> {

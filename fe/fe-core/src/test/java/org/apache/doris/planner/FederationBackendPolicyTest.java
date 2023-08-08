@@ -69,7 +69,7 @@ public class FederationBackendPolicyTest {
         FederationBackendPolicy policy = new FederationBackendPolicy();
         policy.init();
         int backendNum = 200;
-        int invokeTimes = 10000;
+        int invokeTimes = 1000000;
         Assertions.assertEquals(policy.numBackends(), backendNum);
         Stopwatch sw = Stopwatch.createStarted();
         for (int i = 0; i < invokeTimes; i++) {
@@ -77,7 +77,7 @@ public class FederationBackendPolicyTest {
         }
         sw.stop();
         System.out.println("Invoke getNextBe() " + invokeTimes
-                    + " times cost [" + sw.elapsed(TimeUnit.SECONDS) + "] seconds");
+                    + " times cost [" + sw.elapsed(TimeUnit.MILLISECONDS) + "] seconds");
     }
 
     @Test
@@ -85,7 +85,7 @@ public class FederationBackendPolicyTest {
         FederationBackendPolicy policy = new FederationBackendPolicy();
         policy.init();
         int backendNum = 200;
-        int invokeTimes = 10000;
+        int invokeTimes = 1000000;
         Assertions.assertEquals(policy.numBackends(), backendNum);
         List<String> localHosts = Arrays.asList("192.168.1.197", "192.168.1.198", "192.168.1.199");
         Stopwatch sw = Stopwatch.createStarted();
@@ -94,6 +94,6 @@ public class FederationBackendPolicyTest {
         }
         sw.stop();
         System.out.println("Invoke getNextLocalBe() " + invokeTimes
-                    + " times cost [" + sw.elapsed(TimeUnit.SECONDS) + "] seconds");
+                    + " times cost [" + sw.elapsed(TimeUnit.MILLISECONDS) + "] seconds");
     }
 }
