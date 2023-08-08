@@ -161,7 +161,7 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
-        size_t* compaction_score) {
+        size_t* compaction_score, bool allow_delete) {
     if (tablet->tablet_state() == TABLET_NOTREADY) {
         return 0;
     }
@@ -180,7 +180,7 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     for (auto it = first_rowset_iter; it != candidate_rowsets.end(); ++it) {
         const auto& rowset = *it;
         // check whether this rowset is delete version
-        if (rowset->rowset_meta()->has_delete_predicate()) {
+        if (!allow_delete && rowset->rowset_meta()->has_delete_predicate()) {
             *last_delete_version = rowset->version();
             if (!input_rowsets->empty()) {
                 // we meet a delete version, and there were other versions before.

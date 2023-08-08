@@ -415,7 +415,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_goal_size) {
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(2, input_rowsets.size());
     EXPECT_EQ(4, compaction_score);
@@ -442,7 +442,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_file_count) 
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(0, input_rowsets.size());
     EXPECT_EQ(0, compaction_score);
@@ -471,7 +471,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_time_interva
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(3, input_rowsets.size());
     EXPECT_EQ(3, compaction_score);
@@ -500,7 +500,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_empty) {
     size_t compaction_score = 0;
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(0, input_rowsets.size());
     EXPECT_EQ(0, compaction_score);
@@ -528,7 +528,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_delete) {
 
     _tablet->_cumulative_compaction_policy->pick_input_rowsets(
             _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
-            &compaction_score);
+            &compaction_score, config::enable_delete_when_cumu_compaction);
 
     EXPECT_EQ(1, input_rowsets.size());
     EXPECT_EQ(3, compaction_score);

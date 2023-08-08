@@ -43,4 +43,33 @@ suite("test_streamload_perfomance") {
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName}"
     }
+
+    // test stream load with sql performance
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            id int,
+            name varchar(255)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        def rowCount = 10000
+        def rowIt = java.util.stream.LongStream.range(0, rowCount)
+                .mapToObj({i -> [i, "a_" + i]})
+                .iterator()
+
+        // streamLoad {
+        //     set 'sql', 'insert into regression_test_performance_p0.test_streamload_performance1 select * from stream("format"="csv", "column_separator"="\t")'
+        //     table tableName
+        //     set 'version', '1'
+        //     time 100000
+        //     inputIterator rowIt
+        // }
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName}"
+    }
 }

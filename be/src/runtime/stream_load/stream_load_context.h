@@ -31,6 +31,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
 #include "runtime/exec_env.h"
@@ -157,6 +159,10 @@ public:
 
     int64_t txn_id = -1;
 
+    // TODO delete code
+    // for local file
+    // std::string path;
+
     std::string txn_operation = "";
 
     bool need_rollback = false;
@@ -168,7 +174,6 @@ public:
 
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
-
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
 

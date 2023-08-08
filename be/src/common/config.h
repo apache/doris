@@ -312,8 +312,8 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the clean interval of file descriptor cache and segment cache
-DECLARE_mInt32(cache_clean_interval);
+// the prune stale interval of all cache
+DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
@@ -565,6 +565,8 @@ DECLARE_Bool(enable_quadratic_probing);
 DECLARE_String(pprof_profile_dir);
 // for jeprofile in jemalloc
 DECLARE_mString(jeprofile_dir);
+// Purge all unused dirty pages for all arenas.
+DECLARE_mBool(enable_je_purge_dirty_pages);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
@@ -1058,6 +1060,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
+// Apply delete pred in cumu compaction
+DECLARE_mBool(enable_delete_when_cumu_compaction);
 
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);

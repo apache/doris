@@ -267,8 +267,7 @@ DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
-// the clean interval of file descriptor cache and segment cache
-DEFINE_mInt32(cache_clean_interval, "60");
+DEFINE_mInt32(cache_prune_stale_interval, "10");
 // the clean interval of tablet lookup cache
 DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
@@ -516,6 +515,7 @@ DEFINE_Bool(enable_quadratic_probing, "false");
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
+DEFINE_mBool(enable_je_purge_dirty_pages, "true");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -1020,6 +1020,8 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+// Apply delete pred in cumu compaction
+DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 
 // max_write_buffer_number for rocksdb
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");

@@ -2054,7 +2054,7 @@ public class Config extends ConfigBase {
     public static int force_olap_table_replication_num = 0;
 
     @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+    public static int full_auto_analyze_simultaneously_running_task_num = 5;
 
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
