@@ -136,6 +136,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     //  Node should compact data.
     protected boolean compactData;
+    // except ExchangeNode, other plan node should not use numInstances, instead, every PlanNode should
+    // implement getNumInstances() method to return the actual num of instance
     protected int numInstances;
 
     // Runtime filters assigned to this node.
@@ -846,9 +848,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return (numNodes == -1 || numNodes >= 0) && (cardinality == -1 || cardinality >= 0);
     }
 
-    public int getNumInstances() {
-        return numInstances;
-    }
+    abstract public int getNumInstances();
 
     public boolean shouldColoAgg(AggregateInfo aggregateInfo) {
         return false;

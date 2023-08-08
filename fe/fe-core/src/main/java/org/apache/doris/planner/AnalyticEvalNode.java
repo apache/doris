@@ -207,6 +207,11 @@ public class AnalyticEvalNode extends PlanNode {
     }
 
     @Override
+    public int getNumInstances() {
+        return children.get(0).getNumInstances();
+    }
+
+    @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.ANALYTIC_EVAL_NODE;
         msg.analytic_node = new TAnalyticNode();

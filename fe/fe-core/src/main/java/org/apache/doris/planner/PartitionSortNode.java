@@ -147,4 +147,9 @@ public class PartitionSortNode extends PlanNode {
         partitionSortNode.setPartitionInnerLimit(partitionLimit);
         msg.partition_sort_node = partitionSortNode;
     }
+
+    @Override
+    public int getNumInstances() {
+        return children.get(0).getNumInstances();
+    }
 }

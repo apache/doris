@@ -50,6 +50,11 @@ public class CTEScanNode extends ScanNode {
     }
 
     @Override
+    public int getNumInstances() {
+        return children.get(0).getNumInstances();
+    }
+
+    @Override
     protected void createScanRangeLocations() throws UserException {
         // NO real action to be taken, just a wrapper
     }
