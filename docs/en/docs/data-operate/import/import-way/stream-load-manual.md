@@ -232,6 +232,34 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
   }
   ```
 
+### Use stream load with SQL
+
+You can add a `sql` parameter to the `Header` to replace the `column_separator`, `line_delimiter`, `where`, `columns` in the previous parameter, which is convenient to use.
+
+```
+curl --location-trusted -u user:passwd 
+[-H "sql: ${load_sql}"...] 
+-T data.file 
+-XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load_with_sql
+
+
+# -- load_sql
+# insert into db.table (col, ...) select stream_col, ... from stream("property1"="value1");
+
+# stream
+# (
+#     "column_separator" = ",",
+#     "format" = "CSV",
+#     ...
+# )
+```
+
+Examples：
+
+```
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/demo/example_tbl_1/_stream_load_with_sql
+```
+
 ### Return results
 
 Since Stream load is a synchronous import method, the result of the import is directly returned to the user by creating the return value of the import.
