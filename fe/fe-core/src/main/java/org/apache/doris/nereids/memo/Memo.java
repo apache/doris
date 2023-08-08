@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -47,6 +46,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -530,9 +530,9 @@ public class Memo {
                 // cycle, we should not merge
                 return;
             }
-            // PhysicalEnforcer don't exist in memo, so we need skip them.
-            if (parent.getPlan() instanceof PhysicalDistribute) {
-                // TODO: SortEnforcer.
+            Group parentOwnerGroup = parent.getOwnerGroup();
+            HashSet<GroupExpression> enforcers = new HashSet<>(parentOwnerGroup.getEnforcers());
+            if (enforcers.contains(parent)) {
                 continue;
             }
             needReplaceChild.add(parent);
