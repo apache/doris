@@ -80,11 +80,12 @@ protected:
     inline static const uint8_t* look_for_line_delimiter(const uint8_t* curr_start, size_t curr_len,
                                                          const char* line_delim,
                                                          size_t line_delim_len) {
-        if constexpr (SingleChar) {
-            return (uint8_t*)memchr(curr_start, line_delim[0], curr_len);
-        } else {
-            return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
-        }
+        // if constexpr (SingleChar) {
+        //     return (uint8_t*)memchr(curr_start, line_delim[0], curr_len);
+        // } else {
+        //     return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
+        // }
+        return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
     }
 
     FindDelimiterFunc find_line_delim_func;
