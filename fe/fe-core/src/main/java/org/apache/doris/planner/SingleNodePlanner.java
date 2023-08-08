@@ -2374,7 +2374,18 @@ public class SingleNodePlanner {
                 // Forbid to register Conjuncts with SelectStmt' tuple when Select is constant
                 if ((queryStmt instanceof SelectStmt) && selectHasTableRef) {
                     final SelectStmt select = (SelectStmt) queryStmt;
-                    op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                    // if there is an agg node, we need register the constant conjuncts on agg node's tuple
+                    // this is consistent with migrateConstantConjuncts()
+                    if (select.getAggInfo() != null) {
+                        Map<Boolean, List<Expr>> splittedConjuncts = opConjuncts.stream()
+                                .collect(Collectors.partitioningBy(expr -> expr.isConstant()));
+                        op.getAnalyzer().registerConjuncts(splittedConjuncts.get(true),
+                                select.getAggInfo().getOutputTupleId().asList());
+                        op.getAnalyzer().registerConjuncts(splittedConjuncts.get(false),
+                                select.getTableRefIds());
+                    } else {
+                        op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                    }
                 } else if (queryStmt instanceof SetOperationStmt) {
                     final SetOperationStmt subSetOp = (SetOperationStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, subSetOp.getTupleId().asList());
