@@ -1,6 +1,6 @@
 ---
 {
-    "title": "hex",
+    "title": "HEX",
     "language": "zh-CN"
 }
 ---

@@ -1,6 +1,6 @@
 ---
 {
-"title": "sub_replace",
+"title": "SUB_REPLACE",
 "language": "en"
 }
 ---

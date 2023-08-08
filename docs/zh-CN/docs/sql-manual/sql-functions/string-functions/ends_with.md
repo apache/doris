@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ends_with",
+    "title": "ENDS_WITH",
     "language": "zh-CN"
 }
 ---

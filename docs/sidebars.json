@@ -405,12 +405,12 @@
                             "type": "category",
                             "label": "String Functions",
                             "items": [
-                                "sql-manual/sql-functions/string-functions/to_base64",
-                                "sql-manual/sql-functions/string-functions/from_base64",
+                                "sql-manual/sql-functions/string-functions/to-base64",
+                                "sql-manual/sql-functions/string-functions/from-base64",
                                 "sql-manual/sql-functions/string-functions/ascii",
                                 "sql-manual/sql-functions/string-functions/length",
-                                "sql-manual/sql-functions/string-functions/bit_length",
-                                "sql-manual/sql-functions/string-functions/char_length",
+                                "sql-manual/sql-functions/string-functions/bit-length",
+                                "sql-manual/sql-functions/string-functions/char-length",
                                 "sql-manual/sql-functions/string-functions/lpad",
                                 "sql-manual/sql-functions/string-functions/rpad",
                                 "sql-manual/sql-functions/string-functions/lower",
@@ -422,52 +422,64 @@
                                 "sql-manual/sql-functions/string-functions/reverse",
                                 "sql-manual/sql-functions/string-functions/char",
                                 "sql-manual/sql-functions/string-functions/concat",
-                                "sql-manual/sql-functions/string-functions/concat_ws",
+                                "sql-manual/sql-functions/string-functions/concat-ws",
                                 "sql-manual/sql-functions/string-functions/substr",
                                 "sql-manual/sql-functions/string-functions/substring",
-                                "sql-manual/sql-functions/string-functions/sub_replace",
-                                "sql-manual/sql-functions/string-functions/append_trailing_char_if_absent",
-                                "sql-manual/sql-functions/string-functions/ends_with",
-                                "sql-manual/sql-functions/string-functions/starts_with",
+                                "sql-manual/sql-functions/string-functions/sub-replace",
+                                "sql-manual/sql-functions/string-functions/append-trailing-char-if-absent",
+                                "sql-manual/sql-functions/string-functions/ends-with",
+                                "sql-manual/sql-functions/string-functions/starts-with",
                                 "sql-manual/sql-functions/string-functions/trim",
                                 "sql-manual/sql-functions/string-functions/ltrim",
                                 "sql-manual/sql-functions/string-functions/rtrim",
-                                "sql-manual/sql-functions/string-functions/null_or_empty",
-                                "sql-manual/sql-functions/string-functions/not_null_or_empty",
+                                "sql-manual/sql-functions/string-functions/null-or-empty",
+                                "sql-manual/sql-functions/string-functions/not-null-or-empty",
                                 "sql-manual/sql-functions/string-functions/hex",
                                 "sql-manual/sql-functions/string-functions/unhex",
                                 "sql-manual/sql-functions/string-functions/elt",
                                 "sql-manual/sql-functions/string-functions/instr",
                                 "sql-manual/sql-functions/string-functions/locate",
                                 "sql-manual/sql-functions/string-functions/field",
-                                "sql-manual/sql-functions/string-functions/find_in_set",
+                                "sql-manual/sql-functions/string-functions/find-in-set",
                                 "sql-manual/sql-functions/string-functions/replace",
                                 "sql-manual/sql-functions/string-functions/left",
                                 "sql-manual/sql-functions/string-functions/right",
                                 "sql-manual/sql-functions/string-functions/strleft",
                                 "sql-manual/sql-functions/string-functions/strright",
-                                "sql-manual/sql-functions/string-functions/split_part",
-                                "sql-manual/sql-functions/string-functions/split_by_string",
-                                "sql-manual/sql-functions/string-functions/substring_index",
-                                "sql-manual/sql-functions/string-functions/money_format",
-                                "sql-manual/sql-functions/string-functions/parse_url",
-                                "sql-manual/sql-functions/string-functions/convert_to",
-                                "sql-manual/sql-functions/string-functions/extract_url_parameter",
+                                "sql-manual/sql-functions/string-functions/split-part",
+                                "sql-manual/sql-functions/string-functions/split-by-string",
+                                "sql-manual/sql-functions/string-functions/substring-index",
+                                "sql-manual/sql-functions/string-functions/money-format",
+                                "sql-manual/sql-functions/string-functions/parse-url",
+                                "sql-manual/sql-functions/string-functions/convert-to",
+                                "sql-manual/sql-functions/string-functions/extract-url-parameter",
                                 "sql-manual/sql-functions/string-functions/uuid",
                                 "sql-manual/sql-functions/string-functions/space",
                                 "sql-manual/sql-functions/string-functions/sleep",
                                 "sql-manual/sql-functions/string-functions/esquery",
-                                "sql-manual/sql-functions/string-functions/mask/mask",
-                                "sql-manual/sql-functions/string-functions/mask/mask_first_n",
-                                "sql-manual/sql-functions/string-functions/mask/mask_last_n",
-                                "sql-manual/sql-functions/string-functions/search/multi_search_all_positions",
-                                "sql-manual/sql-functions/string-functions/search/multi_match_any",
+                                {
+                                    "type": "category",
+                                    "label": "Search in String",
+                                    "items": [
+                                        "sql-manual/sql-functions/string-functions/search/multi-search-all-positions",
+                                        "sql-manual/sql-functions/string-functions/search/multi-match-any"
+                                    ]
+                                },
+                                {
+                                    "type": "category",
+                                    "label": "Mask in String",
+                                    "items": [
+                                        "sql-manual/sql-functions/string-functions/mask/mask",
+                                        "sql-manual/sql-functions/string-functions/mask/mask-first-n",
+                                        "sql-manual/sql-functions/string-functions/mask/mask-last-n"
+                                    ]
+                                },
                                 {
                                     "type": "category",
                                     "label": "Fuzzy Match",
                                     "items": [
                                         "sql-manual/sql-functions/string-functions/like/like",
-                                        "sql-manual/sql-functions/string-functions/like/not_like"
+                                        "sql-manual/sql-functions/string-functions/like/not-like"
                                     ]
                                 },
                                 {
@@ -475,11 +487,11 @@
                                     "label": "Regular Match",
                                     "items": [
                                         "sql-manual/sql-functions/string-functions/regexp/regexp",
-                                        "sql-manual/sql-functions/string-functions/regexp/regexp_extract",
-                                        "sql-manual/sql-functions/string-functions/regexp/regexp_extract_all",
-                                        "sql-manual/sql-functions/string-functions/regexp/regexp_replace",
-                                        "sql-manual/sql-functions/string-functions/regexp/regexp_replace_one",
-                                        "sql-manual/sql-functions/string-functions/regexp/not_regexp"
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp-extract",
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp-extract-all",
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp-replace",
+                                        "sql-manual/sql-functions/string-functions/regexp/regexp-replace-one",
+                                        "sql-manual/sql-functions/string-functions/regexp/not-regexp"
                                     ]
                                 }
                             ]
