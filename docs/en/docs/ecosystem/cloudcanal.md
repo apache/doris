@@ -28,7 +28,7 @@ under the License.
 
 ## Introduction
 
-CloudCanal Community Edition is a free data migration and synchronization platform published by [ClouGence Co., Ltd](https://www.cloudcanalx.com) that integrates Schema Migration, Full Data/verification/Correction, and real-time Incremental Synchronization.
+CloudCanal Community Edition is a free data migration and synchronization platform published by [ClouGence Co., Ltd](https://www.cloudcanalx.com) that integrates Schema Migration, Full Data Migration, verification, Correction, and real-time Incremental Synchronization.
 CloudCanal help users build a modern data stack in a simple way.
 ![image.png](/images/cloudcanal/cloudcanal-1.jpg)
 
