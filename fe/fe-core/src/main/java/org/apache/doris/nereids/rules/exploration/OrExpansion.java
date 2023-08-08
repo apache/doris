@@ -98,13 +98,11 @@ public class OrExpansion extends OneExplorationRuleFactory {
                             rightProducer);
 
                     if (join.getJoinType().isLeftOuterJoin() || join.getJoinType().isFullOuterJoin()) {
-                        makeAntiJoin(ctx.statementContext, join, JoinType.LEFT_ANTI_JOIN,
-                                disjunctions, leftProducer, rightProducer);
+                        joins.add(makeAntiJoin(ctx.statementContext, join, JoinType.LEFT_ANTI_JOIN,
+                                disjunctions, leftProducer, rightProducer));
                     } else if (join.getJoinType().isRightOuterJoin() || join.getJoinType().isFullOuterJoin()) {
-                        makeAntiJoin(ctx.statementContext, join, JoinType.LEFT_ANTI_JOIN,
-                                disjunctions, leftProducer, rightProducer);
-                    } else {
-                        throw new RuntimeException("Expand " + join + " is unsupported");
+                        joins.add(makeAntiJoin(ctx.statementContext, join, JoinType.RIGHT_ANTI_JOIN,
+                                disjunctions, leftProducer, rightProducer));
                     }
 
                     LogicalUnion union = new LogicalUnion(Qualifier.ALL, new ArrayList<>(join.getOutput()),
@@ -183,8 +181,15 @@ public class OrExpansion extends OneExplorationRuleFactory {
                     .map(e -> e.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s))
                     .collect(Collectors.toList());
 
-            LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.withJoinConjuncts(hashCond, otherCond)
-                    .withChildren(Lists.newArrayList(left, right));
+            LogicalJoin<? extends Plan, ? extends Plan> newJoin = new LogicalJoin<>(
+                    JoinType.INNER_JOIN,
+                    hashCond,
+                    otherCond,
+                    join.getHint(),
+                    join.getMarkJoinSlotReference(),
+                    left,
+                    right
+            );
             if (newJoin.getHashJoinConjuncts().stream().anyMatch(equalTo ->
                     equalTo.children().stream().anyMatch(e -> !(e instanceof Slot)))) {
                 Plan plan = PushdownExpressionsInHashCondition.pushDownHashExpression(newJoin);
