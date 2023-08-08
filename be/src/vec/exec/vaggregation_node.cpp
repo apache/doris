@@ -931,6 +931,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                                                 places);
                     }
                 } else {
+                    SCOPED_TIMER(_hash_table_emplace_timer);
                     for (size_t i = 0; i < num_rows; ++i) {
                         AggregateDataPtr mapped = nullptr;
                         if constexpr (ColumnsHashing::IsSingleNullableColumnMethod<

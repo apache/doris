@@ -763,7 +763,7 @@ public:
         IteratorBase(Container* container_, uint32_t index_)
                 : container(container_), index(index_) {
             sub_container_index = index / SUB_CONTAINER_CAPACITY;
-            index_in_sub_container = index % SUB_CONTAINER_CAPACITY;
+            index_in_sub_container = index - sub_container_index * SUB_CONTAINER_CAPACITY;
         }
 
         bool operator==(const IteratorBase& rhs) const { return index == rhs.index; }
@@ -771,8 +771,11 @@ public:
 
         Derived& operator++() {
             index++;
-            sub_container_index = index / SUB_CONTAINER_CAPACITY;
-            index_in_sub_container = index % SUB_CONTAINER_CAPACITY;
+            index_in_sub_container++;
+            if (index_in_sub_container == SUB_CONTAINER_CAPACITY) {
+                index_in_sub_container = 0;
+                sub_container_index++;
+            }
             return static_cast<Derived&>(*this);
         }
 

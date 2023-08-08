@@ -18,6 +18,7 @@
 #pragma once
 
 #include <limits>
+#include <variant>
 
 namespace doris::vectorized {
 
