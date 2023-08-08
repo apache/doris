@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external.jdbc;
+package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcResource;

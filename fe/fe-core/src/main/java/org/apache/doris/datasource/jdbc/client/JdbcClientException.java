@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.external.jdbc;
+package org.apache.doris.datasource.jdbc.client;
 
 public class JdbcClientException extends RuntimeException {
     public JdbcClientException(String format, Throwable cause, Object... msg) {
