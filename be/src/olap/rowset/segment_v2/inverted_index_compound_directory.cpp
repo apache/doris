@@ -405,8 +405,8 @@ void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const 
             LOG(WARNING) << "File writer is nullptr in DorisCompoundDirectory::FSIndexOutput, "
                             "ignore flush.";
         } else if (b == nullptr) {
-            LOG(WARNING)
-                    << "buffer is nullptr when flushBuffer in DorisCompoundDirectory::FSIndexOutput"
+            LOG(WARNING) << "buffer is nullptr when flushBuffer in "
+                            "DorisCompoundDirectory::FSIndexOutput";
         }
     }
 }
