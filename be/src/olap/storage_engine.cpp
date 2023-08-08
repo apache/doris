@@ -68,18 +68,17 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
-#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/priority_thread_pool.hpp"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 
 using std::filesystem::directory_iterator;
 using std::filesystem::path;
@@ -554,7 +553,7 @@ void StorageEngine::stop() {
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
-    THREAD_JOIN(_fd_cache_clean_thread);
+    THREAD_JOIN(_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
     THREAD_JOIN(_async_publish_thread);
     THREAD_JOIN(_cold_data_compaction_producer_thread);
@@ -615,10 +614,6 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
         }
     }
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
-}
-
-void StorageEngine::_start_clean_cache() {
-    CacheManager::instance()->for_each_cache_prune_stale();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
@@ -692,6 +687,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
+
+    // clean unused binlog metas in OlapMeta
+    _clean_unused_binlog_metas();
 
     // cleand unused delete bitmap for deleted tablet
     _clean_unused_delete_bitmap();
@@ -771,6 +769,39 @@ void StorageEngine::_clean_unused_rowset_metas() {
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
         invalid_rowset_metas.clear();
+    }
+}
+
+void StorageEngine::_clean_unused_binlog_metas() {
+    std::vector<std::string> unused_binlog_key_suffixes;
+    auto unused_binlog_collector = [this, &unused_binlog_key_suffixes](const std::string& key,
+                                                                       const std::string& value,
+                                                                       bool need_check) -> bool {
+        if (need_check) {
+            BinlogMetaEntryPB binlog_meta_pb;
+            if (UNLIKELY(!binlog_meta_pb.ParseFromString(value))) {
+                LOG(WARNING) << "parse rowset meta string failed for binlog meta key: " << key;
+            } else if (_tablet_manager->get_tablet(binlog_meta_pb.tablet_id()) == nullptr) {
+                LOG(INFO) << "failed to find tablet " << binlog_meta_pb.tablet_id()
+                          << " for binlog rowset: " << binlog_meta_pb.rowset_id()
+                          << ", tablet may be dropped";
+            } else {
+                return false;
+            }
+        }
+
+        unused_binlog_key_suffixes.emplace_back(key.substr(kBinlogMetaPrefix.size()));
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto data_dir : data_dirs) {
+        RowsetMetaManager::traverse_binlog_metas(data_dir->get_meta(), unused_binlog_collector);
+        for (const auto& suffix : unused_binlog_key_suffixes) {
+            RowsetMetaManager::remove_binlog(data_dir->get_meta(), suffix);
+        }
+        LOG(INFO) << "remove " << unused_binlog_key_suffixes.size()
+                  << " invalid binlog meta from dir: " << data_dir->path();
+        unused_binlog_key_suffixes.clear();
     }
 }
 

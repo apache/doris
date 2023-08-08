@@ -277,9 +277,10 @@ protected:
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
-    // Account for peak memory used by this node
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _projection_timer;
+    // Account for peak memory used by this node
+    RuntimeProfile::Counter* _peak_memory_usage_counter;
 
     //
     OpentelemetrySpan _span;

@@ -179,6 +179,13 @@ private:
     // save the path of current scan range
     std::string _current_range_path = "";
 
+    // Only for load scan node.
+    const TupleDescriptor* _input_tuple_desc = nullptr;
+    // If _input_tuple_desc is set,
+    // the _real_tuple_desc will point to _input_tuple_desc,
+    // otherwise, point to _output_tuple_desc
+    const TupleDescriptor* _real_tuple_desc = nullptr;
+
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);

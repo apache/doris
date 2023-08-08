@@ -1722,6 +1722,10 @@ Status NewJsonReader::_get_column_default_value(
         auto it = col_default_value_ctx.find(slot_desc->col_name());
         if (it != col_default_value_ctx.end() && it->second != nullptr) {
             auto& ctx = it->second;
+            // NULL_LITERAL means no valid value of current column
+            if (ctx->root()->node_type() == TExprNodeType::type::NULL_LITERAL) {
+                continue;
+            }
             // empty block to save default value of slot_desc->col_name()
             Block block;
             // If block is empty, some functions will produce no result. So we insert a column with

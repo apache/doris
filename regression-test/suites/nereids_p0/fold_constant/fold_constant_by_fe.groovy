@@ -18,6 +18,10 @@
 suite("test_fold_constant_by_fe") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_fold_nondeterministic_fn=true'
+
+    def results = sql 'select uuid(), uuid()'
+    assertFalse(Objects.equals(results[0][0], results[0][1]))
 
     def test_date = [
             "2021-04-12", "1969-12-31", "1356-12-12", "0001-01-01", "9998-12-31",

@@ -55,17 +55,17 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
+#include "vec/exec/format/table/max_compute_jni_reader.h"
+#include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
-#include "vec/exec/scan/avro_jni_reader.h"
-#include "vec/exec/scan/hudi_jni_reader.h"
-#include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
-#include "vec/exec/scan/paimon_reader.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -106,6 +106,12 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
         CHECK(scan_range.__isset.params);
         _params = &(scan_range.params);
     }
+
+    // For load scanner, there are input and output tuple.
+    // For query scanner, there is only output tuple
+    _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id);
+    _real_tuple_desc = _input_tuple_desc == nullptr ? _output_tuple_desc : _input_tuple_desc;
+    _is_load = (_input_tuple_desc != nullptr);
 }
 
 Status VFileScanner::prepare(
@@ -558,6 +564,9 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
 
 Status VFileScanner::_get_next_reader() {
     while (true) {
+        if (_cur_reader) {
+            _cur_reader->close();
+        }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
         if (_next_range >= _ranges.size()) {
@@ -934,6 +943,10 @@ Status VFileScanner::close(RuntimeState* state) {
     if (config::enable_file_cache && _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(_profile);
         cache_profile.update(_file_cache_statistics.get());
+    }
+
+    if (_cur_reader) {
+        _cur_reader->close();
     }
 
     RETURN_IF_ERROR(VScanner::close(state));

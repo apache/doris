@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Deploy Docker cluster",
+    "title": "Deploy Docker Cluster",
     "language": "en"
 }
 ---
@@ -23,9 +23,9 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# Deploy the Docker cluster
+# Deploy the Docker Cluster
 
-## Background description
+## Background Description
 
 This article will briefly describe how to quickly build a complete Doris test cluster through `docker run` or `docker-compose up` commands.
 
@@ -44,14 +44,14 @@ In the production environment, currently try to avoid using containerized soluti
 | Docker | 20.0 and above |
 | docker-compose | 2.10 and above |
 
-## Hardware environment
+## Hardware Environment
 
 | Configuration Type | Hardware Information | Maximum Running Cluster Size |
 | -------- | -------- | ---------------- |
 | Minimum configuration | 2C 4G | 1FE 1BE |
 | Recommended configuration | 4C 16G | 3FE 3BE |
 
-## Pre-environment preparation
+## Pre-Environment Preparation
 
 The following command needs to be executed on the host machine
 
@@ -98,7 +98,7 @@ Note that the above interface must fill in the information, otherwise the proces
 
 ### Script Template
 
-#### Docker Run command
+#### Docker Run Command
 
 1FE & 1BE Command Templates
 
@@ -129,7 +129,7 @@ apache/doris:2.0.0_alpha-be-x86_64
 
 3FE & 3BE Run command template if needed [click here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be .sh) to access downloads.
 
-#### Docker Compose script
+#### Docker Compose Script
 
 1FE & 1BE template
 
@@ -171,7 +171,7 @@ You can choose one of the two deployment methods:
 1. Execute the `docker run` command to create a cluster
 2. Save the `docker-compose.yaml` script and execute the `docker-compose up -d` command in the same directory to create a cluster
 
-### Special case description
+### Special Case Description
 
 Due to the different ways of implementing containers internally on MacOS, it may not be possible to directly modify the value of `max_map_count` on the host during deployment. You need to create the following containers first:
 

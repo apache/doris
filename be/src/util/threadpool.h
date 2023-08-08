@@ -38,13 +38,13 @@
 #include <unordered_set>
 
 #include "common/status.h"
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
 class Thread;
 class ThreadPool;
 class ThreadPoolToken;
-class PriorityThreadPool;
 
 class Runnable {
 public:

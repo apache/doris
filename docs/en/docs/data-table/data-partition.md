@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Data Partitioning
+# Data Partition
 
 This topic is about table creation and data partitioning in Doris, including the common problems in table creation and their solutions.
 

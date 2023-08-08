@@ -81,6 +81,8 @@ public class SummaryProfile {
             WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME, DORIS_VERSION, IS_NEREIDS, IS_PIPELINE,
             IS_CACHED, TOTAL_INSTANCES_NUM, INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
 
+    // Ident of each item. Default is 0, which doesn't need to present in this Map.
+    // Please set this map for new profile items if they need ident.
     public static ImmutableMap<String, Integer> EXECUTION_SUMMARY_KEYS_IDENTATION = ImmutableMap.of();
 
     {
@@ -155,6 +157,10 @@ public class SummaryProfile {
         for (String key : infos.keySet()) {
             if (SUMMARY_KEYS.contains(key)) {
                 summaryProfile.addInfoString(key, infos.get(key));
+            } else if (EXECUTION_SUMMARY_KEYS.contains(key)) {
+                // Some static value is build in summary profile, should add
+                // them to execution summary profile during update.
+                executionSummaryProfile.addInfoString(key, infos.get(key));
             }
         }
     }

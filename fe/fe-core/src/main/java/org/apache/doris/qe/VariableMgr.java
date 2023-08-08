@@ -370,16 +370,17 @@ public class VariableMgr {
     public static void setGlobalPipelineTask(int instance) {
         wlock.lock();
         try {
-            String name = "parallel_pipeline_task_num";
-            String value = instance + "";
-            VarContext ctx = ctxByVarName.get(name);
+            VarContext ctx = ctxByVarName.get(SessionVariable.PARALLEL_PIPELINE_TASK_NUM);
             try {
-                setValue(ctx.getObj(), ctx.getField(), value);
+                setValue(ctx.getObj(), ctx.getField(), String.valueOf(instance));
             } catch (DdlException e) {
-                LOG.error(e.toString());
+                LOG.warn("failed to set global variable: {}", SessionVariable.PARALLEL_PIPELINE_TASK_NUM, e);
+                return;
             }
+
             // write edit log
-            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
+                    Lists.newArrayList(SessionVariable.PARALLEL_PIPELINE_TASK_NUM));
             Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
         } finally {
             wlock.unlock();

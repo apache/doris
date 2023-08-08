@@ -91,6 +91,7 @@ suite("test_range_partition", "p0") {
             set "column_separator", ","
             file "partition_table.csv"
         }
+        sql """sync"""
         test {
             sql "select * from ${tableName} order by k1, k2"
             resultFile "partition_table.out"
