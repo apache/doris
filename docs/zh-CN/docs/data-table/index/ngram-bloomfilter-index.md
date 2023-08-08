@@ -1,6 +1,6 @@
 ---
 {
-    "title": "NGram BloomFilter索引",
+    "title": "NGram BloomFilter 索引",
     "language": "zh-CN"
 }
 ---
