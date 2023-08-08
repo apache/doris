@@ -103,6 +103,7 @@ static const std::unordered_set<std::string> kAvailableStreamLoadRequestFields {
         HTTP_ENABLE_PROFILE,
         HTTP_PARTIAL_COLUMNS,
         HTTP_TOKEN,
+        HTTP_TIME_ZONE,
 
         // below are http standard request fields
         HttpHeaders::ACCEPT,
