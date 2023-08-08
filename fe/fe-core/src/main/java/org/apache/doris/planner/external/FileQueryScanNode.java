@@ -328,7 +328,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // Use consistent hash to assign the same scan range into the same backend among different queries
             Backend selectedBackend = ConnectContext.get().getSessionVariable().enableFileCache
                     ? backendPolicy.getNextConsistentBe(curLocations)
-                    : (HdfsResource.enableShortcircuitRead(locationProperties)
+                    : (HdfsResource.enableShortCircuitRead(locationProperties)
                         ? backendPolicy.getNextLocalBe(Arrays.asList(fileSplit.getHosts()))
                         : backendPolicy.getNextBe());
             location.setBackendId(selectedBackend.getId());

@@ -75,7 +75,7 @@ public class HdfsResource extends Resource {
     protected void setProperties(Map<String, String> properties) throws DdlException {
         // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
         // We should disable short circuit read if they are not both set because it will cause performance down.
-        if (!(enableShortcircuitRead(properties))) {
+        if (!(enableShortCircuitRead(properties))) {
             properties.put(HADOOP_SHORT_CIRCUIT, "false");
         }
         this.properties = properties;
@@ -94,7 +94,7 @@ public class HdfsResource extends Resource {
         }
     }
 
-    public static boolean enableShortcircuitRead(Map<String, String> properties) {
+    public static boolean enableShortCircuitRead(Map<String, String> properties) {
         return properties.containsKey(HADOOP_SHORT_CIRCUIT) && properties.containsKey(HADOOP_SOCKET_PATH);
     }
 
