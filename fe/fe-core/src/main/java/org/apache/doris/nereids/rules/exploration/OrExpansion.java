@@ -121,6 +121,11 @@ public class OrExpansion extends OneExplorationRuleFactory {
                 leftProducer);
         LogicalCTEConsumer right = new LogicalCTEConsumer(ctx.getNextRelationId(), rightProducer.getCteId(), "",
                 rightProducer);
+        Map<Slot, Slot> replaced = new HashMap<>(left.getProducerToConsumerOutputMap());
+        replaced.putAll(right.getProducerToConsumerOutputMap());
+        hashCond = hashCond.stream()
+                .map(e -> e.rewriteUp(s -> replaced.containsKey(s) ? replaced.get(s) : s))
+                .collect(Collectors.toList());
         LogicalJoin<? extends Plan, ? extends Plan> newJoin = new LogicalJoin<>(
                 type,
                 hashCond,
@@ -137,7 +142,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
         }
 
         List<NamedExpression> projects = new ArrayList<>();
-        for (Slot slot : originJoin.getOutput()) {
+        for (Slot slot : JoinUtils.getJoinOutput(originJoin.getJoinType(), left, right)) {
             if (newJoin.getOutputSet().contains(slot)) {
                 projects.add(slot);
             } else {

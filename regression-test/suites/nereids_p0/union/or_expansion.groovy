@@ -48,4 +48,46 @@ suite("or_expansion") {
             on baseall.k0 = bigtable.k0
             or baseall.k1 * 2 = bigtable.k1 + 1
             """
+
+    explain {
+        sql("""select * from bigtable 
+            left outer join baseall 
+            on baseall.k0 = bigtable.k0
+            or baseall.k1 * 2 = bigtable.k1 + 1""")
+        contains "VHASH JOIN"
+    }
+
+    order_qt_loj """select * from bigtable 
+            left outer join baseall 
+            on baseall.k0 = bigtable.k0
+            or baseall.k1 * 2 = bigtable.k1 + 1
+            """
+    
+    explain {
+        sql("""select * from bigtable 
+            full outer join baseall 
+            on baseall.k0 = bigtable.k0
+            or baseall.k1 * 2 = bigtable.k1 + 1""")
+        contains "VHASH JOIN"
+    }
+
+    order_qt_foj """select * from bigtable 
+            full outer join baseall 
+            on baseall.k0 = bigtable.k0
+            or baseall.k1 * 2 = bigtable.k1 + 1
+            """
+
+    explain {
+        sql("""select * from bigtable 
+            right outer join baseall 
+            on baseall.k0 = bigtable.k0
+            or baseall.k1 * 2 = bigtable.k1 + 1""")
+        contains "VHASH JOIN"
+    }
+
+    order_qt_roj """select * from bigtable 
+            right outer join baseall 
+            on baseall.k0 = bigtable.k0
+            or baseall.k1 * 2 = bigtable.k1 + 1
+            """
 }
