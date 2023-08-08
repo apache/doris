@@ -95,7 +95,8 @@ public class HdfsResource extends Resource {
     }
 
     public static boolean enableShortCircuitRead(Map<String, String> properties) {
-        return properties.containsKey(HADOOP_SHORT_CIRCUIT) && properties.containsKey(HADOOP_SOCKET_PATH);
+        return "true".equalsIgnoreCase(properties.getOrDefault(HADOOP_SHORT_CIRCUIT, "true"))
+                    && properties.containsKey(HADOOP_SOCKET_PATH);
     }
 
     // Will be removed after BE unified storage params
