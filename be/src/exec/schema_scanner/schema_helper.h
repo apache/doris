@@ -50,6 +50,9 @@ public:
     static Status list_table_status(const std::string& ip, const int32_t port,
                                     const TGetTablesParams& table_params,
                                     TListTableStatusResult* table_result);
+    static Status list_simple_table_status(const std::string& ip, const int32_t port,
+                                           const TGetTablesParams& table_params,
+                                           TListSimpleTableStatusResult* table_result);
 
     static Status describe_table(const std::string& ip, const int32_t port,
                                  const TDescribeTableParams& desc_params,

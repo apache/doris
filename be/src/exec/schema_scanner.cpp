@@ -35,6 +35,7 @@
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
+#include "exec/schema_scanner/schema_simple_tables_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
@@ -144,6 +145,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaPartitionsScanner::create_unique();
     case TSchemaTableType::SCH_ROWSETS:
         return SchemaRowsetsScanner::create_unique();
+    case TSchemaTableType::SCH_SIMPLE_TABLES:
+        return SchemaSimpleTablesScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

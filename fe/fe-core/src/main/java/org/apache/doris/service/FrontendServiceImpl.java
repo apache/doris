@@ -145,6 +145,7 @@ import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
+import org.apache.doris.thrift.TListSimpleTableStatusResult;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
 import org.apache.doris.thrift.TLoadTxn2PCResult;
@@ -177,6 +178,7 @@ import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
+import org.apache.doris.thrift.TSimpleTableStatus;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
 import org.apache.doris.thrift.TSnapshotType;
 import org.apache.doris.thrift.TStatus;
@@ -216,6 +218,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -332,8 +335,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.debug("get db request: {}", params);
         TGetDbsResult result = new TGetDbsResult();
 
-        List<String> dbs = Lists.newArrayList();
-        List<String> catalogs = Lists.newArrayList();
+        List<String> dbNames = Lists.newArrayList();
+        List<String> catalogNames = Lists.newArrayList();
+        List<Long> dbIds = Lists.newArrayList();
+        List<Long> catalogIds = Lists.newArrayList();
+
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
             try {
@@ -353,16 +359,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .getCatalogOrException(params.catalog, catalog -> new TException("Unknown catalog " + catalog)));
         }
         for (CatalogIf catalog : catalogIfs) {
-            List<String> dbNames;
+            Collection<DatabaseIf> dbs;
             try {
-                dbNames = catalog.getDbNamesOrEmpty();
+                dbs = catalog.getAllDbs();
             } catch (Exception e) {
                 LOG.warn("failed to get database names for catalog {}", catalog.getName(), e);
                 // Some external catalog may fail to get databases due to wrong connection info.
                 // So continue here to get databases of other catalogs.
                 continue;
             }
-            LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
+            LOG.debug("get db size: {}, in catalog: {}", dbs.size(), catalog.getName());
 
             UserIdentity currentUser = null;
             if (params.isSetCurrentUserIdent()) {
@@ -370,23 +376,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } else {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
-            for (String fullName : dbNames) {
+            for (DatabaseIf db : dbs) {
+                String fullName = db.getFullName();
                 if (!env.getAccessManager().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
-                final String db = ClusterNamespace.getNameFromFullName(fullName);
-                if (matcher != null && !matcher.match(db)) {
+                if (matcher != null && !matcher.match(ClusterNamespace.getNameFromFullName(fullName))) {
                     continue;
                 }
 
-                catalogs.add(catalog.getName());
-                dbs.add(fullName);
+                catalogNames.add(catalog.getName());
+                dbNames.add(fullName);
+                catalogIds.add(catalog.getId());
+                dbIds.add(db.getId());
             }
         }
 
-        result.setDbs(dbs);
-        result.setCatalogs(catalogs);
+        result.setDbs(dbNames);
+        result.setCatalogs(catalogNames);
+        result.setCatalogIds(catalogIds);
+        result.setDbIds(dbIds);
         return result;
     }
 
@@ -677,6 +687,74 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             tablesResult.add(status);
                         } finally {
                             table.readUnlock();
+                        }
+                    }
+                } catch (Exception e) {
+                    LOG.warn("failed to get tables for db {} in catalog {}", db.getFullName(), catalogName, e);
+                }
+            }
+        }
+        return result;
+    }
+
+    public TListSimpleTableStatusResult listSimpleTableStatus(TGetTablesParams params) throws TException {
+
+        long timeoutTs = System.currentTimeMillis() + exeEnv.getScheduler().getContext(0)
+                        .getSessionVariable().getQuerySimpleTablesTimeout() * 1000L;
+
+        LOG.debug("get list simple table request: {}", params);
+        TListSimpleTableStatusResult result = new TListSimpleTableStatusResult();
+        List<TSimpleTableStatus> tablesResult = Lists.newArrayList();
+        result.setTables(tablesResult);
+        PatternMatcher matcher = null;
+        if (params.isSetPattern()) {
+            try {
+                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
+                        CaseSensibility.TABLE.getCaseSensibility());
+            } catch (PatternMatcherException e) {
+                throw new TException("Pattern is in bad format " + params.getPattern());
+            }
+        }
+
+        UserIdentity currentUser;
+        if (params.isSetCurrentUserIdent()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
+
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        if (params.isSetCatalog()) {
+            catalogName = params.catalog;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (catalog != null) {
+            DatabaseIf db = catalog.getDbNullable(params.db);
+            if (db != null) {
+                try {
+                    List<TableIf> tables = db.getTables();
+                    for (TableIf table : tables) {
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
+                                table.getName(), PrivPredicate.SHOW)) {
+                            continue;
+                        }
+                        table.readLock();
+                        try {
+                            if (matcher != null && !matcher.match(table.getName())) {
+                                continue;
+                            }
+                            TSimpleTableStatus status = new TSimpleTableStatus();
+                            status.setName(table.getName());
+                            status.setId(table.getId());
+
+                            tablesResult.add(status);
+                        } finally {
+                            table.readUnlock();
+                        }
+
+                        long currentTs = System.currentTimeMillis();
+                        if (currentTs >= timeoutTs) { //limit query time
+                            break;
                         }
                     }
                 } catch (Exception e) {

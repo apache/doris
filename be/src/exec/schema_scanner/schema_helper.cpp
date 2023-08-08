@@ -60,6 +60,14 @@ Status SchemaHelper::list_table_status(const std::string& ip, const int32_t port
                 client->listTableStatus(*result, request);
             });
 }
+Status SchemaHelper::list_simple_table_status(const std::string& ip, const int32_t port,
+                                              const doris::TGetTablesParams& request,
+                                              TListSimpleTableStatusResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->listSimpleTableStatus(*result, request);
+            });
+}
 
 Status SchemaHelper::describe_table(const std::string& ip, const int32_t port,
                                     const TDescribeTableParams& request,

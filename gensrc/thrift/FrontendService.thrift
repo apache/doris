@@ -310,10 +310,12 @@ struct TGetDbsParams {
   5: optional string catalog
 }
 
-// getDbNames returns a list of database names and catalog names
+// getDbNames returns a list of database names , database ids and catalog names ,catalog ids
 struct TGetDbsResult {
   1: optional list<string> dbs
   2: optional list<string> catalogs
+  3: optional list<i64> db_ids
+  4: optional list<i64> catalog_ids
 }
 
 // Arguments to getTableNames, which returns a list of tables that match an
@@ -349,6 +351,14 @@ struct TTableStatus {
 
 struct TListTableStatusResult {
     1: required list<TTableStatus> tables
+}
+
+struct TSimpleTableStatus {
+	1: required string name
+	2: required i64 id 
+}
+struct TListSimpleTableStatusResult {
+	1: required list<TSimpleTableStatus> tables 
 }
 
 // getTableNames returns a list of unqualified table names
@@ -1134,6 +1144,7 @@ service FrontendService {
     TMasterOpResult forward(1: TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1: TGetTablesParams params)
+    TListSimpleTableStatusResult listSimpleTableStatus(1: TGetTablesParams params)
     TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
