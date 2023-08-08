@@ -266,7 +266,7 @@ struct Checker {
 
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
-
+    printf("hello,long time no see\n");
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {

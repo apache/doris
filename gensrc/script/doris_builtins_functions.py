@@ -1708,6 +1708,9 @@ visible_functions = {
         [['jsonb_extract_string'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_string'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['jsonb_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+
+
         [['json_parse'], 'JSONB', ['VARCHAR'], ''],
         [['json_parse_error_to_null'], 'JSONB', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_parse_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], ''],
