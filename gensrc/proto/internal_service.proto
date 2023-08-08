@@ -670,6 +670,15 @@ message PGetTabletVersionsResponse {
     repeated PVersion versions = 2;
 };
 
+message PReportStreamLoadStatusRequest {
+    optional PUniqueId load_id = 1;
+    optional PStatus status = 2;
+}
+
+message PReportStreamLoadStatusResponse {
+    optional PStatus status = 1;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -707,5 +716,6 @@ service PBackendService {
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
+    rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
 };
 
