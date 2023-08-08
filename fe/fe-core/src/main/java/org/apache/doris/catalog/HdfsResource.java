@@ -95,7 +95,7 @@ public class HdfsResource extends Resource {
     }
 
     public static boolean enableShortCircuitRead(Map<String, String> properties) {
-        return "true".equalsIgnoreCase(properties.getOrDefault(HADOOP_SHORT_CIRCUIT, "true"))
+        return "true".equalsIgnoreCase(properties.getOrDefault(HADOOP_SHORT_CIRCUIT, "false"))
                     && properties.containsKey(HADOOP_SOCKET_PATH);
     }
 
