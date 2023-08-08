@@ -17,6 +17,7 @@
 
 #include "exec/es/es_scroll_parser.h"
 
+#include <cctz/time_zone.h>
 #include <gutil/strings/substitute.h>
 
 #include <boost/algorithm/string.hpp>
@@ -138,14 +139,6 @@ static const std::string INVALID_NULL_VALUE =
         return Status::RuntimeError(ss.str());                           \
     } while (false)
 
-#define PARSE_DATE(dt_val, col, type, is_date_str)                                      \
-    if ((is_date_str &&                                                                 \
-         !dt_val.from_date_str(static_cast<const std::string>(col.GetString()).c_str(), \
-                               col.GetStringLength())) ||                               \
-        (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {     \
-        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);                                   \
-    }
-
 template <typename T>
 static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
                             bool pure_doc_value) {
@@ -154,7 +147,7 @@ static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, voi
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray()) {
+    if (pure_doc_value && col.IsArray() && !col.Empty()) {
         RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
         return Status::OK();
@@ -184,8 +177,54 @@ static Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type
                                  RT* slot) {
     constexpr bool is_datetime_v1 = std::is_same_v<T, vectorized::VecDateTimeValue>;
     T dt_val;
-    PARSE_DATE(dt_val, col, type, is_date_str)
+    if (is_date_str) {
+        const std::string str_date = col.GetString();
+        int str_length = col.GetStringLength();
+        bool success = false;
+        // YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+08:00 or 2022-08-08T12:10:10.000Z
+        if (str_length > 19) {
+            std::chrono::system_clock::time_point tp;
+            const bool ok =
+                    cctz::parse("%Y-%m-%dT%H:%M:%E*S%Ez", str_date, cctz::utc_time_zone(), &tp);
+            if (ok) {
+                success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
+                                               cctz::local_time_zone());
+            }
+        } else if (str_length == 19) {
+            // YYYY-MM-DDTHH:MM:SS
+            if (*(str_date.c_str() + 10) == 'T') {
+                std::chrono::system_clock::time_point tp;
+                const bool ok =
+                        cctz::parse("%Y-%m-%dT%H:%M:%S", str_date, cctz::utc_time_zone(), &tp);
+                if (ok) {
+                    success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
+                                                   cctz::local_time_zone());
+                }
+            } else {
+                // YYYY-MM-DD HH:MM:SS
+                success = dt_val.from_date_str(str_date.c_str(), str_length);
+            }
 
+        } else if (str_length == 13) {
+            // string long like "1677895728000"
+            int64_t time_long = std::atol(str_date.c_str());
+            if (time_long > 0) {
+                success = dt_val.from_unixtime(time_long / 1000, cctz::local_time_zone());
+            }
+        } else {
+            // YYYY-MM-DD or others
+            success = dt_val.from_date_str(str_date.c_str(), str_length);
+        }
+
+        if (!success) {
+            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+        }
+
+    } else {
+        if (!dt_val.from_unixtime(col.GetInt64() / 1000, cctz::local_time_zone())) {
+            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+        }
+    }
     if constexpr (is_datetime_v1) {
         if (type == TYPE_DATE) {
             dt_val.cast_to_date();
@@ -207,7 +246,7 @@ static Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool
         // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
         // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
         return get_date_value_int<T, RT>(col, type, false, slot);
-    } else if (col.IsArray() && pure_doc_value) {
+    } else if (col.IsArray() && pure_doc_value && !col.Empty()) {
         // this would happened just only when `enable_docvalue_scan = true`
         // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
         // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
@@ -243,7 +282,7 @@ static Status get_float_value(const rapidjson::Value& col, PrimitiveType type, v
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray()) {
+    if (pure_doc_value && col.IsArray() && !col.Empty()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col[0].GetFloat() : col[0].GetDouble());
         return Status::OK();
     }
@@ -271,7 +310,7 @@ static Status insert_float_value(const rapidjson::Value& col, PrimitiveType type
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray() && nullable) {
+    if (pure_doc_value && col.IsArray() && !col.Empty() && nullable) {
         T value = (T)(sizeof(T) == 4 ? col[0].GetFloat() : col[0].GetDouble());
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
         return Status::OK();
@@ -300,7 +339,7 @@ static Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
         return Status::OK();
     }
 
-    if (pure_doc_value && col.IsArray()) {
+    if (pure_doc_value && col.IsArray() && !col.Empty()) {
         RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
         T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
@@ -438,7 +477,9 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             // this may be a tricky, but we can workaround this issue
             std::string val;
             if (pure_doc_value) {
-                if (!col[0].IsString()) {
+                if (col.Empty()) {
+                    break;
+                } else if (!col[0].IsString()) {
                     val = json_value_to_string(col[0]);
                 } else {
                     val = col[0].GetString();
@@ -507,11 +548,11 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             }
 
             bool is_nested_str = false;
-            if (pure_doc_value && col.IsArray() && col[0].IsBool()) {
+            if (pure_doc_value && col.IsArray() && !col.Empty() && col[0].IsBool()) {
                 int8_t val = col[0].GetBool();
                 col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 break;
-            } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
+            } else if (pure_doc_value && col.IsArray() && !col.Empty() && col[0].IsString()) {
                 is_nested_str = true;
             } else if (pure_doc_value && col.IsArray()) {
                 return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
@@ -537,7 +578,9 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             } else {
                 std::string val;
                 if (pure_doc_value) {
-                    if (!col[0].IsString()) {
+                    if (col.Empty()) {
+                        break;
+                    } else if (!col[0].IsString()) {
                         val = json_value_to_string(col[0]);
                     } else {
                         val = col[0].GetString();
@@ -580,19 +623,11 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 case TYPE_VARCHAR:
                 case TYPE_STRING: {
                     std::string val;
-                    if (pure_doc_value) {
-                        if (!sub_col[0].IsString()) {
-                            val = json_value_to_string(sub_col[0]);
-                        } else {
-                            val = sub_col[0].GetString();
-                        }
+                    RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, sub_type);
+                    if (!sub_col.IsString()) {
+                        val = json_value_to_string(sub_col);
                     } else {
-                        RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, type);
-                        if (!sub_col.IsString()) {
-                            val = json_value_to_string(sub_col);
-                        } else {
-                            val = sub_col.GetString();
-                        }
+                        val = sub_col.GetString();
                     }
                     array.push_back(val);
                     break;
@@ -656,10 +691,12 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     }
 
                     bool is_nested_str = false;
-                    if (pure_doc_value && sub_col.IsArray() && sub_col[0].IsBool()) {
+                    if (pure_doc_value && sub_col.IsArray() && !sub_col.Empty() &&
+                        sub_col[0].IsBool()) {
                         array.push_back(sub_col[0].GetBool());
                         break;
-                    } else if (pure_doc_value && sub_col.IsArray() && sub_col[0].IsString()) {
+                    } else if (pure_doc_value && sub_col.IsArray() && !sub_col.Empty() &&
+                               sub_col[0].IsString()) {
                         is_nested_str = true;
                     } else if (pure_doc_value && sub_col.IsArray()) {
                         return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");

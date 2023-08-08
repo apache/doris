@@ -420,7 +420,7 @@ visible_functions = [
     [['array_remove'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2', 'DATETIMEV2'], '', '', '', 'vec', ''],
     [['array_remove'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2', 'DATEV2'], '', '', '', 'vec', ''],
     [['array_remove'], 'ARRAY_VARCHAR',   ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
-    [['array_remove'], 'ARRAY_STRING',    ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],    
+    [['array_remove'], 'ARRAY_STRING',    ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
 
     [['array_union'], 'ARRAY_BOOLEAN',  ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'],  '', '', '', 'vec', ''],
     [['array_union'], 'ARRAY_TINYINT',  ['ARRAY_TINYINT', 'ARRAY_TINYINT'],  '', '', '', 'vec', ''],
@@ -659,7 +659,7 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions8last_dayEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['last_day'], 'DATEV2', ['DATETIMEV2'],
-        '_ZN5doris18TimestampFunctions8last_dayEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE', 
+        '_ZN5doris18TimestampFunctions8last_dayEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
         '', '', 'vec', ''],
     [['last_day'], 'DATEV2', ['DATEV2'],
         '_ZN5doris18TimestampFunctions8last_dayEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
@@ -677,10 +677,10 @@ visible_functions = [
         '', '', 'vec', 'ALWAYS_NULLABLE'],
 
     [['date_trunc'], 'DATETIME', ['DATETIME', 'VARCHAR'],
-        '', '', '', 'vec', 'ALWAYS_NULLABLE'],  
+        '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
     [['date_trunc'], 'DATETIMEV2', ['DATETIMEV2', 'VARCHAR'],
-        '', '', '', 'vec', 'ALWAYS_NULLABLE'],       
+        '', '', '', 'vec', 'ALWAYS_NULLABLE'],
 
     [['year'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions4yearEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE',
@@ -2154,9 +2154,79 @@ visible_functions = [
     [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], '', '', '', 'vec', 'CUSTOM'],
     [['coalesce'], 'STRING', ['STRING', '...'], '', '', '', 'vec', 'CUSTOM'],
 
+    # esquery's first arg is suitable for all types
+    [['esquery'], 'BOOLEAN', ['BOOLEAN', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['TINYINT', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['SMALLINT', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['INT', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['BIGINT', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['LARGEINT', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['FLOAT', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DOUBLE', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DATE', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DATETIME', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['CHAR', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
     [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
-        '_ZN5doris11ESFunctions5matchEPN'
-        '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['JSONB', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DECIMALV2', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL32', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL64', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DECIMAL128', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['TIME', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DATEV2', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['DATETIMEV2', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['TIMEV2', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['ARRAY', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['MAP', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
+    [['esquery'], 'BOOLEAN', ['STRING', 'VARCHAR'],
+     '_ZN5doris11ESFunctions5matchEPN'
+     '9doris_udf15FunctionContextERKNS1_9StringValES6_', '', '', 'vec', ''],
 
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'],
@@ -2261,10 +2331,10 @@ visible_functions = [
             '', '', 'vec', ''],
     [['elt'], 'VARCHAR', ['INT', 'VARCHAR', '...'],
             '_ZN5doris15StringFunctions3eltEPN9doris_udf15FunctionContextERKNS1_6IntValEiPKNS1_9StringValE',
-            '', '', 'vec', ''],  
+            '', '', 'vec', ''],
     [['elt'], 'STRING', ['INT', 'STRING', '...'],
             '_ZN5doris15StringFunctions3eltEPN9doris_udf15FunctionContextERKNS1_6IntValEiPKNS1_9StringValE',
-            '', '', 'vec', ''], 
+            '', '', 'vec', ''],
     [['replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'],
             '_ZN5doris15StringFunctions7replaceEPN9doris_udf15FunctionContextERKNS1_9StringValES6_S6_',
             '', '', 'vec', ''],

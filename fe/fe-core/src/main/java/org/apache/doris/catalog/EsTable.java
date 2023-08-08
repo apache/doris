@@ -151,8 +151,6 @@ public class EsTable extends Table {
 
     private void validate(Map<String, String> properties) throws DdlException {
         EsResource.valid(properties, false);
-        hosts = properties.get(EsResource.HOSTS).trim();
-        seeds = hosts.split(",");
         if (properties.containsKey(EsResource.USER)) {
             userName = properties.get(EsResource.USER).trim();
         }
@@ -198,6 +196,12 @@ public class EsTable extends Table {
                 maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
             }
         }
+
+        hosts = properties.get(EsResource.HOSTS).trim();
+        seeds = hosts.split(",");
+        // parse httpSslEnabled before use it here.
+        EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
+
         tableContext.put("hosts", hosts);
         tableContext.put("userName", userName);
         tableContext.put("passwd", passwd);
