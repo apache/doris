@@ -31,10 +31,12 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -981,6 +983,16 @@ public class PropertyAnalyzer {
             Short replicationNum = Short.valueOf(parts[1]);
             replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
             totalReplicaNum += replicationNum;
+
+            // Check if the current backends satisfy the ReplicaAllocation condition,
+            // to avoid user set it success but failed to create table or dynamic partitions
+            try {
+                SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                systemInfoService.selectBackendIdsForReplicaCreation(
+                        replicaAlloc, null, false, true);
+            } catch (DdlException ddlException) {
+                throw new AnalysisException(ddlException.getMessage());
+            }
         }
         if (totalReplicaNum < Config.min_replication_num_per_tablet
                 || totalReplicaNum > Config.max_replication_num_per_tablet) {
