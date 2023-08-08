@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.EsExternalTable;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
@@ -131,7 +133,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 unboundRelation.getNameParts());
         TableIf table = null;
         if (cascadesContext.getTables() != null) {
-            table = cascadesContext.getTableByName(tableName);
+            table = cascadesContext.getTableInMinidumpCache(tableName);
         }
         if (table == null) {
             if (customTableResolver.isPresent()) {
@@ -197,7 +199,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
                                        CascadesContext cascadesContext) {
-        String dbName = tableQualifier.get(1); //[catalogName, dbName, tableName]
         switch (table.getType()) {
             case OLAP:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
@@ -212,17 +213,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                     }
                 }
-                return new LogicalFileScan(unboundRelation.getRelationId(),
-                    (HMSExternalTable) table, ImmutableList.of(dbName));
+                return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table, tableQualifier);
+            case ICEBERG_EXTERNAL_TABLE:
+            case PAIMON_EXTERNAL_TABLE:
+            case MAX_COMPUTE_EXTERNAL_TABLE:
+                return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table, tableQualifier);
             case SCHEMA:
-                return new LogicalSchemaScan(unboundRelation.getRelationId(),
-                        table, ImmutableList.of(dbName));
+                return new LogicalSchemaScan(unboundRelation.getRelationId(), table, tableQualifier);
             case JDBC_EXTERNAL_TABLE:
             case JDBC:
-                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, ImmutableList.of(dbName));
+                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
             case ES_EXTERNAL_TABLE:
-                return new LogicalEsScan(unboundRelation.getRelationId(),
-                    (EsExternalTable) table, ImmutableList.of(dbName));
+                return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
             default:
                 throw new AnalysisException("Unsupported tableType:" + table.getType());
         }
@@ -242,6 +244,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
+        // TODO: use a good to do this, such as eliminate UnboundResultSink
+        if (parsedViewPlan instanceof UnboundResultSink) {
+            parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
+        }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer().analyze();

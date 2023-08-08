@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Stream load",
+    "title": "Stream Load",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Stream load
+# Stream Load
 
 Stream load is a synchronous way of importing. Users import local files or data streams into Doris by sending HTTP protocol requests. Stream load synchronously executes the import and returns the import result. Users can directly determine whether the import is successful by the return body of the request.
 
@@ -182,7 +182,7 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
 + enable_profile
-  <version since="1.2.4">
+  <version since="1.2.7">
   </version>
 
   When `enable_profile` is true, the Stream Load profile will be printed to the log. Otherwise it won't print.
@@ -231,6 +231,34 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
       "msg": "transaction [18037] abort successfully."
   }
   ```
+
+### Use stream load with SQL
+
+You can add a `sql` parameter to the `Header` to replace the `column_separator`, `line_delimiter`, `where`, `columns` in the previous parameter, which is convenient to use.
+
+```
+curl --location-trusted -u user:passwd 
+[-H "sql: ${load_sql}"...] 
+-T data.file 
+-XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load_with_sql
+
+
+# -- load_sql
+# insert into db.table (col, ...) select stream_col, ... from stream("property1"="value1");
+
+# stream
+# (
+#     "column_separator" = ",",
+#     "format" = "CSV",
+#     ...
+# )
+```
+
+Examples：
+
+```
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/demo/example_tbl_1/_stream_load_with_sql
+```
 
 ### Return results
 

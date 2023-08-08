@@ -47,6 +47,7 @@ public class HudiJniScanner extends JniScanner {
     private static final Logger LOG = Logger.getLogger(HudiJniScanner.class);
 
     private final int fetchSize;
+    private final String debugString;
     private final HoodieSplit split;
     private final ScanPredicate[] predicates;
     private final ClassLoader classLoader;
@@ -56,26 +57,29 @@ public class HudiJniScanner extends JniScanner {
     private Iterator<InternalRow> recordIterator;
 
     public HudiJniScanner(int fetchSize, Map<String, String> params) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Hudi JNI params:\n" + params.entrySet().stream().map(kv -> kv.getKey() + "=" + kv.getValue())
-                    .collect(Collectors.joining("\n")));
-        }
-        this.classLoader = this.getClass().getClassLoader();
-        String predicatesAddressString = params.remove("push_down_predicates");
-        this.fetchSize = fetchSize;
-        this.split = new HoodieSplit(params);
-        if (predicatesAddressString == null) {
-            predicates = new ScanPredicate[0];
-        } else {
-            long predicatesAddress = Long.parseLong(predicatesAddressString);
-            if (predicatesAddress != 0) {
-                predicates = ScanPredicate.parseScanPredicates(predicatesAddress, split.requiredTypes());
-                LOG.info("HudiJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
-            } else {
+        debugString = params.entrySet().stream().map(kv -> kv.getKey() + "=" + kv.getValue())
+                .collect(Collectors.joining("\n"));
+        try {
+            this.classLoader = this.getClass().getClassLoader();
+            String predicatesAddressString = params.remove("push_down_predicates");
+            this.fetchSize = fetchSize;
+            this.split = new HoodieSplit(params);
+            if (predicatesAddressString == null) {
                 predicates = new ScanPredicate[0];
+            } else {
+                long predicatesAddress = Long.parseLong(predicatesAddressString);
+                if (predicatesAddress != 0) {
+                    predicates = ScanPredicate.parseScanPredicates(predicatesAddress, split.requiredTypes());
+                    LOG.info("HudiJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
+                } else {
+                    predicates = new ScanPredicate[0];
+                }
             }
+            ugi = Utils.getUserGroupInformation(split.hadoopConf());
+        } catch (Exception e) {
+            LOG.error("Failed to initialize hudi scanner, split params:\n" + debugString, e);
+            throw e;
         }
-        ugi = Utils.getUserGroupInformation(split.hadoopConf());
     }
 
     @Override
@@ -104,17 +108,18 @@ public class HudiJniScanner extends JniScanner {
                 }
             }
         }, 100, 1000, TimeUnit.MILLISECONDS);
-        if (ugi != null) {
-            try {
+        try {
+            if (ugi != null) {
                 recordIterator = ugi.doAs(
                         (PrivilegedExceptionAction<Iterator<InternalRow>>) () -> new MORSnapshotSplitReader(
                                 split).buildScanIterator(split.requiredFields(), new Filter[0]));
-            } catch (InterruptedException e) {
-                throw new IOException(e);
+            } else {
+                recordIterator = new MORSnapshotSplitReader(split)
+                        .buildScanIterator(split.requiredFields(), new Filter[0]);
             }
-        } else {
-            recordIterator = new MORSnapshotSplitReader(split)
-                    .buildScanIterator(split.requiredFields(), new Filter[0]);
+        } catch (Exception e) {
+            LOG.error("Failed to open hudi scanner, split params:\n" + debugString, e);
+            throw new IOException(e.getMessage(), e);
         }
         isKilled.set(true);
         executorService.shutdownNow();
@@ -146,6 +151,7 @@ public class HudiJniScanner extends JniScanner {
             return readRowNumbers;
         } catch (Exception e) {
             close();
+            LOG.error("Failed to get the next batch of hudi, split params:\n" + debugString, e);
             throw new IOException("Failed to get the next batch of hudi.", e);
         }
     }

@@ -153,7 +153,7 @@ bool TabletReader::_optimize_for_single_rowset(
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
-    if (read_params.rs_readers.empty()) {
+    if (read_params.rs_splits.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
                                      _tablet->full_name());
     }
@@ -445,9 +445,6 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
             }
         }
         if (read_params.read_orderby_key_num_prefix_columns != _orderby_key_columns.size()) {
-            LOG(WARNING) << "read_orderby_key_num_prefix_columns != _orderby_key_columns.size "
-                         << read_params.read_orderby_key_num_prefix_columns << " vs. "
-                         << _orderby_key_columns.size();
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
                     "read_orderby_key_num_prefix_columns != _orderby_key_columns.size, "
                     "read_params.read_orderby_key_num_prefix_columns={}, "
@@ -605,20 +602,20 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
 }
 
 Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
-    if (read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
-        read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION) {
+    // If it's cumu and not allow do delete when cumu
+    if (read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
+        (read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
+         !config::enable_delete_when_cumu_compaction)) {
         return Status::OK();
     }
-    // Only BASE_COMPACTION and COLD_DATA_COMPACTION need set filter_delete = true
+    // Only BASE_COMPACTION and COLD_DATA_COMPACTION and CUMULATIVE_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
-    // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
-    if (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
-        read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
-        read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
-        read_params.reader_type == ReaderType::READER_CHECKSUM) {
-        _filter_delete = true;
-    }
+    _filter_delete = (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+                      read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
+                      ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
+                        config::enable_delete_when_cumu_compaction)) ||
+                      read_params.reader_type == ReaderType::READER_CHECKSUM);
 
     return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
                                 read_params.version.second);
@@ -636,7 +633,7 @@ Status TabletReader::init_reader_params_and_create_block(
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_IF_ERROR(rowset->create_reader(&rs_reader));
-        reader_params->rs_readers.push_back(std::move(rs_reader));
+        reader_params->rs_splits.push_back(RowSetSplits(std::move(rs_reader)));
     }
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(input_rowsets.size());

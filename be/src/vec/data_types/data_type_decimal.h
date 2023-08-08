@@ -249,7 +249,7 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeDecimalSerDe<T>>(scale);
+        return std::make_shared<DataTypeDecimalSerDe<T>>(scale, precision);
     };
 
     /// Decimal specific
@@ -505,7 +505,11 @@ void convert_decimal_cols(
         MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
         for (size_t i = 0; i < sz; i++) {
-            vec_to[i] = (vec_from[i] + multiplier / 2) / multiplier;
+            if (vec_from[i] >= 0) {
+                vec_to[i] = (vec_from[i] + multiplier / 2) / multiplier;
+            } else {
+                vec_to[i] = (vec_from[i] - multiplier / 2) / multiplier;
+            }
         }
     }
 

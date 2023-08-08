@@ -181,10 +181,10 @@ void serialize_and_deserialize_arrow_test() {
                     }
                     Int32 val;
                     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                    i % 2 == 0 ? val = StringParser::string_to_decimal<__int128>(
+                    i % 2 == 0 ? val = StringParser::string_to_decimal<TYPE_DECIMAL32, __int128>(
                                          "1234567.56", 11, type_desc.precision, type_desc.scale,
                                          &result)
-                               : val = StringParser::string_to_decimal<__int128>(
+                               : val = StringParser::string_to_decimal<TYPE_DECIMAL32, __int128>(
                                          "-1234567.56", 12, type_desc.precision, type_desc.scale,
                                          &result);
                     EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
@@ -217,7 +217,7 @@ void serialize_and_deserialize_arrow_test() {
                     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                     std::string decimal_string =
                             i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
-                    val = StringParser::string_to_decimal<__int128>(
+                    val = StringParser::string_to_decimal<TYPE_DECIMAL64, __int128>(
                             decimal_string.c_str(), decimal_string.size(), type_desc.precision,
                             type_desc.scale, &result);
                     EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);

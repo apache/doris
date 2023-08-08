@@ -231,7 +231,7 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
 }
 
 Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
@@ -239,7 +239,7 @@ Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, 
 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
                                          Arena* arena, bool agg_many) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
@@ -247,7 +247,7 @@ Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateD
 
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
@@ -255,7 +255,7 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
 
 Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
                                                const size_t num_rows, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
@@ -263,7 +263,7 @@ Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf
 
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
                                                          const size_t num_rows, Arena* arena) {
-    RETURN_IF_ERROR(_calc_argment_columns(block));
+    RETURN_IF_ERROR(_calc_argument_columns(block));
     SCOPED_TIMER(_exec_timer);
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();
@@ -302,7 +302,7 @@ std::string AggFnEvaluator::debug_string() const {
     return out.str();
 }
 
-Status AggFnEvaluator::_calc_argment_columns(Block* block) {
+Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
     _agg_columns.resize(_input_exprs_ctxs.size());
     int column_ids[_input_exprs_ctxs.size()];

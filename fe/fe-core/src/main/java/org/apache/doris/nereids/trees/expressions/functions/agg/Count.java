@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
@@ -61,6 +62,12 @@ public class Count extends AggregateFunction
     public Count(boolean distinct, Expression arg0, Expression... varArgs) {
         super("count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs));
         this.isStar = false;
+    }
+
+    public boolean isCountStar() {
+        return isStar
+                || children.size() == 0
+                || (children.size() == 1 && child(0) instanceof Literal);
     }
 
     @Override

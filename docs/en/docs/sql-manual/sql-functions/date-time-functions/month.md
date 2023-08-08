@@ -1,6 +1,6 @@
 ---
 {
-    "title": "month",
+    "title": "MONTH",
     "language": "en"
 }
 ---

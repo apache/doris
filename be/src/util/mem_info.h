@@ -38,6 +38,7 @@
 #else
 #include <gperftools/malloc_extension.h>
 #endif
+#include "common/config.h"
 #include "util/perf_counters.h"
 
 namespace doris {
@@ -71,7 +72,8 @@ public:
     static void refresh_proc_meminfo();
 
     static inline int64_t sys_mem_available() {
-        return _s_sys_mem_available - refresh_interval_memory_growth;
+        return _s_sys_mem_available.load(std::memory_order_relaxed) -
+               refresh_interval_memory_growth;
     }
     static inline std::string sys_mem_available_str() { return _s_sys_mem_available_str; }
     static inline int64_t sys_mem_available_low_water_mark() {
@@ -110,22 +112,31 @@ public:
     static inline void je_purge_all_arena_dirty_pages() {
 #ifdef USE_JEMALLOC
         // https://github.com/jemalloc/jemalloc/issues/2470
-        // Occasional core dump during stress test, purge should be turned on after the heap corruption is resolved.
-        // try {
-        //     // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
-        //     jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
-        //               nullptr, 0);
-        // } catch (...) {
-        //     LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
-        // }
+        // If there is a core dump here, it may cover up the real stack, if stack trace indicates heap corruption
+        // (which led to invalid jemalloc metadata), like double free or use-after-free in the application.
+        // Try sanitizers such as ASAN, or build jemalloc with --enable-debug to investigate further.
+        if (config::enable_je_purge_dirty_pages) {
+            try {
+                // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
+                jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr,
+                          nullptr, nullptr, 0);
+            } catch (...) {
+                LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
+            }
+        }
 #endif
     }
 
-    static inline size_t allocator_virtual_mem() { return _s_virtual_memory_used; }
-    static inline size_t allocator_cache_mem() { return _s_allocator_cache_mem; }
+    static inline size_t allocator_virtual_mem() {
+        return _s_virtual_memory_used.load(std::memory_order_relaxed);
+    }
+    static inline size_t allocator_cache_mem() {
+        return _s_allocator_cache_mem.load(std::memory_order_relaxed);
+    }
     static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
     static inline int64_t proc_mem_no_allocator_cache() {
-        return _s_proc_mem_no_allocator_cache + refresh_interval_memory_growth;
+        return _s_proc_mem_no_allocator_cache.load(std::memory_order_relaxed) +
+               refresh_interval_memory_growth;
     }
 
     // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
@@ -140,8 +151,10 @@ public:
       * that can be used at anytime via jemalloc.
       */
     static inline void refresh_proc_mem_no_allocator_cache() {
-        _s_proc_mem_no_allocator_cache =
-                PerfCounters::get_vm_rss() - static_cast<int64_t>(_s_allocator_cache_mem);
+        _s_proc_mem_no_allocator_cache.store(
+                PerfCounters::get_vm_rss() - static_cast<int64_t>(_s_allocator_cache_mem.load(
+                                                     std::memory_order_relaxed)),
+                std::memory_order_relaxed);
         refresh_interval_memory_growth = 0;
     }
 
@@ -162,7 +175,8 @@ public:
         return _s_soft_mem_limit_str;
     }
     static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
-        return proc_mem_no_allocator_cache() + bytes > soft_mem_limit();
+        return proc_mem_no_allocator_cache() + bytes >= soft_mem_limit() ||
+               sys_mem_available() < sys_mem_available_warning_water_mark();
     }
 
     static std::string debug_string();
@@ -185,12 +199,12 @@ private:
     static int64_t _s_soft_mem_limit;
     static std::string _s_soft_mem_limit_str;
 
-    static int64_t _s_allocator_cache_mem;
+    static std::atomic<int64_t> _s_allocator_cache_mem;
     static std::string _s_allocator_cache_mem_str;
-    static int64_t _s_virtual_memory_used;
-    static int64_t _s_proc_mem_no_allocator_cache;
+    static std::atomic<int64_t> _s_virtual_memory_used;
+    static std::atomic<int64_t> _s_proc_mem_no_allocator_cache;
 
-    static int64_t _s_sys_mem_available;
+    static std::atomic<int64_t> _s_sys_mem_available;
     static std::string _s_sys_mem_available_str;
     static int64_t _s_sys_mem_available_low_water_mark;
     static int64_t _s_sys_mem_available_warning_water_mark;

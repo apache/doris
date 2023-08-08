@@ -57,7 +57,7 @@ suite("test_push_conjuncts_inlineview") {
                     )a
                 where
                     a.px = 1;""")
-        contains "4:VSELECT"
+        contains "5:VSELECT"
     }
 
 explain {
@@ -73,6 +73,20 @@ explain {
                         WHERE a_key = '123';""")
         notContains "having"
         contains "= '123'"
+    }
+
+explain {
+        sql("""SELECT *
+                FROM 
+                    (SELECT `a`.`a_key` AS `a_key`,
+                    now() as d
+                    FROM `push_conjunct_table` a) t1
+                    join 
+                    (SELECT `a`.`a_key` AS `a_key`,
+                    b_key
+                    FROM `push_conjunct_table` a) t2
+                    on t1. d = t2.b_key;""")
+        notContains "VNESTED LOOP JOIN"
     }
 
 sql """

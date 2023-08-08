@@ -260,6 +260,7 @@ terminal String
     KW_AUTO_INCREMENT,
     KW_AS,
     KW_ASC,
+    KW_AT,
     KW_AUTHORS,
     KW_BACKEND,
     KW_BACKENDS,
@@ -342,6 +343,7 @@ terminal String
     KW_DISTRIBUTED,
     KW_DISTRIBUTION,
     KW_DIV,
+    KW_DO,
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
@@ -352,11 +354,13 @@ terminal String
     KW_ENCRYPTKEY,
     KW_ENCRYPTKEYS,
     KW_END,
+    KW_ENDS,
     KW_ENGINE,
     KW_ENGINES,
     KW_ENTER,
     KW_ERRORS,
     KW_EVENTS,
+    KW_EVERY,
     KW_EXCEPT,
     KW_EXCLUDE,
     KW_EXISTS,
@@ -423,6 +427,7 @@ terminal String
     KW_ISOLATION,
     KW_INVERTED,
     KW_JOB,
+    KW_JOBS,    
     KW_JOIN,
     KW_JSON,
     KW_JSONB,
@@ -551,6 +556,7 @@ terminal String
     KW_ROWS,
     KW_S3,
     KW_SAMPLE,
+    KW_SCHEDULER,    
     KW_SCHEMA,
     KW_SCHEMAS,
     KW_SECOND,
@@ -569,11 +575,13 @@ terminal String
     KW_SPLIT,
     KW_SQL_BLOCK_RULE,
     KW_START,
+    KW_STARTS,    
     KW_STATS,
     KW_STATUS,
     KW_STOP,
     KW_STORAGE,
     KW_STREAM,
+    KW_STREAMING,
     KW_STRING,
     KW_STRUCT,
     KW_SUM,
@@ -587,6 +595,7 @@ terminal String
     KW_TABLET,
     KW_TABLETS,
     KW_TASK,
+    KW_TASKS,
     KW_TEMPORARY,
     KW_TERMINATED,
     KW_TEXT,
@@ -654,6 +663,7 @@ terminal BigDecimal DECIMAL_LITERAL;
 terminal String STRING_LITERAL;
 terminal String UNMATCHED_STRING_LITERAL;
 terminal String COMMENTED_PLAN_HINTS;
+terminal String KW_CRON;
 
 // Statement that the result of this parser.
 nonterminal List<StatementBase> stmts;
@@ -661,6 +671,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt,
+    create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
@@ -795,6 +806,8 @@ nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
+nonterminal String opt_job_starts;
+nonterminal String opt_job_ends;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -1127,6 +1140,16 @@ stmt ::=
     {: RESULT = stmt; :}
     | show_create_routine_load_stmt : stmt
     {: RESULT = stmt; :}
+    | create_job_stmt : stmt   
+    {: RESULT = stmt; :}
+    | pause_job_stmt : stmt   
+    {: RESULT = stmt; :}
+    | show_job_stmt : stmt   
+    {: RESULT = stmt; :}
+    | stop_job_stmt : stmt   
+    {: RESULT = stmt; :}
+    | resume_job_stmt : stmt                    
+    {: RESULT = stmt; :}   
     | show_create_load_stmt : stmt
     {: RESULT = stmt; :}
     | show_create_reporitory_stmt : stmt
@@ -2397,6 +2420,7 @@ data_desc ::=
     KW_INTO KW_TABLE ident:tableName
     opt_partition_names:partitionNames
     opt_field_term:colSep
+    opt_line_term:lineDelimiter
     opt_file_format:fileFormat
     opt_col_list:colList
     opt_columns_from_path:columnsFromPath
@@ -2407,7 +2431,7 @@ data_desc ::=
     sequence_col_clause:sequenceColName
     opt_properties:properties
     {:
-        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
+        RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, lineDelimiter, fileFormat,
         columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName, properties);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
@@ -2609,7 +2633,75 @@ resource_desc ::=
         RESULT = new ResourceDesc(resourceName, properties);                         
     :}                                                                               
     ; 
+create_job_stmt ::=
+     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
+    {:
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,null,false,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
+        RESULT = stmt;
+    :}
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    {:
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,true,null,null,null,null,comment,executeSql);
+        RESULT = stmt;
+    :}    
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    {:
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,false,null,null,null,null,comment,executeSql);
+        RESULT = stmt;
+    :}
+    ;                           
+ opt_job_starts ::= 
+     {:
+         RESULT = null;
+     :}
+     | KW_STARTS STRING_LITERAL:startTime 
+     {: 
+        RESULT = startTime;    
+     :}
+     ;
+ 
+ opt_job_ends ::= 
+     {:
+         RESULT = null;
+     :}    
+     | KW_ENDS STRING_LITERAL:endTime 
+     {:  
+          RESULT = endTime;  
+     :}
+     ;       
+resume_job_stmt ::=
+    KW_RESUME KW_JOB job_label:jobLabel
+    {:
+        RESULT = new ResumeJobStmt(jobLabel);
+    :}
+    ;    
+show_job_stmt ::=
+    KW_SHOW KW_JOBS
+    {:
+        RESULT = new ShowJobStmt(null,null);
+    :}
+    | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobStmt(jobLabel,null);
+    :}
+    | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobTaskStmt(jobLabel);
+    :}    
+    ;
+pause_job_stmt ::=
+    KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new PauseJobStmt(jobLabel);
+    :}
+    ;
 
+stop_job_stmt ::=
+    KW_STOP KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new StopJobStmt(jobLabel);
+    :}
+    ;                       
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -4009,6 +4101,10 @@ show_param ::=
     | KW_FRONTENDS
     {:
         RESULT = new ShowFrontendsStmt();
+    :}
+    | KW_FRONTENDS ident:name
+    {:
+        RESULT = new ShowFrontendsStmt(name);
     :}
     | KW_REPOSITORIES
     {:
@@ -5933,6 +6029,12 @@ with_analysis_properties ::=
             put("analysis.type", "HISTOGRAM");
         }};
     :}
+    | KW_CRON STRING_LITERAL:cron_expr
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.cron", cron_expr);
+        }};
+    :}
     ;
 
 opt_with_analysis_properties ::=
@@ -7339,6 +7441,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DISTINCTPCSA:id
     {: RESULT = id; :}
+    | KW_DO:id
+    {: RESULT = id; :}
     | KW_BUCKETS:id
     {: RESULT = id; :}
     | KW_FAST:id
@@ -7402,6 +7506,8 @@ keyword ::=
     | KW_ISOLATION:id
     {: RESULT = id; :}
     | KW_JOB:id
+    {: RESULT = id; :}
+    | KW_JOBS:id    
     {: RESULT = id; :}
     | KW_JSON:id
     {: RESULT = id; :}
@@ -7515,7 +7621,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ROLLBACK:id
     {: RESULT = id; :}
-    | KW_ROLLUP:id
+    | KW_SCHEDULER:id
     {: RESULT = id; :}
     | KW_SCHEMA:id
     {: RESULT = id; :}
@@ -7540,6 +7646,8 @@ keyword ::=
     | KW_STORAGE:id
     {: RESULT = id; :}
     | KW_STREAM:id
+    {: RESULT = id; :}
+    | KW_STREAMING:id    
     {: RESULT = id; :}
     | KW_STRUCT:id
     {: RESULT = id; :}
@@ -7607,7 +7715,19 @@ keyword ::=
     {: RESULT = id; :}
     | KW_TASK:id
     {: RESULT = id; :}
+    | KW_TASKS:id    
+    {: RESULT = id; :}
     | KW_ROUTINE:id
+    {: RESULT = id; :}
+    | KW_EVERY:id   
+    {: RESULT = id; :}
+    | KW_AT:id         
+    {: RESULT = id; :}
+    | KW_ROLLUP:id    
+    {: RESULT = id; :}
+    | KW_STARTS:id     
+    {: RESULT = id; :}
+    | KW_ENDS:id                  
     {: RESULT = id; :}
     | KW_PAUSE:id
     {: RESULT = id; :}
@@ -7662,6 +7782,8 @@ keyword ::=
     | KW_PERIOD:id
     {: RESULT = id; :}
     | KW_PERCENT:id
+    {: RESULT = id; :}
+    | KW_CRON:id
     {: RESULT = id; :}
     ;
 

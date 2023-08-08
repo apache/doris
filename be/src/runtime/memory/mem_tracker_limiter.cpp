@@ -26,9 +26,10 @@
 #include <queue>
 #include <utility>
 
+#include "bvar/bvar.h"
+#include "olap/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/load_channel_mgr.h"
 #include "runtime/task_group/task_group.h"
 #include "service/backend_options.h"
 #include "util/mem_info.h"
@@ -37,6 +38,8 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+
+bvar::Adder<int64_t> g_memtrackerlimiter_cnt("memtrackerlimiter_cnt");
 
 // Save all MemTrackerLimiters in use.
 // Each group corresponds to several MemTrackerLimiters and has a lock.
@@ -58,15 +61,9 @@ static RuntimeProfile::Counter* freed_memory_counter =
 static RuntimeProfile::Counter* cancel_tasks_counter =
         ADD_COUNTER(free_top_memory_task_profile, "CancelTasksNum", TUnit::UNIT);
 
-MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit,
-                                     RuntimeProfile* profile,
-                                     const std::string& profile_counter_name) {
+MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit) {
     DCHECK_GE(byte_limit, -1);
     _consumption = std::make_shared<MemCounter>();
-    if (profile != nullptr) {
-        _profile_counter =
-                profile->AddSharedHighWaterMarkCounter(profile_counter_name, TUnit::BYTES);
-    }
     _type = type;
     _label = label;
     _limit = byte_limit;
@@ -80,6 +77,7 @@ MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_
         _tracker_limiter_group_it = mem_tracker_limiter_pool[_group_num].trackers.insert(
                 mem_tracker_limiter_pool[_group_num].trackers.end(), this);
     }
+    g_memtrackerlimiter_cnt << 1;
 }
 
 MemTrackerLimiter::~MemTrackerLimiter() {
@@ -98,6 +96,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
             _tracker_limiter_group_it = mem_tracker_limiter_pool[_group_num].trackers.end();
         }
     }
+    g_memtrackerlimiter_cnt << -1;
 }
 
 MemTracker::Snapshot MemTrackerLimiter::make_snapshot() const {
@@ -125,15 +124,6 @@ void MemTrackerLimiter::refresh_global_counter() {
     }
 }
 
-void MemTrackerLimiter::refresh_all_tracker_profile() {
-    for (unsigned i = 0; i < mem_tracker_limiter_pool.size(); ++i) {
-        std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
-        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
-            tracker->refresh_profile_counter();
-        }
-    }
-}
-
 void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>* snapshots) {
     MemTrackerLimiter::refresh_global_counter();
     int64_t process_mem_sum = 0;
@@ -143,7 +133,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
         snapshot.label = "";
         snapshot.limit = -1;
         snapshot.cur_consumption = it.second->current_value();
-        snapshot.peak_consumption = it.second->value();
+        snapshot.peak_consumption = it.second->peak_value();
         (*snapshots).emplace_back(snapshot);
         process_mem_sum += it.second->current_value();
     }
@@ -240,7 +230,7 @@ std::string MemTrackerLimiter::log_process_usage_str() {
 
     // Add additional tracker printed when memory exceeds limit.
     snapshots.emplace_back(
-            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker()->make_snapshot());
+            ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->make_snapshot());
 
     detail += "\nMemory Tracker Summary:";
     for (const auto& snapshot : snapshots) {

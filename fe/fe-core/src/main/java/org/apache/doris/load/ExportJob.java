@@ -24,7 +24,6 @@ import org.apache.doris.analysis.FromClause;
 import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectList;
 import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
@@ -38,11 +37,14 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -53,18 +55,10 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.system.Backend;
-import org.apache.doris.task.AgentClient;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.ExportExportingTask;
-import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPaloScanRange;
-import org.apache.doris.thrift.TScanRange;
-import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TSnapshotRequest;
-import org.apache.doris.thrift.TStatusCode;
-import org.apache.doris.thrift.TypesConstants;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -81,6 +75,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -119,8 +116,8 @@ public class ExportJob implements Writable {
     private String columnSeparator;
     @SerializedName("lineDelimiter")
     private String lineDelimiter;
-    @SerializedName("partitions")
-    private List<String> partitions;
+    @SerializedName(value = "partitionNames", alternate = {"partitions"})
+    private List<String> partitionNames;
     @SerializedName("tableName")
     private TableName tableName;
     @SerializedName("state")
@@ -145,14 +142,18 @@ public class ExportJob implements Writable {
     private String maxFileSize;
     @SerializedName("deleteExistingFiles")
     private String deleteExistingFiles;
+    @SerializedName("startTimeMs")
+    private long startTimeMs;
+    @SerializedName("finishTimeMs")
+    private long finishTimeMs;
+    @SerializedName("failMsg")
+    private ExportFailMsg failMsg;
+    @SerializedName("outfileInfo")
+    private String outfileInfo;
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
     // 2. set progress = 100 ONLY when exporting progress is completely done
     private int progress;
-    private long startTimeMs;
-    private long finishTimeMs;
-    private ExportFailMsg failMsg;
-    private String outfileInfo;
 
     private TableRef tableRef;
 
@@ -160,9 +161,19 @@ public class ExportJob implements Writable {
 
     private String sql = "";
 
+    private Integer parallelNum;
+
+    public Map<String, Long> getPartitionToVersion() {
+        return partitionToVersion;
+    }
+
+    private Map<String, Long> partitionToVersion = Maps.newHashMap();
+
     // The selectStmt is sql 'select ... into outfile ...'
     @Getter
-    private List<QueryStmt> selectStmtList = Lists.newArrayList();
+    private List<SelectStmt> selectStmtList = Lists.newArrayList();
+
+    private List<StmtExecutor> stmtExecutorList;
 
     private List<String> exportColumns = Lists.newArrayList();
 
@@ -216,6 +227,7 @@ public class ExportJob implements Writable {
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
         this.whereExpr = stmt.getWhereExpr();
+        this.parallelNum = stmt.getParallelNum();
         this.exportPath = path;
         this.sessionVariables = stmt.getSessionVariables();
         this.timeoutSecond = sessionVariables.getQueryTimeoutS();
@@ -225,7 +237,7 @@ public class ExportJob implements Writable {
         this.format = stmt.getFormat();
         this.maxFileSize = stmt.getMaxFileSize();
         this.deleteExistingFiles = stmt.getDeleteExistingFiles();
-        this.partitions = stmt.getPartitions();
+        this.partitionNames = stmt.getPartitions();
 
         this.exportTable = db.getTableOrDdlException(stmt.getTblName().getTbl());
         this.columns = stmt.getColumns();
@@ -242,7 +254,7 @@ public class ExportJob implements Writable {
             if (selectStmtList.isEmpty()) {
                 // This scenario is used for 'EXPORT TABLE tbl INTO PATH'
                 // we need generate Select Statement
-                generateQueryStmt();
+                generateQueryStmt(stmt);
             }
         } finally {
             exportTable.readUnlock();
@@ -251,7 +263,7 @@ public class ExportJob implements Writable {
         this.origStmt = stmt.getOrigStmt();
     }
 
-    private void generateQueryStmt() {
+    private void generateQueryStmt(ExportStmt stmt) throws UserException {
         SelectList list = new SelectList();
         if (exportColumns.isEmpty()) {
             list.addItem(SelectListItem.createStarItem(this.tableName));
@@ -266,17 +278,100 @@ public class ExportJob implements Writable {
             }
         }
 
-        List<TableRef> tableRefList = Lists.newArrayList();
-        tableRefList.add(this.tableRef);
-        FromClause fromClause = new FromClause(tableRefList);
+        ArrayList<ArrayList<TableRef>> tableRefListPerQuery = splitTablets(stmt);
+        LOG.info("Export task is split into {} outfile statements.", tableRefListPerQuery.size());
 
-        SelectStmt selectStmt = new SelectStmt(list, fromClause, this.whereExpr, null,
-                null, null, LimitElement.NO_LIMIT);
-        // generate outfile clause
-        OutFileClause outfile = new OutFileClause(this.exportPath, this.format, convertOutfileProperties());
-        selectStmt.setOutFileClause(outfile);
-        selectStmt.setOrigStmt(new OriginStatement(selectStmt.toSql(), 0));
-        selectStmtList.add(selectStmt);
+        if (LOG.isDebugEnabled()) {
+            for (int i = 0; i < tableRefListPerQuery.size(); i++) {
+                LOG.debug("Outfile clause {} is responsible for tables: {}", i,
+                        tableRefListPerQuery.get(i).get(0).getSampleTabletIds());
+            }
+        }
+
+        for (ArrayList<TableRef> tableRefList : tableRefListPerQuery) {
+            FromClause fromClause = new FromClause(tableRefList);
+            // generate outfile clause
+            OutFileClause outfile = new OutFileClause(this.exportPath, this.format, convertOutfileProperties());
+            SelectStmt selectStmt = new SelectStmt(list, fromClause, this.whereExpr, null,
+                    null, null, LimitElement.NO_LIMIT);
+            selectStmt.setOutFileClause(outfile);
+            selectStmt.setOrigStmt(new OriginStatement(selectStmt.toSql(), 0));
+            selectStmtList.add(selectStmt);
+        }
+        stmtExecutorList = Arrays.asList(new StmtExecutor[selectStmtList.size()]);
+        if (LOG.isDebugEnabled()) {
+            for (int i = 0; i < selectStmtList.size(); i++) {
+                LOG.debug("Outfile clause {} is: {}", i, selectStmtList.get(i).toSql());
+            }
+        }
+    }
+
+    private ArrayList<ArrayList<TableRef>> splitTablets(ExportStmt stmt) throws UserException {
+        // get tablets
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(stmt.getTblName().getDb());
+        OlapTable table = db.getOlapTableOrAnalysisException(stmt.getTblName().getTbl());
+        List<Long> tabletIdList = Lists.newArrayList();
+        table.readLock();
+        try {
+            Collection<Partition> partitions = new ArrayList<Partition>();
+            // get partitions
+            // user specifies partitions, already checked in ExportStmt
+            if (this.partitionNames != null) {
+                if (partitionNames.size() > Config.maximum_number_of_export_partitions) {
+                    throw new UserException("The partitions number of this export job is larger than the maximum number"
+                            + " of partitions allowed by a export job");
+                }
+                for (String partName : this.partitionNames) {
+                    partitions.add(table.getPartition(partName));
+                }
+            } else {
+                if (table.getPartitions().size() > Config.maximum_number_of_export_partitions) {
+                    throw new UserException("The partitions number of this export job is larger than the maximum number"
+                            + " of partitions allowed by a export job");
+                }
+                partitions = table.getPartitions();
+            }
+
+            // get tablets
+            for (Partition partition : partitions) {
+                partitionToVersion.put(partition.getName(), partition.getVisibleVersion());
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    tabletIdList.addAll(index.getTabletIdsInOrder());
+                }
+            }
+        } finally {
+            table.readUnlock();
+        }
+
+        Integer tabletsAllNum = tabletIdList.size();
+        Integer tabletsNumPerQuery = tabletsAllNum / this.parallelNum;
+        Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerQuery * this.parallelNum;
+
+        Integer start = 0;
+
+        ArrayList<ArrayList<TableRef>> tableRefListPerQuery = Lists.newArrayList();
+
+        int outfileNum = this.parallelNum;
+        if (tabletsAllNum < this.parallelNum) {
+            outfileNum = tabletsAllNum;
+            LOG.warn("Export Job [{}]: The number of tablets ({}) is smaller than parallelism ({}), "
+                        + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelNum);
+        }
+        for (int i = 0; i < outfileNum; ++i) {
+            Integer tabletsNum = tabletsNumPerQuery;
+            if (tabletsNumPerQueryRemainder > 0) {
+                tabletsNum = tabletsNum + 1;
+                --tabletsNumPerQueryRemainder;
+            }
+            ArrayList<Long> tablets = new ArrayList<>(tabletIdList.subList(start, start + tabletsNum));
+            start += tabletsNum;
+            TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(), null, tablets,
+                    this.tableRef.getTableSample(), this.tableRef.getCommonHints());
+            ArrayList<TableRef> tableRefList = Lists.newArrayList();
+            tableRefList.add(tblRef);
+            tableRefListPerQuery.add(tableRefList);
+        }
+        return tableRefListPerQuery;
     }
 
     private Map<String, String> convertOutfileProperties() {
@@ -378,7 +473,7 @@ public class ExportJob implements Writable {
     }
 
     public List<String> getPartitions() {
-        return partitions;
+        return partitionNames;
     }
 
     public int getProgress() {
@@ -434,6 +529,14 @@ public class ExportJob implements Writable {
         this.doExportingThread = isExportingThread;
     }
 
+    public synchronized void setStmtExecutor(int idx, StmtExecutor executor) {
+        this.stmtExecutorList.set(idx, executor);
+    }
+
+    public synchronized StmtExecutor getStmtExecutor(int idx) {
+        return this.stmtExecutorList.get(idx);
+    }
+
     public List<TScanRangeLocations> getTabletLocations() {
         return tabletLocations;
     }
@@ -470,6 +573,14 @@ public class ExportJob implements Writable {
         if (msg != null) {
             failMsg = new ExportFailMsg(type, msg);
         }
+
+        // maybe user cancel this job
+        if (task != null && state == JobState.EXPORTING && stmtExecutorList != null) {
+            for (int idx = 0; idx < stmtExecutorList.size(); ++idx) {
+                stmtExecutorList.get(idx).cancel();
+            }
+        }
+
         if (updateState(ExportJob.JobState.CANCELLED, false)) {
             // release snapshot
             // Status releaseSnapshotStatus = releaseSnapshotPaths();
@@ -500,7 +611,6 @@ public class ExportJob implements Writable {
         if (isFinalState() || (isReplay && newState == JobState.EXPORTING)) {
             return false;
         }
-        ExportJob.JobState oldState = state;
         state = newState;
         switch (newState) {
             case PENDING:
@@ -514,16 +624,16 @@ public class ExportJob implements Writable {
                 }
                 break;
             case FINISHED:
+                if (!isReplay) {
+                    finishTimeMs = System.currentTimeMillis();
+                }
+                progress = 100;
+                break;
             case CANCELLED:
                 // if isReplay == true, finishTimeMs will be read from log
                 if (!isReplay) {
                     finishTimeMs = System.currentTimeMillis();
-                    // maybe user cancel this job
-                    if (task != null && oldState == JobState.EXPORTING && task.getStmtExecutor() != null) {
-                        task.getStmtExecutor().cancel();
-                    }
                 }
-                progress = 100;
                 break;
             default:
                 Preconditions.checkState(false, "wrong job state: " + newState.name());
@@ -538,78 +648,6 @@ public class ExportJob implements Writable {
 
     public synchronized boolean isFinalState() {
         return this.state == ExportJob.JobState.CANCELLED || this.state == ExportJob.JobState.FINISHED;
-    }
-
-    private Status makeSnapshots() {
-        List<TScanRangeLocations> tabletLocations = getTabletLocations();
-        if (tabletLocations == null) {
-            return Status.OK;
-        }
-        for (TScanRangeLocations tablet : tabletLocations) {
-            TScanRange scanRange = tablet.getScanRange();
-            if (!scanRange.isSetPaloScanRange()) {
-                continue;
-            }
-            TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
-            List<TScanRangeLocation> locations = tablet.getLocations();
-            for (TScanRangeLocation location : locations) {
-                TNetworkAddress address = location.getServer();
-                String host = address.getHostname();
-                int port = address.getPort();
-                Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, port);
-                if (backend == null) {
-                    return Status.CANCELLED;
-                }
-                long backendId = backend.getId();
-                if (!Env.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
-                    return Status.CANCELLED;
-                }
-                TSnapshotRequest snapshotRequest = new TSnapshotRequest();
-                snapshotRequest.setTabletId(paloScanRange.getTabletId());
-                snapshotRequest.setSchemaHash(Integer.parseInt(paloScanRange.getSchemaHash()));
-                snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
-                snapshotRequest.setTimeout(getTimeoutSecond());
-                snapshotRequest.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
-
-                AgentClient client = new AgentClient(host, port);
-                TAgentResult result = client.makeSnapshot(snapshotRequest);
-                if (result == null || result.getStatus().getStatusCode() != TStatusCode.OK) {
-                    String err = "snapshot for tablet " + paloScanRange.getTabletId() + " failed on backend "
-                            + address.toString() + ". reason: "
-                            + (result == null ? "unknown" : result.getStatus().error_msgs);
-                    LOG.warn("{}, export job: {}", err, id);
-                    return new Status(TStatusCode.CANCELLED, err);
-                }
-                addSnapshotPath(Pair.of(address, result.getSnapshotPath()));
-            }
-        }
-        return Status.OK;
-    }
-
-    public Status releaseSnapshotPaths() {
-        List<Pair<TNetworkAddress, String>> snapshotPaths = getSnapshotPaths();
-        LOG.debug("snapshotPaths:{}", snapshotPaths);
-        for (Pair<TNetworkAddress, String> snapshotPath : snapshotPaths) {
-            TNetworkAddress address = snapshotPath.first;
-            String host = address.getHostname();
-            int port = address.getPort();
-            Backend backend = Env.getCurrentSystemInfo().getBackendWithBePort(host, port);
-            if (backend == null) {
-                continue;
-            }
-            long backendId = backend.getId();
-            if (!Env.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
-                continue;
-            }
-
-            AgentClient client = new AgentClient(host, port);
-            TAgentResult result = client.releaseSnapshot(snapshotPath.second);
-            if (result == null || result.getStatus().getStatusCode() != TStatusCode.OK) {
-                continue;
-            }
-        }
-        snapshotPaths.clear();
-        return Status.OK;
     }
 
     public boolean isExpired(long curTime) {
@@ -633,7 +671,7 @@ public class ExportJob implements Writable {
                 + ", tableId=" + tableId
                 + ", state=" + state
                 + ", path=" + exportPath
-                + ", partitions=(" + StringUtils.join(partitions, ",") + ")"
+                + ", partitions=(" + StringUtils.join(partitionNames, ",") + ")"
                 + ", progress=" + progress
                 + ", createTimeMs=" + TimeUtils.longToTimeString(createTimeMs)
                 + ", exportStartTimeMs=" + TimeUtils.longToTimeString(startTimeMs)
@@ -691,11 +729,11 @@ public class ExportJob implements Writable {
         }
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {
-            partitions = Lists.newArrayList();
+            partitionNames = Lists.newArrayList();
             int partitionSize = in.readInt();
             for (int i = 0; i < partitionSize; ++i) {
                 String partitionName = Text.readString(in);
-                partitions.add(partitionName);
+                partitionNames.add(partitionName);
             }
         }
 

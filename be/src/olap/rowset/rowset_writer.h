@@ -92,6 +92,8 @@ public:
 
     virtual int64_t num_rows() const = 0;
 
+    virtual int64_t num_rows_filtered() const = 0;
+
     virtual RowsetId rowset_id() = 0;
 
     virtual RowsetTypePB type() const = 0;

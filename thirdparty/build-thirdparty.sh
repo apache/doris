@@ -1434,9 +1434,9 @@ build_jemalloc() {
 
 # libunwind
 build_libunwind() {
-    # https://github.com/libunwind/libunwind
-    # https://github.com/libunwind/libunwind/issues/189
-    # https://stackoverflow.com/questions/27842377/building-libunwind-for-mac
+    # There are two major variants of libunwind. libunwind on Linux
+    # (https://www.nongnu.org/libunwind/) provides unw_backtrace, and
+    # Apache/LLVM libunwind (notably used on Apple platforms) doesn't
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         check_if_source_exist "${LIBUNWIND_SOURCE}"
         cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
@@ -1450,8 +1450,8 @@ build_libunwind() {
         # LIBUNWIND_NO_HEAP: https://reviews.llvm.org/D11897
         # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
         # -nostdinc++ only required for gcc compilation
-        cflags='-std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti'
-        CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}"
+        cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti"
+        CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
 
         make -j "${PARALLEL}"
         make install
@@ -1616,7 +1616,6 @@ build_hadoop_libs() {
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
-        libunwind
         libunixodbc
         openssl
         libevent
@@ -1674,6 +1673,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         xxhash
         concurrentqueue
         fast_float
+        libunwind
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

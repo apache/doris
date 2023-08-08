@@ -22,8 +22,6 @@ suite("test_complex_type_unique_key", "p0") {
     def dataFile1 = "complex_unique_2.csv"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
     sql """
         CREATE TABLE IF NOT EXISTS tbl_test_complex_unique (

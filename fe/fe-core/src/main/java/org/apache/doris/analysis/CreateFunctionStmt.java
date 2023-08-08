@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -577,6 +578,9 @@ public class CreateFunctionStmt extends DdlStmt {
         } else if (expType instanceof ArrayType) {
             ArrayType arrayType = (ArrayType) expType;
             javaTypes = Type.PrimitiveTypeToJavaClassType.get(arrayType.getPrimitiveType());
+        } else if (expType instanceof MapType) {
+            MapType mapType = (MapType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(mapType.getPrimitiveType());
         } else {
             throw new AnalysisException(
                     String.format("Method '%s' in class '%s' does not support type '%s'",

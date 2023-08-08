@@ -28,7 +28,7 @@ under the License.
 
 This topic introduces the data models in Doris from a logical perspective so you can make better use of Doris in different business scenarios.
 
-## Basic concepts
+## Basic Concepts
 
 In Doris, data is logically described in the form of tables. A table consists of rows and columns. Row is a row of user data. Column is used to describe different fields in a row of data.
 
@@ -46,7 +46,7 @@ The following is the detailed introduction to each of them.
 
 We illustrate what aggregation model is and how to use it correctly with practical examples.
 
-### Example 1: Importing data aggregation
+### Example 1: Importing Data Aggregation
 
 Assume that the business has the following data table schema:
 
@@ -160,7 +160,7 @@ As you can see, the data of User 10000 have been aggregated to one row, while th
 
 After aggregation, Doris only stores the aggregated data. In other words, the detailed raw data will no longer be available.
 
-### Example 2: keep detailed data
+### Example 2: Keep Detailed Data
 
 Here is a modified version of the table schema in Example 1:
 
@@ -218,7 +218,7 @@ After importing, this batch of data will be stored in Doris as follows:
 
 As you can see, the stored data are exactly the same as the import data. No aggregation has ever happened. This is because, the newly added `timestamp` column results in **difference of Keys** among the rows. That is to say, as long as the Keys of the rows are not identical in the import data, Doris can save the complete detailed data even in the Aggregate Model.
 
-### Example 3: aggregate import data and existing data
+### Example 3: Aggregate Import Data and Existing Data
 
 Based on Example 1, suppose that you have the following data stored in Doris:
 
@@ -437,7 +437,7 @@ Different from the Aggregate and Unique Models, the Duplicate Model stores the d
 
 The Duplicate Model is suitable for storing raw data without aggregation requirements or primary key uniqueness constraints. For more usage scenarios, see the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section.
 
-### Duplicate Model without SORTING COLUMN (Since Doris 2.0)
+### Duplicate Model Without SORTING COLUMN (Since Doris 2.0)
 
 When creating a table without specifying Unique, Aggregate, or Duplicate, a table with a Duplicate model will be created by default, and the SORTING COLUMN will be automatically specified.
 
@@ -580,7 +580,7 @@ The above adds a count column, the value of which will always be **1**, so the r
 
 Another method is to add a `cound` column of value 1 but aggregation type of REPLACE. Then `select sum (count) from table;` and `select count (*) from table;`  could produce the same results. Moreover, this method does not require the absence of same AGGREGATE KEY columns in the import data.
 
-### Merge on Write of Unique model
+### Merge on Write of Unique Model
 
 The Merge on Write implementation in the Unique Model does not impose the same limitation as the Aggregate Model. In Merge on Write, the model adds a  `delete bitmap` for each imported rowset to mark the data being overwritten or deleted. With the previous example, after Batch 1 is imported, the data status will be as follows:
 

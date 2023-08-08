@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -50,16 +49,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             + "     (SELECT NDV(`${colName}`) AS ndv "
             + "     FROM `${dbName}`.`${tblName}` ${sampleExpr}) t2\n";
 
-    @VisibleForTesting
-    public OlapAnalysisTask() {
-        super();
-    }
-
     public OlapAnalysisTask(AnalysisInfo info) {
         super(info);
     }
 
-    public void execute() throws Exception {
+    public void doExecute() throws Exception {
         Map<String, String> params = new HashMap<>();
         params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
         params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
@@ -97,7 +91,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
         execSQL(sql);
-        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 
     @VisibleForTesting
@@ -113,6 +106,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return;
         }
         long startTime = System.currentTimeMillis();
+        LOG.info("ANALYZE SQL : " + sql + " start at " + startTime);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
@@ -123,7 +117,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
                         info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
             }
+        } finally {
             LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
         }
     }
+
 }

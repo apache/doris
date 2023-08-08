@@ -17,24 +17,15 @@
 
 package org.apache.doris.binlog;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.TreeSet;
 
 public class BinlogUtils {
-    private static final Logger LOG = LogManager.getLogger(BinlogUtils.class);
-
     public static Pair<TStatus, TBinlog> getBinlog(TreeSet<TBinlog> binlogs, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         TBinlog firstBinlog = binlogs.first();
@@ -90,35 +81,12 @@ public class BinlogUtils {
         return dummy;
     }
 
-    public static boolean tableEnabledBinlog(long dbId, long tableId) {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-        if (db == null) {
-            LOG.error("db not found. dbId: {}", dbId);
-            return false;
-        }
-
-        OlapTable table;
-        try {
-            Table tbl = db.getTableOrMetaException(tableId);
-            if (tbl == null) {
-                LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
-                return false;
-            }
-            if (!(tbl instanceof OlapTable)) {
-                LOG.warn("table is not olap table. db: {}, table id: {}", db.getFullName(), tableId);
-                return false;
-            }
-            table = (OlapTable) tbl;
-        } catch (Exception e) {
-            LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
-            return false;
-        }
-
-        return table.getBinlogConfig().isEnable();
-    }
-
     public static long getExpiredMs(long ttlSeconds) {
         long currentSeconds = System.currentTimeMillis() / 1000;
+        if (currentSeconds < ttlSeconds) {
+            return Long.MIN_VALUE;
+        }
+
         long expireSeconds = currentSeconds - ttlSeconds;
         return expireSeconds * 1000;
     }

@@ -55,8 +55,11 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
@@ -114,6 +117,20 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     LogicalOlapScan olapScan = project.child();
                     return storageLayerAggregate(agg, project, olapScan, ctx.cascadesContext);
                 })
+            ),
+            RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
+                logicalAggregate(
+                    logicalProject(
+                        logicalFileScan()
+                    )
+                )
+                    .when(agg -> agg.isNormalized() && enablePushDownNoGroupAgg())
+                    .thenApply(ctx -> {
+                        LogicalAggregate<LogicalProject<LogicalFileScan>> agg = ctx.root;
+                        LogicalProject<LogicalFileScan> project = agg.child();
+                        LogicalFileScan fileScan = project.child();
+                        return storageLayerAggregate(agg, project, fileScan, ctx.cascadesContext);
+                    })
             ),
             RuleType.ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT.build(
                 basePattern
@@ -190,14 +207,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     private LogicalAggregate<? extends Plan> storageLayerAggregate(
             LogicalAggregate<? extends Plan> aggregate,
             @Nullable LogicalProject<? extends Plan> project,
-            LogicalOlapScan olapScan, CascadesContext cascadesContext) {
+            LogicalRelation logicalScan, CascadesContext cascadesContext) {
         final LogicalAggregate<? extends Plan> canNotPush = aggregate;
 
-        KeysType keysType = olapScan.getTable().getKeysType();
-        if (keysType != KeysType.AGG_KEYS && keysType != KeysType.DUP_KEYS) {
+        if (!(logicalScan instanceof LogicalOlapScan) && !(logicalScan instanceof LogicalFileScan)) {
             return canNotPush;
         }
 
+        if (logicalScan instanceof LogicalOlapScan) {
+            KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
+            if (keysType != KeysType.AGG_KEYS && keysType != KeysType.DUP_KEYS) {
+                return canNotPush;
+            }
+        }
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         if (!groupByExpressions.isEmpty() || !aggregate.getDistinctArguments().isEmpty()) {
             return canNotPush;
@@ -213,8 +235,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         if (!supportedAgg.keySet().containsAll(functionClasses)) {
             return canNotPush;
         }
-        if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
-            return canNotPush;
+        if (logicalScan instanceof LogicalOlapScan) {
+            KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
+            if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
+                return canNotPush;
+            }
         }
         if (aggregateFunctions.stream().anyMatch(fun -> fun.arity() > 1)) {
             return canNotPush;
@@ -281,12 +306,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 ExpressionUtils.collect(argumentsOfAggregateFunction, SlotReference.class::isInstance);
 
         List<SlotReference> usedSlotInTable = (List<SlotReference>) (List) Project.findProject(aggUsedSlots,
-                (List<NamedExpression>) (List) olapScan.getOutput());
+                (List<NamedExpression>) (List) logicalScan.getOutput());
 
         for (SlotReference slot : usedSlotInTable) {
             Column column = slot.getColumn().get();
-            if (keysType == KeysType.AGG_KEYS && !column.isKey()) {
-                return canNotPush;
+            if (logicalScan instanceof LogicalOlapScan) {
+                KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
+                if (keysType == KeysType.AGG_KEYS && !column.isKey()) {
+                    return canNotPush;
+                }
             }
             // The zone map max length of CharFamily is 512, do not
             // over the length: https://github.com/apache/doris/pull/6293
@@ -310,19 +338,41 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
         }
 
-        PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
-                .build()
-                .transform(olapScan, cascadesContext)
-                .get(0);
-        if (project != null) {
-            return aggregate.withChildren(ImmutableList.of(
+        if (logicalScan instanceof LogicalOlapScan) {
+            PhysicalOlapScan physicalScan = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+                    .build()
+                    .transform((LogicalOlapScan) logicalScan, cascadesContext)
+                    .get(0);
+
+            if (project != null) {
+                return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
-                            ImmutableList.of(new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)))
-            ));
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                ));
+            } else {
+                return aggregate.withChildren(ImmutableList.of(
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                ));
+            }
+
+        } else if (logicalScan instanceof LogicalFileScan) {
+            PhysicalFileScan physicalScan = (PhysicalFileScan) new LogicalFileScanToPhysicalFileScan()
+                    .build()
+                    .transform((LogicalFileScan) logicalScan, cascadesContext)
+                    .get(0);
+            if (project != null) {
+                return aggregate.withChildren(ImmutableList.of(
+                    project.withChildren(
+                        ImmutableList.of(new PhysicalStorageLayerAggregate(physicalScan, mergeOp)))
+                ));
+            } else {
+                return aggregate.withChildren(ImmutableList.of(
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp)
+                ));
+            }
+
         } else {
-            return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalOlapScan, mergeOp)
-            ));
+            return canNotPush;
         }
     }
 

@@ -35,6 +35,7 @@ Broker 是 Doris 集群中一种可选进程，主要用于支持 Doris 读写�
 - 华为云 OBS (1.2.0 版本后支持)
 - 亚马逊 S3
 - JuiceFS (2.0.0 版本支持)
+- GCS (2.0.0 版本支持)
 
 Broker 通过提供一个 RPC 服务端口来提供服务，是一个无状态的 Java 进程，负责为远端存储的读写操作封装一些类 POSIX 的文件操作，如 open，pread，pwrite 等等。除此之外，Broker 不记录任何其他信息，所以包括远端存储的连接信息、文件信息、权限信息等等，都需要通过参数在 RPC 调用中传递给 Broker 进程，才能使得 Broker 能够正确读写文件。
 
@@ -239,5 +240,15 @@ WITH BROKER "broker_name"
     "fs.AbstractFileSystem.jfs.impl" = "io.juicefs.JuiceFS",
     "juicefs.meta" = "xxx",
     "juicefs.access-log" = "xxx"
+)
+```
+
+#### GCS
+ 在使用 Broker 访问 GCS 时，Project ID 是必须的，其他参数可选,所有参数配置请参考 [GCS Config](https://github.com/GoogleCloudDataproc/hadoop-connectors/blob/branch-2.2.x/gcs/CONFIGURATION.md)
+```
+(
+    "fs.gs.project.id" = "你的 Project ID",
+    "fs.AbstractFileSystem.gs.impl" = "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
+    "fs.gs.impl" = "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
 )
 ```

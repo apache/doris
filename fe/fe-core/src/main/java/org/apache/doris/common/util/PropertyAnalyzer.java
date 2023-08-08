@@ -127,9 +127,19 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD = "skip_write_index_on_load";
 
+    public static final String PROPERTIES_COMPACTION_POLICY = "compaction_policy";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES =
+                                                        "time_series_compaction_goal_size_mbytes";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD =
+                                                        "time_series_compaction_file_count_threshold";
+
+    public static final String PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS =
+                                                        "time_series_compaction_time_threshold_seconds";
     public static final String PROPERTIES_MUTABLE = "mutable";
 
-    public static final String PROPERTIES_CCR_ENABLE = "ccr_enable";
+    public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
 
     // binlog.enable, binlog.ttl_seconds, binlog.max_bytes, binlog.max_history_nums
     public static final String PROPERTIES_BINLOG_PREFIX = "binlog.";
@@ -151,6 +161,16 @@ public class PropertyAnalyzer {
     private static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
+
+    // compaction policy
+    public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
+    public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
+    public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
+    public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
+    public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
+
+
+
 
     /**
      * check and replace members of DataProperty by properties.
@@ -458,7 +478,7 @@ public class PropertyAnalyzer {
     }
 
     // analyze the colocation properties of table
-    public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
+    public static String analyzeColocate(Map<String, String> properties) {
         String colocateGroup = null;
         if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
             colocateGroup = properties.get(PROPERTIES_COLOCATE_WITH);
@@ -595,6 +615,94 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    public static String analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return SIZE_BASED_COMPACTION_POLICY;
+        }
+        String compactionPolicy = SIZE_BASED_COMPACTION_POLICY;
+        if (properties.containsKey(PROPERTIES_COMPACTION_POLICY)) {
+            compactionPolicy = properties.get(PROPERTIES_COMPACTION_POLICY);
+            properties.remove(PROPERTIES_COMPACTION_POLICY);
+            if (compactionPolicy != null && !compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)
+                                                && !compactionPolicy.equals(SIZE_BASED_COMPACTION_POLICY)) {
+                throw new AnalysisException(PROPERTIES_COMPACTION_POLICY
+                        + " must be " + TIME_SERIES_COMPACTION_POLICY + " or " + SIZE_BASED_COMPACTION_POLICY);
+            }
+        }
+
+        return compactionPolicy;
+    }
+
+    public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties)
+                                                                                    throws AnalysisException {
+        long goalSizeMbytes = TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return goalSizeMbytes;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            String goalSizeMbytesStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES);
+            try {
+                goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
+                if (goalSizeMbytes < 10) {
+                    throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be"
+                                                                + " less than 10: " + goalSizeMbytesStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
+                        + goalSizeMbytesStr);
+            }
+        }
+        return goalSizeMbytes;
+    }
+
+    public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties)
+                                                                                    throws AnalysisException {
+        long fileCountThreshold = TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return fileCountThreshold;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            String fileCountThresholdStr = properties
+                                            .get(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+            try {
+                fileCountThreshold = Long.parseLong(fileCountThresholdStr);
+                if (fileCountThreshold < 10) {
+                    throw new AnalysisException("time_series_compaction_file_count_threshold can not be "
+                                                            + "less than 10: " + fileCountThresholdStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
+                                                                                + fileCountThresholdStr);
+            }
+        }
+        return fileCountThreshold;
+    }
+
+    public static long analyzeTimeSeriesCompactionTimeThresholdSeconds(Map<String, String> properties)
+                                                                                        throws AnalysisException {
+        long timeThresholdSeconds = TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
+        if (properties == null || properties.isEmpty()) {
+            return timeThresholdSeconds;
+        }
+        if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            String timeThresholdSecondsStr = properties.get(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS);
+            try {
+                timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
+                if (timeThresholdSeconds < 60) {
+                    throw new AnalysisException("time_series_compaction_time_threshold_seconds can not be"
+                                                                + " less than 60: " + timeThresholdSecondsStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
+                                                                                + timeThresholdSecondsStr);
+            }
+        }
+        return timeThresholdSeconds;
+    }
+
     // analyzeCompressionType will parse the compression type from properties
     public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
         String compressionType = "";
@@ -611,6 +719,8 @@ public class PropertyAnalyzer {
             return TCompressionType.LZ4;
         } else if (compressionType.equalsIgnoreCase("lz4f")) {
             return TCompressionType.LZ4F;
+        } else if (compressionType.equalsIgnoreCase("lz4hc")) {
+            return TCompressionType.LZ4HC;
         } else if (compressionType.equalsIgnoreCase("zlib")) {
             return TCompressionType.ZLIB;
         } else if (compressionType.equalsIgnoreCase("zstd")) {
@@ -667,7 +777,7 @@ public class PropertyAnalyzer {
         return estimatePartitionSize;
     }
 
-    public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
+    public static String analyzeStoragePolicy(Map<String, String> properties) {
         String storagePolicy = "";
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
             storagePolicy = properties.get(PROPERTIES_STORAGE_POLICY);
@@ -813,6 +923,14 @@ public class PropertyAnalyzer {
         }
 
         return binlogConfigMap;
+    }
+
+    public static boolean analyzeIsBeingSynced(Map<String, String> properties, boolean defaultValue) {
+        if (properties != null && properties.containsKey(PROPERTIES_IS_BEING_SYNCED)) {
+            String value = properties.remove(PROPERTIES_IS_BEING_SYNCED);
+            return Boolean.valueOf(value);
+        }
+        return defaultValue;
     }
 
     // There are 2 kinds of replication property:

@@ -618,6 +618,10 @@ Translated with www.DeepL.com/Translator (free version)
 
     Specify the storage path of the block file cache on BE, default 'random', and randomly select the storage path configured by BE.
 
+* `enable_inverted_index_query`
+
+    Set wether to use inverted index query, default true.
+
 * `topn_opt_limit_threshold`
 
     Set threshold for limit of topn query (eg. SELECT * FROM t ORDER BY k LIMIT n). If n <= threshold, topn optimizations(runtime predicate pushdown, two phase result fetch and read order by key) will enable automatically, otherwise disable. Default value is 1024.

@@ -21,8 +21,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 
-add_subdirectory(rowset)
-
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 add_library(Olap STATIC ${SRC_FILES})
 

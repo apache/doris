@@ -22,6 +22,7 @@
 #include <ostream>
 #include <string>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_common.h"
@@ -234,7 +235,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
-        size_t* compaction_score) {
+        size_t* compaction_score, bool allow_delete) {
     size_t promotion_size = tablet->cumulative_promotion_size();
     auto max_version = tablet->max_version().first;
     int transient_size = 0;
@@ -242,7 +243,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     int64_t total_size = 0;
     for (auto& rowset : candidate_rowsets) {
         // check whether this rowset is delete version
-        if (rowset->rowset_meta()->has_delete_predicate()) {
+        if (!allow_delete && rowset->rowset_meta()->has_delete_predicate()) {
             *last_delete_version = rowset->version();
             if (!input_rowsets->empty()) {
                 // we meet a delete version, and there were other versions before.
@@ -292,9 +293,10 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         return transient_size;
     }
 
-    auto rs_iter = input_rowsets->begin();
-    while (rs_iter != input_rowsets->end()) {
-        auto rs_meta = (*rs_iter)->rowset_meta();
+    auto rs_begin = input_rowsets->begin();
+    size_t new_compaction_score = *compaction_score;
+    while (rs_begin != input_rowsets->end()) {
+        auto& rs_meta = (*rs_begin)->rowset_meta();
         int current_level = _level_size(rs_meta->total_disk_size());
         int remain_level = _level_size(total_size - rs_meta->total_disk_size());
         // if current level less then remain level, input rowsets contain current rowset
@@ -303,10 +305,32 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
             break;
         }
         total_size -= rs_meta->total_disk_size();
-        *compaction_score -= rs_meta->get_compaction_score();
-
-        rs_iter = input_rowsets->erase(rs_iter);
+        new_compaction_score -= rs_meta->get_compaction_score();
+        ++rs_begin;
     }
+    if (rs_begin == input_rowsets->end() && *compaction_score >= max_compaction_score) {
+        // No suitable level size found in `input_rowsets` but score of `input_rowsets` exceed max compaction score,
+        // which means `input_rowsets` will never change and this tablet will never execute cumulative compaction.
+        // MUST execute compaction on these `input_rowsets` to reduce compaction score.
+        RowsetSharedPtr rs_with_max_score;
+        uint32_t max_score = 1;
+        for (auto& rs : *input_rowsets) {
+            if (rs->rowset_meta()->get_compaction_score() > max_score) {
+                max_score = rs->rowset_meta()->get_compaction_score();
+                rs_with_max_score = rs;
+            }
+        }
+        if (rs_with_max_score) {
+            input_rowsets->clear();
+            input_rowsets->push_back(std::move(rs_with_max_score));
+            *compaction_score = max_score;
+            return transient_size;
+        }
+        // no rowset is OVERLAPPING, execute compaction on all input rowsets
+        return transient_size;
+    }
+    input_rowsets->erase(input_rowsets->begin(), rs_begin);
+    *compaction_score = new_compaction_score;
 
     VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = "
                   << *compaction_score << ", total_size = " << total_size
@@ -345,9 +369,12 @@ int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
 }
 
 std::shared_ptr<CumulativeCompactionPolicy>
-CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy() {
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+        const std::string_view& compaction_policy) {
+    if (compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
         return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
+    } else if (compaction_policy == CUMULATIVE_SIZE_BASED_POLICY) {
+        return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
     }
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
 }

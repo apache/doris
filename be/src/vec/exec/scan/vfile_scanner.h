@@ -156,6 +156,10 @@ protected:
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
 
+    std::unique_ptr<std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>>
+            _partition_columns;
+    std::unique_ptr<std::unordered_map<std::string, VExprContextSPtr>> _missing_columns;
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _open_reader_timer = nullptr;
@@ -175,9 +179,17 @@ private:
     // save the path of current scan range
     std::string _current_range_path = "";
 
+    // Only for load scan node.
+    const TupleDescriptor* _input_tuple_desc = nullptr;
+    // If _input_tuple_desc is set,
+    // the _real_tuple_desc will point to _input_tuple_desc,
+    // otherwise, point to _output_tuple_desc
+    const TupleDescriptor* _real_tuple_desc = nullptr;
+
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
+    Status _check_output_block_types();
     Status _cast_to_input_block(Block* block);
     Status _fill_columns_from_path(size_t rows);
     Status _fill_missing_columns(size_t rows);

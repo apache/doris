@@ -140,6 +140,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return indexes != null ? indexes : Lists.newArrayList();
     }
 
+    public void setIndexes(List<Index> newIndexes) {
+        this.indexes = newIndexes;
+    }
+
     public List<Column> getSchema() {
         return getSchema(true);
     }

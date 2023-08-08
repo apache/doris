@@ -64,6 +64,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
             .add("message")
             .add("last_exec_time_in_ms")
             .add("state")
+            .add("progress")
             .add("schedule_type")
             .build();
 
@@ -243,7 +244,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: "
-                    + "STATE = \"PENDING|SCHEDULING|RUNNING|FINISHED|FAILED|CANCELLED\"");
+                    + "STATE = \"PENDING|RUNNING|FINISHED|FAILED");
         }
     }
 

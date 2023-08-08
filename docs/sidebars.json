@@ -4,26 +4,20 @@
             "type": "category",
             "label": "Getting Started",
             "items": [
-                "get-starting/get-starting"
+                "get-starting/quick-start",
+                "get-starting/what-is-apache-doris"
             ]
         },
         {
             "type": "category",
-            "label": "Doris Introduction",
-            "items": [
-                "summary/basic-summary"
-            ]
-        },
-        {
-            "type": "category",
-            "label": "Install And Deploy",
+            "label": "Install and Deploy",
             "items": [
                 "install/standard-deployment",
                 {
                     "type": "category",
                     "label": "Docker Deployment",
                     "items": [
-                        "install/construct-docker/construct-docker-image",
+                        "install/construct-docker/build-docker-image",
                         "install/construct-docker/run-docker-cluster"
                     ]
                 },
@@ -54,7 +48,7 @@
                     "type": "category",
                     "label": "Index",
                     "items": [
-                        "data-table/index/prefix-index",
+                        "data-table/index/index-overview",
                         "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
                         "data-table/index/ngram-bloomfilter-index",
@@ -108,7 +102,7 @@
                     "items": [
                         "data-operate/export/export-manual",
                         "data-operate/export/outfile",
-                        "data-operate/export/export_with_mysql_dump"
+                        "data-operate/export/export-with-mysql-dump"
                     ]
                 },
                 {
@@ -168,8 +162,8 @@
                 "advanced/variables",
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
-                "advanced/cold_hot_separation",
-                "advanced/compute_node",
+                "advanced/cold-hot-separation",
+                "advanced/compute-node",
                 "advanced/lateral-view"
             ]
         },
@@ -208,16 +202,16 @@
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/dlf",
-                        "lakehouse/multi-catalog/max_compute",
+                        "lakehouse/multi-catalog/max-compute",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc"
                     ]
                 },
                 "lakehouse/file",
                 "lakehouse/filecache",
-                "lakehouse/external_statistics",
+                "lakehouse/external-statistics",
                 "lakehouse/faq",
-                "lakehouse/fs_benchmark_tool"
+                "lakehouse/fs-benchmark-tool"
             ]
         },
         {
@@ -236,6 +230,7 @@
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
+                "ecosystem/dbt-doris-adapter",
                 {
                     "type": "category",
                     "label": "UDF",
@@ -267,59 +262,59 @@
                             "label": "Array Functions",
                             "items": [
                                 "sql-manual/sql-functions/array-functions/array",
-                                "sql-manual/sql-functions/array-functions/array_max",
-                                "sql-manual/sql-functions/array-functions/array_min",
-                                "sql-manual/sql-functions/array-functions/array_map",
-                                "sql-manual/sql-functions/array-functions/array_filter",
-                                "sql-manual/sql-functions/array-functions/array_avg",
-                                "sql-manual/sql-functions/array-functions/array_sum",
-                                "sql-manual/sql-functions/array-functions/array_size",
-                                "sql-manual/sql-functions/array-functions/array_remove",
-                                "sql-manual/sql-functions/array-functions/array_slice",
-                                "sql-manual/sql-functions/array-functions/array_sort",
-                                "sql-manual/sql-functions/array-functions/array_reverse_sort",
-                                "sql-manual/sql-functions/array-functions/array_sortby",
-                                "sql-manual/sql-functions/array-functions/array_position",
-                                "sql-manual/sql-functions/array-functions/array_contains",
-                                "sql-manual/sql-functions/array-functions/array_except",
-                                "sql-manual/sql-functions/array-functions/array_product",
-                                "sql-manual/sql-functions/array-functions/array_intersect",
-                                "sql-manual/sql-functions/array-functions/array_range",
-                                "sql-manual/sql-functions/array-functions/array_distinct",
-                                "sql-manual/sql-functions/array-functions/array_difference",
-                                "sql-manual/sql-functions/array-functions/array_union",
-                                "sql-manual/sql-functions/array-functions/array_join",
-                                "sql-manual/sql-functions/array-functions/array_with_constant",
-                                "sql-manual/sql-functions/array-functions/array_enumerate",
-                                "sql-manual/sql-functions/array-functions/array_enumerate_uniq",
-                                "sql-manual/sql-functions/array-functions/array_popback",
-                                "sql-manual/sql-functions/array-functions/array_popfront",
-                                "sql-manual/sql-functions/array-functions/array_pushfront",
-                                "sql-manual/sql-functions/array-functions/array_pushback",
-                                "sql-manual/sql-functions/array-functions/array_compact",
-                                "sql-manual/sql-functions/array-functions/array_concat",
-                                "sql-manual/sql-functions/array-functions/array_zip",
-                                "sql-manual/sql-functions/array-functions/array_shuffle",
-                                "sql-manual/sql-functions/array-functions/array_cum_sum",
-                                "sql-manual/sql-functions/array-functions/array_exists",
-                                "sql-manual/sql-functions/array-functions/array_first_index",
-                                "sql-manual/sql-functions/array-functions/array_last_index",
-                                "sql-manual/sql-functions/array-functions/array_first",
-                                "sql-manual/sql-functions/array-functions/array_last",
-                                "sql-manual/sql-functions/array-functions/arrays_overlap",
-                                "sql-manual/sql-functions/array-functions/array_count",
+                                "sql-manual/sql-functions/array-functions/array-max",
+                                "sql-manual/sql-functions/array-functions/array-min",
+                                "sql-manual/sql-functions/array-functions/array-map",
+                                "sql-manual/sql-functions/array-functions/array-filter",
+                                "sql-manual/sql-functions/array-functions/array-avg",
+                                "sql-manual/sql-functions/array-functions/array-sum",
+                                "sql-manual/sql-functions/array-functions/array-size",
+                                "sql-manual/sql-functions/array-functions/array-remove",
+                                "sql-manual/sql-functions/array-functions/array-slice",
+                                "sql-manual/sql-functions/array-functions/array-sort",
+                                "sql-manual/sql-functions/array-functions/array-reverse-sort",
+                                "sql-manual/sql-functions/array-functions/array-sortby",
+                                "sql-manual/sql-functions/array-functions/array-position",
+                                "sql-manual/sql-functions/array-functions/array-contains",
+                                "sql-manual/sql-functions/array-functions/array-except",
+                                "sql-manual/sql-functions/array-functions/array-product",
+                                "sql-manual/sql-functions/array-functions/array-intersect",
+                                "sql-manual/sql-functions/array-functions/array-range",
+                                "sql-manual/sql-functions/array-functions/array-distinct",
+                                "sql-manual/sql-functions/array-functions/array-difference",
+                                "sql-manual/sql-functions/array-functions/array-union",
+                                "sql-manual/sql-functions/array-functions/array-join",
+                                "sql-manual/sql-functions/array-functions/array-with-constant",
+                                "sql-manual/sql-functions/array-functions/array-enumerate",
+                                "sql-manual/sql-functions/array-functions/array-enumerate-uniq",
+                                "sql-manual/sql-functions/array-functions/array-popback",
+                                "sql-manual/sql-functions/array-functions/array-popfront",
+                                "sql-manual/sql-functions/array-functions/array-pushfront",
+                                "sql-manual/sql-functions/array-functions/array-pushback",
+                                "sql-manual/sql-functions/array-functions/array-compact",
+                                "sql-manual/sql-functions/array-functions/array-concat",
+                                "sql-manual/sql-functions/array-functions/array-zip",
+                                "sql-manual/sql-functions/array-functions/array-shuffle",
+                                "sql-manual/sql-functions/array-functions/array-cum-sum",
+                                "sql-manual/sql-functions/array-functions/array-exists",
+                                "sql-manual/sql-functions/array-functions/array-first-index",
+                                "sql-manual/sql-functions/array-functions/array-last-index",
+                                "sql-manual/sql-functions/array-functions/array-first",
+                                "sql-manual/sql-functions/array-functions/array-last",
+                                "sql-manual/sql-functions/array-functions/arrays-overlap",
+                                "sql-manual/sql-functions/array-functions/array-count",
                                 "sql-manual/sql-functions/array-functions/countequal",
-                                "sql-manual/sql-functions/array-functions/element_at"
+                                "sql-manual/sql-functions/array-functions/element-at"
                             ]
                         },
                         {
                             "type": "category",
                             "label": "Date Functions",
                             "items": [
-                                "sql-manual/sql-functions/date-time-functions/convert_tz",
+                                "sql-manual/sql-functions/date-time-functions/convert-tz",
                                 "sql-manual/sql-functions/date-time-functions/curdate",
                                 "sql-manual/sql-functions/date-time-functions/curtime",
-                                "sql-manual/sql-functions/date-time-functions/current_timestamp",
+                                "sql-manual/sql-functions/date-time-functions/current-timestamp",
                                 "sql-manual/sql-functions/date-time-functions/localtime",
                                 "sql-manual/sql-functions/date-time-functions/now",
                                 "sql-manual/sql-functions/date-time-functions/year",
@@ -338,50 +333,50 @@
                                 "sql-manual/sql-functions/date-time-functions/hour",
                                 "sql-manual/sql-functions/date-time-functions/minute",
                                 "sql-manual/sql-functions/date-time-functions/second",
-                                "sql-manual/sql-functions/date-time-functions/from_days",
-                                "sql-manual/sql-functions/date-time-functions/last_day",
-                                "sql-manual/sql-functions/date-time-functions/to_monday",
-                                "sql-manual/sql-functions/date-time-functions/from_unixtime",
-                                "sql-manual/sql-functions/date-time-functions/unix_timestamp",
-                                "sql-manual/sql-functions/date-time-functions/utc_timestamp",
-                                "sql-manual/sql-functions/date-time-functions/to_date",
-                                "sql-manual/sql-functions/date-time-functions/to_days",
-                                "sql-manual/sql-functions/date-time-functions/time_to_sec",
-                                "sql-manual/sql-functions/date-time-functions/sec_to_time",
+                                "sql-manual/sql-functions/date-time-functions/from-days",
+                                "sql-manual/sql-functions/date-time-functions/last-day",
+                                "sql-manual/sql-functions/date-time-functions/to-monday",
+                                "sql-manual/sql-functions/date-time-functions/from-unixtime",
+                                "sql-manual/sql-functions/date-time-functions/unix-timestamp",
+                                "sql-manual/sql-functions/date-time-functions/utc-timestamp",
+                                "sql-manual/sql-functions/date-time-functions/to-date",
+                                "sql-manual/sql-functions/date-time-functions/to-days",
+                                "sql-manual/sql-functions/date-time-functions/time-to-sec",
+                                "sql-manual/sql-functions/date-time-functions/sec-to-time",
                                 "sql-manual/sql-functions/date-time-functions/extract",
                                 "sql-manual/sql-functions/date-time-functions/makedate",
-                                "sql-manual/sql-functions/date-time-functions/str_to_date",
-                                "sql-manual/sql-functions/date-time-functions/time_round",
+                                "sql-manual/sql-functions/date-time-functions/str-to-date",
+                                "sql-manual/sql-functions/date-time-functions/time-round",
                                 "sql-manual/sql-functions/date-time-functions/timediff",
                                 "sql-manual/sql-functions/date-time-functions/timestampadd",
                                 "sql-manual/sql-functions/date-time-functions/timestampdiff",
-                                "sql-manual/sql-functions/date-time-functions/date_add",
-                                "sql-manual/sql-functions/date-time-functions/date_sub",
-                                "sql-manual/sql-functions/date-time-functions/date_trunc",
-                                "sql-manual/sql-functions/date-time-functions/date_format",
+                                "sql-manual/sql-functions/date-time-functions/date-add",
+                                "sql-manual/sql-functions/date-time-functions/date-sub",
+                                "sql-manual/sql-functions/date-time-functions/date-trunc",
+                                "sql-manual/sql-functions/date-time-functions/date-format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
-                                "sql-manual/sql-functions/date-time-functions/microseconds_add",
-                                "sql-manual/sql-functions/date-time-functions/minutes_add",
-                                "sql-manual/sql-functions/date-time-functions/minutes_diff",
-                                "sql-manual/sql-functions/date-time-functions/minutes_sub",
-                                "sql-manual/sql-functions/date-time-functions/seconds_add",
-                                "sql-manual/sql-functions/date-time-functions/seconds_diff",
-                                "sql-manual/sql-functions/date-time-functions/seconds_sub",
-                                "sql-manual/sql-functions/date-time-functions/hours_add",
-                                "sql-manual/sql-functions/date-time-functions/hours_diff",
-                                "sql-manual/sql-functions/date-time-functions/hours_sub",
-                                "sql-manual/sql-functions/date-time-functions/days_add",
-                                "sql-manual/sql-functions/date-time-functions/days_diff",
-                                "sql-manual/sql-functions/date-time-functions/days_sub",
-                                "sql-manual/sql-functions/date-time-functions/weeks_add",
-                                "sql-manual/sql-functions/date-time-functions/weeks_diff",
-                                "sql-manual/sql-functions/date-time-functions/weeks_sub",
-                                "sql-manual/sql-functions/date-time-functions/months_add",
-                                "sql-manual/sql-functions/date-time-functions/months_diff",
-                                "sql-manual/sql-functions/date-time-functions/months_sub",
-                                "sql-manual/sql-functions/date-time-functions/years_add",
-                                "sql-manual/sql-functions/date-time-functions/years_diff",
-                                "sql-manual/sql-functions/date-time-functions/years_sub"
+                                "sql-manual/sql-functions/date-time-functions/microseconds-add",
+                                "sql-manual/sql-functions/date-time-functions/minutes-add",
+                                "sql-manual/sql-functions/date-time-functions/minutes-diff",
+                                "sql-manual/sql-functions/date-time-functions/minutes-sub",
+                                "sql-manual/sql-functions/date-time-functions/seconds-add",
+                                "sql-manual/sql-functions/date-time-functions/seconds-diff",
+                                "sql-manual/sql-functions/date-time-functions/seconds-sub",
+                                "sql-manual/sql-functions/date-time-functions/hours-add",
+                                "sql-manual/sql-functions/date-time-functions/hours-diff",
+                                "sql-manual/sql-functions/date-time-functions/hours-sub",
+                                "sql-manual/sql-functions/date-time-functions/days-add",
+                                "sql-manual/sql-functions/date-time-functions/days-diff",
+                                "sql-manual/sql-functions/date-time-functions/days-sub",
+                                "sql-manual/sql-functions/date-time-functions/weeks-add",
+                                "sql-manual/sql-functions/date-time-functions/weeks-diff",
+                                "sql-manual/sql-functions/date-time-functions/weeks-sub",
+                                "sql-manual/sql-functions/date-time-functions/months-add",
+                                "sql-manual/sql-functions/date-time-functions/months-diff",
+                                "sql-manual/sql-functions/date-time-functions/months-sub",
+                                "sql-manual/sql-functions/date-time-functions/years-add",
+                                "sql-manual/sql-functions/date-time-functions/years-diff",
+                                "sql-manual/sql-functions/date-time-functions/years-sub"
                             ]
                         },
                         {
@@ -544,7 +539,8 @@
                                 "sql-manual/sql-functions/aggregate-functions/sequence_match",
                                 "sql-manual/sql-functions/aggregate-functions/sequence_count",
                                 "sql-manual/sql-functions/aggregate-functions/grouping",
-                                "sql-manual/sql-functions/aggregate-functions/grouping_id"
+                                "sql-manual/sql-functions/aggregate-functions/grouping_id",
+                                "sql-manual/sql-functions/aggregate-functions/count_by_enum"
                             ]
                         },
                         {
@@ -713,7 +709,7 @@
                                 "sql-manual/sql-functions/table-functions/backends",
                                 "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group",
-				"sql-manual/sql-functions/table-functions/catalogs"
+                                "sql-manual/sql-functions/table-functions/catalogs"
                             ]
                         },
                         {
@@ -917,7 +913,6 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CANCEL-BACKUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CANCEL-RESTORE"
-                                        
                                     ]
                                 }
                             ]
@@ -1028,6 +1023,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PARTITIONS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FRONTENDS",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-FRONTENDS-DISKS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-RESTORE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PROPERTY",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TRIGGERS",
@@ -1114,7 +1110,6 @@
                         "admin-manual/maint-monitor/tablet-meta-tool",
                         "admin-manual/maint-monitor/monitor-alert",
                         "admin-manual/maint-monitor/tablet-local-debug",
-                        "admin-manual/maint-monitor/tablet-restore-tool",
                         "admin-manual/maint-monitor/metadata-operation",
                         "admin-manual/maint-monitor/automatic-service-start"
                     ]
@@ -1265,11 +1260,11 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-2.0-beta",
-                "releasenotes/release-2.0.0Alpha1",
-	        "releasenotes/release-1.2.6",
+                "releasenotes/release-2.0-Beta",
+                "releasenotes/release-2.0-Alpha",
+                "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
-                "releasenotes/release-1.2.4.1",
+                "releasenotes/release-1.2.4",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",

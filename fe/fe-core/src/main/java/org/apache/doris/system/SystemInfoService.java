@@ -355,7 +355,7 @@ public class SystemInfoService {
     }
 
     public int getBackendsNumber(boolean needAlive) {
-        int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+        int beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
         if (beNumber < 0) {
             beNumber = getAllBackendIds(needAlive).size();
         }
@@ -718,11 +718,6 @@ public class SystemInfoService {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
 
-        String[] pair = hostPort.split(":");
-        if (pair.length != 2) {
-            throw new AnalysisException("Invalid host port: " + hostPort);
-        }
-
         HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
 
         String host = hostInfo.getHost();
@@ -983,5 +978,9 @@ public class SystemInfoService {
             }
         }
         return minPipelineExecutorSize;
+    }
+
+    public long aliveBECount() {
+        return idToBackendRef.values().stream().filter(Backend::isAlive).count();
     }
 }

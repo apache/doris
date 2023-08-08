@@ -60,7 +60,7 @@ import java.util.Map;
 public abstract class FileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
-    public static final long DEFAULT_SPLIT_SIZE = 128 * 1024 * 1024; // 128MB
+    public static final long DEFAULT_SPLIT_SIZE = 8 * 1024 * 1024; // 8MB
 
     // For explain
     protected long inputSplitsNum = 0;
@@ -69,16 +69,21 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long readPartitionNum = 0;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
-                            boolean needCheckColumnPriv) {
+            boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 
     @Override
     protected void toThrift(TPlanNode planNode) {
+        planNode.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+
         planNode.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
         TFileScanNode fileScanNode = new TFileScanNode();
         fileScanNode.setTupleId(desc.getId().asInt());
+        if (desc.getTable() != null) {
+            fileScanNode.setTableName(desc.getTable().getName());
+        }
         planNode.setFileScanNode(fileScanNode);
     }
 

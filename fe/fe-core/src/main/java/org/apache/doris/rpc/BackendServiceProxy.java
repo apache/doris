@@ -61,7 +61,7 @@ public class BackendServiceProxy {
     }
 
     private static class Holder {
-        private static final int PROXY_NUM = 20;
+        private static final int PROXY_NUM = Config.backend_proxy_num;
         private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
         private static AtomicInteger count = new AtomicInteger();
 
@@ -264,6 +264,18 @@ public class BackendServiceProxy {
             return client.fetchTableStructureAsync(request);
         } catch (Throwable e) {
             LOG.warn("fetch table structure catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
+            TNetworkAddress address, InternalService.PReportStreamLoadStatusRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.reportStreamLoadStatus(request);
+        } catch (Throwable e) {
+            LOG.warn("report stream load status catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
