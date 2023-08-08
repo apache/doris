@@ -56,10 +56,13 @@ public class GrantStmt extends DdlStmt {
     private ResourcePattern resourcePattern;
     private WorkloadGroupPattern workloadGroupPattern;
     private Set<Privilege> privileges = Sets.newHashSet();
+    //Privilege,ctl,db,table -> cols
     private Map<ColPrivilegeKey, Set<String>> colPrivileges = Maps.newHashMap();
     // Indicates that these roles are granted to a user
     private List<String> roles;
-    List<AccessPrivilegeWithCols> accessPrivileges;
+    //AccessPrivileges will be parsed into two parts,
+    // with the column permissions section placed in "colPrivileges" and the others in "privileges"
+    private List<AccessPrivilegeWithCols> accessPrivileges;
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern,
             List<AccessPrivilegeWithCols> privileges) {

@@ -48,6 +48,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public class Role implements Writable, GsonPostProcessable {
@@ -357,9 +358,9 @@ public class Role implements Writable, GsonPostProcessable {
     }
 
     public boolean checkColPriv(String ctl, String db, String tbl, String col, PrivPredicate wanted) {
-        Privilege colPrivilege = wanted.getColPrivilege();
-        Preconditions.checkNotNull(colPrivilege, "this privPredicate should not use checkColPriv:" + wanted);
-        return checkTblPriv(ctl, db, tbl, wanted) || onlyCheckColPriv(ctl, db, tbl, col, colPrivilege);
+        Optional<Privilege> colPrivilege = wanted.getColPrivilege();
+        Preconditions.checkState(colPrivilege.isPresent(), "this privPredicate should not use checkColPriv:" + wanted);
+        return checkTblPriv(ctl, db, tbl, wanted) || onlyCheckColPriv(ctl, db, tbl, col, colPrivilege.get());
     }
 
     private boolean onlyCheckColPriv(String ctl, String db, String tbl, String col,

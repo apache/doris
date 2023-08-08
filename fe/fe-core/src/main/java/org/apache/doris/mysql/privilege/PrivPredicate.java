@@ -19,6 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 
+import java.util.Optional;
+
 public class PrivPredicate {
 
     // user can 'see' this meta
@@ -113,13 +115,13 @@ public class PrivPredicate {
     // Determine which column Privilege correspond to PrivPredicate
     //The current logic is to include a SELECT_ PRIV returns SELECT_ PRIV, if load is included_ PRIV returns LOAD_ PRIV,
     // the order cannot be reversed
-    public Privilege getColPrivilege() {
+    public Optional<Privilege> getColPrivilege() {
         if (privs.get(Privilege.SELECT_PRIV.getIdx())) {
-            return Privilege.SELECT_PRIV;
+            return Optional.of(Privilege.SELECT_PRIV);
         } else if (privs.get(Privilege.LOAD_PRIV.getIdx())) {
-            return Privilege.LOAD_PRIV;
+            return Optional.of(Privilege.LOAD_PRIV);
         }
-        return null;
+        return Optional.empty();
     }
 
     @Override
