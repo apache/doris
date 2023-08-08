@@ -342,3 +342,17 @@ message PendingPublishInfoPB {
     optional int64 partition_id = 1;
     optional int64 transaction_id = 2;
 }
+
+message RowsetBinlogMetasPB {
+    message RowsetBinlogMetaPB {
+        optional string rowset_id = 1;
+        optional int64 version = 2;
+        optional int64 num_segments = 3;
+        optional string meta_key = 4;
+        optional bytes meta = 5;
+        optional string data_key = 6;
+        optional bytes data = 7;
+    }
+
+    repeated RowsetBinlogMetaPB rowset_binlog_metas = 1;
+}

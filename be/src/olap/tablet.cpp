@@ -3496,14 +3496,24 @@ std::pair<std::string, int64_t> Tablet::get_binlog_info(std::string_view binlog_
     return RowsetMetaManager::get_binlog_info(_data_dir->get_meta(), tablet_uid(), binlog_version);
 }
 
-std::string Tablet::get_binlog_rowset_meta(std::string_view binlog_version,
+std::string Tablet::get_rowset_binlog_meta(std::string_view binlog_version,
                                            std::string_view rowset_id) const {
-    return RowsetMetaManager::get_binlog_rowset_meta(_data_dir->get_meta(), tablet_uid(),
+    return RowsetMetaManager::get_rowset_binlog_meta(_data_dir->get_meta(), tablet_uid(),
                                                      binlog_version, rowset_id);
+}
+
+Status Tablet::get_rowset_binlog_metas(const std::vector<int64_t>& binlog_versions,
+                                       RowsetBinlogMetasPB* metas_pb) {
+    return RowsetMetaManager::get_rowset_binlog_metas(_data_dir->get_meta(), tablet_uid(),
+                                                      binlog_versions, metas_pb);
 }
 
 std::string Tablet::get_segment_filepath(std::string_view rowset_id,
                                          std::string_view segment_index) const {
+    return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
+}
+
+std::string Tablet::get_segment_filepath(std::string_view rowset_id, int64_t segment_index) const {
     return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
 }
 
@@ -3610,6 +3620,10 @@ void Tablet::gc_binlogs(int64_t version) {
     if (!remove_binlog_files_failed) {
         meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys);
     }
+}
+
+Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
+    return RowsetMetaManager::ingest_binlog_metas(_data_dir->get_meta(), tablet_uid(), metas_pb);
 }
 
 Status Tablet::calc_delete_bitmap_between_segments(

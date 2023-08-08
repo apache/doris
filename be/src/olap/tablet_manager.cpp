@@ -44,7 +44,10 @@
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/olap_meta.h"
+#include "olap/pb_helper.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -871,12 +874,59 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
         return Status::Error<ENGINE_LOAD_INDEX_TABLE_ERROR>(
                 "fail to load tablet_meta. file_path={}", header_path);
     }
+    TabletUid tablet_uid = TabletUid::gen_uid();
+
+    // remove rowset binlog metas
+    auto binlog_metas_file = fmt::format("{}/rowset_binlog_metas.pb", schema_hash_path);
+    bool binlog_metas_file_exists = false;
+    auto file_exists_status =
+            io::global_local_filesystem()->exists(binlog_metas_file, &binlog_metas_file_exists);
+    if (!file_exists_status.ok()) {
+        return file_exists_status;
+    }
+    bool contain_binlog = false;
+    RowsetBinlogMetasPB rowset_binlog_metas_pb;
+    if (binlog_metas_file_exists) {
+        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
+        if (binlog_meta_filesize > 0) {
+            contain_binlog = true;
+            RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));
+        }
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(binlog_metas_file));
+    }
+    if (contain_binlog) {
+        auto binlog_dir = fmt::format("{}/_binlog", schema_hash_path);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(binlog_dir));
+
+        std::vector<io::FileInfo> files;
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->list(schema_hash_path, true, &files, &exists));
+        for (auto& file : files) {
+            auto& filename = file.file_name;
+            if (!filename.ends_with(".binlog")) {
+                continue;
+            }
+
+            // change clone_file suffix .binlog to .dat
+            std::string new_filename = filename;
+            new_filename.replace(filename.size() - 7, 7, ".dat");
+            auto from = fmt::format("{}/{}", schema_hash_path, filename);
+            auto to = fmt::format("{}/_binlog/{}", schema_hash_path, new_filename);
+            RETURN_IF_ERROR(io::global_local_filesystem()->rename(from, to));
+        }
+
+        auto meta = store->get_meta();
+        // if ingest binlog metas error, it will be gc in gc_unused_binlog_metas
+        RETURN_IF_ERROR(
+                RowsetMetaManager::ingest_binlog_metas(meta, tablet_uid, &rowset_binlog_metas_pb));
+    }
+
     // has to change shard id here, because meta file maybe copied from other source
     // its shard is different from local shard
     tablet_meta->set_shard_id(shard);
     // load dir is called by clone, restore, storage migration
     // should change tablet uid when tablet object changed
-    tablet_meta->set_tablet_uid(TabletUid::gen_uid());
+    tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
     tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_STATUS_WITH_WARN(
