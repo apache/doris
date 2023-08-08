@@ -83,7 +83,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                 + "as select * from `test`.`decimal_table`";
         createTableAsSelect(selectFromDecimal);
         Assertions.assertEquals("CREATE TABLE `select_decimal_table` (\n"
-                        + "  `userId` varchar(255) NOT NULL,\n"
+                        + "  `userId` varchar(65533) NOT NULL,\n"
                         + "  `amount_decimal` "
                         + "DECIMAL" + "(10, 2) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
@@ -157,8 +157,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromVarchar);
         ShowResultSet showResultSet = showCreateTableByName("select_varchar");
         Assertions.assertEquals("CREATE TABLE `select_varchar` (\n"
-                        + "  `userId` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) NOT NULL\n"
+                        + "  `userId` varchar(65533) NOT NULL,\n"
+                        + "  `username` text NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n"
@@ -249,8 +249,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTableByName("select_alias_2");
         Assertions.assertEquals("CREATE TABLE `select_alias_2` (\n"
-                        + "  `alias_name` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) NOT NULL\n"
+                        + "  `alias_name` varchar(65533) NOT NULL,\n"
+                        + "  `username` text NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`alias_name`)\n"
                         + "COMMENT 'OLAP'\n"
@@ -274,8 +274,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromJoin);
         ShowResultSet showResultSet = showCreateTableByName("select_join");
         Assertions.assertEquals("CREATE TABLE `select_join` (\n"
-                        + "  `userId` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) NOT NULL,\n"
+                        + "  `userId` varchar(65533) NOT NULL,\n"
+                        + "  `username` text NOT NULL,\n"
                         + "  `status` int(11) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
@@ -296,9 +296,9 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromJoin1);
         ShowResultSet showResultSet1 = showCreateTableByName("select_join1");
         Assertions.assertEquals("CREATE TABLE `select_join1` (\n"
-                        + "  `userId1` varchar(255) NOT NULL,\n"
-                        + "  `userId2` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) NOT NULL,\n"
+                        + "  `userId1` varchar(65533) NOT NULL,\n"
+                        + "  `userId2` text NOT NULL,\n"
+                        + "  `username` text NOT NULL,\n"
                         + "  `status` int(11) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId1`)\n"
@@ -324,8 +324,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTableByName("select_name");
         Assertions.assertEquals("CREATE TABLE `select_name` (\n"
-                        + "  `user` varchar(255) NOT NULL,\n"
-                        + "  `testname` varchar(255) NOT NULL,\n"
+                        + "  `user` varchar(65533) NOT NULL,\n"
+                        + "  `testname` text NOT NULL,\n"
                         + "  `userstatus` int(11) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`user`)\n"
@@ -350,7 +350,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("select_union");
         Assertions.assertEquals(
                 "CREATE TABLE `select_union` (\n"
-                        + "  `userId` varchar(255) NULL\n"
+                        + "  `userId` varchar(65533) NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n"
@@ -373,7 +373,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("select_cte");
         Assertions.assertEquals(
                 "CREATE TABLE `select_cte` (\n"
-                        + "  `userId` varchar(255) NOT NULL\n"
+                        + "  `userId` varchar(65533) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n"
@@ -415,8 +415,8 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(selectFromPartition);
         ShowResultSet showResultSet = showCreateTableByName("selectPartition");
         Assertions.assertEquals("CREATE TABLE `selectPartition` (\n"
-                        + "  `userId` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) NOT NULL\n"
+                        + "  `userId` varchar(65533) NOT NULL,\n"
+                        + "  `username` text NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n"
@@ -441,7 +441,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         createTableAsSelect(createSql);
         ShowResultSet showResultSet = showCreateTableByName("test_default_timestamp");
         Assertions.assertEquals("CREATE TABLE `test_default_timestamp` (\n"
-                        + "  `userId` varchar(255) NOT NULL,\n"
+                        + "  `userId` varchar(65533) NOT NULL,\n"
                         + "  `date` datetime"
                         + " NULL DEFAULT CURRENT_TIMESTAMP\n"
                         + ") ENGINE=OLAP\n"
@@ -467,7 +467,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         ShowResultSet showResultSet = showCreateTableByName("test_agg_value");
         Assertions.assertEquals(
                 "CREATE TABLE `test_agg_value` (\n"
-                        + "  `username` varchar(255) NOT NULL\n"
+                        + "  `username` varchar(65533) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`username`)\n"
                         + "COMMENT 'OLAP'\n"
@@ -492,7 +492,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         Assertions.assertEquals(
                 "CREATE TABLE `test_use_key_type` (\n"
                         + "  `userId` varchar(255) NOT NULL,\n"
-                        + "  `username` varchar(255) NOT NULL\n"
+                        + "  `username` text NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "UNIQUE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n"
