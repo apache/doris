@@ -665,6 +665,8 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
         return;
     }
     _tablet_meta->delete_stale_rs_meta_by_version(version);
+    // If the stale rowset was deleted, it need to remove the fds directly
+    SegmentLoader::instance()->erase_segments(SegmentCache::CacheKey(rowset_meta->rowset_id()));
     VLOG_NOTICE << "delete stale rowset. tablet=" << full_name() << ", version=" << version;
 }
 

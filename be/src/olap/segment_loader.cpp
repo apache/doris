@@ -87,7 +87,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     return Status::OK();
 }
 
-void SegmentLoader::erase_segment(const SegmentCache::CacheKey& key) {
+void SegmentLoader::erase_segments(const SegmentCache::CacheKey& key) {
     _segment_cache->erase(key);
 }
 
