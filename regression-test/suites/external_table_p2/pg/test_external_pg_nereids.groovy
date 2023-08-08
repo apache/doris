@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 //import org.postgresql.Driver
-suite("test_external_pg_nereids", "p2") {
+suite("test_external_pg_nereids", "p2,external,pg,external_remote,external_remote_pg") {
 
     String enabled = context.config.otherConfigs.get("enableExternalPgTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -23,6 +23,9 @@ suite("test_external_pg_nereids", "p2") {
         String extPgPort = context.config.otherConfigs.get("extPgPort")
         String extPgUser = context.config.otherConfigs.get("extPgUser")
         String extPgPassword = context.config.otherConfigs.get("extPgPassword")
+        String s3_endpoint = getS3Endpoint()
+        String bucket = getS3BucketName()
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
         String jdbcResourcePg14 = "jdbc_resource_pg_14_n"
         String jdbcPg14Database1 = "jdbc_pg_14_database1_n"
         String pgTableNameLineOrder = "jdbc_pg_14_table1_n"
@@ -44,7 +47,7 @@ suite("test_external_pg_nereids", "p2") {
                 "user"="${extPgUser}",
                 "password"="${extPgPassword}",
                 "jdbc_url"="jdbc:postgresql://${extPgHost}:${extPgPort}/ssb?currentSchema=ssb&useCursorFetch=true",
-                "driver_url"="https://doris-community-bj-1308700295.cos.ap-beijing.myqcloud.com/jdbc_drivers/postgresql-42.5.0.jar",
+                "driver_url"="${driver_url}",
                 "driver_class"="org.postgresql.Driver"
             );
             """

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 //import com.mysql.cj.jdbc.Driver
-suite("test_external_catalog_mysql", "p2") {
+suite("test_external_catalog_mysql", "p2,external,mysql,external_remote,external_remote_mysql") {
 
     String enabled = context.config.otherConfigs.get("enableExternalMysqlTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -23,6 +23,9 @@ suite("test_external_catalog_mysql", "p2") {
         String extMysqlPort = context.config.otherConfigs.get("extMysqlPort")
         String extMysqlUser = context.config.otherConfigs.get("extMysqlUser")
         String extMysqlPassword = context.config.otherConfigs.get("extMysqlPassword")
+        String s3_endpoint = getS3Endpoint()
+        String bucket = getS3BucketName()
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
         String mysqlDatabaseName01 = "external_mysql_catalog_database01"
         String mysqlCatalogName = "mysql_jdbc"
         String mysqlTableName01 = "lineorder"
@@ -42,7 +45,7 @@ suite("test_external_catalog_mysql", "p2") {
                 "user"="${extMysqlUser}",
                 "password"="${extMysqlPassword}",
                 "jdbc_url"="jdbc:mysql://${extMysqlHost}:${extMysqlPort}/ssb?useUnicode=true&characterEncoding=UTF-8&allowMultiQueries=true&serverTimezone=Asia/Shanghai&useSSL=false",
-                "driver_url"="https://doris-community-bj-1308700295.cos.ap-beijing.myqcloud.com/jdbc_drivers/mysql-connector-java-8.0.25.jar",
+                "driver_url"="${driver_url}",
                 "driver_class"="com.mysql.cj.jdbc.Driver"
             );
             """

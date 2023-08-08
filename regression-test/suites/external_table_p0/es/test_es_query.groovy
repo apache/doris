@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_es_query", "p0,external,es") {
+suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
 
     String enabled = context.config.otherConfigs.get("enableEsTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String es_6_port = context.config.otherConfigs.get("es_6_port")
         String es_7_port = context.config.otherConfigs.get("es_7_port")
         String es_8_port = context.config.otherConfigs.get("es_8_port")
@@ -34,7 +35,7 @@ suite("test_es_query", "p0,external,es") {
             create catalog es6
             properties (
                 "type"="es",
-                "elasticsearch.hosts"="http://127.0.0.1:$es_6_port",
+                "elasticsearch.hosts"="http://${externalEnvIp}:$es_6_port",
                 "elasticsearch.nodes_discovery"="false",
                 "elasticsearch.keyword_sniff"="true"
             );
@@ -43,7 +44,7 @@ suite("test_es_query", "p0,external,es") {
         // test new create catalog syntax
         sql """create catalog if not exists es7 properties(
             "type"="es",
-            "hosts"="http://127.0.0.1:$es_7_port",
+            "hosts"="http://${externalEnvIp}:$es_7_port",
             "nodes_discovery"="false",
             "enable_keyword_sniff"="true"
         );
@@ -51,7 +52,7 @@ suite("test_es_query", "p0,external,es") {
 
         sql """create catalog if not exists es8 properties(
             "type"="es",
-            "hosts"="http://127.0.0.1:$es_8_port",
+            "hosts"="http://${externalEnvIp}:$es_8_port",
             "nodes_discovery"="false",
             "enable_keyword_sniff"="true"
         );
@@ -87,7 +88,7 @@ suite("test_es_query", "p0,external,es") {
             ) ENGINE=ELASTICSEARCH
             COMMENT 'ELASTICSEARCH'
             PROPERTIES (
-                "hosts" = "http://127.0.0.1:$es_8_port",
+                "hosts" = "http://${externalEnvIp}:$es_8_port",
                 "index" = "test1",
                 "nodes_discovery"="false",
                 "enable_keyword_sniff"="true",
@@ -127,7 +128,7 @@ suite("test_es_query", "p0,external,es") {
             ) ENGINE=ELASTICSEARCH
             COMMENT 'ELASTICSEARCH'
             PROPERTIES (
-                "hosts" = "http://127.0.0.1:$es_8_port",
+                "hosts" = "http://${externalEnvIp}:$es_8_port",
                 "index" = "test1",
                 "nodes_discovery"="false",
                 "enable_keyword_sniff"="true",

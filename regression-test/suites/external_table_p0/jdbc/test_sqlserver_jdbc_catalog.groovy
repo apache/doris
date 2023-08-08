@@ -15,8 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sqlserver_jdbc_catalog", "p0") {
+suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,external_docker_sqlserver") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest");
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "sqlserver_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
@@ -31,8 +35,8 @@ suite("test_sqlserver_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="SA",
                     "password"="Doris123456",
-                    "jdbc_url" = "jdbc:sqlserver://127.0.0.1:${sqlserver_port};encrypt=false;DataBaseName=doris_test",
-                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar",
+                    "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};encrypt=false;DataBaseName=doris_test",
+                    "driver_url" = "${driver_url}",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
 
