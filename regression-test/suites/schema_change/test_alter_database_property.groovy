@@ -21,15 +21,73 @@ suite("test_alter_database_property") {
     sql """
         create database test_alter_database_property
         """
-    result = sql "show create database test_alter_database_property"
+    def result = sql "show create database test_alter_database_property"
     logger.info("${result}")
 
+    // Case 1: alter database, set binlog enable is true
     sql """
         alter database test_alter_database_property set properties ("binlog.enable" = "true")
         """
     result = sql "show create database test_alter_database_property"
     logger.info("${result}")
     assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "true"'))
+
+    // Case 2:
+    // create table, table binlog enable is false, so database binlog enable setting true not success
+    sql """
+        alter database test_alter_database_property set properties ("binlog.enable" = "false")
+        """
+    result = sql "show create database test_alter_database_property"
+    logger.info("${result}")
+    assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "false"'))
+    // create table t1 binlog disable
+    sql """
+        CREATE TABLE test_alter_database_property.t1
+        (
+            k1 INT
+        )
+        ENGINE = olap
+        DISTRIBUTED BY HASH(k1) BUCKETS 3
+        PROPERTIES (
+        "replication_num" = "1"
+        )
+    """
+    // check enable db binlog error
+    assertThrows(Exception.class, {
+        sql """
+            alter database test_alter_database_property set properties ("binlog.enable" = "true")
+            """
+    })
+    // set table t1 binlog true
+    sql """
+        alter table test_alter_database_property.t1 set ("binlog.enable" = "true");
+    """
+    // check db enable binlog true
+    sql """
+        alter database test_alter_database_property set properties ("binlog.enable" = "true")
+        """
+    result = sql "show create database test_alter_database_property"
+    logger.info("${result}")
+    assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "true"'))
+
+    // Case 3: table false, db can set binlog.enable = false
+    sql """
+        CREATE TABLE test_alter_database_property.t2
+        (
+            k1 INT
+        )
+        ENGINE = olap
+        DISTRIBUTED BY HASH(k1) BUCKETS 3
+        PROPERTIES (
+        "replication_num" = "1"
+        )
+    """
+    sql """
+        alter database test_alter_database_property set properties ("binlog.enable" = "false")
+        """
+    result = sql "show create database test_alter_database_property"
+    logger.info("${result}")
+    assertTrue(result.toString().containsIgnoreCase('"binlog.enable" = "false"'))
 
     sql "drop database if exists test_alter_database_property"
 }

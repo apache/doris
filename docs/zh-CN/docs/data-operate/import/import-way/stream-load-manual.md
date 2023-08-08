@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Stream load",
+    "title": "Stream Load",
     "language": "zh-CN"
 }
 ---
@@ -192,7 +192,7 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
 
 - enable_profile
-  <version since="1.2.4">
+  <version since="1.2.7">
   </version>
 
   当 `enable_profile` 为 true 时，Stream Load profile将会打印到日志中。否则不会打印。
@@ -241,6 +241,31 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
       "msg": "transaction [18037] abort successfully."
   }
   ```
+
+### 使用SQL表达Stream Load的参数
+
+可以在Header中添加一个`sql`的参数，去替代之前参数中的`column_separator`、`line_delimiter`、`where`、`columns`参数，方便使用。
+
+```
+curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load_with_sql
+
+
+# -- load_sql
+# insert into db.table (col, ...) select stream_col, ... from stream("property1"="value1");
+
+# stream
+# (
+#     "column_separator" = ",",
+#     "format" = "CSV",
+#     ...
+# )
+```
+
+示例：
+
+```
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/demo/example_tbl_1/_stream_load_with_sql
+```
 
 
 ### 返回结果

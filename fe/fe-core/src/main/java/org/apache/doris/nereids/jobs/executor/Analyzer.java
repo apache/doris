@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.executor;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
+import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
@@ -31,7 +32,6 @@ import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
-import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
@@ -49,9 +49,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     public static final List<RewriteJob> DEFAULT_ANALYZE_JOBS = buildAnalyzeJobs(Optional.empty());
 
-    private Optional<CustomTableResolver> customTableResolver;
-
-    private List<RewriteJob> jobs;
+    private final List<RewriteJob> jobs;
 
     /**
      * Execute the analysis job with scope.
@@ -63,7 +61,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     public Analyzer(CascadesContext cascadesContext, Optional<CustomTableResolver> customTableResolver) {
         super(cascadesContext);
-        this.customTableResolver = Objects.requireNonNull(customTableResolver, "customTableResolver cannot be null");
+        Objects.requireNonNull(customTableResolver, "customTableResolver cannot be null");
         this.jobs = !customTableResolver.isPresent() ? DEFAULT_ANALYZE_JOBS : buildAnalyzeJobs(customTableResolver);
     }
 
@@ -81,21 +79,15 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
-            topDown(
-                new RegisterCTE()
-            ),
+            topDown(new AnalyzeCTE()),
             bottomUp(
-                new BindRelation(customTableResolver.orElse(null)),
+                new BindRelation(customTableResolver),
                 new CheckPolicy(),
                 new UserAuthentication(),
                 new BindExpression()
             ),
-            topDown(
-                new BindInsertTargetTable()
-            ),
-            bottomUp(
-                new CheckBound()
-            ),
+            topDown(new BindInsertTargetTable()),
+            bottomUp(new CheckBound()),
             bottomUp(
                 new ProjectToGlobalAggregate(),
                 // this rule check's the logicalProject node's isDistinct property

@@ -181,7 +181,7 @@ The replica ack timeout when writing to bdbje ， When writing some relatively l
 
 #### `bdbje_lock_timeout_second`
 
-Default：1
+Default：5
 
 The lock timeout of bdbje operation， If there are many LockTimeoutException in FE WARN log, you can try to increase this value
 
@@ -757,13 +757,22 @@ Decide how often to check dynamic partition
 
 Default：4096
 
-IsMutable：false
+IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when multi creating partitions, to avoid creating too many partitions at one time.
-
+Use this parameter to set the partition name prefix for multi partition,Only multi partition takes effect, not dynamic partitions. The default prefix is "p_".
 </version>
+
+#### `multi_partition_name_prefix`
+
+Default：p_
+
+IsMutable：true
+
+MasterOnly：true
+
+Use this parameter to set the partition name prefix for multi partition, Only multi partition takes effect, not dynamic partitions.The default prefix is "p_".
 
 #### `partition_in_memory_update_interval_secs`
 
@@ -1141,7 +1150,7 @@ fetch stream load record interval.
 
 #### `max_bytes_per_broker_scanner`
 
-Default：`3 * 1024 * 1024 * 1024L`  （3G）
+Default：`500 * 1024 * 1024 * 1024L`  （500G）
 
 IsMutable：true
 
@@ -2722,15 +2731,6 @@ IsMutable: true
 MasterOnly: false
 
 Controls whether to enable query hit statistics. The default is false.
-
-#### `max_instance_num`
-
-<version since="dev"></version>
-
-Default: 128
-
-This is used to limit the setting of "parallel_fragment_exec_instance_num".
-"parallel_fragment_exec_instance_num" cannot be set higher than "max_instance_num".
 
 #### `div_precision_increment`
 <version since="dev"></version>

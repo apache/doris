@@ -208,10 +208,10 @@ public class DiskRebalancer extends Rebalancer {
                     tabletCtx.setTag(clusterStat.getTag());
                     if (prioBackends.containsKey(beStat.getBeId())) {
                         // priority of balance task of prio BE is NORMAL
-                        tabletCtx.setOrigPriority(Priority.NORMAL);
+                        tabletCtx.setPriority(Priority.NORMAL);
                     } else {
                         // balance task's default priority is LOW
-                        tabletCtx.setOrigPriority(Priority.LOW);
+                        tabletCtx.setPriority(Priority.LOW);
                     }
                     // we must set balanceType to DISK_BALANCE for create migration task
                     tabletCtx.setBalanceType(BalanceType.DISK_BALANCE);

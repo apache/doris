@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -37,7 +41,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -249,10 +252,11 @@ public class StatsCalculatorTest {
     public void testOlapScan(@Mocked ConnectContext context) {
         long tableId1 = 0;
         List<String> qualifier = ImmutableList.of("test", "t");
-        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        SlotReference slot1 = new SlotReference(new ExprId(0),
+                "c1", IntegerType.INSTANCE, true, qualifier, new Column("c1", PrimitiveType.INT));
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(RelationUtil.newRelationId(), table1,
+        LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
                 Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))), ImmutableList.of());
         Group childGroup = newGroup();
@@ -270,7 +274,8 @@ public class StatsCalculatorTest {
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
         qualifier.add("t");
-        SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        SlotReference slot1 = new SlotReference(new ExprId(0),
+                "c1", IntegerType.INSTANCE, true, qualifier, new Column("c1", PrimitiveType.INT));
         ColumnStatisticBuilder columnStat1 = new ColumnStatisticBuilder();
         columnStat1.setNdv(10);
         columnStat1.setNumNulls(5);

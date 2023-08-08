@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <mutex>
 #include <utility>
 
 #include "common/config.h"
@@ -144,22 +145,32 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
 
 // file scan node/stream load pipe
 Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
-                                       const TUniqueId& fragment_instance_id) {
+                                       RuntimeState* runtime_state) {
     auto stream_load_ctx = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-
     *file_reader = stream_load_ctx->pipe;
 
-    if (file_reader->get() != nullptr) {
-        auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
-        if (multi_table_pipe != nullptr) {
-            *file_reader = multi_table_pipe->getPipe(fragment_instance_id);
-            LOG(INFO) << "create pipe reader for fragment instance: " << fragment_instance_id
-                      << " pipe: " << (*file_reader).get();
-        }
+    if (file_reader->get() == nullptr) {
+        return Status::OK();
     }
+
+    auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
+    if (multi_table_pipe == nullptr || runtime_state == nullptr) {
+        return Status::OK();
+    }
+
+    TUniqueId pipe_id;
+    if (runtime_state->enable_pipeline_exec()) {
+        pipe_id = io::StreamLoadPipe::calculate_pipe_id(runtime_state->query_id(),
+                                                        runtime_state->fragment_id());
+    } else {
+        pipe_id = runtime_state->fragment_instance_id();
+    }
+    *file_reader = multi_table_pipe->getPipe(pipe_id);
+    LOG(INFO) << "create pipe reader for fragment instance: " << pipe_id
+              << " pipe: " << (*file_reader).get();
 
     return Status::OK();
 }

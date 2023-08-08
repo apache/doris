@@ -28,6 +28,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -212,8 +213,13 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             return Status::InternalError("Unknown expr node type: {}", expr_node.node_type);
         }
     } catch (const Exception& e) {
-        return Status::InternalError("create expr failed, TExprNode={}, reason={}",
-                                     apache::thrift::ThriftDebugString(expr_node), e.what());
+        if (e.code() == ErrorCode::INTERNAL_ERROR) {
+            return Status::InternalError("Create Expr failed because {}\nTExprNode={}", e.what(),
+                                         apache::thrift::ThriftDebugString(expr_node));
+        }
+        return Status::Error<false>(e.code(), "Create Expr failed because {}", e.what());
+        LOG(WARNING) << "create expr failed, TExprNode={}, reason={}"
+                     << apache::thrift::ThriftDebugString(expr_node) << e.what();
     }
     if (!expr->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", expr_node.node_type);

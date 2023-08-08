@@ -31,6 +31,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -51,7 +53,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * ensure child add enough distribute. update children properties if we do regular
+ * ensure child add enough distribute. update children properties if we do regular.
+ * NOTICE: all visitor should call visit(plan, context) at proper place
+ * to process must shuffle except project and filter
  */
 public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
@@ -364,6 +368,17 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         return true;
     }
 
+    @Override
+    public Boolean visitAbstractPhysicalSort(AbstractPhysicalSort<? extends Plan> sort, Void context) {
+        // process must shuffle
+        visit(sort, context);
+        if (sort.getSortPhase() == SortPhase.GATHER_SORT && sort.child() instanceof PhysicalDistribute) {
+            // forbid gather sort need explicit shuffle
+            return false;
+        }
+        return true;
+    }
+
     private boolean bothSideShuffleKeysAreSameOrder(
             DistributionSpecHash notShuffleSideOutput, DistributionSpecHash shuffleSideOutput,
             DistributionSpecHash notShuffleSideRequired, DistributionSpecHash shuffleSideRequired) {
@@ -424,7 +439,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
         PhysicalProperties newOutputProperty = new PhysicalProperties(target);
         GroupExpression enforcer = target.addEnforcer(child.getOwnerGroup());
-        jobContext.getCascadesContext().getMemo().addEnforcerPlan(enforcer, child.getOwnerGroup());
+        child.getOwnerGroup().addEnforcer(enforcer);
         Cost totalCost = CostCalculator.addChildCost(enforcer.getPlan(),
                 CostCalculator.calculateCost(enforcer, Lists.newArrayList(childOutput)),
                 currentCost,

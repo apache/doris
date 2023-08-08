@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hdfs_json_load", "p0") {
+suite("test_hdfs_json_load", "p0,external,hive") {
     // define a sql table
     def testTable = "test_hdfs_json_load"
     

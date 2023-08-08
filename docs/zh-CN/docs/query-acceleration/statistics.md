@@ -79,7 +79,8 @@ Doris 查询优化器使用统计信息来确定查询最有效的执行计划�
 列统计信息收集语法：
 
 ```SQL
-ANALYZE TABLE | DATABASE table_name | db_name
+ANALYZE < TABLE | DATABASE table_name | db_name > 
+    [ PARTITIONS (partition_name [, ...]) ]
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
     [ PROPERTIES ("key" = "value", ...) ];
@@ -88,6 +89,7 @@ ANALYZE TABLE | DATABASE table_name | db_name
 其中：
 
 - table_name: 指定的的目标表。可以是  `db_name.table_name`  形式。
+- partition_name: 指定的目标分区（目前只针对Hive外表）。必须是  `table_name`  中存在的分区，多个列名称用逗号分隔。分区名样例:event_date=20230706, nation=CN/city=Beijing
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
 - incremental：增量收集统计信息。不支持增量收集直方图统计信息。
@@ -488,7 +490,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("automatic" = "true");
 语法如下：
 
 ```SQL
-SHOW ANALYZE [ table_name | job_id ]
+SHOW ANALYZE < table_name | job_id >
     [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
@@ -932,6 +934,17 @@ mysql> DROP STATS stats_test.example_tbl(city, age, sex);
 DROP ANALYZE JOB [JOB_ID]
 ```
 
-## ANALYZE 配置项
+## Full auto analyze
 
-待补充。
+用户可以使用选项 `enable_full_auto_analyze` 来决定是否启用Full auto analyze。如果启用，Doris会自动分析除了一些内部数据库（如`information_db`等）之外的所有数据库，并忽略AUTO/PERIOD作业。默认情况下，该选项为true。
+
+## Other ANALYZE configuration item
+
+| conf                                                    | comment                                                 | default value                  |
+|---------------------------------------------------------|---------------------------------------------------------|--------------------------------|
+| statistics_sql_parallel_exec_instance_num               | 控制每个统计信息收集SQL在BE侧的并发实例数/pipeline task num               | 1                              |
+| statistics_sql_mem_limit_in_bytes                       | 控制每个统计信息SQL可占用的BE内存                                     | 2L * 1024 * 1024 * 1024 (2GiB) |
+| statistics_simultaneously_running_task_num              | 可并发执行的AnalyzeTask数量                                     | 10                             |
+| analyze_task_timeout_in_minutes                         | AnalyzeTask执行超时时间                                       | 2hours                         |
+| full_auto_analyze_start_time/full_auto_analyze_end_time | Full auto analyze 执行时间范围，该时间段之外的时间不会触发full auto analyze | 00:00:00-23:59:59|                      |
+|stats_cache_size| 统计信息缓存的实际内存占用大小高度依赖于数据的特性，因为在不同的数据集和场景中，最大/最小值的平均大小和直方图的桶数量会有很大的差异。此外，JVM版本等因素也会对其产生影响。在这里，我将给出统计信息缓存在包含10_0000个项目时所占用的内存大小。每个项目的最大/最小值的平均长度为32，列名的平均长度为16，并且每个列都有一个具有128个桶的直方图。在这种情况下，统计信息缓存总共占用了911.954833984MiB的内存。如果没有直方图，统计信息缓存总共占用了61.2777404785MiB的内存。强烈不建议分析具有非常大字符串值的列，因为这可能导致FE内存溢出（OOM）。 | 10_0000                                                                                                      |

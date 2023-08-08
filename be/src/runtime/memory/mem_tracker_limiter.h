@@ -36,11 +36,12 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/runtime_profile.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
+
+class RuntimeProfile;
 
 constexpr auto MEM_TRACKER_GROUP_NUM = 1000;
 
@@ -49,13 +50,6 @@ struct TgTrackerLimiterGroup;
 class TaskGroup;
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 } // namespace taskgroup
-
-class MemTrackerLimiter;
-
-struct TrackerLimiterGroup {
-    std::list<MemTrackerLimiter*> trackers;
-    std::mutex group_lock;
-};
 
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.
@@ -76,29 +70,25 @@ public:
                 6 // Experimental memory statistics, usually inaccurate, used for debugging, and expect to add other types in the future.
     };
 
-    inline static std::unordered_map<Type, std::shared_ptr<RuntimeProfile::HighWaterMarkCounter>>
-            TypeMemSum = {{Type::GLOBAL,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::QUERY,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::LOAD,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::COMPACTION,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::SCHEMA_CHANGE,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::CLONE,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)},
-                          {Type::EXPERIMENTAL,
-                           std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES)}};
+    struct TrackerLimiterGroup {
+        std::list<MemTrackerLimiter*> trackers;
+        std::mutex group_lock;
+    };
+
+    inline static std::unordered_map<Type, std::shared_ptr<MemCounter>> TypeMemSum = {
+            {Type::GLOBAL, std::make_shared<MemCounter>()},
+            {Type::QUERY, std::make_shared<MemCounter>()},
+            {Type::LOAD, std::make_shared<MemCounter>()},
+            {Type::COMPACTION, std::make_shared<MemCounter>()},
+            {Type::SCHEMA_CHANGE, std::make_shared<MemCounter>()},
+            {Type::CLONE, std::make_shared<MemCounter>()},
+            {Type::EXPERIMENTAL, std::make_shared<MemCounter>()}};
 
 public:
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
-    MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1,
-                      RuntimeProfile* profile = nullptr,
-                      const std::string& profile_counter_name = "PeakMemoryUsage");
+    MemTrackerLimiter(Type type, const std::string& label = std::string(), int64_t byte_limit = -1);
 
-    ~MemTrackerLimiter();
+    ~MemTrackerLimiter() override;
 
     static std::string type_string(Type type) {
         switch (type) {
@@ -153,7 +143,6 @@ public:
     }
 
     static void refresh_global_counter();
-    static void refresh_all_tracker_profile();
 
     Snapshot make_snapshot() const override;
     // Returns a list of all the valid tracker snapshots.
@@ -271,6 +260,8 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
+
+    static std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
     std::list<MemTrackerLimiter*>::iterator _tracker_limiter_group_it;

@@ -19,6 +19,8 @@ package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -40,9 +42,11 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
         new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        Assertions.assertTrue(plan.children().get(0) instanceof PhysicalTopN);
-        PhysicalTopN localTopN = (PhysicalTopN) plan.children().get(0);
-        Assertions.assertTrue(localTopN.getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
+        Assertions.assertTrue(plan.children().get(0).child(0) instanceof PhysicalDeferMaterializeTopN);
+        PhysicalDeferMaterializeTopN<? extends Plan> localTopN
+                = (PhysicalDeferMaterializeTopN<? extends Plan>) plan.child(0).child(0);
+        Assertions.assertTrue(localTopN.getPhysicalTopN()
+                .getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
     }
 
     // topn rf do not apply on string-like and float column
@@ -54,8 +58,10 @@ public class TopNRuntimeFilterTest extends SSBTestBase {
                 .implement();
         PhysicalPlan plan = checker.getPhysicalPlan();
         new PlanPostProcessors(checker.getCascadesContext()).process(plan);
-        Assertions.assertTrue(plan.children().get(0) instanceof PhysicalTopN);
-        PhysicalTopN localTopN = (PhysicalTopN) plan.children().get(0);
-        Assertions.assertFalse(localTopN.getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
+        Assertions.assertTrue(plan.children().get(0).child(0) instanceof PhysicalDeferMaterializeTopN);
+        PhysicalDeferMaterializeTopN<? extends Plan> localTopN
+                = (PhysicalDeferMaterializeTopN<? extends Plan>) plan.child(0).child(0);
+        Assertions.assertFalse(localTopN.getPhysicalTopN()
+                .getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent());
     }
 }

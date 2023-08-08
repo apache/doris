@@ -61,7 +61,7 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
         if (check_condition_valid(schema, condition) != Status::OK()) {
-            LOG(WARNING) << "invalid condition. condition=" << ThriftDebugString(condition);
+            // Error will print log, no need to do it manually.
             return Status::Error<DELETE_INVALID_CONDITION>("invalid condition. condition={}",
                                                            ThriftDebugString(condition));
         }
@@ -255,7 +255,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             continue;
         }
         // Need the tablet schema at the delete condition to parse the accurate column unique id
-        TabletSchemaSPtr delete_pred_related_schema = delete_pred->tablet_schema();
+        const auto& delete_pred_related_schema = delete_pred->tablet_schema();
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;

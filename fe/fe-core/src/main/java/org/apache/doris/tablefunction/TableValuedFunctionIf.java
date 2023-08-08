@@ -49,6 +49,8 @@ public abstract class TableValuedFunctionIf {
                 return new S3TableValuedFunction(params);
             case HdfsTableValuedFunction.NAME:
                 return new HdfsTableValuedFunction(params);
+            case StreamTableValuedFunction.NAME:
+                return new StreamTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:
                 return new IcebergTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:
@@ -57,6 +59,8 @@ public abstract class TableValuedFunctionIf {
                 return new FrontendsTableValuedFunction(params);
             case WorkloadGroupsTableValuedFunction.NAME:
                 return new WorkloadGroupsTableValuedFunction(params);
+            case CatalogsTableValuedFunction.NAME:
+                return new CatalogsTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

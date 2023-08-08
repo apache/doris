@@ -88,6 +88,8 @@ public:
 
     const vectorized::VExprContextSPtrs& output_exprs() { return _output_exprs_ctxs; }
 
+    int64_t mem_size() const;
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -99,6 +101,7 @@ private:
     int64_t _create_timestamp = 0;
     vectorized::DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
+    int64_t _mem_size = 0;
 };
 
 // RowCache is a LRU cache for row store
@@ -186,76 +189,59 @@ private:
 
 // A cache used for prepare stmt.
 // One connection per stmt perf uuid
-// Use DoublyBufferedData to wrap Cache for performance and thread safe,
-// since it's barely modified
-class LookupCache {
+class LookupConnectionCache : public LRUCachePolicy {
 public:
-    // uuid to reusable
-    using Cache = phmap::flat_hash_map<uint128, std::shared_ptr<Reusable>>;
-    using CacheIter = Cache::iterator;
+    static LookupConnectionCache* instance() { return _s_instance; }
 
-    LookupCache() = default;
-    static LookupCache& instance() {
-        static LookupCache ins;
-        return ins;
+    static void create_global_instance(size_t capacity);
+
+private:
+    friend class PointQueryExecutor;
+    LookupConnectionCache(size_t capacity)
+            : LRUCachePolicy("LookupConnectionCache", capacity, LRUCacheType::SIZE,
+                             config::tablet_lookup_cache_clean_interval) {}
+
+    std::string encode_key(__int128_t cache_id) {
+        fmt::memory_buffer buffer;
+        fmt::format_to(buffer, "{}", cache_id);
+        return std::string(buffer.data(), buffer.size());
     }
 
-    void add(uint128 cache_id, std::shared_ptr<Reusable> item) {
-        assert(item != nullptr);
-        _double_buffer_cache.Modify(update_cache, std::make_pair(cache_id, item));
+    void add(__int128_t cache_id, std::shared_ptr<Reusable> item) {
+        std::string key = encode_key(cache_id);
+        CacheValue* value = new CacheValue;
+        value->last_visit_time = UnixMillis();
+        value->item = item;
+        auto deleter = [](const doris::CacheKey& key, void* value) {
+            CacheValue* cache_value = (CacheValue*)value;
+            delete cache_value;
+        };
+        LOG(INFO) << "Add item mem size " << item->mem_size()
+                  << ", cache_capacity: " << _cache->get_total_capacity()
+                  << ", cache_usage: " << _cache->get_usage()
+                  << ", mem_consum: " << _cache->mem_consumption();
+        auto lru_handle =
+                _cache->insert(key, value, item->mem_size(), deleter, CachePriority::NORMAL);
+        _cache->release(lru_handle);
     }
 
-    // find an item, return null if not exist
-    std::shared_ptr<Reusable> get(uint128 cache_id) {
-        butil::DoublyBufferedData<Cache>::ScopedPtr s;
-        if (_double_buffer_cache.Read(&s) != 0) {
-            LOG(WARNING) << "failed to get cache from double buffer data";
-            return nullptr;
-        }
-        auto it = s->find(cache_id);
-        if (it != s->end()) {
-            return it->second;
+    std::shared_ptr<Reusable> get(__int128_t cache_id) {
+        std::string key = encode_key(cache_id);
+        auto lru_handle = _cache->lookup(key);
+        if (lru_handle) {
+            Defer release([cache = _cache.get(), lru_handle] { cache->release(lru_handle); });
+            auto value = (CacheValue*)_cache->value(lru_handle);
+            value->last_visit_time = UnixMillis();
+            return value->item;
         }
         return nullptr;
     }
 
-private:
-    butil::DoublyBufferedData<Cache> _double_buffer_cache;
-    // 30 seconds for expiring an item
-    int32_t _expir_seconds = config::tablet_lookup_cache_clean_interval;
+    struct CacheValue : public LRUCacheValueBase {
+        std::shared_ptr<Reusable> item = nullptr;
+    };
 
-    static size_t update_cache(Cache& old_cache,
-                               const std::pair<uint128, std::shared_ptr<Reusable>>& p) {
-        old_cache.emplace(p);
-        return 1;
-    }
-
-    static size_t remove_items(Cache& old_cache, const std::vector<uint128>& keys) {
-        for (size_t i = 0; i < keys.size(); ++i) {
-            old_cache.erase(keys[i]);
-        }
-        return 1;
-    }
-
-    // Called from StorageEngine::_start_clean_lookup_cache
-    friend class StorageEngine;
-    void prune() {
-        std::vector<uint128> expired_keys;
-        {
-            butil::DoublyBufferedData<Cache>::ScopedPtr s;
-            if (_double_buffer_cache.Read(&s) != 0) {
-                return;
-            }
-            for (auto it = s->begin(); it != s->end(); ++it) {
-                if (it->second->is_expired(_expir_seconds * 1000)) {
-                    expired_keys.push_back(it->first);
-                }
-            }
-        }
-
-        _double_buffer_cache.Modify(remove_items, expired_keys);
-        LOG(INFO) << "prune lookup cache, total " << expired_keys.size() << " expired items";
-    }
+    static LookupConnectionCache* _s_instance;
 };
 
 struct Metrics {

@@ -53,7 +53,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### 基于Iceberg API创建Catalog
 
-使用Iceberg API访问元数据的方式，支持Hive、REST、Glue等服务作为Iceberg的Catalog。
+使用Iceberg API访问元数据的方式，支持Hive、REST、Glue、DLF等服务作为Iceberg的Catalog。
 
 #### Hive Metastore
 
@@ -85,6 +85,10 @@ CREATE CATALOG glue PROPERTIES (
 
 Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
+#### 阿里云 DLF
+
+参见[阿里云DLF Catalog配置](dlf.md)
+
 #### REST Catalog
 
 该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。
@@ -93,7 +97,22 @@ Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/doc
 CREATE CATALOG iceberg PROPERTIES (
     'type'='iceberg',
     'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181'
+);
+```
+
+如果使用HDFS存储数据，并开启了高可用模式，还需在Catalog中增加HDFS高可用配置：
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
     'uri' = 'http://172.21.0.1:8181',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.1:8020',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.2:8020',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
@@ -122,6 +141,7 @@ CREATE CATALOG iceberg PROPERTIES (
 "s3.access_key" = "ak"
 "s3.secret_key" = "sk"
 "s3.endpoint" = "http://endpoint-uri"
+"s3.region" = "your-region"
 "s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 

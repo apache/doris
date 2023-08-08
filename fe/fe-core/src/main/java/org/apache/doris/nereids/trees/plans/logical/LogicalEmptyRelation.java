@@ -19,11 +19,11 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -39,17 +39,17 @@ import java.util.Optional;
  * e.g.
  * select * from tbl limit 0
  */
-public class LogicalEmptyRelation extends LogicalLeaf implements EmptyRelation, OutputPrunable {
+public class LogicalEmptyRelation extends LogicalRelation implements EmptyRelation, OutputPrunable {
 
     private final List<NamedExpression> projects;
 
-    public LogicalEmptyRelation(List<? extends NamedExpression> projects) {
-        this(projects, Optional.empty(), Optional.empty());
+    public LogicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects) {
+        this(relationId, projects, Optional.empty(), Optional.empty());
     }
 
-    public LogicalEmptyRelation(List<? extends NamedExpression> projects, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
+    public LogicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        super(relationId, PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
@@ -63,24 +63,20 @@ public class LogicalEmptyRelation extends LogicalLeaf implements EmptyRelation, 
         return projects;
     }
 
-    @Override
-    public List<? extends Expression> getExpressions() {
-        return ImmutableList.of();
-    }
-
     public LogicalEmptyRelation withProjects(List<? extends NamedExpression> projects) {
-        return new LogicalEmptyRelation(projects, Optional.empty(), Optional.empty());
+        return new LogicalEmptyRelation(relationId, projects, Optional.empty(), Optional.empty());
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalEmptyRelation(projects, groupExpression, Optional.of(logicalPropertiesSupplier.get()));
+        return new LogicalEmptyRelation(relationId, projects,
+                groupExpression, Optional.of(logicalPropertiesSupplier.get()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEmptyRelation(projects, groupExpression, logicalProperties);
+        return new LogicalEmptyRelation(relationId, projects, groupExpression, logicalProperties);
     }
 
     @Override
@@ -95,26 +91,6 @@ public class LogicalEmptyRelation extends LogicalLeaf implements EmptyRelation, 
         return Utils.toSqlString("LogicalEmptyRelation",
                 "projects", projects
         );
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        if (!super.equals(o)) {
-            return false;
-        }
-        LogicalEmptyRelation that = (LogicalEmptyRelation) o;
-        return Objects.equals(projects, that.projects);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(projects);
     }
 
     @Override

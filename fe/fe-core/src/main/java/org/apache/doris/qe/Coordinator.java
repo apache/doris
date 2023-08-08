@@ -61,6 +61,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.ExternalScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.FileScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -83,6 +84,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -165,6 +167,9 @@ public class Coordinator {
     // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
 
+    // scan node id -> TFileScanRangeParams
+    private Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newHashMap();
+
     // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
     // but, we execute `NOW()` distributed.
@@ -181,6 +186,8 @@ public class Coordinator {
     // with limit)
     // Once this is set to true, errors from remote fragments are ignored.
     private boolean returnedAllResults;
+
+    private List<RuntimeProfile> fragmentProfile;
 
     // populated in computeFragmentExecParams()
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
@@ -247,6 +254,7 @@ public class Coordinator {
     public List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
     // Runtime filter ID to the builder instance number
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
+    private ConnectContext context;
 
     private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
@@ -277,6 +285,7 @@ public class Coordinator {
 
     // Used for query/insert/test
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
+        this.context = context;
         this.isBlockQuery = planner.isBlockQuery();
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
@@ -387,6 +396,10 @@ public class Coordinator {
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
     }
 
+    public ConnectContext getConnectContext() {
+        return context;
+    }
+
     public long getJobId() {
         return jobId;
     }
@@ -473,7 +486,8 @@ public class Coordinator {
         Map<String, Integer> result = Maps.newTreeMap();
         if (enablePipelineEngine) {
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port), ctxs.ctxs.size());
+                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port),
+                        ctxs.getInstanceNumber());
             }
         } else {
             for (BackendExecStates states : beToExecStates.values()) {
@@ -837,7 +851,8 @@ public class Coordinator {
                     PipelineExecContexts ctxs = beToPipelineExecCtxs.get(pipelineExecContext.backend.getId());
                     if (ctxs == null) {
                         ctxs = new PipelineExecContexts(pipelineExecContext.backend.getId(),
-                                pipelineExecContext.brpcAddress, twoPhaseExecution);
+                                pipelineExecContext.brpcAddress, twoPhaseExecution,
+                                entry.getValue().getFragmentNumOnHost());
                         beToPipelineExecCtxs.putIfAbsent(pipelineExecContext.backend.getId(), ctxs);
                     }
                     ctxs.addContext(pipelineExecContext);
@@ -1287,6 +1302,9 @@ public class Coordinator {
         // compute destinations and # senders per exchange node
         // (the root fragment doesn't have a destination)
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
+            if (params.fragment instanceof MultiCastPlanFragment) {
+                continue;
+            }
             PlanFragment destFragment = params.fragment.getDestFragment();
             if (destFragment == null) {
                 // root plan fragment
@@ -1301,6 +1319,10 @@ public class Coordinator {
             // output at the moment
 
             PlanNodeId exchId = sink.getExchNodeId();
+            PlanNode exchNode = PlanNode.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
+            Preconditions.checkState(exchNode != null, "exchNode is null");
+            Preconditions.checkState(exchNode instanceof ExchangeNode,
+                    "exchNode is not ExchangeNode" + exchNode.getId().toString());
             // we might have multiple fragments sending to this exchange node
             // (distributed MERGE), which is why we need to add up the #senders
             if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
@@ -1350,7 +1372,7 @@ public class Coordinator {
                 }
             } else {
                 if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
-                        && params.fragment.isRightChildOfBroadcastHashJoin()) {
+                        && ((ExchangeNode) exchNode).isRightChildOfBroadcastHashJoin()) {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
                     destParams.instanceExecParams.forEach(param -> {
@@ -1405,7 +1427,11 @@ public class Coordinator {
                 multi.getDestFragmentList().get(i).setOutputPartition(params.fragment.getOutputPartition());
 
                 PlanNodeId exchId = sink.getExchNodeId();
+                PlanNode exchNode = PlanNode.findPlanNodeFromPlanNodeId(destFragment.getPlanRoot(), exchId);
                 Preconditions.checkState(!destParams.perExchNumSenders.containsKey(exchId.asInt()));
+                Preconditions.checkState(exchNode != null, "exchNode is null");
+                Preconditions.checkState(exchNode instanceof ExchangeNode,
+                        "exchNode is not ExchangeNode" + exchNode.getId().toString());
                 if (destParams.perExchNumSenders.get(exchId.asInt()) == null) {
                     destParams.perExchNumSenders.put(exchId.asInt(), params.instanceExecParams.size());
                 } else {
@@ -1413,12 +1439,75 @@ public class Coordinator {
                             params.instanceExecParams.size() + destParams.perExchNumSenders.get(exchId.asInt()));
                 }
 
-                for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
-                    TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                    dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
-                    dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
-                    dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
-                    multiSink.getDestinations().get(i).add(dest);
+                List<TPlanFragmentDestination> destinations = multiSink.getDestinations().get(i);
+                if (sink.getOutputPartition() != null
+                        && sink.getOutputPartition().isBucketShuffleHashPartition()) {
+                    // the destFragment must be bucket shuffle
+                    Preconditions.checkState(bucketShuffleJoinController
+                            .isBucketShuffleJoin(destFragment.getFragmentId().asInt()), "Sink is"
+                            + "Bucket Shuffle Partition, The destFragment must have bucket shuffle join node ");
+
+                    int bucketSeq = 0;
+                    int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
+
+                    // when left table is empty, it's bucketset is empty.
+                    // set right table destination address to the address of left table
+                    if (destParams.instanceExecParams.size() == 1 && (bucketNum == 0
+                            || destParams.instanceExecParams.get(0).bucketSeqSet.isEmpty())) {
+                        bucketNum = 1;
+                        destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
+                    }
+                    // process bucket shuffle join on fragment without scan node
+                    TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
+                    while (bucketSeq < bucketNum) {
+                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
+
+                        dest.fragment_instance_id = new TUniqueId(-1, -1);
+                        dest.server = dummyServer;
+                        dest.setBrpcServer(dummyServer);
+
+                        for (FInstanceExecParam instanceExecParams : destParams.instanceExecParams) {
+                            if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
+                                dest.fragment_instance_id = instanceExecParams.instanceId;
+                                dest.server = toRpcHost(instanceExecParams.host);
+                                dest.setBrpcServer(toBrpcHost(instanceExecParams.host));
+                                break;
+                            }
+                        }
+
+                        bucketSeq++;
+                        destinations.add(dest);
+                    }
+                } else if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
+                        && ((ExchangeNode) exchNode).isRightChildOfBroadcastHashJoin()) {
+                    // here choose the first instance to build hash table.
+                    Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
+
+                    destParams.instanceExecParams.forEach(param -> {
+                        if (destHosts.containsKey(param.host)) {
+                            destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
+                        } else {
+                            destHosts.put(param.host, param);
+                            param.buildHashTableForBroadcastJoin = true;
+                            TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                            dest.fragment_instance_id = param.instanceId;
+                            try {
+                                dest.server = toRpcHost(param.host);
+                                dest.setBrpcServer(toBrpcHost(param.host));
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                            destinations.add(dest);
+                        }
+                    });
+                } else {
+                    for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                        dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
+                        dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
+                        dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
+                        destinations.add(dest);
+                    }
                 }
             }
         }
@@ -1937,6 +2026,11 @@ public class Coordinator {
                     k -> Sets.newHashSet());
             scanNodeIds.add(scanNode.getId().asInt());
 
+            if (scanNode instanceof FileQueryScanNode) {
+                fileScanRangeParamsMap.put(
+                        scanNode.getId().asInt(), ((FileQueryScanNode) scanNode).getFileScanRangeParams());
+            }
+
             FragmentScanRangeAssignment assignment
                     = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
             boolean fragmentContainsColocateJoin = isColocateFragment(scanNode.getFragment(),
@@ -2294,7 +2388,7 @@ public class Coordinator {
         return executionProfile.isAllInstancesDone();
     }
 
-    // map from an impalad host address to the per-node assigned scan ranges;
+    // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
     class FragmentScanRangeAssignment
             extends HashMap<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> {
@@ -2580,6 +2674,7 @@ public class Coordinator {
          */
         public void unsetFields() {
             this.rpcParams.unsetDescTbl();
+            this.rpcParams.unsetFileScanParams();
             this.rpcParams.unsetCoord();
             this.rpcParams.unsetQueryGlobals();
             this.rpcParams.unsetResourceInfo();
@@ -2731,6 +2826,7 @@ public class Coordinator {
          */
         public void unsetFields() {
             this.rpcParams.unsetDescTbl();
+            this.rpcParams.unsetFileScanParams();
             this.rpcParams.unsetCoord();
             this.rpcParams.unsetQueryGlobals();
             this.rpcParams.unsetResourceInfo();
@@ -2959,15 +3055,22 @@ public class Coordinator {
         List<PipelineExecContext> ctxs = Lists.newArrayList();
         boolean twoPhaseExecution = false;
         ScopedSpan scopedSpan = new ScopedSpan();
+        int instanceNumber;
 
-        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
+        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
+                int instanceNumber) {
             this.beId = beId;
             this.brpcAddr = brpcAddr;
             this.twoPhaseExecution = twoPhaseExecution;
+            this.instanceNumber = instanceNumber;
         }
 
         public void addContext(PipelineExecContext ctx) {
             this.ctxs.add(ctx);
+        }
+
+        public int getInstanceNumber() {
+            return instanceNumber;
         }
 
         /**
@@ -3148,6 +3251,8 @@ public class Coordinator {
                                 rf.getFilterId().asInt(), rf.toThrift());
                     }
                 }
+
+                params.setFileScanParams(fileScanRangeParamsMap);
                 paramsList.add(params);
             }
             return paramsList;
@@ -3186,6 +3291,8 @@ public class Coordinator {
                     if (tWorkloadGroups != null) {
                         params.setWorkloadGroups(tWorkloadGroups);
                     }
+
+                    params.setFileScanParams(fileScanRangeParamsMap);
                     res.put(instanceExecParam.host, params);
                 }
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);
@@ -3418,5 +3525,6 @@ public class Coordinator {
         }
     }
 }
+
 
 

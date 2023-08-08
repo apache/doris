@@ -38,6 +38,30 @@ LDAP group authorization, is to map the group in LDAP to the Role in Doris, if t
 * Privilege: Permissions act on nodes, databases or tables. Different permissions represent different permission to operate.
 * Role: Doris can create custom named roles. A role can be thought of as a collection of permissions.
 
+## LDAP related concepts
+
+In LDAP, data is organized in a tree structure.
+
+### Example (the following introduction will be expanded based on this example)
+- dc=example,dc=com
+- ou = ou1
+  - cn = group1
+  - cn = user1
+- ou = ou2
+  - cn = group2
+    - cn = user2
+- cn = user3
+
+### Explanation of LDAP Terms
+- dc(Domain Component): It can be understood as the domain name of an organization, serving as the root node of a tree
+- dn(Distinguished Name): Equivalent to a unique name, for example, the dn of user1 is cn=user1,ou=ou1,dc=example,dc=com the dn of user2 is cn=user2,cn=group2,ou=ou2,dc=example,dc=com
+- rdn(Relative Distinguished Name): As part of dn, the four rdns of user1 are cn=user1 ou=ou1 dc=example and dc=com
+- ou(Organization Unit): It can be understood as a sub organization, where users can be placed in ou or directly in the example.com domain
+- cn(common name):name
+- group: Group, which can be understood as the role of Doris
+- user: User, equivalent to Doris' user
+- objectClass：It can be understood as the type of data in each row, such as how to distinguish whether group1 is a group or a user. Each type of data requires different attributes below, such as CN and member (user list) for group, CN, password, uid, etc. for user
+
 ## Enable LDAP Authentication
 ### Server-side Configuration
 
@@ -57,7 +81,7 @@ You need to configure the LDAP basic information in the fe/conf/ldap.conf file, 
   LDAP administrator account "Distinguished Name". When a user logs into Doris using LDAP authentication, Doris will bind the administrator account to search for user information in LDAP.
   
 * ldap_user_basedn = ou=people,dc=domain,dc=com
-  Doris base dn when searching for user information in LDAP.
+  Doris base dn when searching for user information in LDAP,For example, only user2 in the above example is allowed to log in to Doris, which is configured as ou=ou2, dc=example, dc=com. If user1, user2, and user3 in the above example are allowed to log in to Doris, which is configured as dc=example, dc=com
   
 * ldap_user_filter = (&(uid={login}))
 
@@ -69,7 +93,7 @@ You need to configure the LDAP basic information in the fe/conf/ldap.conf file, 
   ldap_user_filter = (&(mail={login}@baidu.com))。
 
 * ldap_group_basedn = ou=group,dc=domain,dc=com
-  base dn when Doris searches for group information in LDAP. if this item is not configured, LDAP group authorization will not be enabled.  
+  base dn when Doris searches for group information in LDAP. if this item is not configured, LDAP group authorization will not be enabled. Same as ldap_ User_ Similar to basedn, it limits the scope of Doris searching for groups.
 
 #### Set the LDAP administrator password:
 After configuring the ldap.conf file, start fe, log in to Doris with the root or admin account, and execute sql:  
@@ -97,7 +121,7 @@ Client-side LDAP authentication requires the mysql client-side explicit authenti
 LDAP password authentication and group authorization are complementary to Doris password authentication and authorization. Enabling LDAP functionality does not completely replace Doris password authentication and authorization, but coexists with Doris password authentication and authorization.
 
 ### LDAP authentication login details
-When LDAP is enabled, users have the following in Doris and DLAP:  
+When LDAP is enabled, users have the following in Doris and LDAP:  
 
 |LDAP User|Doris User|Password|Login Status|Login to Doris users|
 |--|--|--|--|--|
@@ -168,9 +192,26 @@ Then the group name is doris_rd.
 
 If jack also belongs to the LDAP groups doris_qa, doris_pm; Doris exists roles: doris_rd, doris_qa, doris_pm, after logging in using LDAP authentication, the user will not only have the original permissions of the account, but will also get the roles doris_rd, doris_qa and doris _pm privileges.
 
+>Attention:
+>
+>The group to which user belongs is not related to the organizational structure of the LDAP tree, and user2 in the example section may not necessarily belong to group2
+> If you want user2 to belong to group2, you need to add user2 to the member attribute of group2
+
 ### LDAP information cache
 To avoid frequent access to LDAP service, Doris will cache LDAP information into memory, you can specify the cache time for LDAP users through the `ldap_user_cache_timeout_s` configuration item in ldap.conf, the default is 12 hours; after modifying the information in LDAP service or modifying the After modifying the information in the LDAP service or modifying the Role permissions of the LDAP user group, the cache may not take effect in time because of the cache, so you can refresh the cache with the refresh ldap statement, see [REFRESH-LDAP](... /... /sql-manual/sql-reference/Utility-Statements/REFRESH-LDAP.md).
 
 ## Limitations of LDAP authentication
 
 * The current LDAP feature of Doris only supports plaintext password authentication, that is, when a user logs in, the password is transmitted in plaintext between client and fe and between fe and LDAP service.
+
+## FAQ
+
+- How to determine which roles an LDAP user has in Doris?
+
+  Log in to Doris using an LDAP user, ` show grants` Can view which roles the current user has. Among them, ldapDefaultRole is the default role that every ldap user has in Doris.
+- How to troubleshoot when the roles of LDAP users in Doris are less than expected?
+
+  1. Through 'show roles` Check if the expected role exists in Doris. If it does not exist, you need to use the 'CREATE ROLE role'_ Name` Create a character.
+  2. Check if the expected group is in 'ldap'_ Group_ Based on the corresponding organizational structure.
+  3. Check if the expected group contains the member attribute.
+  4. Check if the member attribute of the expected group contains the current user.

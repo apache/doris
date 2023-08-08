@@ -19,6 +19,7 @@
 
 #include "arrow/array/builder_nested.h"
 #include "util/jsonb_document.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
@@ -50,15 +51,38 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
     auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
-    CHECK(!nested_keys_column.is_nullable());
     const IColumn& nested_values_column = map_column.get_values();
+    // now we default set key value in map is nullable
+    DCHECK(nested_keys_column.is_nullable());
+    DCHECK(nested_values_column.is_nullable());
+    auto keys_nullmap_data =
+            check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
     auto& offsets = map_column.get_offsets();
     auto key_builder = builder.key_builder();
     auto value_builder = builder.item_builder();
+
     for (size_t r = start; r < end; ++r) {
-        if (null_map && (*null_map)[r]) {
+        if ((null_map && (*null_map)[r])) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
+        } else if (simd::contain_byte(keys_nullmap_data + offsets[r - 1],
+                                      offsets[r] - offsets[r - 1], 1)) {
+            // arrow do not support key is null, so we ignore the null key-value
+            MutableColumnPtr key_mutable_data = nested_keys_column.clone_empty();
+            MutableColumnPtr value_mutable_data = nested_values_column.clone_empty();
+            for (size_t i = offsets[r - 1]; i < offsets[r]; ++i) {
+                if (keys_nullmap_data[i] == 1) {
+                    continue;
+                }
+                key_mutable_data->insert_from(nested_keys_column, i);
+                value_mutable_data->insert_from(nested_values_column, i);
+            }
+            checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
+
+            key_serde->write_column_to_arrow(*key_mutable_data, nullptr, key_builder, 0,
+                                             key_mutable_data->size());
+            value_serde->write_column_to_arrow(*value_mutable_data, nullptr, value_builder, 0,
+                                               value_mutable_data->size());
         } else {
             checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
             key_serde->write_column_to_arrow(nested_keys_column, nullptr, key_builder,
@@ -122,13 +146,13 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                     return Status::InternalError("pack mysql buffer failed.");
                 }
                 RETURN_IF_ERROR(
-                        key_serde->write_column_to_mysql(nested_keys_column, result, j, col_const));
+                        key_serde->write_column_to_mysql(nested_keys_column, result, j, false));
                 if (0 != result.push_string("\"", 1)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
                 RETURN_IF_ERROR(
-                        key_serde->write_column_to_mysql(nested_keys_column, result, j, col_const));
+                        key_serde->write_column_to_mysql(nested_keys_column, result, j, false));
             }
         }
         if (0 != result.push_string(":", 1)) {
@@ -143,14 +167,14 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
                 if (0 != result.push_string("\"", 1)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
-                RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
-                                                                   col_const));
+                RETURN_IF_ERROR(
+                        value_serde->write_column_to_mysql(nested_values_column, result, j, false));
                 if (0 != result.push_string("\"", 1)) {
                     return Status::InternalError("pack mysql buffer failed.");
                 }
             } else {
-                RETURN_IF_ERROR(value_serde->write_column_to_mysql(nested_values_column, result, j,
-                                                                   col_const));
+                RETURN_IF_ERROR(
+                        value_serde->write_column_to_mysql(nested_values_column, result, j, false));
             }
         }
     }

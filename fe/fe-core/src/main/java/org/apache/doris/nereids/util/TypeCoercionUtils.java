@@ -91,6 +91,7 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -113,6 +114,18 @@ import java.util.stream.Stream;
  * Utils for type coercion.
  */
 public class TypeCoercionUtils {
+
+    /**
+     * integer type precedence for type promotion.
+     * bigger numeric has smaller ordinal
+     */
+    public static final List<DataType> INTEGER_PRECEDENCE = ImmutableList.of(
+            LargeIntType.INSTANCE,
+            BigIntType.INSTANCE,
+            IntegerType.INSTANCE,
+            SmallIntType.INSTANCE,
+            TinyIntType.INSTANCE
+    );
 
     /**
      * numeric type precedence for type promotion.
@@ -486,8 +499,18 @@ public class TypeCoercionUtils {
         left = castIfNotSameType(left, t1);
         right = castIfNotSameType(right, t2);
 
-        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, BigIntType.INSTANCE);
-        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, BigIntType.INSTANCE);
+        DataType commonType = BigIntType.INSTANCE;
+        if (t1.isIntegralType() && t2.isIntegralType()) {
+            for (DataType dataType : TypeCoercionUtils.INTEGER_PRECEDENCE) {
+                if (t1.equals(dataType) || t2.equals(dataType)) {
+                    commonType = dataType;
+                    break;
+                }
+            }
+        }
+
+        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
+        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
         return divide.withChildren(newLeft, newRight);
     }
 
@@ -535,8 +558,17 @@ public class TypeCoercionUtils {
                 break;
             }
         }
-        if (commonType.isFloatType() && (t1.isDecimalV3Type() || t2.isDecimalV3Type())) {
+        if (commonType.isFloatLikeType() && (t1.isDecimalV3Type() || t2.isDecimalV3Type())) {
             commonType = DoubleType.INSTANCE;
+        }
+
+        if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
+            // to be consitent with old planner
+            // see findCommonType() method in ArithmeticExpr.java
+            commonType = t1.isDecimalV2Type() && t2.isDecimalV2Type()
+                    || (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value)
+                    ? DecimalV2Type.SYSTEM_DEFAULT : DoubleType.INSTANCE;
         }
 
         boolean isBitArithmetic = binaryArithmetic instanceof BitAnd
@@ -757,7 +789,10 @@ public class TypeCoercionUtils {
                     }
                 }
         );
-        return compoundPredicate;
+        List<Expression> children = compoundPredicate.children().stream()
+                .map(e -> e.getDataType().isNullType() ? new NullLiteral(BooleanType.INSTANCE) : e)
+                .collect(Collectors.toList());
+        return compoundPredicate.withChildren(children);
     }
 
     /**

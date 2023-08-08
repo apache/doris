@@ -67,7 +67,9 @@ public:
         return Status::NotSupported("Not support send block");
     }
 
-    virtual void try_close(RuntimeState* state, Status exec_status) {}
+    [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
+        return Status::OK();
+    }
 
     virtual bool is_close_done() { return true; }
 

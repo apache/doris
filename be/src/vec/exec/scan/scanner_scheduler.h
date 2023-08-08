@@ -27,7 +27,6 @@
 
 namespace doris {
 class ExecEnv;
-class PriorityThreadPool;
 
 namespace vectorized {
 class VScanner;
@@ -67,7 +66,7 @@ public:
 
     Status init(ExecEnv* env);
 
-    Status submit(ScannerContext* ctx);
+    [[nodiscard]] Status submit(ScannerContext* ctx);
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
@@ -86,7 +85,6 @@ private:
     void _task_group_scanner_scan(ScannerScheduler* scheduler,
                                   taskgroup::ScanTaskTaskGroupQueue* scan_queue);
 
-private:
     // Scheduling queue number.
     // TODO: make it configurable.
     static const int QUEUE_NUM = 4;

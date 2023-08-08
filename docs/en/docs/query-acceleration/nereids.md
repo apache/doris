@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Nereids-The Brand New Planner",
+    "title": "Nereids-the Brand New Planner",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Nereids-The Brand New Planner
+# Nereids-the Brand New Planner
 
 <version since="dev"></version>
 

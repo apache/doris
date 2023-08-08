@@ -79,13 +79,17 @@ The user triggers a manual collection job through a statement `ANALYZE` to colle
 Column statistics collection syntax:
 
 ```SQL
-ANALYZE TABLE | DATABASE table_name | db_name
-    [ (column_name [, ...]) ]    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]    [ PROPERTIES ("key" = "value", ...) ];
+ANALYZE < TABLE | DATABASE table_name | db_name >
+    [ PARTITIONS (partition_name [, ...]) ]
+    [ (column_name [, ...]) ]
+    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
+    [ PROPERTIES ("key" = "value", ...) ];
 ```
 
 Explanation:
 
 - Table_name: The target table for the specified. It can be a `db_name.table_name` form.
+- partition_name: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. (nation=US/city=Washington)
 - Column_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
 - Sync: Synchronizes the collection of statistics. Return after collection. If not specified, it will be executed asynchronously and the job ID will be returned.
 - Incremental: Incrementally gather statistics. Incremental collection of histogram statistics is not supported.
@@ -459,7 +463,7 @@ Collect information for the job by `SHOW ANALYZE` viewing the statistics.
 The syntax is as follows:
 
 ```SQL
-SHOW ANALYZE [ table_name | job_id ]
+SHOW ANALYZE < table_name | job_id >
     [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
@@ -869,6 +873,18 @@ User can delete automatic/periodic Analyze jobs based on job ID.
 DROP ANALYZE JOB [JOB_ID]
 ```
 
-## ANALYZE configuration item
+## Full auto analyze
 
-To be added.
+User could use option `enable_full_auto_analyze` to determine if enable full auto analyze, if enabled Doris would analyze all databases automatically except for some internal databases (information_db and etc.) and ignore the `AUTO`/`PERIOD` jobs. By default it's `true`.
+
+## Other ANALYZE configuration item
+
+
+| conf                                                                                                                                                                                                                                                                                                           | comment                                                                                                                                                                                                                                                                                             | default value                  |
+|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|
+| statistics_sql_parallel_exec_instance_num                                                                                                                                                                                                                                                                      | Control the number of concurrent instances/pipeline tasks on the BE side for each statistics collection SQL.                                                                                                                                                                                        | 1                              |
+| statistics_sql_mem_limit_in_bytes                                                                                                                                                                                                                                                                              | Control the amount of BE memory that each statistics SQL can occupy.                                                                                                                                                                                                                                | 2L * 1024 * 1024 * 1024 (2GiB) |
+| statistics_simultaneously_running_task_num                                                                                                                                                                                                                                                                     | The number of concurrent AnalyzeTasks that can be executed.                                                                                                                                                                                                                                         | 10                             |
+| analyze_task_timeout_in_minutes                         | Execution time limit for AnalyzeTask, timeout task would be cancelled                                                                                                                                                                                                                               | 2hours                         |
+| full_auto_analyze_start_time/full_auto_analyze_end_time | Full auto analyze execution time range，full auto analyze would only be trigger in this range                                                                                                                                                                                                        | 00:00:00-23:59:59              |
+|stats_cache_size|The actual memory size taken by stats cache highly depends on characteristics of data, since on the different dataset and scenarios the max/min literal's average size and buckets count of histogram would be highly different. Besides, JVM version etc. also has influence on it, though not much as data itself. Here I would give the mem size taken by stats cache with 10_0000 items.Each item's avg length of max/min literal is 32, and the avg column name length is 16, and each column has a histogram with 128 buckets In this case, stats cache takes total 911.954833984MiB mem. If without histogram, stats cache takes total 61.2777404785MiB mem. It's strongly discourage analyzing a column with a very large STRING value in the column, since it would cause FE OOM. | 10_0000                        |

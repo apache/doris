@@ -24,6 +24,7 @@ follow the steps below:
 
 ### 1. build tpc-ds dsdgen dsqgen tool.
 
+    export PATH=/usr/bin/:$PATH
     ./bin/build-tpcds-tools.sh
 
 ### 2. generate tpc-ds data. use -h for more infomations.

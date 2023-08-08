@@ -717,12 +717,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
+            FunctionUtil.translateToNereids(this.getFullName(), function);
         }
     }
 
     public synchronized void replayAddFunction(Function function) {
         try {
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            FunctionUtil.translateToNereids(this.getFullName(), function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -731,12 +733,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
+            FunctionUtil.dropFromNereids(this.getFullName(), function);
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
             FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -850,9 +854,41 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return new HashMap<>(idToTable);
     }
 
-    public void updateDbProperties(Map<String, String> properties) {
+    public void replayUpdateDbProperties(Map<String, String> properties) {
         dbProperties.updateProperties(properties);
         binlogConfig = dbProperties.getBinlogConfig();
+    }
+
+    public boolean updateDbProperties(Map<String, String> properties) throws DdlException {
+        BinlogConfig oldBinlogConfig = getBinlogConfig();
+        BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
+        if (oldBinlogConfig.equals(newBinlogConfig)) {
+            return false;
+        }
+
+        if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
+            // check all tables binlog enable is true
+            for (Table table : idToTable.values()) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
+
+                OlapTable olapTable = (OlapTable) table;
+                olapTable.readLock();
+                try {
+                    if (!olapTable.getBinlogConfig().isEnable()) {
+                        String errMsg = String.format("binlog is not enable in table[%s] in db [%s]", table.getName(),
+                                getFullName());
+                        throw new DdlException(errMsg);
+                    }
+                } finally {
+                    olapTable.readUnlock();
+                }
+            }
+        }
+
+        replayUpdateDbProperties(properties);
+        return true;
     }
 
     public BinlogConfig getBinlogConfig() {

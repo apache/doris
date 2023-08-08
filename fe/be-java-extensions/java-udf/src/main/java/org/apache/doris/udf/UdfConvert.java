@@ -37,263 +37,269 @@ import java.util.Arrays;
 public class UdfConvert {
     private static final Logger LOG = Logger.getLogger(UdfConvert.class);
 
-    public static Object[] convertBooleanArg(boolean isNullable, int numRows, long nullMapAddr, long columnAddr) {
-        Boolean[] argument = new Boolean[numRows];
-        if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
-                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    argument[i] = UdfUtils.UNSAFE.getBoolean(null, columnAddr + i);
-                } // else is the current row is null
-            }
-        } else {
-            for (int i = 0; i < numRows; ++i) {
-                argument[i] = UdfUtils.UNSAFE.getBoolean(null, columnAddr + i);
-            }
-        }
-        return argument;
-    }
-
-    public static Object[] convertTinyIntArg(boolean isNullable, int numRows, long nullMapAddr, long columnAddr) {
-        Byte[] argument = new Byte[numRows];
-        if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
-                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    argument[i] = UdfUtils.UNSAFE.getByte(null, columnAddr + i);
-                } // else is the current row is null
-            }
-        } else {
-            for (int i = 0; i < numRows; ++i) {
-                argument[i] = UdfUtils.UNSAFE.getByte(null, columnAddr + i);
-            }
-        }
-        return argument;
-    }
-
-    public static Object[] convertSmallIntArg(boolean isNullable, int numRows, long nullMapAddr, long columnAddr) {
-        Short[] argument = new Short[numRows];
-        if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
-                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    argument[i] = UdfUtils.UNSAFE.getShort(null, columnAddr + (i * 2L));
-                } // else is the current row is null
-            }
-        } else {
-            for (int i = 0; i < numRows; ++i) {
-                argument[i] = UdfUtils.UNSAFE.getShort(null, columnAddr + (i * 2L));
-            }
-        }
-        return argument;
-    }
-
-    public static Object[] convertIntArg(boolean isNullable, int numRows, long nullMapAddr, long columnAddr) {
-        Integer[] argument = new Integer[numRows];
-        if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
-                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    argument[i] = UdfUtils.UNSAFE.getInt(null, columnAddr + (i * 4L));
-                } // else is the current row is null
-            }
-        } else {
-            for (int i = 0; i < numRows; ++i) {
-                argument[i] = UdfUtils.UNSAFE.getInt(null, columnAddr + (i * 4L));
-            }
-        }
-        return argument;
-    }
-
-    public static Object[] convertBigIntArg(boolean isNullable, int numRows, long nullMapAddr, long columnAddr) {
-        Long[] argument = new Long[numRows];
-        if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
-                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    argument[i] = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
-                } // else is the current row is null
-            }
-        } else {
-            for (int i = 0; i < numRows; ++i) {
-                argument[i] = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
-            }
-        }
-        return argument;
-    }
-
-    public static Object[] convertFloatArg(boolean isNullable, int numRows, long nullMapAddr, long columnAddr) {
-        Float[] argument = new Float[numRows];
-        if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
-                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    argument[i] = UdfUtils.UNSAFE.getFloat(null, columnAddr + (i * 4L));
-                } // else is the current row is null
-            }
-        } else {
-            for (int i = 0; i < numRows; ++i) {
-                argument[i] = UdfUtils.UNSAFE.getFloat(null, columnAddr + (i * 4L));
-            }
-        }
-        return argument;
-    }
-
-    public static Object[] convertDoubleArg(boolean isNullable, int numRows, long nullMapAddr, long columnAddr) {
-        Double[] argument = new Double[numRows];
-        if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
-                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    argument[i] = UdfUtils.UNSAFE.getDouble(null, columnAddr + (i * 8L));
-                } // else is the current row is null
-            }
-        } else {
-            for (int i = 0; i < numRows; ++i) {
-                argument[i] = UdfUtils.UNSAFE.getDouble(null, columnAddr + (i * 8L));
-            }
-        }
-        return argument;
-    }
-
-    public static Object[] convertDateArg(Class argTypeClass, boolean isNullable, int numRows, long nullMapAddr,
+    public static Object[] convertBooleanArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
             long columnAddr) {
-        Object[] argument = (Object[]) Array.newInstance(argTypeClass, numRows);
+        Boolean[] argument = new Boolean[rowsEnd - rowsStart];
         if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
+                    argument[i - rowsStart] = UdfUtils.UNSAFE.getBoolean(null, columnAddr + i);
+                } // else is the current row is null
+            }
+        } else {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                argument[i - rowsStart] = UdfUtils.UNSAFE.getBoolean(null, columnAddr + i);
+            }
+        }
+        return argument;
+    }
+
+    public static Object[] convertTinyIntArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
+            long columnAddr) {
+        Byte[] argument = new Byte[rowsEnd - rowsStart];
+        if (isNullable) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
+                    argument[i - rowsStart] = UdfUtils.UNSAFE.getByte(null, columnAddr + i);
+                } // else is the current row is null
+            }
+        } else {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                argument[i - rowsStart] = UdfUtils.UNSAFE.getByte(null, columnAddr + i);
+            }
+        }
+        return argument;
+    }
+
+    public static Object[] convertSmallIntArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
+            long columnAddr) {
+        Short[] argument = new Short[rowsEnd - rowsStart];
+        if (isNullable) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
+                    argument[i - rowsStart] = UdfUtils.UNSAFE.getShort(null, columnAddr + (i * 2L));
+                } // else is the current row is null
+            }
+        } else {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                argument[i - rowsStart] = UdfUtils.UNSAFE.getShort(null, columnAddr + (i * 2L));
+            }
+        }
+        return argument;
+    }
+
+    public static Object[] convertIntArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
+            long columnAddr) {
+        Integer[] argument = new Integer[rowsEnd - rowsStart];
+        if (isNullable) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
+                    argument[i - rowsStart] = UdfUtils.UNSAFE.getInt(null, columnAddr + (i * 4L));
+                } // else is the current row is null
+            }
+        } else {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                argument[i - rowsStart] = UdfUtils.UNSAFE.getInt(null, columnAddr + (i * 4L));
+            }
+        }
+        return argument;
+    }
+
+    public static Object[] convertBigIntArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
+            long columnAddr) {
+        Long[] argument = new Long[rowsEnd - rowsStart];
+        if (isNullable) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
+                    argument[i - rowsStart] = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
+                } // else is the current row is null
+            }
+        } else {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                argument[i - rowsStart] = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
+            }
+        }
+        return argument;
+    }
+
+    public static Object[] convertFloatArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
+            long columnAddr) {
+        Float[] argument = new Float[rowsEnd - rowsStart];
+        if (isNullable) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
+                    argument[i - rowsStart] = UdfUtils.UNSAFE.getFloat(null, columnAddr + (i * 4L));
+                } // else is the current row is null
+            }
+        } else {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                argument[i - rowsStart] = UdfUtils.UNSAFE.getFloat(null, columnAddr + (i * 4L));
+            }
+        }
+        return argument;
+    }
+
+    public static Object[] convertDoubleArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
+            long columnAddr) {
+        Double[] argument = new Double[rowsEnd - rowsStart];
+        if (isNullable) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
+                    argument[i - rowsStart] = UdfUtils.UNSAFE.getDouble(null, columnAddr + (i * 8L));
+                } // else is the current row is null
+            }
+        } else {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
+                argument[i - rowsStart] = UdfUtils.UNSAFE.getDouble(null, columnAddr + (i * 8L));
+            }
+        }
+        return argument;
+    }
+
+    public static Object[] convertDateArg(Class argTypeClass, boolean isNullable, int rowsStart, int rowsEnd,
+            long nullMapAddr, long columnAddr) {
+        Object[] argument = (Object[]) Array.newInstance(argTypeClass, rowsEnd - rowsStart);
+        if (isNullable) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
                     long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
-                    argument[i] = UdfUtils.convertDateToJavaDate(value, argTypeClass);
+                    argument[i - rowsStart] = UdfUtils.convertDateToJavaDate(value, argTypeClass);
                 } // else is the current row is null
             }
         } else {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
-                argument[i] = UdfUtils.convertDateToJavaDate(value, argTypeClass);
+                argument[i - rowsStart] = UdfUtils.convertDateToJavaDate(value, argTypeClass);
             }
         }
         return argument;
     }
 
-    public static Object[] convertDateTimeArg(Class argTypeClass, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
-        Object[] argument = (Object[]) Array.newInstance(argTypeClass, numRows);
+    public static Object[] convertDateTimeArg(Class argTypeClass, boolean isNullable, int rowsStart, int rowsEnd,
+            long nullMapAddr, long columnAddr) {
+        Object[] argument = (Object[]) Array.newInstance(argTypeClass, rowsEnd - rowsStart);
         if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
                     long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
-                    argument[i] = UdfUtils
+                    argument[i - rowsStart] = UdfUtils
                             .convertDateTimeToJavaDateTime(value, argTypeClass);
                 } // else is the current row is null
             }
         } else {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
-                argument[i] = UdfUtils.convertDateTimeToJavaDateTime(value, argTypeClass);
+                argument[i - rowsStart] = UdfUtils.convertDateTimeToJavaDateTime(value, argTypeClass);
             }
         }
         return argument;
     }
 
-    public static Object[] convertDateV2Arg(Class argTypeClass, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
-        Object[] argument = (Object[]) Array.newInstance(argTypeClass, numRows);
+    public static Object[] convertDateV2Arg(Class argTypeClass, boolean isNullable, int rowsStart, int rowsEnd,
+            long nullMapAddr, long columnAddr) {
+        Object[] argument = (Object[]) Array.newInstance(argTypeClass, rowsEnd - rowsStart);
         if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
                     int value = UdfUtils.UNSAFE.getInt(null, columnAddr + (i * 4L));
-                    argument[i] = UdfUtils.convertDateV2ToJavaDate(value, argTypeClass);
+                    argument[i - rowsStart] = UdfUtils.convertDateV2ToJavaDate(value, argTypeClass);
                 } // else is the current row is null
             }
         } else {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 int value = UdfUtils.UNSAFE.getInt(null, columnAddr + (i * 4L));
-                argument[i] = UdfUtils.convertDateV2ToJavaDate(value, argTypeClass);
+                argument[i - rowsStart] = UdfUtils.convertDateV2ToJavaDate(value, argTypeClass);
             }
         }
         return argument;
     }
 
-    public static Object[] convertDateTimeV2Arg(Class argTypeClass, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
-        Object[] argument = (Object[]) Array.newInstance(argTypeClass, numRows);
+    public static Object[] convertDateTimeV2Arg(Class argTypeClass, boolean isNullable, int rowsStart, int rowsEnd,
+            long nullMapAddr, long columnAddr) {
+        Object[] argument = (Object[]) Array.newInstance(argTypeClass, rowsEnd - rowsStart);
         if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 if (UdfUtils.UNSAFE.getByte(null, nullMapAddr + i) == 0) {
                     long value = UdfUtils.UNSAFE.getLong(columnAddr + (i * 8L));
-                    argument[i] = UdfUtils
+                    argument[i - rowsStart] = UdfUtils
                             .convertDateTimeV2ToJavaDateTime(value, argTypeClass);
                 } // else is the current row is null
             }
         } else {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 8L));
-                argument[i] = UdfUtils
+                argument[i - rowsStart] = UdfUtils
                         .convertDateTimeV2ToJavaDateTime(value, argTypeClass);
             }
         }
         return argument;
     }
 
-    public static Object[] convertLargeIntArg(boolean isNullable, int numRows, long nullMapAddr, long columnAddr) {
-        BigInteger[] argument = new BigInteger[numRows];
+    public static Object[] convertLargeIntArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
+            long columnAddr) {
+        BigInteger[] argument = new BigInteger[rowsEnd - rowsStart];
         byte[] bytes = new byte[16];
         if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
                     UdfUtils.copyMemory(null, columnAddr + (i * 16L), bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
-                    argument[i] = new BigInteger(UdfUtils.convertByteOrder(bytes));
+                    argument[i - rowsStart] = new BigInteger(UdfUtils.convertByteOrder(bytes));
                 } // else is the current row is null
             }
         } else {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 UdfUtils.copyMemory(null, columnAddr + (i * 16L), bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
-                argument[i] = new BigInteger(UdfUtils.convertByteOrder(bytes));
+                argument[i - rowsStart] = new BigInteger(UdfUtils.convertByteOrder(bytes));
             }
         }
         return argument;
     }
 
-    public static Object[] convertDecimalArg(int scale, long typeLen, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) {
-        BigDecimal[] argument = new BigDecimal[numRows];
+    public static Object[] convertDecimalArg(int scale, long typeLen, boolean isNullable, int rowsStart, int rowsEnd,
+            long nullMapAddr, long columnAddr) {
+        BigDecimal[] argument = new BigDecimal[rowsEnd - rowsStart];
         byte[] bytes = new byte[(int) typeLen];
         if (isNullable) {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
                     UdfUtils.copyMemory(null, columnAddr + (i * typeLen), bytes, UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
                     BigInteger bigInteger = new BigInteger(UdfUtils.convertByteOrder(bytes));
-                    argument[i] = new BigDecimal(bigInteger, scale); //show to pass scale info
+                    argument[i - rowsStart] = new BigDecimal(bigInteger, scale); //show to pass scale info
                 } // else is the current row is null
             }
         } else {
-            for (int i = 0; i < numRows; ++i) {
+            for (int i = rowsStart; i < rowsEnd; ++i) {
                 UdfUtils.copyMemory(null, columnAddr + (i * typeLen), bytes, UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
                 BigInteger bigInteger = new BigInteger(UdfUtils.convertByteOrder(bytes));
-                argument[i] = new BigDecimal(bigInteger, scale);
+                argument[i - rowsStart] = new BigDecimal(bigInteger, scale);
             }
         }
         return argument;
     }
 
-    public static Object[] convertStringArg(boolean isNullable, int numRows, long nullMapAddr,
+    public static Object[] convertStringArg(boolean isNullable, int rowsStart, int rowsEnd, long nullMapAddr,
             long charsAddr, long offsetsAddr) {
-        String[] argument = new String[numRows];
+        String[] argument = new String[rowsEnd - rowsStart];
         Preconditions.checkState(UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (0 - 1)) == 0,
                 "offsetsAddr[-1] should be 0;");
-
+        final int totalLen = UdfUtils.UNSAFE.getInt(null, offsetsAddr + (rowsEnd - 1) * 4L);
+        byte[] bytes = new byte[totalLen];
+        UdfUtils.copyMemory(null, charsAddr, bytes, UdfUtils.BYTE_ARRAY_OFFSET, totalLen);
         if (isNullable) {
-            for (int row = 0; row < numRows; ++row) {
+            for (int row = rowsStart; row < rowsEnd; ++row) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + row) == 0) {
-                    int offset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + row * 4L);
-                    int numBytes = offset - UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
-                    long base = charsAddr + offset - numBytes;
-                    byte[] bytes = new byte[numBytes];
-                    UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
-                    argument[row] = new String(bytes, StandardCharsets.UTF_8);
+                    int prevOffset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
+                    int currOffset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + row * 4L);
+                    argument[row - rowsStart] = new String(bytes, prevOffset, currOffset - prevOffset,
+                            StandardCharsets.UTF_8);
                 } // else is the current row is null
             }
         } else {
-            for (int row = 0; row < numRows; ++row) {
-                int offset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + row * 4L);
-                int numBytes = offset - UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
-                long base = charsAddr + offset - numBytes;
-                byte[] bytes = new byte[numBytes];
-                UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
-                argument[row] = new String(bytes, StandardCharsets.UTF_8);
+            for (int row = rowsStart; row < rowsEnd; ++row) {
+                int prevOffset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
+                int currOffset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * row);
+                argument[row - rowsStart] = new String(bytes, prevOffset, currOffset - prevOffset,
+                        StandardCharsets.UTF_8);
             }
         }
         return argument;
@@ -699,7 +705,7 @@ public class UdfConvert {
     }
 
 
-    ////////////////////////////////////copyBatchArray//////////////////////////////////////////////////////////
+    //////////////////////////////////// copyBatchArray//////////////////////////////////////////////////////////
 
     public static long copyBatchArrayBooleanResult(long hasPutElementNum, boolean isNullable, int row, Object[] result,
             long nullMapAddr, long offsetsAddr, long nestedNullMapAddr, long dataAddr) {
@@ -1314,7 +1320,7 @@ public class UdfConvert {
     }
 
     //////////////////////////////////////////convertArray///////////////////////////////////////////////////////////
-    public static void convertArrayBooleanArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<Boolean> convertArrayBooleanArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<Boolean> data = null;
         if (isNullable) {
@@ -1340,10 +1346,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayTinyIntArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<Byte> convertArrayTinyIntArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<Byte> data = null;
         if (isNullable) {
@@ -1369,10 +1375,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArraySmallIntArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<Short> convertArraySmallIntArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<Short> data = null;
         if (isNullable) {
@@ -1398,10 +1404,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayIntArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<Integer> convertArrayIntArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<Integer> data = null;
         if (isNullable) {
@@ -1427,10 +1433,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayBigIntArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<Long> convertArrayBigIntArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<Long> data = null;
         if (isNullable) {
@@ -1456,10 +1462,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayFloatArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<Float> convertArrayFloatArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<Float> data = null;
         if (isNullable) {
@@ -1485,10 +1491,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayDoubleArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<Double> convertArrayDoubleArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<Double> data = null;
         if (isNullable) {
@@ -1514,10 +1520,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayDateArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<LocalDate> convertArrayDateArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<LocalDate> data = null;
         if (isNullable) {
@@ -1549,10 +1555,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayDateTimeArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<LocalDateTime> convertArrayDateTimeArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<LocalDateTime> data = null;
         if (isNullable) {
@@ -1582,10 +1588,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayDateV2Arg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<LocalDate> convertArrayDateV2Arg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<LocalDate> data = null;
         if (isNullable) {
@@ -1613,10 +1619,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayDateTimeV2Arg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<LocalDateTime> convertArrayDateTimeV2Arg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<LocalDateTime> data = null;
         if (isNullable) {
@@ -1646,10 +1652,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayLargeIntArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<BigInteger> convertArrayLargeIntArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<BigInteger> data = null;
         byte[] bytes = new byte[16];
@@ -1678,10 +1684,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayDecimalArg(int scale, long typeLen, Object[] argument, int row, int currentRowNum,
+    public static ArrayList<BigDecimal> convertArrayDecimalArg(int scale, long typeLen, int row, int currentRowNum,
             long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr) {
         ArrayList<BigDecimal> data = null;
@@ -1713,10 +1719,10 @@ public class UdfConvert {
                 }
             } // for loop
         } // end for all current row
-        argument[row] = data;
+        return data;
     }
 
-    public static void convertArrayStringArg(Object[] argument, int row, int currentRowNum, long offsetStart,
+    public static ArrayList<String> convertArrayStringArg(int row, int currentRowNum, long offsetStart,
             boolean isNullable, long nullMapAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
         ArrayList<String> data = null;
         if (isNullable) {
@@ -1755,6 +1761,6 @@ public class UdfConvert {
                 }
             }
         }
-        argument[row] = data;
+        return data;
     }
 }

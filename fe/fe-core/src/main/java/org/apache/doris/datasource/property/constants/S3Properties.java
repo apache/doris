@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
@@ -126,7 +127,7 @@ public class S3Properties extends BaseProperties {
         if (endpointSplit.length < 2) {
             return null;
         }
-        if (endpointSplit[0].startsWith("oss-")) {
+        if (endpointSplit[0].contains("oss-")) {
             // compatible with the endpoint: oss-cn-bejing.aliyuncs.com
             return endpointSplit[0];
         }
@@ -241,6 +242,9 @@ public class S3Properties extends BaseProperties {
         if (properties.containsKey(S3Properties.Env.BUCKET)) {
             properties.putIfAbsent(S3Properties.BUCKET, properties.get(S3Properties.Env.BUCKET));
         }
+        if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            properties.putIfAbsent(PropertyConverter.USE_PATH_STYLE, properties.get(PropertyConverter.USE_PATH_STYLE));
+        }
     }
 
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
@@ -261,6 +265,8 @@ public class S3Properties extends BaseProperties {
         String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
         s3Info.setMaxConn(Integer.parseInt(connTimeoutMs == null
                 ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+        String usePathStyle = properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
+        s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
         return s3Info;
     }
 }

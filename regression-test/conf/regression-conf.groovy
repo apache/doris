@@ -31,6 +31,7 @@ jdbcPassword = ""
 
 feSourceThriftAddress = "127.0.0.1:9020"
 feTargetThriftAddress = "127.0.0.1:9020"
+syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
@@ -140,3 +141,5 @@ max_failure_num=0
 
 // used for exporting test
 s3ExportBucketName = ""
+
+externalEnvIp="127.0.0.1"

@@ -1027,8 +1027,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int32_t value = StringParser::string_to_decimal<int32_t>(scan_key.c_str(), scan_key.size(),
-                                                                 9, scale, &result);
+        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32, int32_t>(
+                scan_key.c_str(), scan_key.size(), 9, scale, &result);
 
         if (result == StringParser::PARSE_FAILURE) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
@@ -1053,8 +1053,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int64_t value = StringParser::string_to_decimal<int64_t>(scan_key.c_str(), scan_key.size(),
-                                                                 18, scale, &result);
+        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64, int64_t>(
+                scan_key.c_str(), scan_key.size(), 18, scale, &result);
         if (result == StringParser::PARSE_FAILURE) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>::from_string meet PARSE_FAILURE");
@@ -1078,7 +1078,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int128_t value = StringParser::string_to_decimal<int128_t>(
+        int128_t value = StringParser::string_to_decimal<TYPE_DECIMAL128I, int128_t>(
                 scan_key.c_str(), scan_key.size(), 38, scale, &result);
         if (result == StringParser::PARSE_FAILURE) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(

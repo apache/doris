@@ -36,6 +36,7 @@ class ConfigOptions {
     static Option feTargetThriftAddressOpt
     static Option feSyncerUserOpt
     static Option feSyncerPasswordOpt
+    static Option syncerAddressOpt
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
@@ -249,6 +250,14 @@ class ConfigOptions {
                 .longOpt("feSyncerPassword")
                 .desc("the password of syncer")
                 .build()
+        syncerAddressOpt = Option.builder("sa")
+                .argName("address")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("syncerAddressOpt")
+                .desc("the syncer address, format is ip:port")
+                .build()
         feHttpAddressOpt = Option.builder("ha")
                 .argName("address")
                 .required(false)
@@ -375,6 +384,7 @@ class ConfigOptions {
                 .addOption(feTargetThriftAddressOpt)
                 .addOption(feSyncerUserOpt)
                 .addOption(feSyncerPasswordOpt)
+                .addOption(syncerAddressOpt)
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)

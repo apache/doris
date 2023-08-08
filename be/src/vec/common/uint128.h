@@ -50,11 +50,7 @@ struct UInt128 {
     }
 
     bool operator==(const UInt128 rhs) const { return tuple() == rhs.tuple(); }
-    bool operator!=(const UInt128 rhs) const { return tuple() != rhs.tuple(); }
-    bool operator<(const UInt128 rhs) const { return tuple() < rhs.tuple(); }
-    bool operator<=(const UInt128 rhs) const { return tuple() <= rhs.tuple(); }
-    bool operator>(const UInt128 rhs) const { return tuple() > rhs.tuple(); }
-    bool operator>=(const UInt128 rhs) const { return tuple() >= rhs.tuple(); }
+    auto operator<=>(const UInt128 rhs) const { return tuple() <=> rhs.tuple(); }
 
     UInt128 operator<<(const UInt128& rhs) const {
         const uint64_t shift = rhs.low;
@@ -93,24 +89,8 @@ struct UInt128 {
         return *this == UInt128(rhs);
     }
     template <typename T>
-    bool operator!=(const T rhs) const {
-        return *this != UInt128(rhs);
-    }
-    template <typename T>
-    bool operator>=(const T rhs) const {
-        return *this >= UInt128(rhs);
-    }
-    template <typename T>
-    bool operator>(const T rhs) const {
-        return *this > UInt128(rhs);
-    }
-    template <typename T>
-    bool operator<=(const T rhs) const {
-        return *this <= UInt128(rhs);
-    }
-    template <typename T>
-    bool operator<(const T rhs) const {
-        return *this < UInt128(rhs);
+    auto operator<=>(const T rhs) const {
+        return *this <=> UInt128(rhs);
     }
 
     template <typename T>

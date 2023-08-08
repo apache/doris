@@ -28,9 +28,11 @@ under the License.
 
 ```shell
 brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
+python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
 ```
-   
+
+*The version of jdk installed using brew is 11, because on macOS, the arm64 version of brew does not have version 8 of jdk by default*
+
 **Dependency description:**
 1. Java, Maven, etc. can be downloaded separately for easy management
     - Mac recommend [Zulu JDK8](https://www.azul.com/downloads/?version=java-8-lts&os=macos&package=jdk#zulu)

@@ -218,7 +218,10 @@ Status VSetOperationNode<is_intersect>::alloc_resource(RuntimeState* state) {
     for (const VExprContextSPtrs& exprs : _child_expr_lists) {
         RETURN_IF_ERROR(VExpr::open(exprs, state));
     }
-    _probe_columns.resize(_child_expr_lists[1].size());
+    // Add the if check only for compatible with old optimiser
+    if (_child_expr_lists.size() > 1) {
+        _probe_columns.resize(_child_expr_lists[1].size());
+    }
     return Status::OK();
 }
 
@@ -326,8 +329,8 @@ void VSetOperationNode<is_intersect>::hash_table_init() {
     bool has_null = false;
     int key_byte_size = 0;
 
-    _probe_key_sz.resize(_child_expr_lists[1].size());
     _build_key_sz.resize(_child_expr_lists[0].size());
+    _probe_key_sz.resize(_child_expr_lists[0].size());
     for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
         const auto vexpr = _child_expr_lists[0][i]->root();
         const auto& data_type = vexpr->data_type();
@@ -407,6 +410,7 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, 
                         *_hash_table_variants);
             }
             _build_finished = true;
+            _can_read = _children.size() == 1;
         }
     }
     return Status::OK();
@@ -530,11 +534,14 @@ Status VSetOperationNode<is_intersect>::sink_probe(RuntimeState* state, int chil
                 *_hash_table_variants));
     }
 
-    return eos ? finalize_probe(state, child_id) : Status::OK();
+    if (eos) {
+        _finalize_probe(child_id);
+    }
+    return Status::OK();
 }
 
 template <bool is_intersect>
-Status VSetOperationNode<is_intersect>::finalize_probe(RuntimeState* /*state*/, int child_id) {
+void VSetOperationNode<is_intersect>::_finalize_probe(int child_id) {
     if (child_id != (_children.size() - 1)) {
         refresh_hash_table();
         if constexpr (is_intersect) {
@@ -554,7 +561,6 @@ Status VSetOperationNode<is_intersect>::finalize_probe(RuntimeState* /*state*/, 
         _can_read = true;
     }
     _probe_finished_children_index[child_id] = true;
-    return Status::OK();
 }
 
 template <bool is_intersect>

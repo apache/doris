@@ -60,7 +60,7 @@ public class TableProperty implements Writable {
     private boolean isInMemory = false;
 
     private String storagePolicy = "";
-    private Boolean ccrEnable = null;
+    private Boolean isBeingSynced = null;
     private BinlogConfig binlogConfig;
     private boolean isDynamicSchema = false;
 
@@ -85,6 +85,17 @@ public class TableProperty implements Writable {
     private boolean storeRowColumn = false;
 
     private boolean skipWriteIndexOnLoad = false;
+
+    private String compactionPolicy = PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY;
+
+    private long timeSeriesCompactionGoalSizeMbytes
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
+
+    private long timeSeriesCompactionFileCountThreshold
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
+
+    private long timeSeriesCompactionTimeThresholdSeconds
+                                    = PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -112,7 +123,7 @@ public class TableProperty implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
                 buildStoragePolicy();
-                buildCcrEnable();
+                buildIsBeingSynced();
                 break;
             default:
                 break;
@@ -214,6 +225,51 @@ public class TableProperty implements Writable {
         return skipWriteIndexOnLoad;
     }
 
+    public TableProperty buildCompactionPolicy() {
+        compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY,
+                                                                PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+        return this;
+    }
+
+    public String compactionPolicy() {
+        return compactionPolicy;
+    }
+
+    public TableProperty buildTimeSeriesCompactionGoalSizeMbytes() {
+        timeSeriesCompactionGoalSizeMbytes = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE)));
+        return this;
+    }
+
+    public long timeSeriesCompactionGoalSizeMbytes() {
+        return timeSeriesCompactionGoalSizeMbytes;
+    }
+
+    public TableProperty buildTimeSeriesCompactionFileCountThreshold() {
+        timeSeriesCompactionFileCountThreshold = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE)));
+
+        return this;
+    }
+
+    public long timeSeriesCompactionFileCountThreshold() {
+        return timeSeriesCompactionFileCountThreshold;
+    }
+
+    public TableProperty buildTimeSeriesCompactionTimeThresholdSeconds() {
+        timeSeriesCompactionTimeThresholdSeconds = Long.parseLong(properties
+                    .getOrDefault(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                    String.valueOf(PropertyAnalyzer.TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE)));
+
+        return this;
+    }
+
+    public long timeSeriesCompactionTimeThresholdSeconds() {
+        return timeSeriesCompactionTimeThresholdSeconds;
+    }
+
     public TableProperty buildStoragePolicy() {
         storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
         return this;
@@ -223,16 +279,27 @@ public class TableProperty implements Writable {
         return storagePolicy;
     }
 
-    public TableProperty buildCcrEnable() {
-        ccrEnable = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, "false"));
+    public TableProperty buildIsBeingSynced() {
+        isBeingSynced = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false"));
         return this;
     }
 
-    public boolean isCcrEnable() {
-        if (ccrEnable == null) {
-            buildCcrEnable();
+    public void setIsBeingSynced() {
+        properties.put(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "true");
+        isBeingSynced = true;
+    }
+
+    public boolean isBeingSynced() {
+        if (isBeingSynced == null) {
+            buildIsBeingSynced();
         }
-        return ccrEnable;
+        return isBeingSynced;
+    }
+
+    public void removeInvalidProperties() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
     }
 
     public TableProperty buildBinlogConfig() {
@@ -389,7 +456,7 @@ public class TableProperty implements Writable {
 
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
-                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true"));
+                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
     }
 
     public void setSequenceMapCol(String colName) {
@@ -429,11 +496,15 @@ public class TableProperty implements Writable {
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
-                .buildCcrEnable()
+                .buildIsBeingSynced()
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
                 .buildSkipWriteIndexOnLoad()
+                .buildCompactionPolicy()
+                .buildTimeSeriesCompactionGoalSizeMbytes()
+                .buildTimeSeriesCompactionFileCountThreshold()
+                .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {

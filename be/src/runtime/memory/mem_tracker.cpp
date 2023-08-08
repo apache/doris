@@ -24,42 +24,19 @@
 
 #include <mutex>
 
-#include "common/daemon.h"
+#include "bvar/bvar.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
 
-struct TrackerGroup {
-    std::list<MemTracker*> trackers;
-    std::mutex group_lock;
-};
+bvar::Adder<int64_t> g_memtracker_cnt("memtracker_cnt");
 
 // Save all MemTrackers in use to maintain the weak relationship between MemTracker and MemTrackerLimiter.
 // When MemTrackerLimiter prints statistics, all MemTracker statistics with weak relationship will be printed together.
 // Each group corresponds to several MemTrackerLimiters and has a lock.
 // Multiple groups are used to reduce the impact of locks.
-static std::vector<TrackerGroup> mem_tracker_pool(1000);
-
-MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
-                       const std::string& profile_counter_name)
-        : _label(label) {
-    _consumption = std::make_shared<MemCounter>();
-    if (profile != nullptr) {
-        // By default, memory consumption is tracked via calls to consume()/release(), either to
-        // the tracker itself or to one of its descendents. Alternatively, a consumption metric
-        // can be specified, and then the metric's value is used as the consumption rather than
-        // the tally maintained by consume() and release(). A tcmalloc metric is used to track
-        // process memory consumption, since the process memory usage may be higher than the
-        // computed total memory (tcmalloc does not release deallocated memory immediately).
-        // Other consumption metrics are used in trackers below the process level to account
-        // for memory (such as free buffer pool buffers) that is not tracked by consume() and
-        // release().
-        _profile_counter =
-                profile->AddSharedHighWaterMarkCounter(profile_counter_name, TUnit::BYTES);
-    }
-    bind_parent(parent); // at the end
-}
+std::vector<MemTracker::TrackerGroup> MemTracker::mem_tracker_pool(1000);
 
 MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent) : _label(label) {
     _consumption = std::make_shared<MemCounter>();
@@ -79,24 +56,17 @@ void MemTracker::bind_parent(MemTrackerLimiter* parent) {
         _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.insert(
                 mem_tracker_pool[_parent_group_num].trackers.end(), this);
     }
+    g_memtracker_cnt << 1;
 }
 
 MemTracker::~MemTracker() {
-    if (_parent_group_num != -1 && !k_doris_exit) {
+    if (_parent_group_num != -1) {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
         if (_tracker_group_it != mem_tracker_pool[_parent_group_num].trackers.end()) {
             mem_tracker_pool[_parent_group_num].trackers.erase(_tracker_group_it);
             _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.end();
         }
-    }
-}
-
-void MemTracker::refresh_all_tracker_profile() {
-    for (unsigned i = 0; i < mem_tracker_pool.size(); ++i) {
-        std::lock_guard<std::mutex> l(mem_tracker_pool[i].group_lock);
-        for (auto tracker : mem_tracker_pool[i].trackers) {
-            tracker->refresh_profile_counter();
-        }
+        g_memtracker_cnt << -1;
     }
 }
 

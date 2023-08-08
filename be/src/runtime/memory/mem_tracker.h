@@ -34,7 +34,6 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/pretty_printer.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -55,6 +54,11 @@ public:
         int64_t limit = 0;
         int64_t cur_consumption = 0;
         int64_t peak_consumption = 0;
+    };
+
+    struct TrackerGroup {
+        std::list<MemTracker*> trackers;
+        std::mutex group_lock;
     };
 
     // A counter that keeps track of the current and peak value seen.
@@ -109,8 +113,6 @@ public:
     };
 
     // Creates and adds the tracker to the mem_tracker_pool.
-    MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
-               const std::string& profile_counter_name);
     MemTracker(const std::string& label, MemTrackerLimiter* parent = nullptr);
     // For MemTrackerLimiter
     MemTracker() { _parent_group_num = -1; }
@@ -145,14 +147,6 @@ public:
 
     void set_consumption(int64_t bytes) { _consumption->set(bytes); }
 
-    void refresh_profile_counter() {
-        if (_profile_counter) {
-            _profile_counter->set(_consumption->current_value());
-        }
-    }
-
-    static void refresh_all_tracker_profile();
-
 public:
     virtual Snapshot make_snapshot() const;
     // Specify group_num from mem_tracker_pool to generate snapshot.
@@ -175,12 +169,13 @@ protected:
     std::string _label;
 
     std::shared_ptr<MemCounter> _consumption;
-    std::shared_ptr<RuntimeProfile::HighWaterMarkCounter> _profile_counter;
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _parent_group_num = 0;
     // Use _parent_label to correlate with parent limiter tracker.
     std::string _parent_label = "-";
+
+    static std::vector<TrackerGroup> mem_tracker_pool;
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;

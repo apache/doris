@@ -78,6 +78,7 @@ planType
     | REWRITTEN | LOGICAL  // same type
     | OPTIMIZED | PHYSICAL   // same type
     | SHAPE
+    | MEMO
     | ALL // default type
     ;
 
@@ -376,7 +377,11 @@ primaryExpression
       source=valueExpression RIGHT_PAREN                                                       #extract
     ;
 
-functionIdentifier
+functionIdentifier 
+    : (dbName=identifier DOT)? functionNameIdentifier
+    ;
+
+functionNameIdentifier
     : identifier
     | LEFT | RIGHT
     ;
