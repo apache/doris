@@ -10,7 +10,7 @@
         },
         {
             "type": "category",
-            "label": "Install And Deploy",
+            "label": "Install and Deploy",
             "items": [
                 "install/standard-deployment",
                 {
