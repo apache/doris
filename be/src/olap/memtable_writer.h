@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "olap/memtable_writer.h"
+#include "olap/memtable.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
@@ -49,49 +49,44 @@ class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
 class RowsetWriter;
+struct FlushStatistic;
 
 namespace vectorized {
 class Block;
 } // namespace vectorized
 
-struct WriteRequest : MemTableWriter::WriteRequest {
-    int32_t schema_hash;
-    int64_t txn_id;
-    int64_t partition_id;
-    int64_t index_id = 0;
-    OlapTableSchemaParam* table_schema_param;
-};
+enum MemType { WRITE = 1, FLUSH = 2, ALL = 3 };
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
-class DeltaWriter {
+class MemTableWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer, RuntimeProfile* profile,
-                       const UniqueId& load_id = TUniqueId());
+    struct WriteRequest {
+        int64_t tablet_id;
+        PUniqueId load_id;
+        TupleDescriptor* tuple_desc;
+        // slots are in order of tablet's schema
+        const std::vector<SlotDescriptor*>* slots;
+        bool is_high_priority = false;
+    };
 
-    ~DeltaWriter();
+    MemTableWriter(const WriteRequest& req, RuntimeProfile* profile);
 
-    Status init();
+    ~MemTableWriter();
+
+    Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
+                bool unique_key_mow = false);
 
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
                  bool is_append = false);
 
     Status append(const vectorized::Block* block);
 
-    // flush the last memtable to flush queue, must call it before build_rowset()
+    // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status build_rowset();
-    Status submit_calc_delete_bitmap_task();
-    Status wait_calc_delete_bitmap();
-    Status commit_txn(const PSlaveTabletNodes& slave_tablet_nodes, const bool write_single_replica);
-
-    bool check_slave_replicas_done(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
-                                           success_slave_tablet_node_ids);
-
-    void add_finished_slave_replicas(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
-                                             success_slave_tablet_node_ids);
+    Status close_wait();
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -105,72 +100,62 @@ public:
     // Otherwise, it will just put memtables to the flush queue and return.
     Status flush_memtable_and_wait(bool need_wait);
 
-    int64_t partition_id() const;
-
     int64_t mem_consumption(MemType mem);
     int64_t active_memtable_mem_consumption();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
-    int64_t tablet_id() { return _tablet->tablet_id(); }
-
-    int64_t txn_id() { return _req.txn_id; }
-
-    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
+    int64_t tablet_id() { return _req.tablet_id; }
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
-    int64_t num_rows_filtered() const;
-
-    // For UT
-    DeleteBitmapPtr get_delete_bitmap() { return _delete_bitmap; }
+    const FlushStatistic& get_flush_token_stats();
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
-                const UniqueId& load_id);
+    // push a full memtable to flush executor
+    Status _flush_memtable_async();
 
-    void _garbage_collection();
-
-    void _build_current_tablet_schema(int64_t index_id,
-                                      const OlapTableSchemaParam* table_schema_param,
-                                      const TabletSchema& ori_tablet_schema);
-
-    void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
+    void _reset_mem_table();
 
     void _init_profile(RuntimeProfile* profile);
 
     bool _is_init = false;
     bool _is_cancelled = false;
+    bool _is_closed = false;
+    Status _cancel_status;
     WriteRequest _req;
-    TabletSharedPtr _tablet;
-    RowsetSharedPtr _cur_rowset;
     std::shared_ptr<RowsetWriter> _rowset_writer;
-    MemTableWriter _memtable_writer;
+    std::unique_ptr<MemTable> _mem_table;
     TabletSchemaSPtr _tablet_schema;
-    bool _delta_written_success;
+    bool _unique_key_mow = false;
 
-    StorageEngine* _storage_engine;
-    UniqueId _load_id;
+    std::unique_ptr<FlushToken> _flush_token;
+    std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
+    std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
+    SpinLock _mem_table_tracker_lock;
+    std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
 
-    std::unordered_set<int64_t> _unfinished_slave_node;
-    PSuccessSlaveTabletNodeIds _success_slave_node_ids;
-    std::shared_mutex _slave_node_lock;
-
-    DeleteBitmapPtr _delete_bitmap = nullptr;
-    std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
-    // current rowset_ids, used to do diff in publish_version
-    RowsetIdUnorderedSet _rowset_ids;
-    // current max version, used to calculate delete bitmap
-    int64_t _cur_max_version;
-
-    // total rows num written by DeltaWriter
+    // total rows num written by MemTableWriter
     int64_t _total_received_rows = 0;
 
     RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _lock_timer = nullptr;
+    RuntimeProfile::Counter* _sort_timer = nullptr;
+    RuntimeProfile::Counter* _agg_timer = nullptr;
+    RuntimeProfile::Counter* _wait_flush_timer = nullptr;
+    RuntimeProfile::Counter* _delete_bitmap_timer = nullptr;
+    RuntimeProfile::Counter* _segment_writer_timer = nullptr;
+    RuntimeProfile::Counter* _memtable_duration_timer = nullptr;
+    RuntimeProfile::Counter* _put_into_output_timer = nullptr;
+    RuntimeProfile::Counter* _sort_times = nullptr;
+    RuntimeProfile::Counter* _agg_times = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _segment_num = nullptr;
+    RuntimeProfile::Counter* _raw_rows_num = nullptr;
+    RuntimeProfile::Counter* _merged_rows_num = nullptr;
 
     MonotonicStopWatch _lock_watch;
 };
