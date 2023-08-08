@@ -23,6 +23,7 @@ import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Stopwatch;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class FederationBackendPolicyTest {
     @Mocked
@@ -39,23 +41,19 @@ public class FederationBackendPolicyTest {
 
     @Before
     public void setUp() {
-        Backend backend1 = new Backend(1L, "192.168.1.1", 9050);
-        backend1.setAlive(true);
-
-        Backend backend2 = new Backend(2L, "192.168.1.2", 9050);
-        backend2.setAlive(true);
-
-        Backend backend3 = new Backend(3L, "192.168.1.3", 9050);
-        backend3.setAlive(true);
-
-        Backend backend4 = new Backend(4L, "192.168.1.4", 9050);
-        backend4.setAlive(false);
 
         SystemInfoService service = new SystemInfoService();
-        service.addBackend(backend1);
-        service.addBackend(backend2);
-        service.addBackend(backend3);
-        service.addBackend(backend4);
+
+        for (int i = 0; i < 200; i++) {
+            Backend backend = new Backend(Long.valueOf(i), "192.168.1." + i, 9050);
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        for (int i = 0; i < 10; i++) {
+            Backend backend = new Backend(Long.valueOf(200 + i), "192.168.2." + i, 9050);
+            backend.setAlive(false);
+            service.addBackend(backend);
+        }
 
         new MockUp<Env>() {
             @Mock
@@ -70,20 +68,32 @@ public class FederationBackendPolicyTest {
     public void testGetNextBe() throws UserException {
         FederationBackendPolicy policy = new FederationBackendPolicy();
         policy.init();
-        Assertions.assertTrue(policy.numBackends() == 3);
-        for (int i = 0; i < policy.numBackends(); i++) {
-            Assertions.assertNotEquals(policy.getNextBe().getHost(), "192.168.1.4");
+        int backendNum = 200;
+        int invokeTimes = 10000;
+        Assertions.assertEquals(policy.numBackends(), backendNum);
+        Stopwatch sw = Stopwatch.createStarted();
+        for (int i = 0; i < invokeTimes; i++) {
+            Assertions.assertFalse(policy.getNextBe().getHost().contains("192.168.2."));
         }
+        sw.stop();
+        System.out.println("Invoke getNextBe() " + invokeTimes
+                    + " times cost [" + sw.elapsed(TimeUnit.SECONDS) + "] seconds");
     }
 
     @Test
     public void testGetNextLocalBe() throws UserException {
         FederationBackendPolicy policy = new FederationBackendPolicy();
         policy.init();
-        Assertions.assertTrue(policy.numBackends() == 3);
-        List<String> localHosts = Arrays.asList("192.168.1.3");
-        for (int i = 0; i < 100; i++) {
-            Assertions.assertEquals(policy.getNextLocalBe(localHosts).getHost(), "192.168.1.3");
+        int backendNum = 200;
+        int invokeTimes = 10000;
+        Assertions.assertEquals(policy.numBackends(), backendNum);
+        List<String> localHosts = Arrays.asList("192.168.1.197", "192.168.1.198", "192.168.1.199");
+        Stopwatch sw = Stopwatch.createStarted();
+        for (int i = 0; i < invokeTimes; i++) {
+            Assertions.assertTrue(localHosts.contains(policy.getNextLocalBe(localHosts).getHost()));
         }
+        sw.stop();
+        System.out.println("Invoke getNextLocalBe() " + invokeTimes
+                    + " times cost [" + sw.elapsed(TimeUnit.SECONDS) + "] seconds");
     }
 }
