@@ -75,17 +75,20 @@ public:
         return static_cast<Ctx*>(this)->read_line_impl(start, len);
     }
 
+    [[nodiscard]] inline size_t line_delimiter_length() const final { return line_delimiter_len; }
+
+    inline void refresh() final { return static_cast<Ctx*>(this)->refresh_impl(); };
+
 protected:
     template <bool SingleChar>
     inline static const uint8_t* look_for_line_delimiter(const uint8_t* curr_start, size_t curr_len,
                                                          const char* line_delim,
                                                          size_t line_delim_len) {
-        // if constexpr (SingleChar) {
-        //     return (uint8_t*)memchr(curr_start, line_delim[0], curr_len);
-        // } else {
-        //     return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
-        // }
-        return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
+        if constexpr (SingleChar) {
+            return (uint8_t*)memchr(curr_start, line_delim[0], curr_len);
+        } else {
+            return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
+        }
     }
 
     FindDelimiterFunc find_line_delim_func;
@@ -94,7 +97,7 @@ protected:
     const size_t line_delimiter_len;
 };
 
-class PlainTextLineReaderCtx : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
+class PlainTextLineReaderCtx final : public BaseTextLineReaderContext<PlainTextLineReaderCtx> {
 public:
     explicit PlainTextLineReaderCtx(const std::string& line_delimiter_,
                                     const size_t line_delimiter_len_)
@@ -104,11 +107,7 @@ public:
         return find_line_delim_func(start, length, line_delimiter.c_str(), line_delimiter_len);
     }
 
-    [[nodiscard]] inline size_t line_delimiter_length() const override {
-        return line_delimiter_len;
-    }
-
-    inline void refresh() override {}
+    inline void refresh_impl() {}
 };
 
 enum class ReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
@@ -153,7 +152,7 @@ public:
         _column_sep_positions.reserve(col_sep_num);
     }
 
-    inline void refresh() override {
+    inline void refresh_impl() {
         _idx = 0;
         _result = nullptr;
         _column_sep_positions.clear();
@@ -162,10 +161,6 @@ public:
 
     [[nodiscard]] inline const std::vector<size_t> column_sep_positions() const {
         return _column_sep_positions;
-    }
-
-    [[nodiscard]] inline size_t line_delimiter_length() const override {
-        return line_delimiter_len;
     }
 
     const uint8_t* read_line_impl(const uint8_t* start, size_t length);
