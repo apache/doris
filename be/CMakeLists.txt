@@ -203,7 +203,7 @@ target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
 target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
-    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict 
+    ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
     DESTINATION ${OUTPUT_DIR})
 
 # Check if functions are supported in this platform. All flags will generated
@@ -263,7 +263,7 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 16")
     endif()
 
-    add_compile_options(-fcolor-diagnostics 
+    add_compile_options(-fcolor-diagnostics
                         -Wpedantic
                         -Wunused
                         -Wunused-command-line-argument
@@ -420,7 +420,7 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
 )
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "") 
+if ("${DORIS_JAVA_HOME}" STREQUAL "")
     set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
 endif()
 
@@ -593,7 +593,7 @@ if (OS_MACOSX)
     )
 endif()
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         benchmark
@@ -722,7 +722,7 @@ if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLA
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
 endif ()
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     add_compile_options(-fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
     if (NOT OS_MACOSX)
@@ -751,7 +751,7 @@ else()
     message(STATUS "Link Flags: ${TEST_LINK_LIBS}")
 endif()
 
-if (ENABLE_PCH) 
+if (ENABLE_PCH)
     add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
     target_precompile_headers(
         pch
@@ -783,11 +783,13 @@ add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/udf)
 
-if (BUILD_META_TOOL AND BUILD_META_TOOL STREQUAL "ON")
+option(BUILD_META_TOOL "Build meta tool" OFF)
+if (BUILD_META_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
-if (BUILD_INDEX_TOOL AND BUILD_INDEX_TOOL STREQUAL "ON")
+option(BUILD_INDEX_TOOL "Build index tool" OFF)
+if (BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/index-tools)
 endif()
 
@@ -795,7 +797,7 @@ add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
 add_subdirectory(${SRC_DIR}/pipeline)
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
 
