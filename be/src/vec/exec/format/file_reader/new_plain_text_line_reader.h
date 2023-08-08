@@ -63,13 +63,7 @@ class BaseTextLineReaderContext : public TextLineReaderContextIf {
 public:
     explicit BaseTextLineReaderContext(const std::string& line_delimiter_,
                                        const size_t line_delimiter_len_)
-            : line_delimiter(line_delimiter_), line_delimiter_len(line_delimiter_len_) {
-        if (line_delimiter_len == 1) {
-            find_line_delim_func = &BaseTextLineReaderContext::look_for_line_delimiter<true>;
-        } else {
-            find_line_delim_func = &BaseTextLineReaderContext::look_for_line_delimiter<false>;
-        }
-    }
+            : line_delimiter(line_delimiter_), line_delimiter_len(line_delimiter_len_) {}
 
     inline const uint8_t* read_line(const uint8_t* start, const size_t len) final {
         return static_cast<Ctx*>(this)->read_line_impl(start, len);
@@ -80,19 +74,6 @@ public:
     inline void refresh() final { return static_cast<Ctx*>(this)->refresh_impl(); };
 
 protected:
-    template <bool SingleChar>
-    inline static const uint8_t* look_for_line_delimiter(const uint8_t* curr_start, size_t curr_len,
-                                                         const char* line_delim,
-                                                         size_t line_delim_len) {
-        if constexpr (SingleChar) {
-            return (uint8_t*)memchr(curr_start, line_delim[0], curr_len);
-        } else {
-            return (uint8_t*)memmem(curr_start, curr_len, line_delim, line_delim_len);
-        }
-    }
-
-    FindDelimiterFunc find_line_delim_func;
-
     const std::string line_delimiter;
     const size_t line_delimiter_len;
 };
@@ -104,7 +85,7 @@ public:
             : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_) {}
 
     inline const uint8_t* read_line_impl(const uint8_t* start, const size_t length) {
-        return find_line_delim_func(start, length, line_delimiter.c_str(), line_delimiter_len);
+        return (uint8_t*)memmem(start, length, line_delimiter.c_str(), line_delimiter_len);
     }
 
     inline void refresh_impl() {}
@@ -225,10 +206,6 @@ private:
     }
 
     bool done() { return _file_eof && output_buf_read_remaining() == 0; }
-
-    // find line delimiter from 'start' to 'start' + len,
-    // return line delimiter pos if found, otherwise return nullptr.
-    const uint8_t* update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len);
 
     void extend_input_buf();
     void extend_output_buf();

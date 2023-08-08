@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <memory>
 #include <ostream>
 
@@ -81,8 +82,8 @@ void EncloseCsvLineReaderContext::on_col_sep_found(const uint8_t* start,
 }
 
 size_t EncloseCsvLineReaderContext::update_reading_bound(const uint8_t* start) {
-    _result = find_line_delim_func(start + _idx, _total_len - _idx, line_delimiter.c_str(),
-                                   line_delimiter_len);
+    _result = (uint8_t*)memmem(start + _idx, _total_len - _idx, line_delimiter.c_str(),
+                               line_delimiter_len);
     if (_result == nullptr) {
         return _total_len;
     }
@@ -237,11 +238,6 @@ inline bool NewPlainTextLineReader::update_eof() {
         _eof = true;
     }
     return _eof;
-}
-
-const uint8_t* NewPlainTextLineReader::update_field_pos_and_find_line_delimiter(
-        const uint8_t* start, size_t len) {
-    return _line_reader_ctx->read_line(start, len);
 }
 
 // extend input buf if necessary only when _more_input_bytes > 0
