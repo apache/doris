@@ -401,7 +401,13 @@ void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const 
             LOG(WARNING) << "File IO Write error: " << st.to_string();
         }
     } else {
-        LOG(WARNING) << "File writer is nullptr, ignore flush.";
+        if (writer == nullptr) {
+            LOG(WARNING) << "File writer is nullptr in DorisCompoundDirectory::FSIndexOutput, "
+                            "ignore flush.";
+        } else if (b == nullptr) {
+            LOG(WARNING) << "buffer is nullptr when flushBuffer in "
+                            "DorisCompoundDirectory::FSIndexOutput";
+        }
     }
 }
 
