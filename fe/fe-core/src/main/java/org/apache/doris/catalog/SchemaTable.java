@@ -423,6 +423,26 @@ public class SchemaTable extends Table {
                             .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                             .build()))
+            .put("profiling", new SchemaTable(SystemIdGenerator.getNextId(), "profiling", TableType.SCHEMA,
+                    builder().column("QUERY_ID", ScalarType.createType(PrimitiveType.INT))
+                            .column("SEQ", ScalarType.createType(PrimitiveType.INT))
+                            .column("STATE", ScalarType.createVarchar(30))
+                            .column("DURATION", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("CPU_USER", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("CPU_SYSTEM", ScalarType.createType(PrimitiveType.DOUBLE))
+                            .column("CONTEXT_VOLUNTARY", ScalarType.createType(PrimitiveType.INT))
+                            .column("CONTEXT_INVOLUNTARY", ScalarType.createType(PrimitiveType.INT))
+                            .column("BLOCK_OPS_IN", ScalarType.createType(PrimitiveType.INT))
+                            .column("BLOCK_OPS_OUT", ScalarType.createType(PrimitiveType.INT))
+                            .column("MESSAGES_SENT", ScalarType.createType(PrimitiveType.INT))
+                            .column("MESSAGES_RECEIVED", ScalarType.createType(PrimitiveType.INT))
+                            .column("PAGE_FAULTS_MAJOR", ScalarType.createType(PrimitiveType.INT))
+                            .column("PAGE_FAULTS_MINOR", ScalarType.createType(PrimitiveType.INT))
+                            .column("SWAPS", ScalarType.createType(PrimitiveType.INT))
+                            .column("SOURCE_FUNCTION", ScalarType.createVarchar(30))
+                            .column("SOURCE_FILE", ScalarType.createVarchar(20))
+                            .column("SOURCE_LINE", ScalarType.createType(PrimitiveType.INT))
+                            .build()))
             .build();
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

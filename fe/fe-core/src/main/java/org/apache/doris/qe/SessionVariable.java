@@ -135,6 +135,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_STORAGE_ENGINE = "default_storage_engine";
     public static final String DEFAULT_TMP_STORAGE_ENGINE = "default_tmp_storage_engine";
 
+    // Compatible with  mysql
+    public static final String PROFILLING = "profiling";
+
     public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
     // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
@@ -726,6 +729,8 @@ public class SessionVariable implements Serializable, Writable {
     public int getBeNumberForTest() {
         return beNumberForTest;
     }
+    @VariableMgr.VarAttr(name = PROFILLING)
+    public boolean profiling = false;
 
     public void setBeNumberForTest(int beNumberForTest) {
         this.beNumberForTest = beNumberForTest;
