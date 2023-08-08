@@ -774,7 +774,7 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
         if (stop) {
             break;
         }
-        if (config.generate_cache_cleaner_task_interval_sec <= 0) {
+        if (config::generate_cache_cleaner_task_interval_sec <= 0) {
             continue;
         }
         LOG(INFO) << "Begin to Clean cache files";
