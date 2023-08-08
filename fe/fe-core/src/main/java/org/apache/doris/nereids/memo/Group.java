@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -217,6 +216,10 @@ public class Group {
         enforcers.add(enforcer);
     }
 
+    public List<GroupExpression> getEnforcers() {
+        return enforcers;
+    }
+
     /**
      * Set or update lowestCostPlans: properties --> Pair.of(cost, expression)
      */
@@ -316,10 +319,11 @@ public class Group {
         // move parentExpressions Ownership
         parentExpressions.keySet().forEach(parent -> target.addParentExpression(parent));
 
-        // TODO: dedup?
         // move enforcers Ownership
         enforcers.forEach(ge -> ge.children().set(0, target));
+        // TODO: dedup?
         enforcers.forEach(enforcer -> target.addEnforcer(enforcer));
+        enforcers.clear();
 
         // move LogicalExpression PhysicalExpression Ownership
         Map<GroupExpression, GroupExpression> logicalSet = target.getLogicalExpressions().stream()
@@ -351,15 +355,7 @@ public class Group {
         physicalExpressions.clear();
 
         // Above we already replaceBestPlanGroupExpr, but we still need to moveLowestCostPlansOwnership.
-        // Because PhysicalEnforcer don't exist in physicalExpressions, so above `replaceBestPlanGroupExpr` can't
-        // move PhysicalEnforcer in lowestCostPlans. Following code can move PhysicalEnforcer in lowestCostPlans.
         lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
-            GroupExpression bestGroupExpression = costAndGroupExpr.second;
-            if (bestGroupExpression.getOwnerGroup() == this || bestGroupExpression.getOwnerGroup() == null) {
-                // move PhysicalEnforcer into target
-                Preconditions.checkState(bestGroupExpression.getPlan() instanceof PhysicalDistribute);
-                bestGroupExpression.setOwnerGroup(target);
-            }
             // move lowestCostPlans Ownership
             if (!target.lowestCostPlans.containsKey(physicalProperties)) {
                 target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
