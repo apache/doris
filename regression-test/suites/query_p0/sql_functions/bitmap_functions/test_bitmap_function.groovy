@@ -690,4 +690,129 @@ suite("test_bitmap_function") {
             test_bitmap1;
     """
 
+    sql """
+        drop TABLE if exists test_bitmap_intersect;
+    """
+
+    sql """
+        CREATE TABLE test_bitmap_intersect (
+            dt1 date NOT NULL,
+            dt2 date NOT NULL,
+            id varchar(256) NULL,
+            type smallint(6) MAX NULL,
+            id_bitmap bitmap BITMAP_UNION NULL
+        ) ENGINE = OLAP AGGREGATE KEY(dt1, dt2, id) PARTITION BY RANGE(dt1) (
+            PARTITION p20230725
+            VALUES
+                [('2023-07-25'), ('2023-07-26')))
+        DISTRIBUTED BY HASH(dt1, dt2) BUCKETS 1 properties("replication_num"="1");
+    """
+
+    sql """
+        insert into test_bitmap_intersect
+            select
+                str_to_date('2023-07-25','%Y-%m-%d') as dt1,
+                str_to_date('2023-07-25','%Y-%m-%d') as dt2,
+                'aaaaaaaaaa' as id,
+                1 as type,
+                BITMAP_HASH64('aaaaaaaaaa') as id_bitmap;
+    """
+    qt_sql_bitmap_intersect_check0 """
+        select intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+    qt_sql_bitmap_intersect_check1 """
+        select bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_bitmap_intersect;
+    """
+    qt_sql_bitmap_intersect_check2 """
+        select orthogonal_bitmap_intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+
+    // test function intersect_count
+    // test nereids
+    sql """ set experimental_enable_nereids_planner=true; """
+    // test pipeline
+    sql """ set experimental_enable_pipeline_engine=true; """
+    qt_sql_bitmap_intersect_nereids0 """
+        select count(distinct if(type=1, id,null)) as count1,
+            intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+    sql """ set experimental_enable_pipeline_engine=false; """
+    qt_sql_bitmap_intersect_nereids1 """
+        select count(distinct if(type=1, id,null)) as count1,
+            intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+
+    // test not nereids
+    sql """ set experimental_enable_nereids_planner=false; """
+    // test pipeline
+    sql """ set experimental_enable_pipeline_engine=true; """
+    qt_sql_bitmap_intersect_no_nereids0 """
+        select count(distinct if(type=1, id,null)) as count1,
+            intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+    sql """ set experimental_enable_pipeline_engine=false; """
+    qt_sql_bitmap_intersect_no_nereids1 """
+        select count(distinct if(type=1, id,null)) as count1,
+            intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+
+    // test function orthogonal_bitmap_intersect
+    // test nereids
+    sql """ set experimental_enable_nereids_planner=true; """
+    // TODO: case will stuck untile timeout, enable it when pipeline bug is fixed
+    // test pipeline
+    // sql """ set experimental_enable_pipeline_engine=true; """
+    // qt_sql_orthogonal_bitmap_intersect_nereids0 """
+    //     select count(distinct if(type=1, id,null)) as count1,
+    //         bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_bitmap_intersect;
+    // """
+    sql """ set experimental_enable_pipeline_engine=false; """
+    qt_sql_orthogonal_bitmap_intersect_nereids1 """
+        select count(distinct if(type=1, id,null)) as count1,
+            bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_bitmap_intersect;
+    """
+
+    // test not nereids
+    sql """ set experimental_enable_nereids_planner=false; """
+    // TODO: case will stuck untile timeout, enable it when pipeline bug is fixed
+    // test pipeline
+    // sql """ set experimental_enable_pipeline_engine=true; """
+    // qt_sql_orthogonal_bitmap_intersect_not_nereids0 """
+    //     select count(distinct if(type=1, id,null)) as count1,
+    //         bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_bitmap_intersect;
+    // """
+    sql """ set experimental_enable_pipeline_engine=false; """
+    qt_sql_orthogonal_bitmap_intersect_not_nereids1 """
+        select count(distinct if(type=1, id,null)) as count1,
+            bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_bitmap_intersect;
+    """
+
+    // test function orthogonal_bitmap_intersect_count
+    // test nereids
+    sql """ set experimental_enable_nereids_planner=true; """
+    // test pipeline
+    sql """ set experimental_enable_pipeline_engine=true; """
+    qt_sql_orthogonal_bitmap_intersect_count_nereids0 """
+        select count(distinct if(type=1, id,null)) as count1,
+            orthogonal_bitmap_intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+    sql """ set experimental_enable_pipeline_engine=false; """
+    qt_sql_orthogonal_bitmap_intersect_count_nereids1 """
+        select count(distinct if(type=1, id,null)) as count1,
+            orthogonal_bitmap_intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+
+    // test not nereids
+    sql """ set experimental_enable_nereids_planner=false; """
+    // test pipeline
+    sql """ set experimental_enable_pipeline_engine=true; """
+    qt_sql_orthogonal_bitmap_intersect_count_not_nereids0 """
+        select count(distinct if(type=1, id,null)) as count1,
+            orthogonal_bitmap_intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
+    sql """ set experimental_enable_pipeline_engine=false; """
+    qt_sql_orthogonal_bitmap_intersect_count_not_nereids1 """
+        select count(distinct if(type=1, id,null)) as count1,
+            orthogonal_bitmap_intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    """
 }
