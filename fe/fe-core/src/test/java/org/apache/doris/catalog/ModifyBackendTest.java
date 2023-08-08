@@ -149,13 +149,13 @@ public class ModifyBackendTest {
         // it will fail because of we check tag location during the analysis process, so we check AnalysisException
         String partName = tbl.getPartitionNames().stream().findFirst().get();
         String wrongAlterStr = "alter table test.tbl4 modify partition " + partName
-            + " set ('replication_allocation' = 'tag.location.zonex:1')";
+                + " set ('replication_allocation' = 'tag.location.zonex:1')";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = "
                 + "errCode = 2, detailMessage = Failed to find enough backend, "
                 + "please check the replication num,replication tag and storage medium.\n"
                 + "Create failed replications:\n"
                 + "replication tag: {\"location\" : \"zonex\"}, replication num: 1, storage medium: null",
-            () -> UtFrameUtils.parseAndAnalyzeStmt(wrongAlterStr, connectContext));
+                () -> UtFrameUtils.parseAndAnalyzeStmt(wrongAlterStr, connectContext));
         tblProperties = tableProperty.getProperties();
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
 
