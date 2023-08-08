@@ -23,8 +23,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import lombok.extern.slf4j.Slf4j;
 import mockit.Expectations;

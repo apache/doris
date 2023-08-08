@@ -20,8 +20,8 @@ package org.apache.doris.scheduler.disruptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.manager.TimerJobManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import mockit.Expectations;
 import mockit.Injectable;
