@@ -580,7 +580,7 @@ FROM data_source [data_source_properties]
    (
        "kafka_broker_list" = "broker1:9092,broker2:9092",
        "kafka_topic" = "my_topic",
-       "kafka_default_offset" = "2021-05-21 10:00:00"
+       "kafka_default_offsets" = "2021-05-21 10:00:00"
    );
    ```
 
