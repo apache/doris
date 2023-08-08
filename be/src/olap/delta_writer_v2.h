@@ -113,6 +113,8 @@ public:
 
     int32_t schema_hash() { return _req.schema_hash; }
 
+    MemTableWriter* get_memtable_writer() { return &_memtable_writer; }
+
     int64_t total_received_rows() const { return _total_received_rows; }
 
     void add_stream(brpc::StreamId stream) { _streams.push_back(stream); }

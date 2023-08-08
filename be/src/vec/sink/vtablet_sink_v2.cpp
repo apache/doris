@@ -154,6 +154,7 @@ void StreamSinkHandler::on_closed(brpc::StreamId id) {}
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
                                    const std::vector<TExpr>& texprs, Status* status)
         : _pool(pool), _input_row_desc(row_desc) {
+    _memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "VOlapTableSinkV2";
@@ -481,7 +482,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                 }
             }
             DeltaWriterV2::open(&wrequest, &delta_writer, _profile, _load_id);
-            // _table_sink_v2_mgr->register_writer(std::shared_ptr<DeltaWriterV2>(delta_writer));
+            _memtable_memory_limiter->register_writer(delta_writer->get_memtable_writer());
             for (auto stream : streams) {
                 delta_writer->add_stream(stream);
             }
@@ -494,7 +495,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
             delta_writer = it->second.get();
         }
     }
-    // _table_sink_v2_mgr->handle_memtable_flush();
+    _memtable_memory_limiter->handle_memtable_flush();
     auto st = delta_writer->write(block.get(), rows.row_idxes, false);
     return st;
 }
@@ -518,6 +519,10 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_filter_timer, _filter_ns);
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
+
+        for (const auto& it : *_delta_writer_for_tablet) {
+            _memtable_memory_limiter->deregister_writer(it.second->get_memtable_writer());
+        }
 
         // close all delta writers
         if (_delta_writer_for_tablet.use_count() == 1) {

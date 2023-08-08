@@ -258,6 +258,8 @@ private:
     bthread::Mutex _tablet_failure_map_mutex;
 
     friend class StreamSinkHandler;
+
+    MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 };
 
 } // namespace stream_load

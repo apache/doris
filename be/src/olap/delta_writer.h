@@ -117,6 +117,8 @@ public:
 
     int64_t txn_id() { return _req.txn_id; }
 
+    MemTableWriter* get_memtable_writer() { return &_memtable_writer; }
+
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
     int64_t total_received_rows() const { return _total_received_rows; }

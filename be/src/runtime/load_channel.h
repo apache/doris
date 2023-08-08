@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/delta_writer.h"
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
@@ -103,7 +104,8 @@ protected:
             auto tablet_channel_it = _tablets_channels.find(index_id);
             if (tablet_channel_it != _tablets_channels.end()) {
                 for (auto& writer_it : tablet_channel_it->second->get_tablet_writers()) {
-                    memtable_memory_limiter->deregister_writer(writer_it.second);
+                    memtable_memory_limiter->deregister_writer(
+                            writer_it.second->get_memtable_writer());
                 }
             }
         }
