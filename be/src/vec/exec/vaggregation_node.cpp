@@ -33,6 +33,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/telemetry/telemetry.h"
@@ -182,78 +183,56 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
     DCHECK(probe_exprs.size() >= 1);
+
+    using Type = AggregatedDataVariants::Type;
+    Type t(Type::serialized);
+
     if (probe_exprs.size() == 1) {
         auto is_nullable = probe_exprs[0]->root()->is_nullable();
         switch (probe_exprs[0]->root()->result_type()) {
         case TYPE_TINYINT:
         case TYPE_BOOLEAN:
-            _agg_data->init(AggregatedDataVariants::Type::int8_key, is_nullable);
-            return;
         case TYPE_SMALLINT:
-            _agg_data->init(AggregatedDataVariants::Type::int16_key, is_nullable);
-            return;
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
-            if (_is_first_phase)
-                _agg_data->init(AggregatedDataVariants::Type::int32_key, is_nullable);
-            else
-                _agg_data->init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
-            return;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_DATETIMEV2:
-            if (_is_first_phase)
-                _agg_data->init(AggregatedDataVariants::Type::int64_key, is_nullable);
-            else
-                _agg_data->init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
-            return;
-        case TYPE_LARGEINT: {
-            if (_is_first_phase)
-                _agg_data->init(AggregatedDataVariants::Type::int128_key, is_nullable);
-            else
-                _agg_data->init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
-            return;
-        }
+        case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL32:
         case TYPE_DECIMAL64:
         case TYPE_DECIMAL128I: {
-            DataTypePtr& type_ptr = probe_exprs[0]->root()->data_type();
-            TypeIndex idx = is_nullable ? assert_cast<const DataTypeNullable&>(*type_ptr)
-                                                  .get_nested_type()
-                                                  ->get_type_id()
-                                        : type_ptr->get_type_id();
-            WhichDataType which(idx);
-            if (which.is_decimal32()) {
-                if (_is_first_phase)
-                    _agg_data->init(AggregatedDataVariants::Type::int32_key, is_nullable);
-                else
-                    _agg_data->init(AggregatedDataVariants::Type::int32_key_phase2, is_nullable);
-            } else if (which.is_decimal64()) {
-                if (_is_first_phase)
-                    _agg_data->init(AggregatedDataVariants::Type::int64_key, is_nullable);
-                else
-                    _agg_data->init(AggregatedDataVariants::Type::int64_key_phase2, is_nullable);
+            size_t size = get_primitive_type_size(probe_exprs[0]->root()->result_type());
+            if (size == 1) {
+                t = Type::int8_key;
+            } else if (size == 2) {
+                t = Type::int16_key;
+            } else if (size == 4) {
+                t = Type::int32_key;
+            } else if (size == 8) {
+                t = Type::int64_key;
+            } else if (size == 16) {
+                t = Type::int128_key;
             } else {
-                if (_is_first_phase)
-                    _agg_data->init(AggregatedDataVariants::Type::int128_key, is_nullable);
-                else
-                    _agg_data->init(AggregatedDataVariants::Type::int128_key_phase2, is_nullable);
+                DCHECK(false);
             }
-            return;
+            break;
         }
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            _agg_data->init(AggregatedDataVariants::Type::string_key, is_nullable);
+            t = Type::string_key;
             break;
         }
         default:
-            _agg_data->init(AggregatedDataVariants::Type::serialized);
+            t = Type::serialized;
         }
+
+        _agg_data->init(AggregatedDataVariants::get_type(t, !_is_first_phase), is_nullable);
     } else {
         bool use_fixed_key = true;
         bool has_null = false;
@@ -286,33 +265,17 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
 
         if (use_fixed_key) {
             if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
-                if (_is_first_phase) {
-                    _agg_data->init(AggregatedDataVariants::Type::int64_keys, has_null);
-                } else {
-                    _agg_data->init(AggregatedDataVariants::Type::int64_keys_phase2, has_null);
-                }
+                t = Type::int64_keys;
             } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
-                if (_is_first_phase) {
-                    _agg_data->init(AggregatedDataVariants::Type::int128_keys, has_null);
-                } else {
-                    _agg_data->init(AggregatedDataVariants::Type::int128_keys_phase2, has_null);
-                }
+                t = Type::int128_keys;
             } else if (bitmap_size + key_byte_size <= sizeof(UInt136)) {
-                if (_is_first_phase) {
-                    _agg_data->init(AggregatedDataVariants::Type::int136_keys, has_null);
-                } else {
-                    _agg_data->init(AggregatedDataVariants::Type::int136_keys_phase2, has_null);
-                }
+                t = Type::int136_keys;
             } else {
-                if (_is_first_phase) {
-                    _agg_data->init(AggregatedDataVariants::Type::int256_keys, has_null);
-                } else {
-                    _agg_data->init(AggregatedDataVariants::Type::int256_keys_phase2, has_null);
-                }
+                t = Type::int256_keys;
             }
-
+            _agg_data->init(AggregatedDataVariants::get_type(t, !_is_first_phase), has_null);
         } else {
-            _agg_data->init(AggregatedDataVariants::Type::serialized);
+            _agg_data->init(Type::serialized);
         }
     }
 }

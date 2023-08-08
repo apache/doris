@@ -513,6 +513,25 @@ struct AggregatedDataVariants {
         int136_keys_phase2,
     };
 
+    constexpr static Type get_type(Type t, bool phase2) {
+        if (t == Type::int32_key) {
+            return Type::int32_key_phase2;
+        }
+        if (t == Type::int64_key) {
+            return Type::int64_key_phase2;
+        }
+        if (t == Type::int128_keys) {
+            return Type::int128_keys_phase2;
+        }
+        if (t == Type::int256_keys) {
+            return Type::int256_keys_phase2;
+        }
+        if (t == Type::int136_keys) {
+            return Type::int136_keys_phase2;
+        }
+        return t;
+    }
+
     Type _type = Type::EMPTY;
 
     void init(Type type, bool is_nullable = false) {

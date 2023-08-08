@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include <string>
+#include <type_traits>
 
 #include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
@@ -31,6 +32,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris {
 
@@ -286,5 +288,24 @@ struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
     using CppType = vectorized::VecDateTimeValue;
     using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
+
+template <PrimitiveType type>
+concept HaveCppType = requires() { PrimitiveTypeTraits<type>::CppType; };
+
+template <PrimitiveType type>
+struct PrimitiveTypeSizeReducer {
+    static void run(size_t& size) {
+        if constexpr (HaveCppType<type>) {
+            size = sizeof(VecPrimitiveTypeTraits<type>::CppType);
+        }
+    }
+};
+
+inline size_t get_primitive_type_size(PrimitiveType t) {
+    size_t size = 0;
+    vectorized::constexpr_loop_match<PrimitiveType, BEGIN_OF_PRIMITIVE_TYPE, END_OF_PRIMITIVE_TYPE,
+                                     PrimitiveTypeSizeReducer>::run(t, size);
+    return size;
+}
 
 } // namespace doris
