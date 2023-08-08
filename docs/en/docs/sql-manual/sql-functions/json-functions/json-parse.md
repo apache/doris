@@ -1,6 +1,6 @@
 ---
 {
-    "title": "json_parse",
+    "title": "JSON_PARSE",
     "language": "en"
 }
 ---

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "get_json_int",
+    "title": "GET_JSON_DOUBLE",
     "language": "en"
 }
 ---
@@ -24,14 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## get_json_int
-### Description
+## get_json_double
+### description
 #### Syntax
 
-`INT get_json_int(VARCHAR json_str, VARCHAR json_path)`
+`DOUBLE get_json_double(VARCHAR json_str, VARCHAR json_path)`
 
 
-Parse and retrieve the integer content of the specified path in the JSON string.
+Parse and get the floating-point content of the specified path in the JSON string.
 Where json_path must start with the $symbol and use. as the path splitter. If the path contains..., double quotation marks can be used to surround it.
 Use [] to denote array subscripts, starting at 0.
 The content of path cannot contain ",[and].
@@ -44,33 +44,33 @@ In addition, it is recommended to use the jsonb type and jsonb_extract_XXX funct
 1. Get the value of key as "k1"
 
 ```
-mysql> SELECT get_json_int('{"k1":1, "k2":"2"}', "$.k1");
-+--------------------------------------------+
-| get_json_int('{"k1":1, "k2":"2"}', '$.k1') |
-+--------------------------------------------+
-|                                          1 |
-+--------------------------------------------+
+mysql> SELECT get_json_double('{"k1":1.3, "k2":"2"}', "$.k1");
++-------------------------------------------------+
+| get_json_double('{"k1":1.3, "k2":"2"}', '$.k1') |
++-------------------------------------------------+
+|                                             1.3 |
++-------------------------------------------------+
 ```
 
 2. Get the second element of the array whose key is "my. key"
 
 ```
-mysql> SELECT get_json_int('{"k1":"v1", "my.key":[1, 2, 3]}', '$."my.key"[1]');
-+------------------------------------------------------------------+
-| get_json_int('{"k1":"v1", "my.key":[1, 2, 3]}', '$."my.key"[1]') |
-+------------------------------------------------------------------+
-|                                                                2 |
-+------------------------------------------------------------------+
+mysql> SELECT get_json_double('{"k1":"v1", "my.key":[1.1, 2.2, 3.3]}', '$."my.key"[1]');
++---------------------------------------------------------------------------+
+| get_json_double('{"k1":"v1", "my.key":[1.1, 2.2, 3.3]}', '$."my.key"[1]') |
++---------------------------------------------------------------------------+
+|                                                                       2.2 |
++---------------------------------------------------------------------------+
 ```
 
 3. Get the first element in an array whose secondary path is k1. key - > K2
 ```
-mysql> SELECT get_json_int('{"k1.key":{"k2":[1, 2]}}', '$."k1.key".k2[0]');
-+--------------------------------------------------------------+
-| get_json_int('{"k1.key":{"k2":[1, 2]}}', '$."k1.key".k2[0]') |
-+--------------------------------------------------------------+
-|                                                            1 |
-+--------------------------------------------------------------+
+mysql> SELECT get_json_double('{"k1.key":{"k2":[1.1, 2.2]}}', '$."k1.key".k2[0]');
++---------------------------------------------------------------------+
+| get_json_double('{"k1.key":{"k2":[1.1, 2.2]}}', '$."k1.key".k2[0]') |
++---------------------------------------------------------------------+
+|                                                                 1.1 |
++---------------------------------------------------------------------+
 ```
 ### keywords
-GET_JSON_INT,GET,JSON,INT
+GET_JSON_DOUBLE,GET,JSON,DOUBLE

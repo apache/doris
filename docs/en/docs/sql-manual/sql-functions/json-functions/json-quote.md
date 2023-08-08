@@ -1,7 +1,7 @@
 ---
 {
-    "title": "json_quote",
-    "language": "zh-CN"
+    "title": "JSON_QUOTE",
+    "language": "en"
 }
 ---
 
@@ -25,13 +25,13 @@ under the License.
 -->
 
 ## json_quote
-### description
+### Description
 #### Syntax
 
 `VARCHAR json_quote(VARCHAR)`
 
 
-将json_value用双引号（"）括起来，跳过其中包含的特殊转义字符
+Enclose json_value in double quotes ("), escape special characters contained.
 
 ### example
 

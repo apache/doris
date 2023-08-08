@@ -1,7 +1,7 @@
 ---
 {
-    "title": "json_valid",
-    "language": "en"
+    "title": "JSON_VALID",
+    "language": "zh-CN"
 }
 ---
 
@@ -27,7 +27,7 @@ under the License.
 ## json_valid
 ### description
 
-json_valid functions returns 0 or 1 to indicate whether a value is valid JSON and Returns NULL if the argument is NULL.
+json_valid 函数返回0或1以表明是否为有效的JSON, 如果参数是NULL则返回NULL。
 
 #### Syntax
 
@@ -35,7 +35,7 @@ json_valid functions returns 0 or 1 to indicate whether a value is valid JSON an
 
 ### example
 
-1. parse valid JSON string
+1. 正常JSON字符串
 
 ```
 MySQL > SELECT json_valid('{"k1":"v31","k2":300}');
@@ -47,7 +47,7 @@ MySQL > SELECT json_valid('{"k1":"v31","k2":300}');
 1 row in set (0.02 sec)
 ```
 
-2. parse invalid JSON string
+2. 无效的JSON字符串
 
 ```
 MySQL > SELECT json_valid('invalid json');
@@ -59,7 +59,7 @@ MySQL > SELECT json_valid('invalid json');
 1 row in set (0.02 sec)
 ```
 
-3. parse NULL
+3. NULL参数
 
 ```
 MySQL > select json_valid(NULL);

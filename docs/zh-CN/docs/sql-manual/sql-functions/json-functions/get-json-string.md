@@ -1,6 +1,6 @@
 ---
 {
-    "title": "get_json_string",
+    "title": "GET_JSON_STRING",
     "language": "zh-CN"
 }
 ---

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "get_json_bigint",
-    "language": "zh-CN"
+    "title": "GET_JSON_BIGINT",
+    "language": "en"
 }
 ---
 
@@ -25,23 +25,23 @@ under the License.
 -->
 
 ## get_json_bigint
-### description
+### Description
 #### Syntax
 
 `INT get_json_bigint(VARCHAR json_str, VARCHAR json_path)`
 
 
-解析并获取 json 字符串内指定路径的整型(BIGINT)内容。
-其中 json_path 必须以 $ 符号作为开头，使用 . 作为路径分割符。如果路径中包含 . ，则可以使用双引号包围。
-使用 [ ] 表示数组下标，从 0 开始。
-path 的内容不能包含 ", [ 和 ]。
-如果 json_string 格式不对，或 json_path 格式不对，或无法找到匹配项，则返回 NULL。
+Parse and retrieve the big integer content of the specified path in the JSON string.
+Where json_path must start with the $symbol and use. as the path splitter. If the path contains..., double quotation marks can be used to surround it.
+Use [] to denote array subscripts, starting at 0.
+The content of path cannot contain ",[and].
+If the json_string format is incorrect, or the json_path format is incorrect, or matches cannot be found, NULL is returned.
 
-另外，推荐使用jsonb类型和jsonb_extract_XXX函数实现同样的功能。
+In addition, it is recommended to use the jsonb type and jsonb_extract_XXX function performs the same function.
 
 ### example
 
-1. 获取 key 为 "k1" 的 value
+1. Get the value of key as "k1"
 
 ```
 mysql> SELECT get_json_bigint('{"k1":1, "k2":"2"}', "$.k1");
@@ -52,7 +52,7 @@ mysql> SELECT get_json_bigint('{"k1":1, "k2":"2"}', "$.k1");
 +-----------------------------------------------+
 ```
 
-2. 获取 key 为 "my.key" 的数组中第二个元素
+2. Get the second element of the array whose key is "my. key"
 
 ```
 mysql> SELECT get_json_bigint('{"k1":"v1", "my.key":[1, 1678708107000, 3]}', '$."my.key"[1]');
@@ -63,7 +63,7 @@ mysql> SELECT get_json_bigint('{"k1":"v1", "my.key":[1, 1678708107000, 3]}', '$.
 +---------------------------------------------------------------------------------+
 ```
 
-3. 获取二级路径为 k1.key -> k2 的数组中，第一个元素
+3. Get the first element in an array whose secondary path is k1. key - > K2
 ```
 mysql> SELECT get_json_bigint('{"k1.key":{"k2":[1678708107000, 2]}}', '$."k1.key".k2[0]');
 +-----------------------------------------------------------------------------+

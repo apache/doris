@@ -1,7 +1,7 @@
 ---
 {
-    "title": "json_object",
-    "language": "en"
+    "title": "JSON_OBJECT",
+    "language": "zh-CN"
 }
 ---
 
@@ -25,14 +25,13 @@ under the License.
 -->
 
 ## json_object
-### Description
+### description
 #### Syntax
 
 `VARCHAR json_object(VARCHAR,...)`
 
 
-Generate a json object containing the specified Key-Value,
-an exception error is returned when Key is NULL or the number of parameters are odd.
+生成一个包含指定Key-Value对的json object, 当Key值为NULL或者传入参数为奇数个时，返回异常错误
 
 ### example
 
