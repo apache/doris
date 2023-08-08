@@ -42,84 +42,11 @@
 
 namespace doris {
 
-const uint8_t* CsvLineReaderContext::read_line(const uint8_t* start, const size_t length) {
+const uint8_t* EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start,
+                                                           const size_t length) {
     _total_len = length;
-    // size_t bound = update_reading_bound(start);
+    size_t bound = update_reading_bound(start);
 
-    _result = find_line_delim_func(start + _idx, length - _idx, line_delimiter.c_str(),
-                                   line_delimiter_len);
-    if (_result == nullptr) {
-        return nullptr;
-    }
-    size_t bound = _result - start + line_delimiter_len;
-
-    read_line_impl(start, bound);
-    return _result;
-}
-
-void CsvLineReaderContext::read_line_impl(const uint8_t* start, size_t& bound) {
-    // const uint8_t* curr_start;
-    // size_t curr_len;
-    // do {
-    //     curr_start = start + _idx;
-    //     curr_len = bound - _idx;
-    //     const uint8_t* col_sep =
-    //             find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
-
-    //     if (col_sep != nullptr) [[likely]] {
-    //         on_col_sep_found(start, col_sep);
-    //         continue;
-    //     }
-    //     break;
-    // } while (true);
-}
-
-void CsvLineReaderContext::on_col_sep_found(const uint8_t* start, const uint8_t* col_sep_pos) {
-    const uint8_t* field_start = start + _idx;
-    // record column separator's position
-    _column_sep_positions.push_back(col_sep_pos - start);
-    const size_t forward_distance = col_sep_pos + _column_sep_len - field_start;
-    _idx += forward_distance;
-}
-
-size_t CsvLineReaderContext::update_reading_bound(const uint8_t* start) {
-    _result = find_line_delim_func(start + _idx, _total_len - _idx, line_delimiter.c_str(),
-                                   line_delimiter_len);
-    if (_result == nullptr) {
-        return _total_len;
-    }
-    return _result - start + line_delimiter_len;
-}
-
-template <bool SingleChar>
-const uint8_t* CsvLineReaderContext::look_for_column_sep_pos(const uint8_t* curr_start,
-                                                             size_t curr_len,
-                                                             const char* column_sep,
-                                                             size_t column_sep_len) {
-    const uint8_t* col_sep_pos = nullptr;
-
-    if constexpr (SingleChar) {
-        char sep = column_sep[0];
-        // note(tsy): tests show that simple `for + if` performs better than native memchr or memmem under normal `short feilds` case.
-        for (size_t i = 0; i < curr_len; ++i) {
-            if (curr_start[i] == sep) {
-                return curr_start + i;
-            }
-        }
-    } else {
-        // note(tsy): can be optimized, memmem has relatively large overhaed when used multiple times in short pattern.
-        col_sep_pos = (uint8_t*)memmem(curr_start, curr_len, column_sep, column_sep_len);
-    }
-    return col_sep_pos;
-}
-
-template const uint8_t* CsvLineReaderContext::look_for_column_sep_pos<true>(
-        const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
-
-template const uint8_t* CsvLineReaderContext::look_for_column_sep_pos<false>(
-        const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
-
-void EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start, size_t& bound) {
     while (_idx != bound) {
         switch (_state.curr_state) {
         case ReaderState::START: {
@@ -140,7 +67,55 @@ void EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start, size_t& b
         }
         }
     }
+
+    return _result;
 }
+
+void EncloseCsvLineReaderContext::on_col_sep_found(const uint8_t* start,
+                                                   const uint8_t* col_sep_pos) {
+    const uint8_t* field_start = start + _idx;
+    // record column separator's position
+    _column_sep_positions.push_back(col_sep_pos - start);
+    const size_t forward_distance = col_sep_pos + _column_sep_len - field_start;
+    _idx += forward_distance;
+}
+
+size_t EncloseCsvLineReaderContext::update_reading_bound(const uint8_t* start) {
+    _result = find_line_delim_func(start + _idx, _total_len - _idx, line_delimiter.c_str(),
+                                   line_delimiter_len);
+    if (_result == nullptr) {
+        return _total_len;
+    }
+    return _result - start + line_delimiter_len;
+}
+
+template <bool SingleChar>
+const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos(const uint8_t* curr_start,
+                                                                    size_t curr_len,
+                                                                    const char* column_sep,
+                                                                    size_t column_sep_len) {
+    const uint8_t* col_sep_pos = nullptr;
+
+    if constexpr (SingleChar) {
+        char sep = column_sep[0];
+        // note(tsy): tests show that simple `for + if` performs better than native memchr or memmem under normal `short feilds` case.
+        for (size_t i = 0; i < curr_len; ++i) {
+            if (curr_start[i] == sep) {
+                return curr_start + i;
+            }
+        }
+    } else {
+        // note(tsy): can be optimized, memmem has relatively large overhaed when used multiple times in short pattern.
+        col_sep_pos = (uint8_t*)memmem(curr_start, curr_len, column_sep, column_sep_len);
+    }
+    return col_sep_pos;
+}
+
+template const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos<true>(
+        const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
+
+template const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos<false>(
+        const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
 
 void EncloseCsvLineReaderContext::_on_start(const uint8_t* start, size_t& len) {
     if (start[_idx] == _enclose) [[unlikely]] {

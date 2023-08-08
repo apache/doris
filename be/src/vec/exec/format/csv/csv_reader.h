@@ -64,9 +64,17 @@ public:
     virtual void split_line(const Slice& line, std::vector<Slice>* splitted_values) = 0;
 };
 
-class CsvProtoFieldSplitter final : public LineFieldSplitterIf {
+template <typename Splitter>
+class BaseLineFieldSplitter : public LineFieldSplitterIf {
 public:
-    inline void split_line(const Slice& line, std::vector<Slice>* splitted_values) override {
+    inline void split_line(const Slice& line, std::vector<Slice>* splitted_values) final {
+        static_cast<Splitter*>(this)->split_line_impl(line, splitted_values);
+    }
+};
+
+class CsvProtoFieldSplitter final : public BaseLineFieldSplitter<CsvProtoFieldSplitter> {
+public:
+    inline void split_line_impl(const Slice& line, std::vector<Slice>* splitted_values) {
         PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
         PDataRow* row = *row_ptr;
         for (const PDataColumn& col : row->col()) {
@@ -75,80 +83,92 @@ public:
     }
 };
 
-class CsvTextFieldSplitter : public LineFieldSplitterIf {
+template <typename Splitter>
+class BaseCsvTextFieldSplitter : public BaseLineFieldSplitter<BaseCsvTextFieldSplitter<Splitter>> {
     // using a function ptr to decrease the overhead (found very effective during test).
-    using ProcessValueFunc = void (*)(const char*, size_t*, size_t*, char);
+    using ProcessValueFunc = void (*)(const char*, size_t, size_t, char, std::vector<Slice>*);
 
 public:
-    explicit CsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                  std::shared_ptr<CsvLineReaderContext> line_reader_ctx,
-                                  size_t value_sep_len = 1, char trimming_char = 0)
-            : _trimming_char(trimming_char),
-              _value_sep_len(value_sep_len),
-              _text_line_reader_ctx(line_reader_ctx) {
+    explicit BaseCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                      size_t value_sep_len = 1, char trimming_char = 0)
+            : trimming_char(trimming_char), value_sep_len(value_sep_len) {
         if (trim_tailing_space) {
             if (trim_ends) {
-                _process_value_func = &CsvTextFieldSplitter::_process_value<true, true>;
+                process_value_func = &BaseCsvTextFieldSplitter::_process_value<true, true>;
             } else {
-                _process_value_func = &CsvTextFieldSplitter::_process_value<true, false>;
+                process_value_func = &BaseCsvTextFieldSplitter::_process_value<true, false>;
             }
         } else {
             if (trim_ends) {
-                _process_value_func = &CsvTextFieldSplitter::_process_value<false, true>;
+                process_value_func = &BaseCsvTextFieldSplitter::_process_value<false, true>;
             } else {
-                _process_value_func = &CsvTextFieldSplitter::_process_value<false, false>;
+                process_value_func = &BaseCsvTextFieldSplitter::_process_value<false, false>;
             }
         }
     }
 
-    void split_line(const Slice& line, std::vector<Slice>* splitted_values) override;
-
-    inline void split_field(const char* data, size_t start_offset, size_t value_len,
-                            std::vector<Slice>* splitted_values) {
-        _process_value_func(data, &start_offset, &value_len, _trimming_char);
-        splitted_values->emplace_back(data + start_offset, value_len);
+    inline void split_line_impl(const Slice& line, std::vector<Slice>* splitted_values) {
+        static_cast<Splitter*>(this)->do_split(line, splitted_values);
     }
 
 protected:
+    const char trimming_char;
+    const size_t value_sep_len;
+    ProcessValueFunc process_value_func;
+
+private:
     template <bool TrimTailingSpace, bool TrimEnds>
-    inline static void _process_value(const char* data, size_t* start_offset, size_t* value_len,
-                                      char trimming_char) {
+    inline static void _process_value(const char* data, size_t start_offset, size_t value_len,
+                                      char trimming_char, std::vector<Slice>* splitted_values) {
         if constexpr (TrimTailingSpace) {
-            while (*value_len > 0 && *(data + *start_offset + *value_len - 1) == ' ') {
-                --*value_len;
+            while (value_len > 0 && *(data + start_offset + value_len - 1) == ' ') {
+                --value_len;
             }
         }
         if constexpr (TrimEnds) {
-            const bool trim_cond = *value_len > 1 && *(data + *start_offset) == trimming_char &&
-                                   *(data + *start_offset + *value_len - 1) == trimming_char;
+            const bool trim_cond = value_len > 1 && *(data + start_offset) == trimming_char &&
+                                   *(data + start_offset + value_len - 1) == trimming_char;
             if (trim_cond) {
-                ++(*start_offset);
-                *value_len -= 2;
+                ++(start_offset);
+                value_len -= 2;
             }
         }
+        splitted_values->emplace_back(data + start_offset, value_len);
     }
-
-    const char _trimming_char;
-    const size_t _value_sep_len;
-    ProcessValueFunc _process_value_func;
-
-private:
-    std::shared_ptr<CsvLineReaderContext> _text_line_reader_ctx;
 };
 
-class PlainCsvTextFieldSplitter : public CsvTextFieldSplitter {
+class EncloseCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<EncloseCsvTextFieldSplitter> {
 public:
-    explicit PlainCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                       std::shared_ptr<CsvLineReaderContext> line_reader_ctx,
-                                       const std::string& col_sep, size_t value_sep_len = 1,
-                                       char trimming_char = 0)
-            : CsvTextFieldSplitter(trim_tailing_space, trim_ends, line_reader_ctx, value_sep_len,
-                                   trimming_char),
-              _value_sep(col_sep) {}
+    explicit EncloseCsvTextFieldSplitter(
+            bool trim_tailing_space, bool trim_ends,
+            std::shared_ptr<EncloseCsvLineReaderContext> line_reader_ctx, size_t value_sep_len = 1,
+            char trimming_char = 0)
+            : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
+              _text_line_reader_ctx(line_reader_ctx) {}
 
-    void split_line(const Slice& line, std::vector<Slice>* splitted_values) override;
+    void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
 private:
+    std::shared_ptr<EncloseCsvLineReaderContext> _text_line_reader_ctx;
+};
+
+class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {
+public:
+    explicit PlainCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                       const std::string& value_sep, size_t value_sep_len = 1,
+                                       char trimming_char = 0)
+            : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
+              _value_sep(value_sep) {
+        is_single_char_delim = (value_sep_len == 1);
+    }
+
+    void do_split(const Slice& line, std::vector<Slice>* splitted_values);
+
+private:
+    void _split_field_single_char(const Slice& line, std::vector<Slice>* splitted_values);
+    void _split_field_multi_char(const Slice& line, std::vector<Slice>* splitted_values);
+
+    bool is_single_char_delim;
     std::string _value_sep;
 };
 
@@ -225,7 +245,6 @@ private:
     std::shared_ptr<io::FileSystem> _file_system;
     io::FileReaderSPtr _file_reader;
     std::unique_ptr<LineReader> _line_reader;
-    std::shared_ptr<CsvLineReaderContext> _text_line_reader_ctx;
     bool _line_reader_eof;
     std::unique_ptr<TextConverter> _text_converter;
     std::unique_ptr<Decompressor> _decompressor;

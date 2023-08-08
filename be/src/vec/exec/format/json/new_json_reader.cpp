@@ -408,7 +408,7 @@ Status NewJsonReader::_open_line_reader() {
     }
     _line_reader = NewPlainTextLineReader::create_unique(
             _profile, _file_reader, nullptr,
-            std::make_shared<PlainTexLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
+            std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
             _current_offset);
     return Status::OK();
 }
