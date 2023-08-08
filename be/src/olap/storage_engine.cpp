@@ -825,8 +825,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
                 }
 
                 curr_sweep_batch_size++;
-                if (config::garbage_sweep_batch_size > 0
-                    && curr_sweep_batch_size >= config::garbage_sweep_batch_size) {
+                if (config::garbage_sweep_batch_size > 0 &&
+                    curr_sweep_batch_size >= config::garbage_sweep_batch_size) {
                     curr_sweep_batch_size = 0;
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
