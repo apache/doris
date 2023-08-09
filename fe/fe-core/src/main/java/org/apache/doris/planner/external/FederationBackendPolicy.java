@@ -45,7 +45,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -53,7 +52,7 @@ import java.util.stream.Collectors;
 public class FederationBackendPolicy {
     private static final Logger LOG = LogManager.getLogger(FederationBackendPolicy.class);
     private final List<Backend> backends = Lists.newArrayList();
-    private final Map<String, Backend> backendMap = Maps.newHashMap();
+    private final Map<String, List<Backend>> backendMap = Maps.newHashMap();
     private final Random random = new Random(System.currentTimeMillis());
     private ConsistentHash<TScanRangeLocations, Backend> consistentHash;
 
@@ -96,9 +95,7 @@ public class FederationBackendPolicy {
         if (backends.isEmpty()) {
             throw new UserException("No available backends");
         }
-        for (Backend backend : backends) {
-            backendMap.put(backend.getHost(), backend);
-        }
+        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
         int virtualNumber = Math.max(Math.min(512 / backends.size(), 32), 2);
         consistentHash = new ConsistentHash<>(Hashing.murmur3_128(), new ScanRangeHash(),
                 new BackendHash(), backends, virtualNumber);
@@ -116,15 +113,17 @@ public class FederationBackendPolicy {
 
     // Try to find a local BE, if not exists, use `getNextBe` instead
     public Backend getNextLocalBe(List<String> hosts) {
-        List<Backend> candidateBackends = hosts.stream()
-                    .map(backendMap::get)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-        if (CollectionUtils.isEmpty(candidateBackends)) {
-            return getNextBe();
+        List<Backend> candidateBackends = Lists.newArrayListWithCapacity(hosts.size());
+        for (String host : hosts) {
+            List<Backend> backends = backendMap.get(host);
+            if (CollectionUtils.isNotEmpty(backends)) {
+                candidateBackends.add(backends.get(random.nextInt(backends.size())));
+            }
         }
-        LOG.debug("Find {} BEs which belong(s) to the same node with the file split.", candidateBackends.size());
-        return candidateBackends.get(random.nextInt(candidateBackends.size()));
+
+        return CollectionUtils.isEmpty(candidateBackends)
+                    ? getNextBe()
+                    : candidateBackends.get(random.nextInt(candidateBackends.size()));
     }
 
     public int numBackends() {

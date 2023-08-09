@@ -44,8 +44,13 @@ public class FederationBackendPolicyTest {
 
         SystemInfoService service = new SystemInfoService();
 
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 190; i++) {
             Backend backend = new Backend(Long.valueOf(i), "192.168.1." + i, 9050);
+            backend.setAlive(true);
+            service.addBackend(backend);
+        }
+        for (int i = 0; i < 10; i++) {
+            Backend backend = new Backend(Long.valueOf(190 + i), "192.168.1." + i, 9051);
             backend.setAlive(true);
             service.addBackend(backend);
         }
@@ -87,7 +92,7 @@ public class FederationBackendPolicyTest {
         int backendNum = 200;
         int invokeTimes = 1000000;
         Assertions.assertEquals(policy.numBackends(), backendNum);
-        List<String> localHosts = Arrays.asList("192.168.1.197", "192.168.1.198", "192.168.1.199");
+        List<String> localHosts = Arrays.asList("192.168.1.0", "192.168.1.1", "192.168.1.2");
         Stopwatch sw = Stopwatch.createStarted();
         for (int i = 0; i < invokeTimes; i++) {
             Assertions.assertTrue(localHosts.contains(policy.getNextLocalBe(localHosts).getHost()));
