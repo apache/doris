@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPair;
+import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPairComparator;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
@@ -1366,7 +1367,8 @@ public class TabletScheduler extends MasterDaemon {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find dest path for new replica");
         }
 
-        Collections.sort(allFitPaths);
+        BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(allFitPaths);
+        Collections.sort(allFitPaths, comparator);
 
         // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
         // just get first available path.

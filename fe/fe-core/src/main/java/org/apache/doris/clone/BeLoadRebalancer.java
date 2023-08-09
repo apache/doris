@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPair;
+import org.apache.doris.clone.BackendLoadStatistic.BePathLoadStatPairComparator;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
@@ -338,7 +339,8 @@ public class BeLoadRebalancer extends Rebalancer {
             pathLow.stream().forEach(path -> candFitPaths.add(new BePathLoadStatPair(beStat, path)));
         }
 
-        Collections.sort(candFitPaths);
+        BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(candFitPaths);
+        Collections.sort(candFitPaths, comparator);
         for (BePathLoadStatPair bePathLoadStat : candFitPaths) {
             BackendLoadStatistic beStat = bePathLoadStat.getBackendLoadStatistic();
             RootPathLoadStatistic pathStat = bePathLoadStat.getPathLoadStatistic();

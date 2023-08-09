@@ -68,7 +68,7 @@ public class BackendLoadStatistic {
         }
     }
 
-    public static class BePathLoadStatPair implements Comparable<BePathLoadStatPair> {
+    public static class BePathLoadStatPair {
         private BackendLoadStatistic beLoadStatistic;
         private RootPathLoadStatistic pathLoadStatistic;
 
@@ -86,13 +86,49 @@ public class BackendLoadStatistic {
         }
 
         @Override
-        public int compareTo(BePathLoadStatPair o) {
-            return Double.compare(getCompareValue(), o.getCompareValue());
+        public String toString() {
+            return "{ beId: " + beLoadStatistic.getBeId() + ", be score: "
+                    + beLoadStatistic.getLoadScore(pathLoadStatistic.getStorageMedium())
+                    + ", path: " + pathLoadStatistic.getPath()
+                    + ", path used percent: " + pathLoadStatistic.getUsedPercent()
+                    + " }";
+        }
+    }
+
+    public static class BePathLoadStatPairComparator implements Comparator<BePathLoadStatPair> {
+        private double avgBackendLoadScore;
+        private double avgPathUsedPercent;
+
+        BePathLoadStatPairComparator(List<BePathLoadStatPair> loadStats) {
+            avgBackendLoadScore = 0.0;
+            avgPathUsedPercent = 0.0;
+            for (BePathLoadStatPair loadStat : loadStats) {
+                RootPathLoadStatistic pathStat = loadStat.getPathLoadStatistic();
+                avgBackendLoadScore += loadStat.getBackendLoadStatistic().getLoadScore(pathStat.getStorageMedium());
+                avgPathUsedPercent += pathStat.getUsedPercent();
+            }
+            if (!loadStats.isEmpty()) {
+                avgPathUsedPercent /= loadStats.size();
+                avgBackendLoadScore /= loadStats.size();
+            }
+            if (avgBackendLoadScore == 0.0) {
+                avgBackendLoadScore = 1.0;
+            }
+            if (avgPathUsedPercent == 0.0) {
+                avgPathUsedPercent = 1.0;
+            }
         }
 
-        private double getCompareValue() {
-            return 0.5 * beLoadStatistic.getLoadScore(pathLoadStatistic.getStorageMedium())
-                    + 0.5 * pathLoadStatistic.getUsedPercent();
+        @Override
+        public int compare(BePathLoadStatPair o1, BePathLoadStatPair o2) {
+            return Double.compare(getCompareValue(o1), getCompareValue(o2));
+        }
+
+        private double getCompareValue(BePathLoadStatPair loadStat) {
+            BackendLoadStatistic beStat = loadStat.getBackendLoadStatistic();
+            RootPathLoadStatistic pathStat = loadStat.getPathLoadStatistic();
+            return 0.5 * beStat.getLoadScore(pathStat.getStorageMedium()) / avgBackendLoadScore
+                    + 0.5 * pathStat.getUsedPercent() / avgPathUsedPercent;
         }
     }
 
