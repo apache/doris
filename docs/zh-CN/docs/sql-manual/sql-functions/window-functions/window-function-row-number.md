@@ -1,7 +1,7 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-ROW_NUMBER",
-    "language": "en"
+    "title": "WINDOW_FUNCTION_ROW_NUMBER",
+    "language": "zh-CN"
 }
 ---
 
@@ -14,7 +14,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 ## WINDOW FUNCTION ROW_NUMBER
 ### description
 
-Returns a continuously increasing integer starting from 1 for each row of each Partition. Unlike RANK() and DENSE_RANK(), the value returned by ROW_NUMBER() does not repeat or appear vacant, and is continuously incremented.
+为每个 Partition 的每一行返回一个从1开始连续递增的整数。与 RANK() 和 DENSE_RANK() 不同的是，ROW_NUMBER() 返回的值不会重复也不会出现空缺，是连续递增的。
 
 ```sql
 ROW_NUMBER() OVER(partition_by_clause order_by_clause)

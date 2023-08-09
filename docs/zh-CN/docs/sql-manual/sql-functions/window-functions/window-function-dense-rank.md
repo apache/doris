@@ -1,7 +1,7 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-MAX",
-    "language": "en"
+    "title": "WINDOW_FUNCTION_DENSE_RANK",
+    "language": "zh-CN"
 }
 ---
 
@@ -11,39 +11,35 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION MAX
+## WINDOW FUNCTION DENSE_RANK
 ### description
 
-The LEAD() method is used to calculate the maximum value within the window.
+DENSE_RANK() 函数用来表示排名，与RANK()不同的是，DENSE_RANK() 不会出现空缺数字。比如，如果出现了两个并列的1，DENSE_RANK() 的第三个数仍然是2，而RANK()的第三个数是3。
 
 ```sql
-MAX([DISTINCT | ALL] expression) [OVER (analytic_clause)]
+DENSE_RANK() OVER(partition_by_clause order_by_clause)
 ```
 
 ### example
 
-Calculate the maximum value from the first row to the row after the current row
+按照 property 列分组对x列排名：
 
 ```sql
-select x, property,   
-max(x) over    
-(   
-order by property, x    
-rows between unbounded preceding and 1 following    
-) as 'local maximum'    
-from int_t where property in ('prime','square');
-
-| x | property | local maximum |
-|---|----------|---------------|
-| 2 | prime    | 3             |
-| 3 | prime    | 5             |
-| 5 | prime    | 7             |
-| 7 | prime    | 7             |
-| 1 | square   | 7             |
-| 4 | square   | 9             |
-| 9 | square   | 9             |
+ select x, y, dense_rank() over(partition by x order by y) as rank from int_t;
+ 
+ | x  | y    | rank     |
+ |----|------|----------|
+ | 1  | 1    | 1        |
+ | 1  | 2    | 2        |
+ | 1  | 2    | 2        |
+ | 2  | 1    | 1        |
+ | 2  | 2    | 2        |
+ | 2  | 3    | 3        |
+ | 3  | 1    | 1        |
+ | 3  | 1    | 1        |
+ | 3  | 2    | 2        |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,MAX
+    WINDOW,FUNCTION,DENSE_RANK

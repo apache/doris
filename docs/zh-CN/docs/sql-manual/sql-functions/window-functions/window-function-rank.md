@@ -1,7 +1,7 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-LAST_VALUE",
-    "language": "en"
+    "title": "WINDOW_FUNCTION_RANK",
+    "language": "zh-CN"
 }
 ---
 
@@ -11,35 +11,35 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION LAST_VALUE
+## WINDOW FUNCTION RANK
 ### description
 
-LAST_VALUE() returns the last value in the window range. Opposite of FIRST_VALUE() .
+RANK() 函数用来表示排名，与 DENSE_RANK() 不同的是，RANK() 会出现空缺数字。比如，如果出现了两个并列的1， RANK() 的第三个数就是3，而不是2。
 
 ```sql
-LAST_VALUE(expr) OVER(partition_by_clause order_by_clause [window_clause])
+RANK() OVER(partition_by_clause order_by_clause)
 ```
 
 ### example
 
-Using the data from the FIRST_VALUE() example:
+根据 x 进行排名
 
 ```sql
-select country, name,    
-last_value(greeting)   
-over (partition by country order by name, greeting) as greeting   
-from mail_merge;
+select x, y, rank() over(partition by x order by y) as rank from int_t;
 
-| country | name    | greeting     |
-|---------|---------|--------------|
-| Germany | Boris   | Guten morgen |
-| Germany | Michael | Guten morgen |
-| Sweden  | Bjorn   | Tja          |
-| Sweden  | Mats    | Tja          |
-| USA     | John    | Hello        |
-| USA     | Pete    | Hello        |
+| x  | y    | rank     |
+|----|------|----------|
+| 1  | 1    | 1        |
+| 1  | 2    | 2        |
+| 1  | 2    | 2        |
+| 2  | 1    | 1        |
+| 2  | 2    | 2        |
+| 2  | 3    | 3        |
+| 3  | 1    | 1        |
+| 3  | 1    | 1        |
+| 3  | 2    | 3        |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,LAST_VALUE
+    WINDOW,FUNCTION,RANK

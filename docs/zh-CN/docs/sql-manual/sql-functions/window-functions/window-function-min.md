@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-COUNT",
+    "title": "WINDOW_FUNCTION_MIN",
     "language": "zh-CN"
 }
 ---
@@ -11,43 +11,38 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION COUNT
+## WINDOW FUNCTION MIN
 ### description
 
-计算窗口内数据出现次数
+LEAD() 方法用来计算窗口内的最小值。
 
 ```sql
-COUNT(expression) [OVER (analytic_clause)]
+MAX([DISTINCT | ALL] expression) [OVER (analytic_clause)]
 ```
 
 ### example
 
-计算从当前行到第一行x出现的次数。
+计算从第一行到当前行之后一行的最小值
 
 ```sql
 select x, property,   
-count(x) over   
-(   
-partition by property    
-order by x    
-rows between unbounded preceding and current row    
-) as 'cumulative total'    
-from int_t where property in ('odd','even');
-
- | x  | property | cumulative count |
- |----|----------|------------------|
- | 2  | even     | 1                |
- | 4  | even     | 2                |
- | 6  | even     | 3                |
- | 8  | even     | 4                |
- | 10 | even     | 5                |
- | 1  | odd      | 1                |
- | 3  | odd      | 2                |
- | 5  | odd      | 3                |
- | 7  | odd      | 4                |
- | 9  | odd      | 5                |
+min(x) over    
+(    
+order by property, x desc    
+rows between unbounded preceding and 1 following   
+) as 'local minimum'   
+from int_t where property in ('prime','square');
+| x | property | local minimum |
+|---|----------|---------------|
+| 7 | prime    | 5             |
+| 5 | prime    | 3             |
+| 3 | prime    | 2             |
+| 2 | prime    | 2             |
+| 9 | square   | 2             |
+| 4 | square   | 1             |
+| 1 | square   | 1             |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,COUNT
+    WINDOW,FUNCTION,MIN

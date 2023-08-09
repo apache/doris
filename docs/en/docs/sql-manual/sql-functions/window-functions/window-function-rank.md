@@ -1,7 +1,7 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-RANK",
-    "language": "zh-CN"
+    "title": "WINDOW_FUNCTION_RANK",
+    "language": "en"
 }
 ---
 
@@ -14,7 +14,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 ## WINDOW FUNCTION RANK
 ### description
 
-RANK() 函数用来表示排名，与 DENSE_RANK() 不同的是，RANK() 会出现空缺数字。比如，如果出现了两个并列的1， RANK() 的第三个数就是3，而不是2。
+The RANK() function is used to represent rankings. Unlike DENSE_RANK(), RANK() will have vacancies. For example, if there are two 1s in a row, the third number in RANK() is 3, not 2.
 
 ```sql
 RANK() OVER(partition_by_clause order_by_clause)
@@ -22,7 +22,7 @@ RANK() OVER(partition_by_clause order_by_clause)
 
 ### example
 
-根据 x 进行排名
+rank by x
 
 ```sql
 select x, y, rank() over(partition by x order by y) as rank from int_t;

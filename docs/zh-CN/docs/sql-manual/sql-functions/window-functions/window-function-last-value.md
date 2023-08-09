@@ -1,7 +1,7 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-DENSE_RANK",
-    "language": "en"
+    "title": "WINDOW_FUNCTION_LAST_VALUE",
+    "language": "zh-CN"
 }
 ---
 
@@ -11,35 +11,35 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION DENSE_RANK
+## WINDOW FUNCTION LAST_VALUE
 ### description
 
-The DENSE_RANK() function is used to represent rankings. Unlike RANK(), DENSE_RANK() does not have vacancies. For example, if there are two parallel 1s, the third number of DENSE_RANK() is still 2, and the third number of RANK() is 3.
+LAST_VALUE() 返回窗口范围内的最后一个值。与 FIRST_VALUE() 相反。
 
 ```sql
-DENSE_RANK() OVER(partition_by_clause order_by_clause)
+LAST_VALUE(expr) OVER(partition_by_clause order_by_clause [window_clause])
 ```
 
 ### example
 
-Group by the property column to rank column x:
+使用FIRST_VALUE()举例中的数据：
 
 ```sql
- select x, y, dense_rank() over(partition by x order by y) as rank from int_t;
- 
- | x  | y    | rank     |
- |----|------|----------|
- | 1  | 1    | 1        |
- | 1  | 2    | 2        |
- | 1  | 2    | 2        |
- | 2  | 1    | 1        |
- | 2  | 2    | 2        |
- | 2  | 3    | 3        |
- | 3  | 1    | 1        |
- | 3  | 1    | 1        |
- | 3  | 2    | 2        |
+select country, name,    
+last_value(greeting)   
+over (partition by country order by name, greeting) as greeting   
+from mail_merge;
+
+| country | name    | greeting     |
+|---------|---------|--------------|
+| Germany | Boris   | Guten morgen |
+| Germany | Michael | Guten morgen |
+| Sweden  | Bjorn   | Tja          |
+| Sweden  | Mats    | Tja          |
+| USA     | John    | Hello        |
+| USA     | Pete    | Hello        |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,DENSE_RANK
+    WINDOW,FUNCTION,LAST_VALUE

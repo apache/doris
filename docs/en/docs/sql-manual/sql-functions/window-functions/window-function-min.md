@@ -1,7 +1,7 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-MIN",
-    "language": "zh-CN"
+    "title": "WINDOW_FUNCTION_MIN",
+    "language": "en"
 }
 ---
 
@@ -14,7 +14,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 ## WINDOW FUNCTION MIN
 ### description
 
-LEAD() 方法用来计算窗口内的最小值。
+The LEAD() method is used to calculate the minimum value within the window.
 
 ```sql
 MAX([DISTINCT | ALL] expression) [OVER (analytic_clause)]
@@ -22,7 +22,7 @@ MAX([DISTINCT | ALL] expression) [OVER (analytic_clause)]
 
 ### example
 
-计算从第一行到当前行之后一行的最小值
+Calculate the minimum value from the first row to the row after the current row
 
 ```sql
 select x, property,   
