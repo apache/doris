@@ -27,7 +27,7 @@ set(COMMON_THIRDPARTY)
 # if arg exist wholelibpath, use wholelibpath to find library
 function(add_thirdparty)
     cmake_parse_arguments(DORIS_THIRDPARTY
-        "NOADD;LIB64"
+        "NOTADD;LIB64"
         "LIBNAME;WHOLELIBPATH"
         ""
         ${ARGN})
@@ -35,7 +35,7 @@ function(add_thirdparty)
     set(DORIS_THIRDPARTY_NAME ${DORIS_THIRDPARTY_UNPARSED_ARGUMENTS})
     add_library(${DORIS_THIRDPARTY_NAME} STATIC IMPORTED)
 
-    if (NOT DORIS_THIRDPARTY_NOADD)
+    if (NOT DORIS_THIRDPARTY_NOTADD)
         set(COMMON_THIRDPARTY ${COMMON_THIRDPARTY} ${DORIS_THIRDPARTY_NAME} PARENT_SCOPE)
     endif()
 
@@ -58,9 +58,8 @@ add_thirdparty(re2)
 add_thirdparty(hyperscan LIBNAME "lib64/libhs.a")
 add_thirdparty(odbc)
 add_thirdparty(pprof WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libprofiler.a)
-add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a)
+add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
 add_thirdparty(protobuf)
-add_thirdparty(protoc) # not need include in COMMON_THIRDPARTY
 add_thirdparty(gtest)
 add_thirdparty(gtest_main)
 add_thirdparty(benchmark)
@@ -156,5 +155,5 @@ add_thirdparty(gssapi_krb5)
 if (OS_MACOSX)
     add_thirdparty(bfd)
     add_thirdparty(iberty)
-    add_thirdparty(libintl)
+    add_thirdparty(intl)
 endif()
