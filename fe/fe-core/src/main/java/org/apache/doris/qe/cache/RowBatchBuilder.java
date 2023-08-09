@@ -55,6 +55,10 @@ public class RowBatchBuilder {
         return rowSize;
     }
 
+    public int getDataSize() {
+        return dataSize;
+    }
+
     public RowBatchBuilder(CacheAnalyzer.CacheMode model) {
         cacheMode = model;
         keyIndex = 0;
