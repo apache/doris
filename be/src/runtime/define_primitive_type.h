@@ -59,6 +59,6 @@ enum PrimitiveType {
     TYPE_AGG_STATE,       /* 34 */
 };
 
-constexpr PrimitiveType BEGIN_OF_PRIMITIVE_TYPE=INVALID_TYPE;
-constexpr PrimitiveType END_OF_PRIMITIVE_TYPE=TYPE_AGG_STATE;
+constexpr PrimitiveType BEGIN_OF_PRIMITIVE_TYPE = INVALID_TYPE;
+constexpr PrimitiveType END_OF_PRIMITIVE_TYPE = TYPE_AGG_STATE;
 } // namespace doris
