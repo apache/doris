@@ -442,7 +442,8 @@ struct ConvertImpl {
 /** If types are identical, just take reference to column.
   */
 template <typename T, typename Name>
-struct ConvertImpl<std::enable_if_t<!T::is_parametric, T>, T, Name> {
+    requires(!T::is_parametric)
+struct ConvertImpl<T, T, Name> {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t /*input_rows_count*/) {
         block.get_by_position(result).column = block.get_by_position(arguments[0]).column;
