@@ -32,6 +32,7 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarCharType;
 
 import java.util.stream.Collectors;
@@ -69,7 +70,11 @@ public class PaimonTypeUtils {
         }
 
         public String visit(SmallIntType smallIntType) {
-            return "short";
+            return "smallint";
+        }
+
+        public String visit(TinyIntType tinyIntType) {
+            return "tinyint";
         }
 
         public String visit(IntType intType) {
