@@ -1,6 +1,6 @@
 ---
 {
-    "title": "json_exists_path",
+    "title": "JSON_TYPE",
     "language": "zh-CN"
 }
 ---
@@ -24,16 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## json_exists_path
+## jsonb_type
 
 ### description
 
-用来判断json_path指定的字段在JSON数据中是否存在，如果存在返回TRUE，不存在返回FALSE
+用来判断json_path指定的字段在JSONB数据中的类型，如果字段不存在返回NULL，如果存在返回下面的类型之一
+
+- object
+- array
+- null
+- bool
+- int
+- bigint
+- double
+- string
 
 #### Syntax
 
 ```sql
-BOOLEAN json_exists_path(JSON j, VARCHAR json_path)
+STRING json_type(JSON j, VARCHAR json_path)
 ```
 
 ### example
@@ -42,5 +51,5 @@ BOOLEAN json_exists_path(JSON j, VARCHAR json_path)
 
 ### keywords
 
-json_exists_path
+json_type
 

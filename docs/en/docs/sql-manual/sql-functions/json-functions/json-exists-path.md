@@ -1,6 +1,6 @@
 ---
 {
-    "title": "json_type",
+    "title": "JSON_EXISTS_PATH",
     "language": "en"
 }
 ---
@@ -24,25 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## json_type
+## json_exists_path
 
 ### description
 
-It is used to determine the type of the field specified by json_path in JSON data. If the field does not exist, return NULL. If it exists, return one of the following types
-
-- object
-- array
-- null
-- bool
-- int
-- bigint
-- double
-- string
+It is used to judge whether the field specified by json_path exists in the JSON data. If it exists, it returns TRUE, and if it does not exist, it returns FALSE
 
 #### Syntax
 
 ```sql
-STRING json_type(JSON j, VARCHAR json_path)
+BOOLEAN json_exists_path(JSON j, VARCHAR json_path)
 ```
 
 ### example
@@ -51,5 +42,5 @@ Refer to [json tutorial](../../sql-reference/Data-Types/JSON.md)
 
 ### keywords
 
-json_type
+json_exists_path
 
