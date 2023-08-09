@@ -388,62 +388,60 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     TStatus tstatus;
     Defer defer {[&result, &tstatus]() { result.__set_status(tstatus); }};
 
-    if (!config::enable_feature_binlog) {
-        LOG(WARNING) << "enable feature binlog is false";
-        tstatus.__set_status_code(TStatusCode::NOT_IMPLEMENTED_ERROR);
+    auto set_tstatus = [&tstatus](TStatusCode::type code, std::string error_msg) {
+        tstatus.__set_status_code(code);
         tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back("enable feature binlog is false");
+        tstatus.error_msgs.push_back(std::move(error_msg));
+    };
+
+    if (!config::enable_feature_binlog) {
+        auto error_msg = "enable feature binlog is false";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::RUNTIME_ERROR, error_msg);
         return;
     }
 
     /// Check args: txn_id, remote_tablet_id, binlog_version, remote_host, remote_port, partition_id, load_id
     if (!request.__isset.txn_id) {
-        LOG(WARNING) << "txn_id is empty";
-        tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back("txn_id is empty");
+        auto error_msg = "txn_id is empty";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
     }
     if (!request.__isset.remote_tablet_id) {
-        LOG(WARNING) << "remote_tablet_id is empty";
-        tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back("remote_tablet_id is empty");
+        auto error_msg = "remote_tablet_id is empty";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
     }
     if (!request.__isset.binlog_version) {
-        LOG(WARNING) << "binlog_version is empty";
-        tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back("binlog_version is empty");
+        auto error_msg = "binlog_version is empty";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
     }
     if (!request.__isset.remote_host) {
-        LOG(WARNING) << "remote_host is empty";
-        tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back("remote_host is empty");
+        auto error_msg = "remote_host is empty";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
     }
     if (!request.__isset.remote_port) {
-        LOG(WARNING) << "remote_port is empty";
-        tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back("remote_port is empty");
+        auto error_msg = "remote_port is empty";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
     }
     if (!request.__isset.partition_id) {
-        LOG(WARNING) << "partition_id is empty";
-        tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back("partition_id is empty");
+        auto error_msg = "partition_id is empty";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
     }
     if (!request.__isset.load_id) {
-        LOG(WARNING) << "load_id is empty";
-        tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back("load_id is empty");
+        auto error_msg = "load_id is empty";
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::ANALYSIS_ERROR, error_msg);
         return;
     }
 
@@ -452,10 +450,9 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     auto const& local_tablet_id = request.local_tablet_id;
     auto local_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(local_tablet_id);
     if (local_tablet == nullptr) {
-        LOG(WARNING) << "tablet " << local_tablet_id << " not found";
-        tstatus.__set_status_code(TStatusCode::RUNTIME_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.error_msgs.emplace_back(fmt::format("tablet {} not found", local_tablet_id));
+        auto error_msg = fmt::format("tablet {} not found", local_tablet_id);
+        LOG(WARNING) << error_msg;
+        set_tstatus(TStatusCode::TABLET_MISSING, std::move(error_msg));
         return;
     }
 
@@ -654,12 +651,13 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
             rowset_meta->txn_id(), rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
             local_tablet->tablet_uid(), rowset_meta->load_id(), rowset, true);
     if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
-        LOG(WARNING) << "failed to add committed rowset for slave replica. rowset_id="
-                     << rowset_meta->rowset_id() << ", tablet_id=" << rowset_meta->tablet_id()
-                     << ", txn_id=" << rowset_meta->txn_id();
-        tstatus.__set_status_code(TStatusCode::RUNTIME_ERROR);
-        tstatus.__isset.error_msgs = true;
-        tstatus.__set_error_msgs({commit_txn_status.to_string()});
+        auto err_msg = fmt::format(
+                "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "
+                "txn_id={}, status={}",
+                rowset_meta->rowset_id().to_string(), rowset_meta->tablet_id(),
+                rowset_meta->txn_id(), commit_txn_status.to_string());
+        LOG(WARNING) << err_msg;
+        set_tstatus(TStatusCode::RUNTIME_ERROR, std::move(err_msg));
         return;
     }
 
