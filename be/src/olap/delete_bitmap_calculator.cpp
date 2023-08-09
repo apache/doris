@@ -99,9 +99,9 @@ bool MergedPKIndexDeleteBitmapCalculatorContext::Comparator::operator()(
     Slice key1, key2;
     Status st;
     st = lhs->get_current_key(&key1);
-    CHECK(LIKELY(st.ok())) << fmt::format("Reading key1 but get st = {}", st);
+    DCHECK(LIKELY(st.ok())) << fmt::format("Reading key1 but get st = {}", st);
     st = rhs->get_current_key(&key2);
-    CHECK(LIKELY(st.ok())) << fmt::format("Reading key2 but get st = {}", st);
+    DCHECK(LIKELY(st.ok())) << fmt::format("Reading key2 but get st = {}", st);
     // We start by comparing the key portions of the two records.
     // If they are not equal, we want the record with the smaller key to be popped from the heap first.
     // Therefore, we need to return the result of key1 > key2.
