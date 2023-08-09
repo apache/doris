@@ -1,7 +1,7 @@
 ---
 {
-    "title": "ST_Angle",
-    "language": "zh-CN"
+    "title": "ST_ANGLE",
+    "language": "en"
 }
 ---
 
@@ -32,15 +32,15 @@ under the License.
 
 ### description
 
-输入三个点，它们表示两条相交的线。返回这些线之间的夹角。点 2 和点 1 表示第一条线，点 2 和点 3 表示第二条线。这些线之间的夹角以弧度表示，范围为 [0, 2pi)。夹角按顺时针方向从第一条线开始测量，直至第二条线。
+Enter three point, which represent two intersecting lines. Returns the angle between these lines. Point 2 and point 1 represent the first line and point 2 and point 3 represent the second line. The angle between these lines is in radians, in the range [0, 2pi). The angle is measured clockwise from the first line to the second line.
 
-ST_ANGLE 存在以下边缘情况：
+ST_ANGLE has the following edge cases:
 
-* 如果点 2 和点 3 相同，则返回 NULL。
-* 如果点 2 和点 1 相同，则返回 NULL。
-* 如果点 2 和点 3 是完全对映点，则返回 NULL。
-* 如果点 2 和点 1 是完全对映点，则返回 NULL。
-* 如果任何输入地理位置不是单点或为空地理位置，则会抛出错误。
+* If points 2 and 3 are the same, returns NULL.
+* If points 2 and 1 are the same, returns NULL.
+* If points 2 and 3 are exactly antipodal, returns NULL.
+* If points 2 and 1 are exactly antipodal, returns NULL.
+* If any of the input geographies are not single points or are the empty geography, then throws an error.
 
 ### example
 

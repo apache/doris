@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ST_LineFromText,ST_LineStringFromText",
+    "title": "ST_POLYGON,ST_POLYFROMTEXT,ST_POLYGONFROMTEXT",
     "language": "en"
 }
 ---
@@ -24,24 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ST_LineFromText,ST_LineStringFromText
+## ST_Polygon,ST_PolyFromText,ST_PolygonFromText
 ### Description
 #### Syntax
 
-`GEOMETRY ST LineFromText (VARCHAR wkt)`
+`GEOMETRY ST_Polygon (VARCHAR wkt)`
 
 
-Converting a WKT (Well Known Text) into a Line-style memory representation
+Converting a WKT (Well Known Text) into a corresponding polygon memory form
 
-### example
+
+#### example
 
 ```
-mysql> SELECT ST_AsText(ST_LineFromText("LINESTRING (1 1, 2 2)"));
-+---------------------------------------------------------+
-| st_astext(st_geometryfromtext('LINESTRING (1 1, 2 2)')) |
-+---------------------------------------------------------+
-| LINESTRING (1 1, 2 2)                                   |
-+---------------------------------------------------------+
+mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
++------------------------------------------------------------------+
+| st_astext(st_polygon('POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))')) |
++------------------------------------------------------------------+
+| POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))                          |
++------------------------------------------------------------------+
 ```
 ### keywords
-ST_LINEFROMTEXT, ST_LINESTRINGFROMTEXT,ST,LINEFROMTEXT,LINESTRINGFROMTEXT
+ST_POLYGON,ST_POLYFROMTEXT,ST_POLYGONFROMTEXT,ST,POLYGON,POLYFROMTEXT,POLYGONFROMTEXT
