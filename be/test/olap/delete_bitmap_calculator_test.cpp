@@ -229,7 +229,7 @@ public:
             seq_col_len = tablet_schema->column(tablet_schema->sequence_col_idx()).length();
         }
 
-        ASSERT_TRUE(calculator.init(segments, nullptr, true, seq_col_len).ok());
+        ASSERT_TRUE(calculator.init(segments, nullptr, seq_col_len).ok());
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(0);
         ASSERT_TRUE(calculator.process(delete_bitmap).ok());
 
