@@ -72,7 +72,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         if (isCanceled.get()) {
             throw new JobException("Export executor has been canceled, task id: {}", taskId);
         }
-        exportJob.exportExportJob();
+        exportJob.updateExportJobState(ExportJobState.EXPORTING, taskId, null, null, null);
         List<OutfileInfo> outfileInfoList = Lists.newArrayList();
         for (int idx = 0; idx < selectStmtLists.size(); ++idx) {
             if (isCanceled.get()) {
@@ -94,8 +94,8 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                         long nowVersion = partition.getVisibleVersion();
                         long oldVersion = exportJob.getPartitionToVersion().get(partition.getName());
                         if (nowVersion != oldVersion) {
-                            exportJob.cancelExportTask(CancelType.RUN_FAIL,
-                                    "The version of tablet {" + tabletId + "} has changed");
+                            exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
+                                    CancelType.RUN_FAIL, "The version of tablet {" + tabletId + "} has changed");
                             throw new JobException("Export Job[{}]: Tablet {} has changed version, old version = {}, "
                                     + "now version = {}", exportJob.getId(), tabletId, oldVersion, nowVersion);
                         }
@@ -104,7 +104,8 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                     table.readUnlock();
                 }
             } catch (AnalysisException e) {
-                exportJob.cancelExportTask(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+                exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
+                        ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
                 throw new JobException(e);
             }
 
@@ -112,14 +113,15 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                 stmtExecutor = new StmtExecutor(r.connectContext, selectStmtLists.get(idx));
                 stmtExecutor.execute();
                 if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
-                    exportJob.cancelExportTask(ExportFailMsg.CancelType.RUN_FAIL,
-                            r.connectContext.getState().getErrorMessage());
+                    exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
+                            ExportFailMsg.CancelType.RUN_FAIL, r.connectContext.getState().getErrorMessage());
                     return;
                 }
                 OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
                 outfileInfoList.add(outfileInfo);
             } catch (Exception e) {
-                exportJob.cancelExportTask(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+                exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
+                        ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
                 throw new JobException(e);
             } finally {
                 stmtExecutor.addProfileToSpan();
@@ -128,7 +130,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         if (isCanceled.get()) {
             throw new JobException("Export executor has been canceled, task id: {}", taskId);
         }
-        exportJob.finishExportTask(taskId, outfileInfoList);
+        exportJob.updateExportJobState(ExportJobState.FINISHED, taskId, outfileInfoList, null, null);
         isFinished.getAndSet(true);
     }
 

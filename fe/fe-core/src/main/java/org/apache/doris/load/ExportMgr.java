@@ -205,7 +205,8 @@ public class ExportMgr extends MasterDaemon {
         try {
             for (ExportJob exportJob : matchExportJobs) {
                 // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
-                exportJob.cancelExportTask(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
+                exportJob.updateExportJobState(ExportJobState.CANCELLED, 0L, null,
+                        ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
             }
         } catch (JobException e) {
             throw new AnalysisException(e.getMessage());
