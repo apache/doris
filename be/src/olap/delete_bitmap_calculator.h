@@ -108,11 +108,6 @@ class MergedPKIndexDeleteBitmapCalculator {
 public:
     MergedPKIndexDeleteBitmapCalculator() = default;
 
-    // Through the MergedPKIndexDeleteBitmapCalculator, we .
-    // In the calculator, we create a context for each segment of both the base data and delta data.
-    // These contexts can be viewed as iterators, which are then placed into a heap.
-    // We use a method similar to merge sorting to identify duplicate keys and update the delete-bitmap accordingly.
-    //
     // This calculator can calculate two types of delete bitmap: delete-bitmap inside a rowset and delete-bitmap between rowsets.
     //
     // `segments` are the delta data
