@@ -422,7 +422,8 @@ public class SingleNodePlanner {
 
     private void pushDownAggNoGrouping(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
         do {
-            if (CollectionUtils.isNotEmpty(root.getConjuncts())) {
+            if (CollectionUtils.isNotEmpty(root.getConjuncts())
+                    || CollectionUtils.isNotEmpty(root.getProjectList())) {
                 break;
             }
 
