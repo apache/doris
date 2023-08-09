@@ -651,9 +651,9 @@
                             "type": "category",
                             "label": "HLL Functions",
                             "items": [
-                                "sql-manual/sql-functions/hll-functions/hll_cardinality",
-                                "sql-manual/sql-functions/hll-functions/hll_empty",
-                                "sql-manual/sql-functions/hll-functions/hll_hash"
+                                "sql-manual/sql-functions/hll-functions/hll-cardinality",
+                                "sql-manual/sql-functions/hll-functions/hll-empty",
+                                "sql-manual/sql-functions/hll-functions/hll-hash"
                             ]
                         },
                         {
