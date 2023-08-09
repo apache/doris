@@ -49,10 +49,14 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "gen_cpp/BackendService.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/stream_load_pipe.h"
@@ -172,7 +176,7 @@ template <typename T>
 concept CanCancel = requires(T* response) { response->mutable_status(); };
 
 template <CanCancel T>
-void offer_failed(T* response, google::protobuf::Closure* done, const PriorityThreadPool& pool) {
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
     brpc::ClosureGuard closure_guard(done);
     response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
     response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
@@ -180,7 +184,7 @@ void offer_failed(T* response, google::protobuf::Closure* done, const PriorityTh
 }
 
 template <typename T>
-void offer_failed(T* response, google::protobuf::Closure* done, const PriorityThreadPool& pool) {
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
     brpc::ClosureGuard closure_guard(done);
     LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
 }
@@ -602,6 +606,14 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             st.to_protobuf(result->mutable_status());
             return;
         }
+        if (params.file_type == TFileType::FILE_STREAM) {
+            auto stream_load_ctx =
+                    ExecEnv::GetInstance()->new_load_stream_mgr()->get(params.load_id);
+            if (!stream_load_ctx) {
+                st = Status::InternalError("unknown stream load id: {}",
+                                           UniqueId(params.load_id).to_string());
+            }
+        }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {
             result->add_column_names(col_names[idx]);
@@ -705,6 +717,22 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         }
     }
     response->mutable_status()->set_status_code(TStatusCode::OK);
+}
+
+void PInternalServiceImpl::report_stream_load_status(google::protobuf::RpcController* controller,
+                                                     const PReportStreamLoadStatusRequest* request,
+                                                     PReportStreamLoadStatusResponse* response,
+                                                     google::protobuf::Closure* done) {
+    TUniqueId load_id;
+    load_id.__set_hi(request->load_id().hi());
+    load_id.__set_lo(request->load_id().lo());
+    Status st = Status::OK();
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(load_id);
+    if (!stream_load_ctx) {
+        st = Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
+    }
+    stream_load_ctx->promise.set_value(st);
+    st.to_protobuf(response->mutable_status());
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
@@ -983,7 +1011,14 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
-    PriorityThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
+
+    if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
+        // under high concurrency, thread pool will have a lot of lock contention.
+        _transmit_block(controller, request, response, done, Status::OK());
+        return;
+    }
+
+    FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
     bool ret = pool.try_offer([this, controller, request, response, done]() {
         _transmit_block(controller, request, response, done, Status::OK());
     });

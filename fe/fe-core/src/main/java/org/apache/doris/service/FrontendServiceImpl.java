@@ -21,9 +21,13 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
@@ -58,11 +62,16 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -70,10 +79,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatisticsCacheKey;
@@ -82,6 +94,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.MetadataGenerator;
+import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
@@ -150,7 +163,9 @@ import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TPrivilegeType;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryStatsResult;
+import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReplicaInfo;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
@@ -168,9 +183,12 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TStreamLoadWithLoadStatusRequest;
+import org.apache.doris.thrift.TStreamLoadWithLoadStatusResult;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
@@ -180,6 +198,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
@@ -191,6 +210,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.io.StringReader;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -378,7 +398,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
         }
         return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
-            defaultVal, comment, true);
+                defaultVal, comment, true);
     }
 
     @Override
@@ -1337,6 +1357,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
         multiTableFragmentInstanceIdIndexMap.remove(request.getTxnId());
+        deleteMultiTableStreamLoadJobIndex(request.getTxnId());
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);
 
@@ -1699,6 +1720,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    /**
+     * For first-class multi-table scenarios, we should store the mapping between Txn and data source type in a common
+     * place. Since there is only Kafka now, we should do this first.
+     */
+    private void buildMultiTableStreamLoadTask(StreamLoadTask baseTaskInfo, long txnId) {
+        try {
+            RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
+                    .getRoutineLoadJobByMultiLoadTaskTxnId(txnId);
+            if (routineLoadJob == null) {
+                return;
+            }
+            baseTaskInfo.setMultiTableBaseTaskInfo(routineLoadJob);
+        } catch (Exception e) {
+            LOG.warn("failed to build multi table stream load task: {}", e.getMessage());
+        }
+    }
+
+    private void deleteMultiTableStreamLoadJobIndex(long txnId) {
+        try {
+            Env.getCurrentEnv().getRoutineLoadManager().removeMultiLoadTaskTxnIdToRoutineLoadJobId(txnId);
+        } catch (Exception e) {
+            LOG.warn("failed to delete multi table stream load job index: {}", e.getMessage());
+        }
+    }
+
     @Override
     public TStreamLoadMultiTablePutResult streamLoadMultiTablePut(TStreamLoadPutRequest request) {
         List<OlapTable> olapTables;
@@ -1758,10 +1804,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 int index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
                 if (enablePipelineLoad) {
                     planFragmentParamsList.add(generatePipelineStreamLoadPut(request, db, fullDbName, table, timeoutMs,
-                            index));
+                            index, true));
                 } else {
                     TExecPlanFragmentParams planFragmentParams = generatePlanFragmentParams(request, db, fullDbName,
-                            table, timeoutMs, index);
+                            table, timeoutMs, index, true);
 
                     planFragmentParamsList.add(planFragmentParams);
                 }
@@ -1783,6 +1829,46 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setParams(planFragmentParamsList);
         return result;
+    }
+
+
+    private void streamLoadPutWithSqlImpl(TStreamLoadPutRequest request) throws UserException {
+        LOG.info("receive stream load put request");
+        String loadSql = request.getLoadSql();
+        ConnectContext ctx = new ConnectContext(null);
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setQueryId(request.getLoadId());
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        ctx.setThreadLocalInfo();
+        ctx.setBackendId(request.getBackendId());
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+        ctx.setStreamLoadInfo(streamLoadTask);
+        ctx.setLoadId(request.getLoadId());
+        SqlScanner input = new SqlScanner(new StringReader(loadSql), ctx.getSessionVariable().getSqlMode());
+        SqlParser parser = new SqlParser(input);
+        try {
+            StatementBase parsedStmt = SqlParserUtils.getFirstStmt(parser);
+            parsedStmt.setOrigStmt(new OriginStatement(loadSql, 0));
+            parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+            StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
+            ctx.setExecutor(executor);
+            TQueryOptions tQueryOptions = ctx.getSessionVariable().toThrift();
+            executor.analyze(tQueryOptions);
+            Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
+            Coordinator coord = new Coordinator(ctx, analyzer, executor.planner());
+            coord.setLoadMemLimit(request.getExecMemLimit());
+            coord.setQueryType(TQueryType.LOAD);
+            QeProcessorImpl.INSTANCE.registerQuery(request.getLoadId(), coord);
+            coord.exec();
+        } catch (UserException e) {
+            LOG.warn("exec sql error {}", e.getMessage());
+            throw new UserException("exec sql error");
+        } catch (Throwable e) {
+            LOG.warn("exec sql error catch unknown result.", e);
+            throw new UserException("exec sql error catch unknown result");
+        }
     }
 
     private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
@@ -1809,12 +1895,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
                                                                String fullDbName, OlapTable table,
                                                                long timeoutMs) throws UserException {
-        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1);
+        return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1, false);
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
                                                                String fullDbName, OlapTable table,
-                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex)
+                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex,
+                                                               boolean isMultiTableRequest)
             throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
@@ -1822,6 +1909,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            if (isMultiTableRequest) {
+                buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
+            }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId(), multiTableFragmentInstanceIdIndex);
             // add table indexes to transaction state
@@ -1855,13 +1945,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs, 1);
+        return this.generatePipelineStreamLoadPut(request, db, fullDbName, (OlapTable) table, timeoutMs,
+                1, false);
     }
 
     private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
                                                                   String fullDbName, OlapTable table,
                                                                   long timeoutMs,
-                                                               int multiTableFragmentInstanceIdIndex)
+                                                                  int multiTableFragmentInstanceIdIndex,
+                                                                  boolean isMultiTableRequest)
             throws UserException {
         if (db == null) {
             String dbName = fullDbName;
@@ -1876,6 +1968,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            if (isMultiTableRequest) {
+                buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
+            }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
@@ -1890,6 +1985,93 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } finally {
             table.readUnlock();
         }
+    }
+
+    // this function need to be improved
+    @Override
+    public TStreamLoadWithLoadStatusResult streamLoadWithLoadStatus(TStreamLoadWithLoadStatusRequest request) {
+        TStreamLoadWithLoadStatusResult result = new TStreamLoadWithLoadStatusResult();
+        TUniqueId loadId = request.getLoadId();
+        Coordinator coord = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
+        long totalRows = 0;
+        long loadedRows = 0;
+        int filteredRows = 0;
+        int unselectedRows = 0;
+        long txnId = -1;
+        Throwable throwable = null;
+        String label = "";
+        if (coord == null) {
+            result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+            LOG.info("runtime error, query {} does not exist", DebugUtil.printId(loadId));
+            return result;
+        }
+        ConnectContext context = coord.getConnectContext();
+        StmtExecutor exec = context.getExecutor();
+        InsertStmt insertStmt = (InsertStmt) exec.getParsedStmt();
+        label = insertStmt.getLabel();
+        txnId = insertStmt.getTransactionId();
+        result.setTxnId(txnId);
+        TransactionStatus txnStatus = TransactionStatus.ABORTED;
+        if (coord.getExecStatus().ok()) {
+            if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
+                totalRows = Long.parseLong(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+            }
+            if (coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
+                filteredRows = Integer.parseInt(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+            }
+            if (coord.getLoadCounters().get(LoadJob.UNSELECTED_ROWS) != null) {
+                unselectedRows = Integer.parseInt(coord.getLoadCounters().get(LoadJob.UNSELECTED_ROWS));
+            }
+            loadedRows = totalRows - filteredRows - unselectedRows;
+            try {
+                if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                        insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()),
+                        insertStmt.getTransactionId(),
+                        TabletCommitInfo.fromThrift(coord.getCommitInfos()),
+                        context.getSessionVariable().getInsertVisibleTimeoutMs())) {
+                    txnStatus = TransactionStatus.VISIBLE;
+                } else {
+                    txnStatus = TransactionStatus.COMMITTED;
+                }
+            } catch (Throwable t) {
+                // if any throwable being thrown during insert operation, first we should abort this txn
+                LOG.warn("handle insert stmt fail: {}", label, t);
+                try {
+                    Env.getCurrentGlobalTransactionMgr().abortTransaction(
+                            insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
+                            t.getMessage() == null ? "unknown reason" : t.getMessage());
+                } catch (Exception abortTxnException) {
+                    // just print a log if abort txn failed. This failure do not need to pass to user.
+                    // user only concern abort how txn failed.
+                    LOG.warn("errors when abort txn", abortTxnException);
+                }
+                throwable = t;
+            } finally {
+                QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
+            }
+            try {
+                context.getEnv().getLoadManager()
+                        .recordFinishedLoadJob(label, txnId, insertStmt.getDbName(),
+                                insertStmt.getTargetTable().getId(),
+                                EtlJobType.INSERT, System.currentTimeMillis(),
+                                throwable == null ? "" : throwable.getMessage(),
+                                coord.getTrackingUrl(), insertStmt.getUserInfo());
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
+            }
+            context.setOrUpdateInsertResult(txnId, label, insertStmt.getDbName(), insertStmt.getTbl(),
+                    txnStatus, loadedRows, filteredRows);
+            context.updateReturnRows((int) loadedRows);
+            result.setStatus(new TStatus(TStatusCode.OK));
+            result.setTotalRows(totalRows);
+            result.setLoadedRows(loadedRows);
+            result.setFilteredRows(filteredRows);
+            result.setUnselectedRows(unselectedRows);
+        } else {
+            QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
+            result.setStatus(new TStatus(TStatusCode.CANCELLED));
+        }
+        return result;
     }
 
     @Override

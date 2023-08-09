@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "olap/memtable.h"
+#include "olap/memtable_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
@@ -54,20 +54,12 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-enum MemType { WRITE = 1, FLUSH = 2, ALL = 3 };
-
-struct WriteRequest {
-    int64_t tablet_id;
+struct WriteRequest : MemTableWriter::WriteRequest {
     int32_t schema_hash;
     int64_t txn_id;
     int64_t partition_id;
-    PUniqueId load_id;
-    TupleDescriptor* tuple_desc;
-    // slots are in order of tablet's schema
-    const std::vector<SlotDescriptor*>* slots;
-    bool is_high_priority = false;
-    OlapTableSchemaParam* table_schema_param;
     int64_t index_id = 0;
+    OlapTableSchemaParam* table_schema_param;
 };
 
 // Writer for a particular (load, index, tablet).
@@ -138,12 +130,7 @@ private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                 const UniqueId& load_id);
 
-    // push a full memtable to flush executor
-    Status _flush_memtable_async();
-
     void _garbage_collection();
-
-    void _reset_mem_table();
 
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
@@ -155,28 +142,16 @@ private:
 
     bool _is_init = false;
     bool _is_cancelled = false;
-    bool _is_closed = false;
-    Status _cancel_status;
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
-    std::unique_ptr<RowsetWriter> _rowset_writer;
-    // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
-    std::unique_ptr<MemTable> _mem_table;
-    //const TabletSchema* _tablet_schema;
-    // tablet schema owned by delta writer, all write will use this tablet schema
-    // it's build from tablet_schema（stored when create tablet） and OlapTableSchema
-    // every request will have it's own tablet schema so simple schema change can work
+    std::shared_ptr<RowsetWriter> _rowset_writer;
+    MemTableWriter _memtable_writer;
     TabletSchemaSPtr _tablet_schema;
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
     UniqueId _load_id;
-    std::unique_ptr<FlushToken> _flush_token;
-    std::vector<std::shared_ptr<MemTracker>> _mem_table_insert_trackers;
-    std::vector<std::shared_ptr<MemTracker>> _mem_table_flush_trackers;
-    SpinLock _mem_table_tracker_lock;
-    std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
 
@@ -195,20 +170,7 @@ private:
     int64_t _total_received_rows = 0;
 
     RuntimeProfile* _profile = nullptr;
-    RuntimeProfile::Counter* _lock_timer = nullptr;
-    RuntimeProfile::Counter* _sort_timer = nullptr;
-    RuntimeProfile::Counter* _agg_timer = nullptr;
-    RuntimeProfile::Counter* _wait_flush_timer = nullptr;
-    RuntimeProfile::Counter* _delete_bitmap_timer = nullptr;
-    RuntimeProfile::Counter* _segment_writer_timer = nullptr;
-    RuntimeProfile::Counter* _memtable_duration_timer = nullptr;
-    RuntimeProfile::Counter* _put_into_output_timer = nullptr;
-    RuntimeProfile::Counter* _sort_times = nullptr;
-    RuntimeProfile::Counter* _agg_times = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
-    RuntimeProfile::Counter* _segment_num = nullptr;
-    RuntimeProfile::Counter* _raw_rows_num = nullptr;
-    RuntimeProfile::Counter* _merged_rows_num = nullptr;
 
     MonotonicStopWatch _lock_watch;
 };

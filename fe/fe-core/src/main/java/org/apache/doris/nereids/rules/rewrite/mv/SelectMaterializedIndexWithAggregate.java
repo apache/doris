@@ -21,10 +21,12 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
@@ -63,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.planner.PlanNode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -1014,6 +1017,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         public boolean isBaseIndex() {
             return index == scan.getTable().getBaseIndexId();
         }
+
+        public MaterializedIndexMeta getMeta() {
+            return scan.getTable().getIndexMetaByIndexId(index);
+        }
     }
 
     /**
@@ -1029,11 +1036,13 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     /**
      * Predicates should not have value type columns.
      */
-    private PreAggStatus checkPredicates(
-            List<Expression> predicates,
-            CheckContext checkContext) {
-        return disablePreAggIfContainsAnyValueColumn(predicates, checkContext,
-                "Predicate %s contains value column %s");
+    private PreAggStatus checkPredicates(List<Expression> predicates, CheckContext checkContext) {
+        Set<String> indexConjuncts = PlanNode
+                .splitAndCompoundPredicateToConjuncts(checkContext.getMeta().getWhereClause()).stream()
+                .map(e -> new NereidsParser().parseExpression(e.toSql()).toSql()).collect(Collectors.toSet());
+        return disablePreAggIfContainsAnyValueColumn(
+                predicates.stream().filter(e -> !indexConjuncts.contains(e.toSql())).collect(Collectors.toList()),
+                checkContext, "Predicate %s contains value column %s");
     }
 
     /**

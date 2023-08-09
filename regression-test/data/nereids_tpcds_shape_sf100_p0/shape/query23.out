@@ -22,7 +22,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteAnchor ( cteId=CTEId#2 )
 ----PhysicalCteProducer ( cteId=CTEId#2 )
 ------PhysicalProject
---------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast(((cast(95 as DECIMALV3(8, 5)) / 100.0) * tpcds_cmax) as DOUBLE))
+--------NestedLoopJoin[INNER_JOIN](cast(ssales as DOUBLE) > cast((0.9500 * tpcds_cmax) as DOUBLE))
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](store_sales.ss_customer_sk = customer.c_customer_sk)

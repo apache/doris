@@ -424,17 +424,6 @@ public class DBBinlog {
         }
 
         Map<Long, Long> tableCommitSeqMap = tombstone.getTableCommitSeqMap();
-        // TODO(deadlinefen): delete this code
-        // This is a reserved code for the transition between new and old versions.
-        // It will be deleted later
-        if (tableCommitSeqMap.isEmpty()) {
-            long commitSeq = tombstone.getCommitSeq();
-            List<Long> tableIds = tombstone.getTableIds();
-            for (long tableId : tableIds) {
-                tableCommitSeqMap.put(tableId, commitSeq);
-            }
-        }
-
         for (TableBinlog tableBinlog : tableBinlogs) {
             long tableId = tableBinlog.getTableId();
             if (tableCommitSeqMap.containsKey(tableId)) {

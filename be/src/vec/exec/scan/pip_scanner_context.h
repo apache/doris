@@ -29,14 +29,12 @@ class PipScannerContext : public vectorized::ScannerContext {
 
 public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
-                      const TupleDescriptor* input_tuple_desc,
                       const TupleDescriptor* output_tuple_desc,
                       const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit,
                       int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
                       const int num_parallel_instances)
-            : vectorized::ScannerContext(state, parent, input_tuple_desc, output_tuple_desc,
-                                         scanners, limit, max_bytes_in_blocks_queue,
-                                         num_parallel_instances),
+            : vectorized::ScannerContext(state, parent, output_tuple_desc, scanners, limit,
+                                         max_bytes_in_blocks_queue, num_parallel_instances),
               _col_distribute_ids(col_distribute_ids),
               _need_colocate_distribute(!_col_distribute_ids.empty()) {}
 

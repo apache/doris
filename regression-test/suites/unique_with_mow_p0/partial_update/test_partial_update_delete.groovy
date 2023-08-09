@@ -92,6 +92,7 @@ suite('test_partial_update_delete') {
         file 'partial_update_delete.csv'
         time 10000
     }
+    sql "sync"
     qt_sql "select k1,c1,c2,c3,c4 from ${tableName3} order by k1,c1,c2,c3,c4;"
     sql "set skip_delete_sign=true;"
     sql "set skip_storage_engine_merge=true;"

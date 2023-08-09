@@ -312,8 +312,8 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the clean interval of file descriptor cache and segment cache
-DECLARE_mInt32(cache_clean_interval);
+// the prune stale interval of all cache
+DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
@@ -565,6 +565,8 @@ DECLARE_Bool(enable_quadratic_probing);
 DECLARE_String(pprof_profile_dir);
 // for jeprofile in jemalloc
 DECLARE_mString(jeprofile_dir);
+// Purge all unused dirty pages for all arenas.
+DECLARE_mBool(enable_je_purge_dirty_pages);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
@@ -951,14 +953,23 @@ DECLARE_Bool(hide_webserver_config_page);
 
 DECLARE_Bool(enable_segcompaction);
 
-// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
-DECLARE_Int32(segcompaction_threshold_segment_num);
+// Max number of segments allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_batch_size);
 
-// The segment whose row number above the threshold will be compacted during segcompaction
-DECLARE_Int32(segcompaction_small_threshold);
+// Max row count allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int32(segcompaction_candidate_max_rows);
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DECLARE_mInt32(segcompaction_max_threads);
+// Max file size allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int64(segcompaction_candidate_max_bytes);
+
+// Max total row count allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_task_max_rows);
+
+// Max total file size allowed in a single segcompaction task.
+DECLARE_Int64(segcompaction_task_max_bytes);
+
+// Global segcompaction thread pool size.
+DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
@@ -1049,6 +1060,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
+// Apply delete pred in cumu compaction
+DECLARE_mBool(enable_delete_when_cumu_compaction);
 
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);
@@ -1062,6 +1075,12 @@ DECLARE_mInt64(kerberos_expiration_time_seconds);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
+
+// DISABLED: Don't resolve location info.
+// FAST: Perform CU lookup using .debug_aranges (might be incomplete).
+// FULL: Scan all CU in .debug_info (slow!) on .debug_aranges lookup failure.
+// FULL_WITH_INLINE: Scan .debug_info (super slower, use with caution) for inline functions in addition to FULL.
+DECLARE_mString(dwarf_location_info_mode);
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DECLARE_mInt64(auto_inc_prefetch_size_ratio);
@@ -1079,6 +1098,16 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 
 // enable window_funnel_function with different modes
 DECLARE_mBool(enable_window_funnel_function_v2);
+
+// whether to enable hdfs hedged read.
+// If set to true, it will be enabled even if user not enable it when creating catalog
+DECLARE_Bool(enable_hdfs_hedged_read);
+// hdfs hedged read thread pool size, for "dfs.client.hedged.read.threadpool.size"
+// Maybe overwritten by the value specified when creating catalog
+DECLARE_Int32(hdfs_hedged_read_thread_num);
+// the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
+// Maybe overwritten by the value specified when creating catalog
+DECLARE_Int32(hdfs_hedged_read_threshold_time);
 
 #ifdef BE_TEST
 // test s3

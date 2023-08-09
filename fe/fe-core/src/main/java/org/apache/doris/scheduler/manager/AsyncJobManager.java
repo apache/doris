@@ -156,19 +156,20 @@ public class AsyncJobManager implements Closeable, Writable {
     }
 
     private Long findFistExecuteTime(Long currentTimeMs, Long startTimeMs, Long intervalMs, boolean isCycleJob) {
+        // if job not delay, first execute time is start time
         if (startTimeMs != 0L && startTimeMs > currentTimeMs) {
             return startTimeMs;
         }
-        // if it's not cycle job and already delay, next execute time is current time
-        if (!isCycleJob) {
+        // if job already delay, first execute time is current time
+        if (startTimeMs != 0L && startTimeMs < currentTimeMs) {
             return currentTimeMs;
         }
-
-        long cycle = (currentTimeMs - startTimeMs) / intervalMs;
-        if ((currentTimeMs - startTimeMs) % intervalMs > 0) {
-            cycle += 1;
+        // if it's cycle job and not set start tine, first execute time is current time + interval
+        if (isCycleJob && startTimeMs == 0L) {
+            return currentTimeMs + intervalMs;
         }
-        return startTimeMs + cycle * intervalMs;
+        // if it's not cycle job and already delay, first execute time is current time
+        return currentTimeMs;
     }
 
     public void unregisterJob(Long jobId) {

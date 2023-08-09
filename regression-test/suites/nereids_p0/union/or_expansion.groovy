@@ -18,6 +18,7 @@
 suite("or_expansion") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "SET enable_pipeline_engine = true"
     def db = "nereids_test_query_db"
     sql "use ${db}"
 
@@ -29,9 +30,23 @@ suite("or_expansion") {
         contains "VHASH JOIN"
     }
     
-    order_qt_nsj """select * from test 
+    order_qt_nlj """select * from bigtable 
             join baseall 
-            on baseall.k1 = test.k1 
-            or baseall.k3 = test.k3
+            on baseall.k0 = bigtable.k0 
+            or baseall.k1 = bigtable.k1
+            """
+
+    explain {
+        sql("""select * from bigtable 
+            join baseall 
+            on baseall.k0 = bigtable.k0
+            or baseall.k1 * 2 = bigtable.k1 + 1""")
+        contains "VHASH JOIN"
+    }
+
+    order_qt_nlj2 """select * from bigtable 
+            join baseall 
+            on baseall.k0 = bigtable.k0
+            or baseall.k1 * 2 = bigtable.k1 + 1
             """
 }

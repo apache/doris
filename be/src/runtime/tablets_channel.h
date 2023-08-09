@@ -112,7 +112,10 @@ public:
 
     void refresh_profile();
 
-    std::unordered_map<int64_t, DeltaWriter*> get_tablet_writers() { return _tablet_writers; }
+    std::unordered_map<int64_t, DeltaWriter*> get_tablet_writers() {
+        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        return _tablet_writers;
+    }
 
 private:
     template <typename Request>

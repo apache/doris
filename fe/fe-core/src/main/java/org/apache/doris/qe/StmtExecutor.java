@@ -1408,7 +1408,6 @@ public class StmtExecutor {
             }
         }
 
-
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {

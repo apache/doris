@@ -151,7 +151,7 @@ public class HiveScanNode extends FileQueryScanNode {
                 partitionValuesList.add(listPartitionItem.getItems().get(0).getPartitionValuesAsStringList());
             }
             List<HivePartition> allPartitions =
-                     cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(), partitionValuesList);
+                    cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(), partitionValuesList);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionsFinishTime();
             }
@@ -197,7 +197,7 @@ public class HiveScanNode extends FileQueryScanNode {
         if (hiveTransaction != null) {
             fileCaches = getFileSplitByTransaction(cache, partitions);
         } else {
-            fileCaches = cache.getFilesByPartitions(partitions, useSelfSplitter);
+            fileCaches = cache.getFilesByPartitionsWithCache(partitions, useSelfSplitter);
         }
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();

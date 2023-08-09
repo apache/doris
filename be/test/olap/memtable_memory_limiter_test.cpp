@@ -127,9 +127,16 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {
-            10000, 270068372, 20002, 30002, load_id, tuple_desc, &(tuple_desc->slots()),
-            false, &param};
+    WriteRequest write_req;
+    write_req.tablet_id = 10000;
+    write_req.schema_hash = 270068372;
+    write_req.txn_id = 20002;
+    write_req.partition_id = 30002;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");

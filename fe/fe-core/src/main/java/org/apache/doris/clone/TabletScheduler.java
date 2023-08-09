@@ -1483,6 +1483,7 @@ public class TabletScheduler extends MasterDaemon {
                 TabletStatus st = tablet.getColocateHealthStatus(
                         partition.getVisibleVersion(), replicaAlloc, backendsSet);
                 statusPair = Pair.of(st, Priority.HIGH);
+                tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
                 List<Long> aliveBeIds = infoService.getAllBackendIds(true);
                 statusPair = tablet.getHealthStatusWithPriority(
@@ -1525,7 +1526,7 @@ public class TabletScheduler extends MasterDaemon {
         runningTablets.remove(tabletCtx.getTabletId());
         allTabletTypes.remove(tabletCtx.getTabletId());
         schedHistory.add(tabletCtx);
-        LOG.info("remove the tablet {}. because: {}", tabletCtx.getTabletId(), reason);
+        LOG.info("remove the tablet {}. because: {}", tabletCtx, reason);
     }
 
     // get next batch of tablets from queue.
@@ -1703,10 +1704,6 @@ public class TabletScheduler extends MasterDaemon {
         List<TabletSchedCtx> timeoutTablets = Lists.newArrayList();
         synchronized (this) {
             runningTablets.values().stream().filter(TabletSchedCtx::isTimeout).forEach(timeoutTablets::add);
-
-            for (TabletSchedCtx tabletSchedCtx : timeoutTablets) {
-                removeTabletCtx(tabletSchedCtx, "timeout");
-            }
         }
 
         // 2. release ctx
@@ -1714,7 +1711,7 @@ public class TabletScheduler extends MasterDaemon {
             // Set "resetReplicaState" to true because
             // the timeout task should also be considered as UNRECOVERABLE,
             // so need to reset replica state.
-            releaseTabletCtx(t, TabletSchedCtx.State.CANCELLED, true);
+            finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, "timeout");
             stat.counterCloneTaskTimeout.incrementAndGet();
         });
     }

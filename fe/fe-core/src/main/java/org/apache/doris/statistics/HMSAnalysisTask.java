@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
@@ -106,7 +105,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-        setTaskStateToRunning();
         if (isTableLevelTask) {
             getTableStats();
         } else {
@@ -232,8 +230,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql = stringSubstitutor.replace(sb.toString());
             executeInsertSql(sql);
-            Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(
-                    catalog.getId(), db.getId(), tbl.getId(), -1, col.getName());
         }
     }
 

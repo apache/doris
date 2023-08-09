@@ -23,7 +23,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/priority_thread_pool.hpp"
+#include "util/work_thread_pool.hpp"
 
 namespace google {
 namespace protobuf {
@@ -181,6 +181,11 @@ public:
                                     PGetTabletVersionsResponse* response,
                                     google::protobuf::Closure* done) override;
 
+    void report_stream_load_status(google::protobuf::RpcController* controller,
+                                   const PReportStreamLoadStatusRequest* request,
+                                   PReportStreamLoadStatusResponse* response,
+                                   google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
@@ -227,8 +232,8 @@ private:
     // the reason see issue #16634
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
-    PriorityThreadPool _heavy_work_pool;
-    PriorityThreadPool _light_work_pool;
+    FifoThreadPool _heavy_work_pool;
+    FifoThreadPool _light_work_pool;
 };
 
 } // namespace doris

@@ -238,33 +238,29 @@ public class StatisticsCache {
 
     public void syncLoadColStats(long tableId, long idxId, String colName) {
         List<ResultRow> columnResults = StatisticsRepository.loadColStats(tableId, idxId, colName);
-        for (ResultRow r : columnResults) {
-            final StatisticsCacheKey k =
-                    new StatisticsCacheKey(tableId, idxId, colName);
-            final ColumnStatistic c = ColumnStatistic.fromResultRow(r);
-            if (c == ColumnStatistic.UNKNOWN) {
-                continue;
-            }
-            putCache(k, c);
-            TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest = new TUpdateFollowerStatsCacheRequest();
-            updateFollowerStatsCacheRequest.key = GsonUtils.GSON.toJson(k);
-            updateFollowerStatsCacheRequest.colStats = GsonUtils.GSON.toJson(c);
-            for (Frontend frontend : Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER)) {
-                TNetworkAddress address = new TNetworkAddress(frontend.getHost(),
-                        frontend.getRpcPort());
-                FrontendService.Client client = null;
-                try {
-                    client = ClientPool.frontendPool.borrowObject(address);
-                    client.updateStatsCache(updateFollowerStatsCacheRequest);
-                } catch (Throwable t) {
-                    LOG.warn("Failed to sync stats to follower: {}", address, t);
-                } finally {
-                    if (client != null) {
-                        ClientPool.frontendPool.returnObject(address, client);
-                    }
+        final StatisticsCacheKey k =
+                new StatisticsCacheKey(tableId, idxId, colName);
+        final ColumnStatistic c = ColumnStatistic.fromResultRow(columnResults);
+        putCache(k, c);
+        TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest = new TUpdateFollowerStatsCacheRequest();
+        updateFollowerStatsCacheRequest.key = GsonUtils.GSON.toJson(k);
+        updateFollowerStatsCacheRequest.colStats = GsonUtils.GSON.toJson(c);
+        for (Frontend frontend : Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER)) {
+            TNetworkAddress address = new TNetworkAddress(frontend.getHost(),
+                    frontend.getRpcPort());
+            FrontendService.Client client = null;
+            try {
+                client = ClientPool.frontendPool.borrowObject(address);
+                client.updateStatsCache(updateFollowerStatsCacheRequest);
+            } catch (Throwable t) {
+                LOG.warn("Failed to sync stats to follower: {}", address, t);
+            } finally {
+                if (client != null) {
+                    ClientPool.frontendPool.returnObject(address, client);
                 }
             }
         }
+
     }
 
     public void putCache(StatisticsCacheKey k, ColumnStatistic c) {

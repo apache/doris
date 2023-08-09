@@ -45,8 +45,9 @@ class TExpr;
 
 namespace doris::vectorized {
 
-VResultFileSink::VResultFileSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                                 const TResultFileSink& sink, int per_channel_buffer_size,
+VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool,
+                                 const RowDescriptor& row_desc, const TResultFileSink& sink,
+                                 int per_channel_buffer_size,
                                  bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr)
         : _t_output_expr(t_output_expr), _row_desc(row_desc) {
@@ -62,8 +63,8 @@ VResultFileSink::VResultFileSink(ObjectPool* pool, const RowDescriptor& row_desc
     _header = sink.header;
 }
 
-VResultFileSink::VResultFileSink(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-                                 const TResultFileSink& sink,
+VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
+                                 const RowDescriptor& row_desc, const TResultFileSink& sink,
                                  const std::vector<TPlanFragmentDestination>& destinations,
                                  int per_channel_buffer_size,
                                  bool send_query_statistics_with_every_batch,
@@ -77,7 +78,7 @@ VResultFileSink::VResultFileSink(ObjectPool* pool, int sender_id, const RowDescr
     _storage_type = sink.storage_backend_type;
     _is_top_sink = false;
     CHECK_EQ(destinations.size(), 1);
-    _stream_sender.reset(new VDataStreamSender(pool, sender_id, row_desc, sink.dest_node_id,
+    _stream_sender.reset(new VDataStreamSender(state, pool, sender_id, row_desc, sink.dest_node_id,
                                                destinations, per_channel_buffer_size,
                                                send_query_statistics_with_every_batch));
 

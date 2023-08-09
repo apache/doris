@@ -102,7 +102,7 @@ FROM data_source [data_source_properties]
 
     Filter raw data. For a detailed introduction to this part, you can refer to the [Column Mapping, Transformation and Filtering] document.
 
-    Tips: When using dynamic multiple tables, please note that this parameter should be consistent with the type of each dynamic table, otherwise it will result in import failure.
+    Tips: Dynamic multiple tables are not supported.
 
   - `where_predicates`
 

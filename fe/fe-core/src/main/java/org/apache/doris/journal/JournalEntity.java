@@ -853,7 +853,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_BARRIER: {
-                data = new BarrierLog();
+                data = BarrierLog.read(in);
                 isRead = true;
                 break;
             }

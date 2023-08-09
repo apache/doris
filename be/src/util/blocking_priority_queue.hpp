@@ -185,7 +185,7 @@ public:
         return _queue.size();
     }
 
-    uint32_t get_max_size() const { return _max_element; }
+    uint32_t get_capacity() const { return _max_element; }
 
     // Returns the total amount of time threads have blocked in blocking_get.
     uint64_t total_get_wait_time() const { return _total_get_wait_time; }

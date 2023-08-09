@@ -21,7 +21,7 @@
 
 #include "io/fs/file_system.h"
 #include "olap/olap_define.h"
-#include "priority_thread_pool.hpp"
+#include "work_thread_pool.hpp"
 
 namespace doris {
 

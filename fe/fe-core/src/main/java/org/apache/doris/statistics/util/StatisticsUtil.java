@@ -553,6 +553,9 @@ public class StatisticsUtil {
      * @return estimated row count
      */
     public static long getRowCountFromFileList(HMSExternalTable table) {
+        if (table.isView()) {
+            return 0;
+        }
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
         List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
@@ -562,6 +565,9 @@ public class StatisticsUtil {
         int totalPartitionSize = 1;
         // Get table partitions from cache.
         if (!partitionColumnTypes.isEmpty()) {
+            // It is ok to get partition values from cache,
+            // no need to worry that this call will invalid or refresh the cache.
+            // because it has enough space to keep partition info of all tables in cache.
             partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
         }
         if (partitionValues != null) {
@@ -582,14 +588,17 @@ public class StatisticsUtil {
             for (PartitionItem item : partitionItems) {
                 partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
             }
-            hivePartitions = cache.getAllPartitions(table.getDbName(), table.getName(), partitionValuesList);
+            // get partitions without cache, so that it will not invalid the cache when executing
+            // non query request such as `show table status`
+            hivePartitions = cache.getAllPartitionsWithoutCache(table.getDbName(), table.getName(),
+                    partitionValuesList);
         } else {
             hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
                     table.getRemoteTable().getSd().getInputFormat(),
                     table.getRemoteTable().getSd().getLocation(), null));
         }
         // Get files for all partitions.
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitions(
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitionsWithoutCache(
                 hivePartitions, true);
         long totalSize = 0;
         // Calculate the total file size.

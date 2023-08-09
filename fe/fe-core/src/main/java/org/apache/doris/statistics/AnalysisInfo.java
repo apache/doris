@@ -68,7 +68,7 @@ public class AnalysisInfo implements Writable {
         // submit by user directly
         MANUAL,
         // submit by system automatically
-        SYSTEM
+        SYSTEM;
     }
 
     public enum ScheduleType {

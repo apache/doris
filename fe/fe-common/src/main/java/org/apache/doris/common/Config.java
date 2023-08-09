@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
-
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -293,7 +291,7 @@ public class Config extends ConfigBase {
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
     @ConfField(description = {"是否启用所有 http 接口的认证",
-            "Whether to enable all http interface authentication"}, expType = ExperimentalType.EXPERIMENTAL)
+            "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;
 
     @ConfField(description = {"FE http 端口，目前所有 FE 的 http 端口必须相同",
@@ -323,7 +321,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"是否启用 https，如果启用，http 端口将不可用",
             "Whether to enable https, if enabled, http port will not be available"},
-            expType = ExperimentalType.EXPERIMENTAL)
+            varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_https = false;
 
     @ConfField(description = {"Jetty 的 acceptor 线程数。Jetty的线程架构模型很简单，分为三个线程池：acceptor、selector 和 worker。"
@@ -572,7 +570,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否启用 stream load 和 broker load 的单副本写入。",
             "Whether to enable to write single replica for stream load and broker load."},
-            expType = ExperimentalType.EXPERIMENTAL)
+            varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -1174,8 +1172,16 @@ public class Config extends ConfigBase {
     /**
      * Set the maximum number of rows that can be cached
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大行数。",
+        "Maximum number of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
     public static int cache_result_max_row_count = 3000;
+
+    /**
+     * Set the maximum data size that can be cached
+     */
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大数据大小。",
+        "Maximum data size of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
+    public static int cache_result_max_data_size = 31457280; // 30M
 
     /**
      * Used to limit element num of InPredicate in delete statement.
@@ -1524,7 +1530,7 @@ public class Config extends ConfigBase {
     public static int scheduler_job_task_max_num = 10;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
-    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
 
     @ConfField(mutable = true)
@@ -1603,7 +1609,7 @@ public class Config extends ConfigBase {
     /*
      * mtmv is still under dev, remove this config when it is graduate.
      */
-    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_mtmv = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
@@ -1773,7 +1779,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = false, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -1796,7 +1802,7 @@ public class Config extends ConfigBase {
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.
      */
-    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_query_hive_views = false;
 
     /**
@@ -1826,7 +1832,7 @@ public class Config extends ConfigBase {
     /**
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
-    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_ssl = false;
 
     /**
@@ -2008,7 +2014,7 @@ public class Config extends ConfigBase {
                     + " including the specific reason why they are unqueryable, will be printed out."})
     public static boolean show_details_for_unaccessible_tablet = false;
 
-    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL, description = {
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
             "是否启用binlog特性",
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
@@ -2042,7 +2048,7 @@ public class Config extends ConfigBase {
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "用于强制设定内表的副本数，如果改参数大于零，则用户在建表时指定的副本数将被忽略，而使用本参数设置的值。"
+            "用于强制设定内表的副本数，如果该参数大于零，则用户在建表时指定的副本数将被忽略，而使用本参数设置的值。"
                     + "同时，建表语句中指定的副本标签等参数会被忽略。该参数不影响包括创建分区、修改表属性的操作。该参数建议仅用于测试环境",
             "Used to force the number of replicas of the internal table. If the config is greater than zero, "
                     + "the number of replicas specified by the user when creating the table will be ignored, "
@@ -2054,9 +2060,18 @@ public class Config extends ConfigBase {
     public static int force_olap_table_replication_num = 0;
 
     @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+    public static int full_auto_analyze_simultaneously_running_task_num = 5;
 
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
 
+    @ConfField(mutable = true, description = {
+            "Export任务允许的最大分区数量",
+            "The maximum number of partitions allowed by Export job"})
+    public static int maximum_number_of_export_partitions = 2000;
+
+    @ConfField(mutable = true, description = {
+            "Export任务允许的最大并行数",
+            "The maximum parallelism allowed by Export job"})
+    public static int maximum_parallelism_of_export_job = 50;
 }
