@@ -97,11 +97,8 @@ bool MergedPKIndexDeleteBitmapCalculatorContext::Comparator::operator()(
     // std::proiroty_queue is a max heap, and function should return the result of `lhs < rhs`
     // so if the result of the function is true, rhs will be popped before lhs
     Slice key1, key2;
-    Status st;
-    st = lhs->get_current_key(&key1);
-    DCHECK(LIKELY(st.ok())) << fmt::format("Reading key1 but get st = {}", st);
-    st = rhs->get_current_key(&key2);
-    DCHECK(LIKELY(st.ok())) << fmt::format("Reading key2 but get st = {}", st);
+    lhs->get_current_key(&key1);
+    rhs->get_current_key(&key2);
     // We start by comparing the key portions of the two records.
     // If they are not equal, we want the record with the smaller key to be popped from the heap first.
     // Therefore, we need to return the result of key1 > key2.
@@ -152,9 +149,10 @@ bool MergedPKIndexDeleteBitmapCalculatorContext::Comparator::is_key_same(Slice c
 
 Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> const& segments,
                                                  const std::vector<int64_t>* end_versions,
-                                                 size_t num_base_segments, size_t seq_col_length,
+                                                 size_t num_delta_segments, size_t seq_col_length,
                                                  size_t max_batch_size) {
-    // Assume that the first `num_base_segments` segments are the delta data, others are the base data.
+    // The first `num_delta_segments` segments are the delta data, others are the base data.
+    DCHECK_LE(num_delta_segments, segments.size());
     _seq_col_length = seq_col_length;
     _comparator = MergedPKIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length);
     size_t num_segments = segments.size();
@@ -164,16 +162,15 @@ Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> c
     for (size_t i = 0; i < num_segments; ++i) {
         auto&& segment = segments[i];
         int64_t end_version = end_versions ? (*end_versions)[i] : 0;
-        segment->rowset_id();
         RETURN_IF_ERROR(segment->load_index());
         auto pk_idx = segment->get_primary_key_index();
         std::unique_ptr<segment_v2::IndexedColumnIterator> index;
         RETURN_IF_ERROR(pk_idx->new_iterator(&index));
         auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
                 pk_idx->type_info()->type(), 1, 0);
-        bool is_base_segment = i < num_base_segments;
+        bool is_delta_segment = i < num_delta_segments;
         _contexts.emplace_back(std::move(index), index_type, segment->rowset_id(), end_version,
-                               segment->id(), is_base_segment, pk_idx->num_rows(), max_batch_size);
+                               segment->id(), is_delta_segment, pk_idx->num_rows(), max_batch_size);
         _heap->push(&_contexts.back());
     }
     return Status::OK();
@@ -181,12 +178,12 @@ Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> c
 
 Status MergedPKIndexDeleteBitmapCalculator::init(
         std::vector<SegmentSharedPtr> const& segments,
-        const std::vector<RowsetSharedPtr>* specified_rowsets,
-        bool calc_delete_bitmap_between_segments, size_t seq_col_length, size_t max_batch_size) {
+        const std::vector<RowsetSharedPtr>* specified_rowsets, size_t seq_col_length,
+        size_t max_batch_size) {
     std::vector<SegmentSharedPtr> all_segments(segments);
     // Assume that the delta segments' version is infinitely large.
     std::vector<int64_t> end_versions(segments.size(), INT64_MAX);
-    _calc_delete_bitmap_between_segments = calc_delete_bitmap_between_segments;
+    _calc_delete_bitmap_between_rowsets = specified_rowsets != nullptr;
     if (specified_rowsets) {
         size_t num_rowsets = specified_rowsets->size();
         _seg_caches = std::make_unique<std::vector<std::unique_ptr<SegmentCacheHandle>>>(
@@ -209,7 +206,7 @@ Status MergedPKIndexDeleteBitmapCalculator::init(
 
 Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitmap) {
     while (_heap->size() >= 2) {
-        if (!_calc_delete_bitmap_between_segments) {
+        if (_calc_delete_bitmap_between_rowsets) {
             // This is a trick when we don't need to calculating the delete bitmap between delta data.
             // Assuming that some smallest contexts correspond to segments of the base data,
             // we only need to directly seek these contexts to the key represented

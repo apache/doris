@@ -120,14 +120,13 @@ public:
     // `calc_delete_bitmap_between_segments` stands for whether we should find duplicate keys in `segments`
     Status init(std::vector<SegmentSharedPtr> const& segments,
                 const std::vector<RowsetSharedPtr>* specified_rowsets = nullptr,
-                bool calc_delete_bitmap_between_segments = false, size_t seq_col_length = 0,
-                size_t max_batch_size = kMergedPKIteratorReadBatchSize);
+                size_t seq_col_length = 0, size_t max_batch_size = kMergedPKIteratorReadBatchSize);
 
     Status process(DeleteBitmapPtr delete_bitmap);
 
 private:
     Status init(std::vector<SegmentSharedPtr> const& segments,
-                const std::vector<int64_t>* end_versions, size_t num_base_segments,
+                const std::vector<int64_t>* end_versions, size_t num_delta_segments,
                 size_t seq_col_length, size_t max_batch_size);
 
     Status step();
@@ -141,7 +140,7 @@ private:
     std::unique_ptr<Heap> _heap;
     std::string _last_key;
     size_t _seq_col_length;
-    bool _calc_delete_bitmap_between_segments;
+    bool _calc_delete_bitmap_between_rowsets;
 };
 
 } // namespace doris
