@@ -143,6 +143,8 @@ public class ScalarType extends Type {
                 return createDecimalType(precision, scale);
             case DATETIMEV2:
                 return createDatetimeV2Type(scale);
+            case TIMEV2:
+                return createTimeV2Type(scale);
             default:
                 return createType(type);
         }
@@ -687,6 +689,12 @@ public class ScalarType extends Type {
                 scalarType.setPrecision(precision);
                 break;
             }
+            case TIMEV2: {
+                Preconditions.checkArgument(precision >= scale);
+                scalarType.setScale(scale);
+                scalarType.setPrecision(precision);
+                break;
+            }
             default:
                 break;
         }
@@ -867,7 +875,10 @@ public class ScalarType extends Type {
             return false;
         }
         ScalarType other = (ScalarType) o;
-        if ((this.isDatetimeV2() && other.isDatetimeV2()) || (this.isTimeV2() && other.isTimeV2())) {
+        if ((this.isDatetimeV2() && other.isDatetimeV2())) {
+            return this.decimalScale() == other.decimalScale();
+        }
+        if (this.isTimeV2() && other.isTimeV2()) {
             return this.decimalScale() == other.decimalScale();
         }
         if (type.isDecimalV3Type() && other.isDecimalV3()) {

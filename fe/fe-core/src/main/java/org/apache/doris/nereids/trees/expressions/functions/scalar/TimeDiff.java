@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -46,8 +48,7 @@ public class TimeDiff extends ScalarFunction
             FunctionSignature.ret(TimeType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE),
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE)
-    );
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
 
     /**
      * constructor with 2 arguments.
@@ -73,5 +74,42 @@ public class TimeDiff extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitTimeDiff(this, context);
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        signature = super.computeSignature(signature);
+        boolean useTimev2 = false;
+        int scale = 0;
+        if (getArgument(0).getDataType() instanceof DateTimeV2Type) {
+            DateTimeV2Type left = (DateTimeV2Type) getArgument(0).getDataType();
+            scale = Math.max(scale, left.getScale());
+            useTimev2 = true;
+        }
+        if (getArgument(1).getDataType() instanceof DateTimeV2Type) {
+            DateTimeV2Type right = (DateTimeV2Type) getArgument(1).getDataType();
+            scale = Math.max(scale, right.getScale());
+            useTimev2 = true;
+        }
+        if (useTimev2) {
+            signature = signature.withReturnType(TimeV2Type.of(scale));
+        }
+        return signature;
+    }
+
+    @Override
+    public List<AbstractDataType> expectedInputTypes() {
+        FunctionSignature signature = getSignature();
+        if (getArgument(0) instanceof StringLikeLiteral) {
+            StringLikeLiteral str = (StringLikeLiteral) getArgument(0);
+            DateTimeV2Type left = DateTimeV2Type.forTypeFromString(str.getStringValue());
+            signature = signature.withArgumentType(0, left);
+        }
+        if (getArgument(1) instanceof StringLikeLiteral) {
+            StringLikeLiteral str = (StringLikeLiteral) getArgument(1);
+            DateTimeV2Type right = DateTimeV2Type.forTypeFromString(str.getStringValue());
+            signature = signature.withArgumentType(1, right);
+        }
+        return signature.argumentsTypes;
     }
 }
