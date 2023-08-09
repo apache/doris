@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "vec/common/allocator.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris {
 
