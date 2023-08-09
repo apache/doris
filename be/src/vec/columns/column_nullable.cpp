@@ -293,7 +293,7 @@ void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t 
 
 void ColumnNullable::insert_indices_from(const IColumn& src, const int* indices_begin,
                                          const int* indices_end) {
-    const ColumnNullable& src_concrete = assert_cast<const ColumnNullable&>(src);
+    const ColumnNullable& src_concrete = assert_cast_safe<const ColumnNullable&>(src);
     get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
                                             indices_end);
     _get_null_map_column().insert_indices_from(src_concrete.get_null_map_column(), indices_begin,
