@@ -224,7 +224,23 @@ bool MemInfo::process_full_gc() {
 }
 
 int64_t MemInfo::tg_hard_memory_limit_gc() {
+    MonotonicStopWatch watch;
+    watch.start();
     std::vector<taskgroup::TaskGroupPtr> task_groups;
+    std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
+    int64_t total_free_memory = 0;
+
+    Defer defer {[&]() {
+        if (total_free_memory > 0) {
+            je_purge_all_arena_dirty_pages();
+            std::stringstream ss;
+            tg_profile->pretty_print(&ss);
+            LOG(INFO) << fmt::format(
+                    "End Task Group Overcommit Memory GC, Free Memory {} Bytes. cost(us): {}, "
+                    "details: {}",
+                    total_free_memory, watch.elapsed_time() / 1000, ss.str());
+        }
+    }};
 
     ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
@@ -232,14 +248,13 @@ int64_t MemInfo::tg_hard_memory_limit_gc() {
             },
             &task_groups);
 
-    int64_t total_free_memory = 0;
     for (const auto& task_group : task_groups) {
         taskgroup::TaskGroupInfo tg_info;
         task_group->task_group_info(&tg_info);
         auto used = task_group->memory_used();
         total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
                 used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
-                task_group->mem_tracker_limiter_pool(), nullptr);
+                task_group->mem_tracker_limiter_pool(), tg_profile.get());
     }
     return total_free_memory;
 }
