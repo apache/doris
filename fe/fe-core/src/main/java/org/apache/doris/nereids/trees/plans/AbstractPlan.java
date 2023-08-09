@@ -208,13 +208,4 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     public void setMutableState(String key, Object state) {
         this.mutableState = this.mutableState.set(key, state);
     }
-
-    @Override
-    public boolean deepEquals(TreeNode o) {
-        AbstractPlan that = (AbstractPlan) o;
-        if (Objects.equals(getLogicalProperties(), that.getLogicalProperties())) {
-            return super.deepEquals(o);
-        }
-        return false;
-    }
 }
