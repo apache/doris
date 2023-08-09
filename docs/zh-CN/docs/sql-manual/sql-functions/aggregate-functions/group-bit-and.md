@@ -1,6 +1,6 @@
 ---
 {
-    "title": "group_bit_and",
+    "title": "GROUP_BIT_AND",
     "language": "zh-CN"
 }
 ---

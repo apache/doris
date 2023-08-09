@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SEQUENCE-MATCH",
+    "title": "SEQUENCE_COUNT",
     "language": "zh-CN"
 }
 ---
@@ -22,13 +22,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SEQUENCE-MATCH
+## SEQUENCE-COUNT
 ### Description
 #### Syntax
 
-`sequence_match(pattern, timestamp, cond1, cond2, ...);`
+`sequence_count(pattern, timestamp, cond1, cond2, ...);`
 
-检查序列是否包含与模式匹配的事件链。
+计算与模式匹配的事件链的数量。该函数搜索不重叠的事件链。当前链匹配后，它开始搜索下一个链。
 
 **警告!** 
 
@@ -54,18 +54,16 @@ under the License.
 
 #### Returned value
 
-1，如果模式匹配。
-
-0，如果模式不匹配。
+匹配的非重叠事件链数。
 
 ### example
 
 **匹配例子**
 
 ```sql
-DROP TABLE IF EXISTS sequence_match_test1;
+DROP TABLE IF EXISTS sequence_count_test1;
 
-CREATE TABLE sequence_match_test1(
+CREATE TABLE sequence_count_test1(
                 `uid` int COMMENT 'user id',
                 `date` datetime COMMENT 'date time', 
                 `number` int NULL COMMENT 'number' 
@@ -76,13 +74,13 @@ PROPERTIES (
     "replication_num" = "1"
 ); 
 
-INSERT INTO sequence_match_test1(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
+INSERT INTO sequence_count_test1(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
                                                    (2, '2022-11-02 13:28:02', 2),
                                                    (3, '2022-11-02 16:15:01', 1),
                                                    (4, '2022-11-02 19:05:04', 2),
                                                    (5, '2022-11-02 20:08:44', 3); 
 
-SELECT * FROM sequence_match_test1 ORDER BY date;
+SELECT * FROM sequence_count_test1 ORDER BY date;
 
 +------+---------------------+--------+
 | uid  | date                | number |
@@ -94,37 +92,37 @@ SELECT * FROM sequence_match_test1 ORDER BY date;
 |    5 | 2022-11-02 20:08:44 |      3 |
 +------+---------------------+--------+
 
-SELECT sequence_match('(?1)(?2)', date, number = 1, number = 3) FROM sequence_match_test1;
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 3) FROM sequence_count_test1;
 
 +----------------------------------------------------------------+
-| sequence_match('(?1)(?2)', `date`, `number` = 1, `number` = 3) |
+| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 3) |
 +----------------------------------------------------------------+
 |                                                              1 |
 +----------------------------------------------------------------+
 
-SELECT sequence_match('(?1)(?2)', date, number = 1, number = 2) FROM sequence_match_test1;
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_count_test1;
 
 +----------------------------------------------------------------+
-| sequence_match('(?1)(?2)', `date`, `number` = 1, `number` = 2) |
+| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 2) |
 +----------------------------------------------------------------+
-|                                                              1 |
+|                                                              2 |
 +----------------------------------------------------------------+
 
-SELECT sequence_match('(?1)(?t>=3600)(?2)', date, number = 1, number = 2) FROM sequence_match_test1;
+SELECT sequence_count('(?1)(?t>=3600)(?2)', date, number = 1, number = 2) FROM sequence_count_test1;
 
 +---------------------------------------------------------------------------+
-| sequence_match('(?1)(?t>=3600)(?2)', `date`, `number` = 1, `number` = 2) |
+| sequence_count('(?1)(?t>=3600)(?2)', `date`, `number` = 1, `number` = 2) |
 +---------------------------------------------------------------------------+
-|                                                                         1 |
+|                                                                         2 |
 +---------------------------------------------------------------------------+
 ```
 
 **不匹配例子**
 
 ```sql
-DROP TABLE IF EXISTS sequence_match_test2;
+DROP TABLE IF EXISTS sequence_count_test2;
 
-CREATE TABLE sequence_match_test2(
+CREATE TABLE sequence_count_test2(
                 `uid` int COMMENT 'user id',
                 `date` datetime COMMENT 'date time', 
                 `number` int NULL COMMENT 'number' 
@@ -135,13 +133,13 @@ PROPERTIES (
     "replication_num" = "1"
 ); 
 
-INSERT INTO sequence_match_test2(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
+INSERT INTO sequence_count_test2(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
                                                    (2, '2022-11-02 11:41:00', 7),
                                                    (3, '2022-11-02 16:15:01', 3),
                                                    (4, '2022-11-02 19:05:04', 4),
                                                    (5, '2022-11-02 21:24:12', 5);
 
-SELECT * FROM sequence_match_test2 ORDER BY date;
+SELECT * FROM sequence_count_test2 ORDER BY date;
 
 +------+---------------------+--------+
 | uid  | date                | number |
@@ -153,26 +151,26 @@ SELECT * FROM sequence_match_test2 ORDER BY date;
 |    5 | 2022-11-02 21:24:12 |      5 |
 +------+---------------------+--------+
 
-SELECT sequence_match('(?1)(?2)', date, number = 1, number = 2) FROM sequence_match_test2;
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 2) FROM sequence_count_test2;
 
 +----------------------------------------------------------------+
-| sequence_match('(?1)(?2)', `date`, `number` = 1, `number` = 2) |
+| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 2) |
 +----------------------------------------------------------------+
 |                                                              0 |
 +----------------------------------------------------------------+
 
-SELECT sequence_match('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_match_test2;
+SELECT sequence_count('(?1)(?2).*', date, number = 1, number = 2) FROM sequence_count_test2;
 
 +------------------------------------------------------------------+
-| sequence_match('(?1)(?2).*', `date`, `number` = 1, `number` = 2) |
+| sequence_count('(?1)(?2).*', `date`, `number` = 1, `number` = 2) |
 +------------------------------------------------------------------+
 |                                                                0 |
 +------------------------------------------------------------------+
 
-SELECT sequence_match('(?1)(?t>3600)(?2)', date, number = 1, number = 7) FROM sequence_match_test2;
+SELECT sequence_count('(?1)(?t>3600)(?2)', date, number = 1, number = 7) FROM sequence_count_test2;
 
 +--------------------------------------------------------------------------+
-| sequence_match('(?1)(?t>3600)(?2)', `date`, `number` = 1, `number` = 7) |
+| sequence_count('(?1)(?t>3600)(?2)', `date`, `number` = 1, `number` = 7) |
 +--------------------------------------------------------------------------+
 |                                                                        0 |
 +--------------------------------------------------------------------------+
@@ -181,9 +179,9 @@ SELECT sequence_match('(?1)(?t>3600)(?2)', date, number = 1, number = 7) FROM se
 **特殊例子**
 
 ```sql
-DROP TABLE IF EXISTS sequence_match_test3;
+DROP TABLE IF EXISTS sequence_count_test3;
 
-CREATE TABLE sequence_match_test3(
+CREATE TABLE sequence_count_test3(
                 `uid` int COMMENT 'user id',
                 `date` datetime COMMENT 'date time', 
                 `number` int NULL COMMENT 'number' 
@@ -194,13 +192,13 @@ PROPERTIES (
     "replication_num" = "1"
 ); 
 
-INSERT INTO sequence_match_test3(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
+INSERT INTO sequence_count_test3(uid, date, number) values (1, '2022-11-02 10:41:00', 1),
                                                    (2, '2022-11-02 11:41:00', 7),
                                                    (3, '2022-11-02 16:15:01', 3),
                                                    (4, '2022-11-02 19:05:04', 4),
                                                    (5, '2022-11-02 21:24:12', 5);
 
-SELECT * FROM sequence_match_test3 ORDER BY date;
+SELECT * FROM sequence_count_test3 ORDER BY date;
 
 +------+---------------------+--------+
 | uid  | date                | number |
@@ -216,10 +214,10 @@ SELECT * FROM sequence_match_test3 ORDER BY date;
 Perform the query:
 
 ```sql
-SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5) FROM sequence_match_test3;
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 5) FROM sequence_count_test3;
 
 +----------------------------------------------------------------+
-| sequence_match('(?1)(?2)', `date`, `number` = 1, `number` = 5) |
+| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 5) |
 +----------------------------------------------------------------+
 |                                                              1 |
 +----------------------------------------------------------------+
@@ -230,10 +228,10 @@ SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5) FROM sequence_ma
 现在，考虑如下执行语句：
 
 ```sql
-SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5, number = 4) FROM sequence_match_test3;
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 5, number = 4) FROM sequence_count_test3;
 
 +------------------------------------------------------------------------------+
-| sequence_match('(?1)(?2)', `date`, `number` = 1, `number` = 5, `number` = 4) |
+| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 5, `number` = 4) |
 +------------------------------------------------------------------------------+
 |                                                                            0 |
 +------------------------------------------------------------------------------+
@@ -242,10 +240,10 @@ SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5, number = 4) FROM
 您可能对这个结果有些许疑惑，在这种情况下，函数找不到与模式匹配的事件链，因为数字4的事件发生在1和5之间。 如果在相同的情况下，我们检查了数字6的条件，则序列将与模式匹配。
 
 ```sql
-SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5, number = 6) FROM sequence_match_test3;
+SELECT sequence_count('(?1)(?2)', date, number = 1, number = 5, number = 6) FROM sequence_count_test3;
 
 +------------------------------------------------------------------------------+
-| sequence_match('(?1)(?2)', `date`, `number` = 1, `number` = 5, `number` = 6) |
+| sequence_count('(?1)(?2)', `date`, `number` = 1, `number` = 5, `number` = 6) |
 +------------------------------------------------------------------------------+
 |                                                                            1 |
 +------------------------------------------------------------------------------+
@@ -253,4 +251,4 @@ SELECT sequence_match('(?1)(?2)', date, number = 1, number = 5, number = 6) FROM
 
 ### keywords
 
-SEQUENCE_MATCH
+SEQUENCE_COUNT

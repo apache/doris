@@ -1,6 +1,6 @@
 ---
 {
-    "title": "group_bit_xor",
+    "title": "GROUP_BIT_XOR",
     "language": "en"
 }
 ---
