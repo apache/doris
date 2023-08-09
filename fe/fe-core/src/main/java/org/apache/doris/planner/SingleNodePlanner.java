@@ -420,7 +420,8 @@ public class SingleNodePlanner {
                 break;
             }
 
-            if (CollectionUtils.isNotEmpty(root.getConjuncts())) {
+            if (CollectionUtils.isNotEmpty(root.getConjuncts())
+                    || CollectionUtils.isNotEmpty(root.getProjectList())) {
                 break;
             }
 
