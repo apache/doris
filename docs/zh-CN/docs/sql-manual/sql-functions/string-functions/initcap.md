@@ -1,6 +1,6 @@
 ---
 {
-    "title": "initcap",
+    "title": "INITCAP",
     "language": "zh-CN"
 }
 ---

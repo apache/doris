@@ -1,6 +1,6 @@
 ---
 {
-    "title": "unhex",
+    "title": "UNHEX",
     "language": "zh-CN"
 }
 ---
