@@ -1,6 +1,6 @@
 ---
 {
-    "title": "json_array",
+    "title": "JSON_ARRAY",
     "language": "zh-CN"
 }
 ---

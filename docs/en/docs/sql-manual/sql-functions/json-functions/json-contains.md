@@ -1,6 +1,6 @@
 ---
 {
-"title": "json_contains",
+"title": "JSON_CONTAINS",
 "language": "en"
 }
 ---

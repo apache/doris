@@ -1,6 +1,6 @@
 ---
 {
-    "title": "json_unquote",
+    "title": "JSON_UNQUOTE",
     "language": "zh-CN"
 }
 ---
@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR json_ununquote(VARCHAR)`
+`VARCHAR json_unquote(VARCHAR)`
 
 这个函数将去掉JSON值中的引号，并将结果作为utf8mb4字符串返回。如果参数为NULL，则返回NULL。
 

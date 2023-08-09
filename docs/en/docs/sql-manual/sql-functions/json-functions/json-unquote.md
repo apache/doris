@@ -1,6 +1,6 @@
 ---
 {
-    "title": "json_unquote",
+    "title": "JSON_UNQUOTE",
     "language": "en"
 }
 ---
@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-`VARCHAR json_ununquote(VARCHAR)`
+`VARCHAR json_unquote(VARCHAR)`
 
 This function unquotes a JSON value and returns the result as a utf8mb4 string. If the argument is NULL, it will return NULL.
 
