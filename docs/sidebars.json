@@ -640,8 +640,8 @@
                             "type": "category",
                             "label": "Hash Functions",
                             "items": [
-                                "sql-manual/sql-functions/hash-functions/murmur_hash3_32",
-                                "sql-manual/sql-functions/hash-functions/murmur_hash3_64"
+                                "sql-manual/sql-functions/hash-functions/murmur-hash3-32",
+                                "sql-manual/sql-functions/hash-functions/murmur-hash3-64"
                             ]
                         },
                         {
