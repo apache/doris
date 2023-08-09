@@ -1,7 +1,7 @@
 ---
 {
-    "title": "struct_element",
-    "language": "en"
+    "title": "STRUCT_ELEMENT",
+    "language": "zh-CN"
 }
 ---
 
@@ -32,7 +32,7 @@ struct_element
 
 ### description
 
-Function allows getting a field from a struct.
+返回struct数据列内的某一field
 
 #### Syntax
 
@@ -43,18 +43,18 @@ struct_element(struct, n/s)
 #### Arguments
 
 ```
-struct - The input struct column. If null, null will be returned.
-n - The position of field，starting from 1，only supports constants.
-s - The name of field，only supports constants.
+struct - 输入的struct列，如果是null，则返回null
+n - field的位置，起始位置从1开始，仅支持常量
+s - field的名字，仅支持常量
 ```
 
 #### Returned value
 
-Returns the specified field column, of any type.
+返回指定的field列，类型为任意类型
 
 ### notice
 
-`Only supported in vectorized engine`
+`只支持在向量化引擎中使用。`
 
 ### example
 

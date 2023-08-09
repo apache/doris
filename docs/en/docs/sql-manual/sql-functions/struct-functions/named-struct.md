@@ -1,7 +1,7 @@
 ---
 {
-    "title": "named_struct",
-    "language": "zh-CN"
+    "title": "NAMED_STRUCT",
+    "language": "en"
 }
 ---
 
@@ -36,13 +36,13 @@ named_struct
 
 `STRUCT<T1, T2, T3, ...> named_struct({VARCHAR, T1}, {VARCHAR, T2}, ...)`
 
-根据给定的字符串和值构造并返回struct
+Construct a struct with the given field names and values. 
 
-参数个数必须为非0偶数，奇数位是field的名字，必须为常量字符串，偶数位是field的值，可以是多列或常量
+The number of parameters must be non zero and even. With odd digits being the name of the field and could be string literal, with even digits being the value of the field and could be column or literal.
 
 ### notice
 
-`仅支持向量化引擎中使用`
+`Only supported in vectorized engine`
 
 ### example
 
