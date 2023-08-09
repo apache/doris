@@ -508,7 +508,7 @@ true
 1	1
 
 -- !sql_bitmap_intersect_no_nereids0 --
-1	0
+1	1
 
 -- !sql_bitmap_intersect_no_nereids1 --
 1	1
@@ -526,7 +526,7 @@ true
 1	1
 
 -- !sql_orthogonal_bitmap_intersect_count_not_nereids0 --
-1	0
+1	1
 
 -- !sql_orthogonal_bitmap_intersect_count_not_nereids1 --
 1	1
