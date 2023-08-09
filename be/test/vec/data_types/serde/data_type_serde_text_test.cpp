@@ -613,227 +613,264 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
 }
 
 TEST(TextSerde, ComplexTypeWithNestedSerdeTextTest) {
-    //    // array-array<string>
-    //    {
-    //        // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-    //        typedef std::tuple<FieldType, std::vector<string>, std::vector<string>, std::vector<string>, std::vector<string>>
-    //                FieldType_RandStr;
-    //        std::vector<FieldType_RandStr> nested_field_types = {
-    //                FieldType_RandStr(
-    //                        FieldType::OLAP_FIELD_TYPE_STRING,
-    //                        {"[[Hello, World],[This, is, a, nested, array]]"},
-    //                        {"[[Hello, World], [This, is, a, nested, array]]"},
-    //                        {"[NULL, NULL, NULL, NULL, NULL, NULL, NULL]"},
-    //                        {"[[Hello, World], [This, is, a, nested, array]]"}),
-    //                FieldType_RandStr(
-    //                        FieldType::OLAP_FIELD_TYPE_STRING,
-    //                        {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), -, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
-    //                        {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), -, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
-    //                        {""},
-    //                        {"[[With, special, characters], [like, @, #, $, % \"^\", &, *, (, ), -, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"}
-    //                )
-    //        };
-    //        // array type
-    //        for (auto type_pair : nested_field_types) {
-    //            auto type = std::get<0>(type_pair);
-    //            DataTypePtr nested_data_type_ptr =
-    //                    DataTypeFactory::instance().create_data_type(type, 0, 0);
-    //            DataTypePtr nested_array_data_type_ptr =
-    //                    std::make_shared<DataTypeArray>(make_nullable(nested_data_type_ptr));
-    //
-    //            DataTypePtr array_data_type_ptr =
-    //                    std::make_shared<DataTypeArray>(make_nullable(nested_array_data_type_ptr));
-    //
-    //            std::cout << "========= This type is  " << array_data_type_ptr->get_name() << ": "
-    //                      << fmt::format("{}", type) << std::endl;
-    //
-    //            DataTypeSerDeSPtr serde = array_data_type_ptr->get_serde();
-    //            DataTypeSerDeSPtr serde_1 = array_data_type_ptr->get_serde();
-    //            DataTypeSerDe::FormatOptions formatOptions;
-    //
-    //            for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
-    //                std::string rand_str = std::get<1>(type_pair)[i];
-    //                std::string expect_str = std::get<2>(type_pair)[i];
-    //                std::string expect_from_string_str = std::get<3>(type_pair)[i];
-    //                std::string expect_str_1 = std::get<4>(type_pair)[i];
-    //                std::cout << "rand_str:" << rand_str << std::endl;
-    //                std::cout << "expect_str:" << expect_str << std::endl;
-    //                std::cout << "expect_from_str:" << expect_from_string_str << std::endl;
-    //                std::cout << "expect_str_can_format_from_string:" << expect_str << std::endl;
-    //                {
-    //                    // serde
-    //                    auto col = array_data_type_ptr->create_column();
-    //                    Slice slice(rand_str.data(), rand_str.size());
-    //                    formatOptions.converted_from_string = false;
-    //                    Status st = serde->deserialize_one_cell_from_text(*col, slice, formatOptions);
-    //                    if (expect_str == "") {
-    //                        EXPECT_EQ(st.ok(), false);
-    //                        std::cout << st.to_json() << std::endl;
-    //                    } else {
-    //                        EXPECT_EQ(st.ok(), true);
-    //                        auto ser_col = ColumnString::create();
-    //                        ser_col->reserve(1);
-    //                        VectorBufferWriter buffer_writer(*ser_col.get());
-    //                        serde->serialize_one_cell_to_text(*col, 0, buffer_writer, formatOptions);
-    //                        buffer_writer.commit();
-    //                        StringRef rand_s_d = ser_col->get_data_at(0);
-    //                        std::cout << "test : " << rand_s_d << std::endl;
-    //                        EXPECT_EQ(expect_str, rand_s_d.to_string());
-    //                    }
-    //                }
-    //                {
-    //                    // from_string
-    //                    ReadBuffer rb(rand_str.data(), rand_str.size());
-    //                    auto col2 = array_data_type_ptr->create_column();
-    //                    Status status = array_data_type_ptr->from_string(rb, col2);
-    //                    if (expect_from_string_str == "") {
-    //                        EXPECT_EQ(status.ok(), false);
-    //                        std::cout << "test from_string: " << status.to_json() << std::endl;
-    //                    } else {
-    //                        auto ser_col = ColumnString::create();
-    //                        ser_col->reserve(1);
-    //                        VectorBufferWriter buffer_writer(*ser_col.get());
-    //                        serde->serialize_one_cell_to_text(*col2, 0, buffer_writer, formatOptions);
-    //                        buffer_writer.commit();
-    //                        StringRef rand_s_d = ser_col->get_data_at(0);
-    //                        std::cout << "test from string: " << rand_s_d << std::endl;
-    //                        EXPECT_EQ(expect_from_string_str, rand_s_d.to_string());
-    //                    }
-    //                }
-    //                {
-    //                    formatOptions.converted_from_string = true;
-    //                    std::cout << "======== change " << formatOptions.converted_from_string
-    //                              << " with rand_str: " << rand_str << std::endl;
-    //                    auto col3 = array_data_type_ptr->create_column();
-    //                    Slice slice(rand_str.data(), rand_str.size());
-    //                    Status st =
-    //                            serde_1->deserialize_one_cell_from_text(*col3, slice, formatOptions);
-    //                    if (expect_str == "") {
-    //                        EXPECT_EQ(st.ok(), false);
-    //                        std::cout << st.to_json() << std::endl;
-    //                    } else {
-    //                        EXPECT_EQ(st.ok(), true);
-    //                        auto ser_col = ColumnString::create();
-    //                        ser_col->reserve(1);
-    //                        VectorBufferWriter buffer_writer(*ser_col.get());
-    //                        serde_1->serialize_one_cell_to_text(*col3, 0, buffer_writer, formatOptions);
-    //                        buffer_writer.commit();
-    //                        StringRef rand_s_d = ser_col->get_data_at(0);
-    //                        EXPECT_EQ(expect_str_1, rand_s_d.to_string());
-    //                    }
-    //                }
-    //            }
-    //        }
-    //    }
-    //
-    //    // array-map<string, double>
-    //    {
-    //        // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
-    //        typedef std::tuple<FieldType, FieldType, std::vector<string>, std::vector<string>, std::vector<string>, std::vector<string>>
-    //                FieldType_RandStr;
-    //        std::vector<FieldType_RandStr> nested_field_types = {
-    //                FieldType_RandStr(
-    //                        FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,
-    //                        {"[{\"2cKtIM-L1mOcEm-udR-HcB2\":0.23929040957798242,\"eof2UN-Is0EEuA-H5D-hE58\":0.42373055809540094,\"FwUSOB-R8rtK9W-BVG-8wYZ\":0.7680704548628841},{\"qDXU9D-7orr51d-g80-6t5k\":0.6446245786874659,\"bkLjmx-uZ2Ez7F-536-PGqy\":0.8880791950937957,\"9Etq4o-FPm37O4-5fk-QWh7\":0.08630489716260481},{\"tu3OMw-mzS0jAx-Dnj-Xm3G\":0.1184199213706042,\"XkhTn0-QFLo8Ks-JXR-k4zk\":0.5181239375482816,\"EYC8Dj-GTTp9iB-b4O-QBkO\":0.4491897722178303},{\"sHFGPg-cfA8gya-kfw-IugT\":0.20842299487398452,\"BBQ6e5-OJYRJhC-zki-7rQj\":0.3050124830713523,\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754},{\"HfhEMX-oAMBJCC-YIC-hCqN\":0.8131454631693608,\"xrnTFd-ikONWik-T7J-sL8J\":0.37509722558990855,\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086}]"},
-    //                        {"[{\"2cKtIM-L1mOcEm-udR-HcB2\":0.23929040957798242, \"eof2UN-Is0EEuA-H5D-hE58\":0.42373055809540094, \"FwUSOB-R8rtK9W-BVG-8wYZ\":0.7680704548628841}, {\"qDXU9D-7orr51d-g80-6t5k\":0.6446245786874659, \"bkLjmx-uZ2Ez7F-536-PGqy\":0.8880791950937957, \"9Etq4o-FPm37O4-5fk-QWh7\":0.08630489716260481}, {\"tu3OMw-mzS0jAx-Dnj-Xm3G\":0.1184199213706042, \"XkhTn0-QFLo8Ks-JXR-k4zk\":0.5181239375482816, \"EYC8Dj-GTTp9iB-b4O-QBkO\":0.4491897722178303}, {\"sHFGPg-cfA8gya-kfw-IugT\":0.20842299487398452, \"BBQ6e5-OJYRJhC-zki-7rQj\":0.3050124830713523, \"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754}, {\"HfhEMX-oAMBJCC-YIC-hCqN\":0.8131454631693608, \"xrnTFd-ikONWik-T7J-sL8J\":0.37509722558990855, \"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086}]"},
-    //                        {""},
-    //                        {"[{2cKtIM-L1mOcEm-udR-HcB2:0.23929040957798242, eof2UN-Is0EEuA-H5D-hE58:0.42373055809540094, FwUSOB-R8rtK9W-BVG-8wYZ:0.7680704548628841}, {qDXU9D-7orr51d-g80-6t5k:0.6446245786874659, bkLjmx-uZ2Ez7F-536-PGqy:0.8880791950937957, 9Etq4o-FPm37O4-5fk-QWh7:0.08630489716260481}, {tu3OMw-mzS0jAx-Dnj-Xm3G:0.1184199213706042, XkhTn0-QFLo8Ks-JXR-k4zk:0.5181239375482816, EYC8Dj-GTTp9iB-b4O-QBkO:0.4491897722178303}, {sHFGPg-cfA8gya-kfw-IugT:0.20842299487398452, BBQ6e5-OJYRJhC-zki-7rQj:0.3050124830713523, mKH57V-YmwCNFq-vs8-vUIX:0.36446683035480754}, {HfhEMX-oAMBJCC-YIC-hCqN:0.8131454631693608, xrnTFd-ikONWik-T7J-sL8J:0.37509722558990855, SVyEes-77mlzIr-N6c-DkYw:0.4703053945053086}]"}
-    //                )
-    //        };
-    //        for (auto type_pair : nested_field_types) {
-    //            auto key_type = std::get<0>(type_pair);
-    //            DataTypePtr nested_key_data_type_ptr =
-    //                    DataTypeFactory::instance().create_data_type(key_type, 0, 0);
-    //            auto val_type = std::get<1>(type_pair);
-    //            DataTypePtr nested_value_data_type_ptr =
-    //                    DataTypeFactory::instance().create_data_type(val_type, 0, 0);
-    //
-    //            DataTypePtr nested_map_data_type_ptr =
-    //                    std::make_shared<DataTypeMap>(make_nullable(nested_key_data_type_ptr), make_nullable(nested_value_data_type_ptr));
-    //
-    //            DataTypePtr array_data_type_ptr =
-    //                    std::make_shared<DataTypeArray>(make_nullable(nested_map_data_type_ptr));
-    //
-    //            std::cout << "========= This type is  " << array_data_type_ptr->get_name() << std::endl;
-    //
-    //            DataTypeSerDeSPtr serde = array_data_type_ptr->get_serde();
-    //            DataTypeSerDeSPtr serde_1 = array_data_type_ptr->get_serde();
-    //            DataTypeSerDe::FormatOptions formatOptions;
-    //
-    //            for (int i = 0; i < std::get<2>(type_pair).size(); ++i) {
-    //                std::string rand_str = std::get<2>(type_pair)[i];
-    //                std::string expect_str = std::get<3>(type_pair)[i];
-    //                std::string expect_from_string_str = std::get<4>(type_pair)[i];
-    //                std::string expect_str_1 = std::get<5>(type_pair)[i];
-    //                std::cout << "rand_str:" << rand_str << std::endl;
-    //                std::cout << "expect_str:" << expect_str << std::endl;
-    //                std::cout << "expect_from_str:" << expect_from_string_str << std::endl;
-    //                std::cout << "expect_str_can_format_from_string:" << expect_str << std::endl;
-    //                {
-    //                    // serde
-    //                    auto col = array_data_type_ptr->create_column();
-    //                    Slice slice(rand_str.data(), rand_str.size());
-    //                    formatOptions.converted_from_string = false;
-    //                    Status st = serde->deserialize_one_cell_from_text(*col, slice, formatOptions);
-    //                    if (expect_str == "") {
-    //                        EXPECT_EQ(st.ok(), false);
-    //                        std::cout << st.to_json() << std::endl;
-    //                    } else {
-    //                        EXPECT_EQ(st.ok(), true);
-    //                        auto ser_col = ColumnString::create();
-    //                        ser_col->reserve(1);
-    //                        VectorBufferWriter buffer_writer(*ser_col.get());
-    //                        serde->serialize_one_cell_to_text(*col, 0, buffer_writer, formatOptions);
-    //                        buffer_writer.commit();
-    //                        StringRef rand_s_d = ser_col->get_data_at(0);
-    //                        std::cout << "test : " << rand_s_d << std::endl;
-    //                        EXPECT_EQ(expect_str, rand_s_d.to_string());
-    //                    }
-    //                }
-    //                {
-    //                    // from_string
-    //                    ReadBuffer rb(rand_str.data(), rand_str.size());
-    //                    auto col2 = array_data_type_ptr->create_column();
-    //                    Status status = array_data_type_ptr->from_string(rb, col2);
-    //                    if (expect_from_string_str == "") {
-    //                        EXPECT_EQ(status.ok(), false);
-    //                        std::cout << "test from_string: " << status.to_json() << std::endl;
-    //                    } else {
-    //                        auto ser_col = ColumnString::create();
-    //                        ser_col->reserve(1);
-    //                        VectorBufferWriter buffer_writer(*ser_col.get());
-    //                        serde->serialize_one_cell_to_text(*col2, 0, buffer_writer, formatOptions);
-    //                        buffer_writer.commit();
-    //                        StringRef rand_s_d = ser_col->get_data_at(0);
-    //                        std::cout << "test from string: " << rand_s_d << std::endl;
-    //                        EXPECT_EQ(expect_from_string_str, rand_s_d.to_string());
-    //                    }
-    //                }
-    //                {
-    //                    formatOptions.converted_from_string = true;
-    //                    std::cout << "======== change " << formatOptions.converted_from_string
-    //                              << " with rand_str: " << rand_str << std::endl;
-    //                    auto col3 = array_data_type_ptr->create_column();
-    //                    Slice slice(rand_str.data(), rand_str.size());
-    //                    Status st =
-    //                            serde_1->deserialize_one_cell_from_text(*col3, slice, formatOptions);
-    //                    if (expect_str == "") {
-    //                        EXPECT_EQ(st.ok(), false);
-    //                        std::cout << st.to_json() << std::endl;
-    //                    } else {
-    //                        EXPECT_EQ(st.ok(), true);
-    //                        auto ser_col = ColumnString::create();
-    //                        ser_col->reserve(1);
-    //                        VectorBufferWriter buffer_writer(*ser_col.get());
-    //                        serde_1->serialize_one_cell_to_text(*col3, 0, buffer_writer, formatOptions);
-    //                        buffer_writer.commit();
-    //                        StringRef rand_s_d = ser_col->get_data_at(0);
-    //                        EXPECT_EQ(expect_str_1, rand_s_d.to_string());
-    //                    }
-    //                }
-    //            }
-    //        }
-    //    }
+    // array-array<string>
+    {
+        // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
+        typedef std::tuple<FieldType, std::vector<string>, std::vector<string>, std::vector<string>,
+                           std::vector<string>>
+                FieldType_RandStr;
+        std::vector<FieldType_RandStr> nested_field_types = {
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_STRING,
+                                  {"[[Hello, World],[This, is, a, nested, array]]"},
+                                  {"[[Hello, World], [This, is, a, nested, array]]"},
+                                  {"[NULL, NULL, NULL, NULL, NULL, NULL, NULL]"},
+                                  {"[[Hello, World], [This, is, a, nested, array]]"}),
+                FieldType_RandStr(
+                        FieldType::OLAP_FIELD_TYPE_STRING,
+                        {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), "
+                         "-, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
+                        {"[[With, special, \"characters\"], [like, @, #, $, % \"^\", &, *, (, ), "
+                         "-, _], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"},
+                        {""},
+                        {"[[With, special, characters], [like, @, #, $, % \"^\", &, *, (, ), -, "
+                         "_], [=, +, [, ], {, }, |, \\, ;, :, ', '\', <, >, ,, ., /, ?, ~]]"})};
+        // array type
+        for (auto type_pair : nested_field_types) {
+            auto type = std::get<0>(type_pair);
+            DataTypePtr nested_data_type_ptr =
+                    DataTypeFactory::instance().create_data_type(type, 0, 0);
+            DataTypePtr nested_array_data_type_ptr =
+                    std::make_shared<DataTypeArray>(make_nullable(nested_data_type_ptr));
+
+            DataTypePtr array_data_type_ptr =
+                    std::make_shared<DataTypeArray>(make_nullable(nested_array_data_type_ptr));
+
+            std::cout << "========= This type is  " << array_data_type_ptr->get_name() << ": "
+                      << fmt::format("{}", type) << std::endl;
+
+            DataTypeSerDeSPtr serde = array_data_type_ptr->get_serde();
+            DataTypeSerDeSPtr serde_1 = array_data_type_ptr->get_serde();
+            DataTypeSerDe::FormatOptions formatOptions;
+
+            for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
+                std::string rand_str = std::get<1>(type_pair)[i];
+                std::string expect_str = std::get<2>(type_pair)[i];
+                std::string expect_from_string_str = std::get<3>(type_pair)[i];
+                std::string expect_str_1 = std::get<4>(type_pair)[i];
+                std::cout << "rand_str:" << rand_str << std::endl;
+                std::cout << "expect_str:" << expect_str << std::endl;
+                std::cout << "expect_from_str:" << expect_from_string_str << std::endl;
+                std::cout << "expect_str_can_format_from_string:" << expect_str << std::endl;
+                {
+                    // serde
+                    auto col = array_data_type_ptr->create_column();
+                    Slice slice(rand_str.data(), rand_str.size());
+                    formatOptions.converted_from_string = false;
+                    Status st = serde->deserialize_one_cell_from_text(*col, slice, formatOptions);
+                    if (expect_str == "") {
+                        EXPECT_EQ(st.ok(), false);
+                        std::cout << st.to_json() << std::endl;
+                    } else {
+                        EXPECT_EQ(st.ok(), true);
+                        auto ser_col = ColumnString::create();
+                        ser_col->reserve(1);
+                        VectorBufferWriter buffer_writer(*ser_col.get());
+                        serde->serialize_one_cell_to_text(*col, 0, buffer_writer, formatOptions);
+                        buffer_writer.commit();
+                        StringRef rand_s_d = ser_col->get_data_at(0);
+                        std::cout << "test : " << rand_s_d << std::endl;
+                        EXPECT_EQ(expect_str, rand_s_d.to_string());
+                    }
+                }
+                {
+                    // from_string
+                    ReadBuffer rb(rand_str.data(), rand_str.size());
+                    auto col2 = array_data_type_ptr->create_column();
+                    Status status = array_data_type_ptr->from_string(rb, col2);
+                    if (expect_from_string_str == "") {
+                        EXPECT_EQ(status.ok(), false);
+                        std::cout << "test from_string: " << status.to_json() << std::endl;
+                    } else {
+                        auto ser_col = ColumnString::create();
+                        ser_col->reserve(1);
+                        VectorBufferWriter buffer_writer(*ser_col.get());
+                        serde->serialize_one_cell_to_text(*col2, 0, buffer_writer, formatOptions);
+                        buffer_writer.commit();
+                        StringRef rand_s_d = ser_col->get_data_at(0);
+                        std::cout << "test from string: " << rand_s_d << std::endl;
+                        EXPECT_EQ(expect_from_string_str, rand_s_d.to_string());
+                    }
+                }
+                {
+                    formatOptions.converted_from_string = true;
+                    std::cout << "======== change " << formatOptions.converted_from_string
+                              << " with rand_str: " << rand_str << std::endl;
+                    auto col3 = array_data_type_ptr->create_column();
+                    Slice slice(rand_str.data(), rand_str.size());
+                    Status st =
+                            serde_1->deserialize_one_cell_from_text(*col3, slice, formatOptions);
+                    if (expect_str == "") {
+                        EXPECT_EQ(st.ok(), false);
+                        std::cout << st.to_json() << std::endl;
+                    } else {
+                        EXPECT_EQ(st.ok(), true);
+                        auto ser_col = ColumnString::create();
+                        ser_col->reserve(1);
+                        VectorBufferWriter buffer_writer(*ser_col.get());
+                        serde_1->serialize_one_cell_to_text(*col3, 0, buffer_writer, formatOptions);
+                        buffer_writer.commit();
+                        StringRef rand_s_d = ser_col->get_data_at(0);
+                        EXPECT_EQ(expect_str_1, rand_s_d.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // array-map<string, double>
+    {
+        // nested type,test string, expect string(option.converted_from_string=false), expect_from_string, expect string(option.converted_from_string=true)
+        typedef std::tuple<FieldType, FieldType, std::vector<string>, std::vector<string>,
+                           std::vector<string>, std::vector<string>>
+                FieldType_RandStr;
+        std::vector<FieldType_RandStr> nested_field_types = {FieldType_RandStr(
+                FieldType::OLAP_FIELD_TYPE_STRING, FieldType::OLAP_FIELD_TYPE_DOUBLE,
+                {"[{\"2cKtIM-L1mOcEm-udR-HcB2\":0.23929040957798242,\"eof2UN-Is0EEuA-H5D-hE58\":0."
+                 "42373055809540094,\"FwUSOB-R8rtK9W-BVG-8wYZ\":0.7680704548628841},{\"qDXU9D-"
+                 "7orr51d-g80-6t5k\":0.6446245786874659,\"bkLjmx-uZ2Ez7F-536-PGqy\":0."
+                 "8880791950937957,\"9Etq4o-FPm37O4-5fk-QWh7\":0.08630489716260481},{\"tu3OMw-"
+                 "mzS0jAx-Dnj-Xm3G\":0.1184199213706042,\"XkhTn0-QFLo8Ks-JXR-k4zk\":0."
+                 "5181239375482816,\"EYC8Dj-GTTp9iB-b4O-QBkO\":0.4491897722178303},{\"sHFGPg-"
+                 "cfA8gya-kfw-IugT\":0.20842299487398452,\"BBQ6e5-OJYRJhC-zki-7rQj\":0."
+                 "3050124830713523,\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754},{\"HfhEMX-"
+                 "oAMBJCC-YIC-hCqN\":0.8131454631693608,\"xrnTFd-ikONWik-T7J-sL8J\":0."
+                 "37509722558990855,\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086}]"},
+                {"[{\"2cKtIM-L1mOcEm-udR-HcB2\":0.23929040957798242, "
+                 "\"eof2UN-Is0EEuA-H5D-hE58\":0.42373055809540094, "
+                 "\"FwUSOB-R8rtK9W-BVG-8wYZ\":0.7680704548628841}, "
+                 "{\"qDXU9D-7orr51d-g80-6t5k\":0.6446245786874659, "
+                 "\"bkLjmx-uZ2Ez7F-536-PGqy\":0.8880791950937957, "
+                 "\"9Etq4o-FPm37O4-5fk-QWh7\":0.08630489716260481}, "
+                 "{\"tu3OMw-mzS0jAx-Dnj-Xm3G\":0.1184199213706042, "
+                 "\"XkhTn0-QFLo8Ks-JXR-k4zk\":0.5181239375482816, "
+                 "\"EYC8Dj-GTTp9iB-b4O-QBkO\":0.4491897722178303}, "
+                 "{\"sHFGPg-cfA8gya-kfw-IugT\":0.20842299487398452, "
+                 "\"BBQ6e5-OJYRJhC-zki-7rQj\":0.3050124830713523, "
+                 "\"mKH57V-YmwCNFq-vs8-vUIX\":0.36446683035480754}, "
+                 "{\"HfhEMX-oAMBJCC-YIC-hCqN\":0.8131454631693608, "
+                 "\"xrnTFd-ikONWik-T7J-sL8J\":0.37509722558990855, "
+                 "\"SVyEes-77mlzIr-N6c-DkYw\":0.4703053945053086}]"},
+                {""},
+                {"[{2cKtIM-L1mOcEm-udR-HcB2:0.23929040957798242, "
+                 "eof2UN-Is0EEuA-H5D-hE58:0.42373055809540094, "
+                 "FwUSOB-R8rtK9W-BVG-8wYZ:0.7680704548628841}, "
+                 "{qDXU9D-7orr51d-g80-6t5k:0.6446245786874659, "
+                 "bkLjmx-uZ2Ez7F-536-PGqy:0.8880791950937957, "
+                 "9Etq4o-FPm37O4-5fk-QWh7:0.08630489716260481}, "
+                 "{tu3OMw-mzS0jAx-Dnj-Xm3G:0.1184199213706042, "
+                 "XkhTn0-QFLo8Ks-JXR-k4zk:0.5181239375482816, "
+                 "EYC8Dj-GTTp9iB-b4O-QBkO:0.4491897722178303}, "
+                 "{sHFGPg-cfA8gya-kfw-IugT:0.20842299487398452, "
+                 "BBQ6e5-OJYRJhC-zki-7rQj:0.3050124830713523, "
+                 "mKH57V-YmwCNFq-vs8-vUIX:0.36446683035480754}, "
+                 "{HfhEMX-oAMBJCC-YIC-hCqN:0.8131454631693608, "
+                 "xrnTFd-ikONWik-T7J-sL8J:0.37509722558990855, "
+                 "SVyEes-77mlzIr-N6c-DkYw:0.4703053945053086}]"})};
+        for (auto type_pair : nested_field_types) {
+            auto key_type = std::get<0>(type_pair);
+            DataTypePtr nested_key_data_type_ptr =
+                    DataTypeFactory::instance().create_data_type(key_type, 0, 0);
+            auto val_type = std::get<1>(type_pair);
+            DataTypePtr nested_value_data_type_ptr =
+                    DataTypeFactory::instance().create_data_type(val_type, 0, 0);
+
+            DataTypePtr nested_map_data_type_ptr =
+                    std::make_shared<DataTypeMap>(make_nullable(nested_key_data_type_ptr),
+                                                  make_nullable(nested_value_data_type_ptr));
+
+            DataTypePtr array_data_type_ptr =
+                    std::make_shared<DataTypeArray>(make_nullable(nested_map_data_type_ptr));
+
+            std::cout << "========= This type is  " << array_data_type_ptr->get_name() << std::endl;
+
+            DataTypeSerDeSPtr serde = array_data_type_ptr->get_serde();
+            DataTypeSerDeSPtr serde_1 = array_data_type_ptr->get_serde();
+            DataTypeSerDe::FormatOptions formatOptions;
+
+            for (int i = 0; i < std::get<2>(type_pair).size(); ++i) {
+                std::string rand_str = std::get<2>(type_pair)[i];
+                std::string expect_str = std::get<3>(type_pair)[i];
+                std::string expect_from_string_str = std::get<4>(type_pair)[i];
+                std::string expect_str_1 = std::get<5>(type_pair)[i];
+                std::cout << "rand_str:" << rand_str << std::endl;
+                std::cout << "expect_str:" << expect_str << std::endl;
+                std::cout << "expect_from_str:" << expect_from_string_str << std::endl;
+                std::cout << "expect_str_can_format_from_string:" << expect_str << std::endl;
+                {
+                    // serde
+                    auto col = array_data_type_ptr->create_column();
+                    Slice slice(rand_str.data(), rand_str.size());
+                    formatOptions.converted_from_string = false;
+                    Status st = serde->deserialize_one_cell_from_text(*col, slice, formatOptions);
+                    if (expect_str == "") {
+                        EXPECT_EQ(st.ok(), false);
+                        std::cout << st.to_json() << std::endl;
+                    } else {
+                        EXPECT_EQ(st.ok(), true);
+                        auto ser_col = ColumnString::create();
+                        ser_col->reserve(1);
+                        VectorBufferWriter buffer_writer(*ser_col.get());
+                        serde->serialize_one_cell_to_text(*col, 0, buffer_writer, formatOptions);
+                        buffer_writer.commit();
+                        StringRef rand_s_d = ser_col->get_data_at(0);
+                        std::cout << "test : " << rand_s_d << std::endl;
+                        EXPECT_EQ(expect_str, rand_s_d.to_string());
+                    }
+                }
+                {
+                    // from_string
+                    ReadBuffer rb(rand_str.data(), rand_str.size());
+                    auto col2 = array_data_type_ptr->create_column();
+                    Status status = array_data_type_ptr->from_string(rb, col2);
+                    if (expect_from_string_str == "") {
+                        EXPECT_EQ(status.ok(), false);
+                        std::cout << "test from_string: " << status.to_json() << std::endl;
+                    } else {
+                        auto ser_col = ColumnString::create();
+                        ser_col->reserve(1);
+                        VectorBufferWriter buffer_writer(*ser_col.get());
+                        serde->serialize_one_cell_to_text(*col2, 0, buffer_writer, formatOptions);
+                        buffer_writer.commit();
+                        StringRef rand_s_d = ser_col->get_data_at(0);
+                        std::cout << "test from string: " << rand_s_d << std::endl;
+                        EXPECT_EQ(expect_from_string_str, rand_s_d.to_string());
+                    }
+                }
+                {
+                    formatOptions.converted_from_string = true;
+                    std::cout << "======== change " << formatOptions.converted_from_string
+                              << " with rand_str: " << rand_str << std::endl;
+                    auto col3 = array_data_type_ptr->create_column();
+                    Slice slice(rand_str.data(), rand_str.size());
+                    Status st =
+                            serde_1->deserialize_one_cell_from_text(*col3, slice, formatOptions);
+                    if (expect_str == "") {
+                        EXPECT_EQ(st.ok(), false);
+                        std::cout << st.to_json() << std::endl;
+                    } else {
+                        EXPECT_EQ(st.ok(), true);
+                        auto ser_col = ColumnString::create();
+                        ser_col->reserve(1);
+                        VectorBufferWriter buffer_writer(*ser_col.get());
+                        serde_1->serialize_one_cell_to_text(*col3, 0, buffer_writer, formatOptions);
+                        buffer_writer.commit();
+                        StringRef rand_s_d = ser_col->get_data_at(0);
+                        EXPECT_EQ(expect_str_1, rand_s_d.to_string());
+                    }
+                }
+            }
+        }
+    }
 
     // map-scala-array (map<scala,array<scala>>)
     {
