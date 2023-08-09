@@ -76,6 +76,9 @@ public class SqlCache extends Cache {
         if (rowBatchBuilder == null) {
             rowBatchBuilder = new RowBatchBuilder(CacheAnalyzer.CacheMode.Sql);
         }
+        if (!super.checkRowLimit()) {
+            return;
+        }
         rowBatchBuilder.copyRowData(rowBatch);
     }
 

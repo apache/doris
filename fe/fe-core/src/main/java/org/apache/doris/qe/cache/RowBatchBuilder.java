@@ -103,6 +103,14 @@ public class RowBatchBuilder {
         }
     }
 
+    public void clear() {
+        rowList = Lists.newArrayList();
+        cachePartMap = new HashMap<>();
+        batchSize = 0;
+        rowSize = 0;
+        dataSize = 0;
+    }
+
     public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(
             String sql, long partitionKey, long lastVersion, long lastestTime) {
         if (updateRequest == null) {

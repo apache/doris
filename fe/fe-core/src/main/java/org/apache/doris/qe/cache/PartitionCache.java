@@ -123,6 +123,9 @@ public class PartitionCache extends Cache {
             rowBatchBuilder.buildPartitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
                     partColumn, range.buildUpdatePartitionRange());
         }
+        if (!super.checkRowLimit()) {
+            return;
+        }
         rowBatchBuilder.copyRowData(rowBatch);
     }
 
