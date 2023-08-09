@@ -271,8 +271,10 @@ public class OriginalPlanner extends Planner {
             List<Expr> slots = root.getOutputExprs();
             Preconditions.checkArgument(queryStmt.getResultExprs().size() == slots.size());
             for (int i = 0; i < slots.size(); ++i) {
-                queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
-                        .setIsAllowNull(slots.get(i).isNullable());
+                if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
+                    queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
+                            .setIsAllowNull(slots.get(i).isNullable());
+                }
             }
         }
 
