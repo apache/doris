@@ -109,8 +109,7 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDate getDate() {
-        return Instant.ofEpochMilli(record.getTimestamp(idx, 3)
-                .getMillisecond()).atZone(ZoneOffset.ofHours(8)).toLocalDate();
+        return LocalDate.ofEpochDay(record.getLong(idx));
     }
 
     @Override
