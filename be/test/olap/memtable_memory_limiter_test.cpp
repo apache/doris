@@ -165,15 +165,16 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     }
     std::mutex lock;
     _mgr->init(100);
+    auto memtable_writer = delta_writer->memtable_writer();
     {
         std::lock_guard<std::mutex> l(lock);
-        _mgr->register_writer(delta_writer);
+        _mgr->register_writer(memtable_writer);
     }
     _mgr->handle_memtable_flush();
-    CHECK_EQ(0, delta_writer->active_memtable_mem_consumption());
+    CHECK_EQ(0, memtable_writer->active_memtable_mem_consumption());
     {
         std::lock_guard<std::mutex> l(lock);
-        _mgr->deregister_writer(delta_writer);
+        _mgr->deregister_writer(memtable_writer);
     }
 
     res = delta_writer->close();

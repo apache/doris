@@ -77,6 +77,7 @@ struct TabletsChannelKey {
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 
 class DeltaWriter;
+class MemTableWriter;
 class OlapTableSchemaParam;
 class LoadChannel;
 
@@ -112,10 +113,9 @@ public:
 
     void refresh_profile();
 
-    std::unordered_map<int64_t, DeltaWriter*> get_tablet_writers() {
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
-        return _tablet_writers;
-    }
+    void register_memtable_memory_limiter();
+
+    void deregister_memtable_memory_limiter();
 
 private:
     template <typename Request>
@@ -135,6 +135,7 @@ private:
                            int64_t tablet_id, Status error);
     bool _is_broken_tablet(int64_t tablet_id);
     void _init_profile(RuntimeProfile* profile);
+    void _memtable_writers_foreach(std::function<void(MemTableWriter*)> fn);
 
     // id of this load channel
     TabletsChannelKey _key;
