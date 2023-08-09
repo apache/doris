@@ -55,8 +55,9 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.constants.JobStatus;
+import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
-import org.apache.doris.scheduler.registry.MemoryTaskRegister;
+import org.apache.doris.scheduler.registry.TransientTaskRegister;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -88,7 +89,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ExportJob implements Writable {
     private static final String BROKER_PROPERTY_PREFIXES = "broker.";
 
-    public static final MemoryTaskRegister register = new ExportTaskRegister(Env.getCurrentEnv().getAsyncJobManager());
+    public static final TransientTaskRegister register = new ExportTaskRegister(
+            Env.getCurrentEnv().getMemoryTaskManager());
 
     @SerializedName("id")
     private long id;
@@ -143,6 +145,7 @@ public class ExportJob implements Writable {
     // progress has two functions at EXPORTING stage:
     // 1. when progress < 100, it indicates exporting
     // 2. set progress = 100 ONLY when exporting progress is completely done
+    @SerializedName("progress")
     private int progress;
 
     private TableRef tableRef;
@@ -288,7 +291,6 @@ public class ExportJob implements Writable {
         List<Long> tabletIdList = Lists.newArrayList();
         table.readLock();
         try {
-            // TODO(ftw): check final
             final Collection<Partition> partitions = new ArrayList<Partition>();
             // get partitions
             // user specifies partitions, already checked in ExportStmt
@@ -374,6 +376,10 @@ public class ExportJob implements Writable {
         return state;
     }
 
+    public synchronized void setState(ExportJobState newState) {
+        this.state = newState;
+    }
+
     // TODO(ftw): delete
     public synchronized Thread getDoExportingThread() {
         return doExportingThread;
@@ -417,26 +423,39 @@ public class ExportJob implements Writable {
         }
     }
 
-    public synchronized void cancelExportTask(Long taskId, ExportFailMsg.CancelType type, String msg) {
-        if (state == ExportJobState.CANCELLED) {
+    public void cancelReplayedExportJob(ExportFailMsg.CancelType type, String msg) {
+        setState(ExportJobState.CANCELLED);
+        failMsg = new ExportFailMsg(type, msg);
+    }
+
+    public synchronized void cancelExportTask(ExportFailMsg.CancelType type, String msg) throws JobException {
+        if (getState() == ExportJobState.CANCELLED) {
             return;
         }
 
-        if (state == ExportJobState.FINISHED) {
-            // throw error
+        if (getState() == ExportJobState.FINISHED) {
+            throw new JobException("Job {} has finished, can not been cancelled", id);
         }
 
-        // cancel all task
-        // TODO(ftw): 这里cancel其他的executor, 如果其他的executor已经完成了，这里可能会抛异常
+        if (getState() == ExportJobState.PENDING) {
+            startTimeMs = System.currentTimeMillis();
+        }
+
+        // we need cancel all task
         taskIdToExecutor.keySet().forEach(id -> {
-            register.cancelTask(id);
+            try {
+                register.cancelTask(id);
+            } catch (JobException e) {
+                log.warn("cancel export task {} exception: {}", id, e);
+            }
         });
 
         cancelExportJobUnprotected(type, msg);
     }
 
     private void cancelExportJobUnprotected(ExportFailMsg.CancelType type, String msg) {
-        state = ExportJobState.CANCELLED;
+        setState(ExportJobState.CANCELLED);
+        finishTimeMs = System.currentTimeMillis();
         failMsg = new ExportFailMsg(type, msg);
         Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.CANCELLED);
     }
@@ -450,15 +469,32 @@ public class ExportJob implements Writable {
         return false;
     }
 
-    public void exportExportJob() {
-        state = ExportJobState.EXPORTING;
+    public synchronized void exportExportJob() {
+        // The first exportTaskExecutor will set state to EXPORTING,
+        // other exportTaskExecutors do not need to set up state.
+        if (getState() == ExportJobState.EXPORTING) {
+            return;
+        }
+        setState(ExportJobState.EXPORTING);
+        // if isReplay == true, startTimeMs will be read from log
+        startTimeMs = System.currentTimeMillis();
     }
 
-    public synchronized void finishExportTask(Long taskId, List<OutfileInfo> outfileInfoList) {
+    public synchronized void finishExportTask(Long taskId, List<OutfileInfo> outfileInfoList) throws JobException {
+        if (getState() == ExportJobState.CANCELLED) {
+            throw new JobException("Job [{}] has been cancelled, can not finish this task: {}", id, taskId);
+        }
+
         allOutfileInfo.add(outfileInfoList);
         ++finishedTaskCount;
-        // TODO(ftw): caculate progress
-        progress++;
+
+        // calculate progress
+        int tmpProgress = finishedTaskCount * 100 / jobExecutorList.size();
+        if (finishedTaskCount * 100 / jobExecutorList.size() >= 100) {
+            progress = 99;
+        } else {
+            progress = tmpProgress;
+        }
 
         // if all task finished
         if (finishedTaskCount == jobExecutorList.size()) {
@@ -468,14 +504,36 @@ public class ExportJob implements Writable {
 
     private void finishExportJobUnprotected() {
         progress = 100;
-        state = ExportJobState.FINISHED;
+        setState(ExportJobState.FINISHED);
+        finishTimeMs = System.currentTimeMillis();
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.FINISHED);
     }
 
-    // TODO(ftw): replay
-    public synchronized boolean replayJobState() {
-        return true;
+    public synchronized void replayExportJobState(ExportJobState newState) {
+        switch (newState) {
+            // We do not persist EXPORTING state in new version of metadata,
+            // but EXPORTING state may still exist in older versions of metadata.
+            // So if isReplay == true and newState == EXPORTING, we set newState = CANCELLED.
+            case EXPORTING:
+            // We do not need IN_QUEUE state in new version of export
+            // but IN_QUEUE state may still exist in older versions of metadata.
+            // So if isReplay == true and newState == IN_QUEUE, we set newState = CANCELLED.
+            case IN_QUEUE:
+                newState = ExportJobState.CANCELLED;
+                break;
+            case PENDING:
+            case CANCELLED:
+                progress = 0;
+                break;
+            case FINISHED:
+                progress = 100;
+                break;
+            default:
+                Preconditions.checkState(false, "wrong job state: " + newState.name());
+                break;
+        }
+        setState(newState);
     }
 
     // TODO(ftw): delete

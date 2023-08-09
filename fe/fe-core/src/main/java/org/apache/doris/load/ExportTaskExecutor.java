@@ -31,7 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -42,9 +42,10 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
-public class ExportTaskExecutor implements MemoryTaskExecutor {
+public class ExportTaskExecutor implements TransientTaskExecutor {
 
     List<SelectStmt> selectStmtLists;
 
@@ -55,16 +56,28 @@ public class ExportTaskExecutor implements MemoryTaskExecutor {
 
     private StmtExecutor stmtExecutor;
 
+    private AtomicBoolean isCanceled;
+
+    private AtomicBoolean isFinished;
+
     ExportTaskExecutor(List<SelectStmt> selectStmtLists, ExportJob exportJob) {
         this.selectStmtLists = selectStmtLists;
         this.exportJob = exportJob;
+        this.isCanceled = new AtomicBoolean(false);
+        this.isFinished = new AtomicBoolean(false);
     }
 
     @Override
     public void execute() throws JobException {
+        if (isCanceled.get()) {
+            throw new JobException("Export executor has been canceled, task id: {}", taskId);
+        }
+        exportJob.exportExportJob();
         List<OutfileInfo> outfileInfoList = Lists.newArrayList();
-
         for (int idx = 0; idx < selectStmtLists.size(); ++idx) {
+            if (isCanceled.get()) {
+                throw new JobException("Export executor has been canceled, task id: {}", taskId);
+            }
             // check the version of tablets
             try {
                 Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(
@@ -81,42 +94,53 @@ public class ExportTaskExecutor implements MemoryTaskExecutor {
                         long nowVersion = partition.getVisibleVersion();
                         long oldVersion = exportJob.getPartitionToVersion().get(partition.getName());
                         if (nowVersion != oldVersion) {
-                            log.warn("Export Job[{}]: Tablet {} has changed version, old version = {}, "
-                                            + "now version = {}", exportJob.getId(), tabletId, oldVersion, nowVersion);
-                            exportJob.cancelExportTask(taskId, CancelType.RUN_FAIL,
+                            exportJob.cancelExportTask(CancelType.RUN_FAIL,
                                     "The version of tablet {" + tabletId + "} has changed");
-                            // TODO(ftw): return or throw exception?
-                            return;
+                            throw new JobException("Export Job[{}]: Tablet {} has changed version, old version = {}, "
+                                    + "now version = {}", exportJob.getId(), tabletId, oldVersion, nowVersion);
                         }
                     }
                 } finally {
                     table.readUnlock();
                 }
             } catch (AnalysisException e) {
-                exportJob.cancelExportTask(taskId, ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
-                // TODO(ftw): return or throw exception?
-                return;
+                exportJob.cancelExportTask(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+                throw new JobException(e);
             }
 
             try (AutoCloseConnectContext r = buildConnectContext()) {
                 stmtExecutor = new StmtExecutor(r.connectContext, selectStmtLists.get(idx));
                 stmtExecutor.execute();
                 if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
-                    exportJob.cancelExportTask(taskId, ExportFailMsg.CancelType.RUN_FAIL,
+                    exportJob.cancelExportTask(ExportFailMsg.CancelType.RUN_FAIL,
                             r.connectContext.getState().getErrorMessage());
                     return;
                 }
                 OutfileInfo outfileInfo = getOutFileInfo(r.connectContext.getResultAttachedInfo());
                 outfileInfoList.add(outfileInfo);
             } catch (Exception e) {
-                exportJob.cancelExportTask(taskId, ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
-                // TODO(ftw): return or throw exception?
-                return;
+                exportJob.cancelExportTask(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+                throw new JobException(e);
             } finally {
                 stmtExecutor.addProfileToSpan();
             }
         }
+        if (isCanceled.get()) {
+            throw new JobException("Export executor has been canceled, task id: {}", taskId);
+        }
         exportJob.finishExportTask(taskId, outfileInfoList);
+        isFinished.getAndSet(true);
+    }
+
+    @Override
+    public void cancel() throws JobException {
+        if (isFinished.get()) {
+            throw new JobException("Export executor has finished, task id: {}", taskId);
+        }
+        isCanceled.getAndSet(true);
+        if (stmtExecutor != null) {
+            stmtExecutor.cancel();
+        }
     }
 
     private AutoCloseConnectContext buildConnectContext() {

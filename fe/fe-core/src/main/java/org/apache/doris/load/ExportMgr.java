@@ -37,6 +37,7 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -135,7 +136,8 @@ public class ExportMgr extends MasterDaemon {
             // If the job is created from replay thread, all plan info will be lost.
             // so the job has to be cancelled.
             String failMsg = "FE restarted or Master changed during exporting. Job must be cancelled.";
-            job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
+            // job.cancel(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
+            job.cancelReplayedExportJob(ExportFailMsg.CancelType.RUN_FAIL, failMsg);
             return false;
         }
 
@@ -175,13 +177,13 @@ public class ExportMgr extends MasterDaemon {
             if (labelToExportJobId.containsKey(job.getLabel())) {
                 throw new LabelAlreadyUsedException(job.getLabel());
             }
+            unprotectAddJob(job);
             job.getJobExecutorList().forEach(executor -> {
                 Long taskId = ExportJob.register.registerTask(executor);
                 executor.setTaskId(taskId);
                 job.getExecutorToTaskId().put(executor, taskId);
                 job.getTaskIdToExecutor().put(taskId, executor);
             });
-            unprotectAddJob(job);
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
         } finally {
             writeUnlock();
@@ -200,8 +202,13 @@ public class ExportMgr extends MasterDaemon {
         if (matchExportJobs.isEmpty()) {
             throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
         }
-        for (ExportJob exportJob : matchExportJobs) {
-            exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
+        try {
+            for (ExportJob exportJob : matchExportJobs) {
+                // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
+                exportJob.cancelExportTask(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
+            }
+        } catch (JobException e) {
+            throw new AnalysisException(e.getMessage());
         }
     }
 
@@ -508,7 +515,8 @@ public class ExportMgr extends MasterDaemon {
         readLock();
         try {
             ExportJob job = exportIdToJob.get(stateTransfer.getJobId());
-            job.updateState(stateTransfer.getState(), true);
+            // job.updateState(stateTransfer.getState(), true);
+            job.replayExportJobState(stateTransfer.getState());
             job.setStartTimeMs(stateTransfer.getStartTimeMs());
             job.setFinishTimeMs(stateTransfer.getFinishTimeMs());
             job.setFailMsg(stateTransfer.getFailMsg());
