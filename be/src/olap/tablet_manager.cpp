@@ -103,6 +103,9 @@ TabletManager::~TabletManager() {
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force, RuntimeProfile* profile) {
+    if (profile->get_counter("AddTablet") == nullptr) {
+        ADD_TIMER(profile, "AddTablet");
+    }
     Status res = Status::OK();
     VLOG_NOTICE << "begin to add tablet to TabletManager. "
                 << "tablet_id=" << tablet_id << ", force=" << force;
