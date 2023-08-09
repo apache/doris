@@ -275,6 +275,7 @@ DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // and the min thread num of remote scanner thread pool
 DECLARE_Int32(doris_scanner_thread_pool_thread_num);
 // max number of remote scanner thread pool size
+// if equal to -1, value is std::max(512, CpuInfo::num_cores() * 10)
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
 // number of olap scanner thread pool queue size
 DECLARE_Int32(doris_scanner_thread_pool_queue_size);
@@ -311,8 +312,8 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the clean interval of file descriptor cache and segment cache
-DECLARE_mInt32(cache_clean_interval);
+// the prune stale interval of all cache
+DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
@@ -356,6 +357,8 @@ DECLARE_Int32(index_page_cache_percentage);
 DECLARE_Bool(disable_storage_page_cache);
 // whether to disable row cache feature in storage
 DECLARE_Bool(disable_storage_row_cache);
+// whether to disable pk page cache feature in storage
+DECLARE_Bool(disable_pk_storage_page_cache);
 
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit
@@ -422,9 +425,6 @@ DECLARE_mInt64(compaction_min_size_mbytes);
 // cumulative compaction policy: min and max delta file's number
 DECLARE_mInt64(cumulative_compaction_min_deltas);
 DECLARE_mInt64(cumulative_compaction_max_deltas);
-
-// This config can be set to limit thread number in  segcompaction thread pool.
-DECLARE_mInt32(seg_compaction_max_threads);
 
 // This config can be set to limit thread number in  multiget thread pool.
 DECLARE_mInt32(multi_get_max_threads);
@@ -498,6 +498,8 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
+// Default, if less than or equal 32 core, the following are 128, 128, 10240, 10240 in turn.
+//          if greater than 32 core, the following are core num * 4, core num * 4, core num * 320, core num * 320 in turn
 DECLARE_Int32(brpc_heavy_work_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
@@ -519,6 +521,7 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
+DECLARE_mBool(exchange_sink_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -562,6 +565,8 @@ DECLARE_Bool(enable_quadratic_probing);
 DECLARE_String(pprof_profile_dir);
 // for jeprofile in jemalloc
 DECLARE_mString(jeprofile_dir);
+// Purge all unused dirty pages for all arenas.
+DECLARE_mBool(enable_je_purge_dirty_pages);
 
 // to forward compatibility, will be removed later
 DECLARE_mBool(enable_token_check);
@@ -690,6 +695,8 @@ DECLARE_String(default_rowset_type);
 // Maximum size of a single message body in all protocols
 DECLARE_Int64(brpc_max_body_size);
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
+// Default, if the physical memory is less than or equal to 64G, the value is 1G
+//          if the physical memory is greater than 64G, the value is physical memory * mem_limit(0.8) / 1024 * 20
 DECLARE_Int64(brpc_socket_max_unwritten_bytes);
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
@@ -946,11 +953,23 @@ DECLARE_Bool(hide_webserver_config_page);
 
 DECLARE_Bool(enable_segcompaction);
 
-// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
-DECLARE_Int32(segcompaction_threshold_segment_num);
+// Max number of segments allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_batch_size);
 
-// The segment whose row number above the threshold will be compacted during segcompaction
-DECLARE_Int32(segcompaction_small_threshold);
+// Max row count allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int32(segcompaction_candidate_max_rows);
+
+// Max file size allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int64(segcompaction_candidate_max_bytes);
+
+// Max total row count allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_task_max_rows);
+
+// Max total file size allowed in a single segcompaction task.
+DECLARE_Int64(segcompaction_task_max_bytes);
+
+// Global segcompaction thread pool size.
+DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
@@ -1005,17 +1024,6 @@ DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
 DECLARE_Bool(enable_parse_multi_dimession_array);
 
-// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
-// In the case of time series compaction, the execution of compaction is adjusted
-// using parameters that have the prefix time_series_compaction.
-DECLARE_mString(compaction_policy);
-// the size of input files for each compaction
-DECLARE_mInt64(time_series_compaction_goal_size_mbytes);
-// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
-DECLARE_mInt64(time_series_compaction_file_count_threshold);
-// if compaction has not been performed within 3600 seconds, a compaction will be triggered
-DECLARE_mInt64(time_series_compaction_time_threshold_seconds);
-
 // max depth of expression tree allowed.
 DECLARE_Int32(max_depth_of_expr_tree);
 
@@ -1052,6 +1060,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
+// Apply delete pred in cumu compaction
+DECLARE_mBool(enable_delete_when_cumu_compaction);
 
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);
@@ -1066,6 +1076,12 @@ DECLARE_mInt64(kerberos_expiration_time_seconds);
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
 
+// DISABLED: Don't resolve location info.
+// FAST: Perform CU lookup using .debug_aranges (might be incomplete).
+// FULL: Scan all CU in .debug_info (slow!) on .debug_aranges lookup failure.
+// FULL_WITH_INLINE: Scan .debug_info (super slower, use with caution) for inline functions in addition to FULL.
+DECLARE_mString(dwarf_location_info_mode);
+
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DECLARE_mInt64(auto_inc_prefetch_size_ratio);
 
@@ -1079,6 +1095,19 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
+
+// enable window_funnel_function with different modes
+DECLARE_mBool(enable_window_funnel_function_v2);
+
+// whether to enable hdfs hedged read.
+// If set to true, it will be enabled even if user not enable it when creating catalog
+DECLARE_Bool(enable_hdfs_hedged_read);
+// hdfs hedged read thread pool size, for "dfs.client.hedged.read.threadpool.size"
+// Maybe overwritten by the value specified when creating catalog
+DECLARE_Int32(hdfs_hedged_read_thread_num);
+// the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
+// Maybe overwritten by the value specified when creating catalog
+DECLARE_Int32(hdfs_hedged_read_threshold_time);
 
 #ifdef BE_TEST
 // test s3

@@ -53,6 +53,6 @@ public class DorisTimerTask implements TimerTask {
         if (timeout.isCancelled()) {
             return;
         }
-        timerTaskDisruptor.tryPublish(jobId, taskId);
+        timerTaskDisruptor.tryPublish(jobId);
     }
 }

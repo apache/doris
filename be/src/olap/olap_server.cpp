@@ -52,9 +52,9 @@
 #include "olap/cold_data_compaction.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/segcompaction.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
@@ -66,18 +66,19 @@
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/index_builder.h"
 #include "runtime/client_cache.h"
+#include "runtime/memory/cache_manager.h"
 #include "service/brpc.h"
 #include "service/point_query_executor.h"
 #include "util/brpc_client_cache.h"
 #include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
-#include "util/priority_thread_pool.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 
 using std::string;
 
@@ -132,8 +133,8 @@ Status StorageEngine::start_bg_threads() {
 
     if (config::enable_segcompaction) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
-                .set_min_threads(config::seg_compaction_max_threads)
-                .set_max_threads(config::seg_compaction_max_threads)
+                .set_min_threads(config::segcompaction_num_threads)
+                .set_max_threads(config::segcompaction_num_threads)
                 .build(&_seg_compaction_thread_pool);
     }
     ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
@@ -176,11 +177,11 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
     LOG(INFO) << "tablet path check thread started";
 
-    // fd cache clean thread
+    // cache clean thread
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "fd_cache_clean_thread",
-            [this]() { this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
-    LOG(INFO) << "fd cache clean thread started";
+            "StorageEngine", "cache_clean_thread", [this]() { this->_cache_clean_callback(); },
+            &_cache_clean_thread));
+    LOG(INFO) << "cache clean thread started";
 
     // path scan and gc thread
     if (config::path_gc_check) {
@@ -247,17 +248,16 @@ Status StorageEngine::start_bg_threads() {
     return Status::OK();
 }
 
-void StorageEngine::_fd_cache_clean_callback() {
-    int32_t interval = 600;
+void StorageEngine::_cache_clean_callback() {
+    int32_t interval = config::cache_prune_stale_interval;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        interval = config::cache_clean_interval;
         if (interval <= 0) {
-            LOG(WARNING) << "config of file descriptor clean interval is illegal: [" << interval
+            LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
                          << "], force set to 3600 ";
             interval = 3600;
         }
 
-        _start_clean_cache();
+        CacheManager::instance()->for_each_cache_prune_stale();
     }
 }
 
@@ -834,7 +834,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
-                    &disk_max_score, _cumulative_compaction_policy);
+                    &disk_max_score, _cumulative_compaction_policies);
             if (tablet != nullptr) {
                 if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                     if (need_pick_tablet) {
@@ -864,9 +864,13 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 }
 
 void StorageEngine::_update_cumulative_compaction_policy() {
-    if (_cumulative_compaction_policy == nullptr) {
-        _cumulative_compaction_policy =
-                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+    if (_cumulative_compaction_policies.empty()) {
+        _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                        CUMULATIVE_SIZE_BASED_POLICY);
+        _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                        CUMULATIVE_TIME_SERIES_POLICY);
     }
 }
 
@@ -976,24 +980,29 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                              bool force) {
     _update_cumulative_compaction_policy();
-    if (tablet->get_cumulative_compaction_policy() == nullptr) {
-        tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
+    // alter table tableName set ("compaction_policy"="time_series")
+    // if atler table's compaction  policy, we need to modify tablet compaction policy shared ptr
+    if (tablet->get_cumulative_compaction_policy() == nullptr ||
+        tablet->get_cumulative_compaction_policy()->name() !=
+                tablet->tablet_meta()->compaction_policy()) {
+        tablet->set_cumulative_compaction_policy(
+                _cumulative_compaction_policies.at(tablet->tablet_meta()->compaction_policy()));
     }
     tablet->set_skip_compaction(false);
     return _submit_compaction_task(tablet, compaction_type, force);
 }
 
-Status StorageEngine::_handle_seg_compaction(BetaRowsetWriter* writer,
+Status StorageEngine::_handle_seg_compaction(SegcompactionWorker* worker,
                                              SegCompactionCandidatesSharedPtr segments) {
-    writer->get_segcompaction_worker().compact_segments(segments);
+    worker->compact_segments(segments);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
 
-Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
+Status StorageEngine::submit_seg_compaction_task(SegcompactionWorker* worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
     return _seg_compaction_thread_pool->submit_func(
-            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, writer, segments));
+            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, worker, segments));
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {

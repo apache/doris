@@ -33,9 +33,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.ExperimentalUtil;
-import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
@@ -307,16 +306,22 @@ public class VariableMgr {
     private static VarContext setVarPreCheck(SetVar setVar) throws DdlException {
         String varName = setVar.getVariable();
         boolean hasExpPrefix = false;
-        if (varName.startsWith(ExperimentalUtil.EXPERIMENTAL_PREFIX)) {
-            varName = varName.substring(ExperimentalUtil.EXPERIMENTAL_PREFIX.length());
+        if (varName.startsWith(VariableAnnotation.EXPERIMENTAL.getPrefix())) {
+            varName = varName.substring(VariableAnnotation.EXPERIMENTAL.getPrefix().length());
+            hasExpPrefix = true;
+        }
+        if (varName.startsWith(VariableAnnotation.DEPRECATED.getPrefix())) {
+            varName = varName.substring(VariableAnnotation.DEPRECATED.getPrefix().length());
             hasExpPrefix = true;
         }
         VarContext ctx = ctxByVarName.get(varName);
         if (ctx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
-        // for non experimental variables, can not set it with "experimental_" prefix
-        if (hasExpPrefix && ctx.getField().getAnnotation(VarAttr.class).expType() == ExperimentalType.NONE) {
+        // for non-matched prefix, report an error
+        VariableAnnotation varType = ctx.getField().getAnnotation(VarAttr.class).varType();
+        if (hasExpPrefix && (!setVar.getVariable().startsWith(varType.getPrefix())
+                || varType == VariableAnnotation.NONE)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
         }
         return ctx;
@@ -370,16 +375,17 @@ public class VariableMgr {
     public static void setGlobalPipelineTask(int instance) {
         wlock.lock();
         try {
-            String name = "parallel_pipeline_task_num";
-            String value = instance + "";
-            VarContext ctx = ctxByVarName.get(name);
+            VarContext ctx = ctxByVarName.get(SessionVariable.PARALLEL_PIPELINE_TASK_NUM);
             try {
-                setValue(ctx.getObj(), ctx.getField(), value);
+                setValue(ctx.getObj(), ctx.getField(), String.valueOf(instance));
             } catch (DdlException e) {
-                LOG.error(e.toString());
+                LOG.warn("failed to set global variable: {}", SessionVariable.PARALLEL_PIPELINE_TASK_NUM, e);
+                return;
             }
+
             // write edit log
-            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
+                    Lists.newArrayList(SessionVariable.PARALLEL_PIPELINE_TASK_NUM));
             Env.getCurrentEnv().getEditLog().logGlobalVariableV2(info);
         } finally {
             wlock.unlock();
@@ -677,11 +683,7 @@ public class VariableMgr {
         for (Map.Entry<String, VarContext> entry : ctxByVarName.entrySet()) {
             VarContext varContext = entry.getValue();
             VarAttr varAttr = varContext.getField().getAnnotation(VarAttr.class);
-            if (varAttr.expType() == ExperimentalType.EXPERIMENTAL) {
-                result.put(ExperimentalUtil.EXPERIMENTAL_PREFIX + entry.getKey(), varContext);
-            } else {
-                result.put(entry.getKey(), varContext);
-            }
+            result.put(varAttr.varType().getPrefix() + entry.getKey(), varContext);
         }
         return ImmutableMap.copyOf(result);
     }
@@ -761,7 +763,7 @@ public class VariableMgr {
         // Set to true if this variable is fuzzy
         boolean fuzzy() default false;
 
-        ExperimentalType expType() default ExperimentalType.NONE;
+        VariableAnnotation varType() default VariableAnnotation.NONE;
 
         // description for this config item.
         // There should be 2 elements in the array.

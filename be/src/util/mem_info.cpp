@@ -256,9 +256,9 @@ int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory, RuntimePro
     std::vector<int64_t> used_memorys;
     std::vector<int64_t> exceeded_memorys;
     for (const auto& task_group : task_groups) {
-        auto used_memory = task_group->memory_used();
-        auto exceeded = used_memory - task_group->memory_limit();
-        auto exceeded_memory = exceeded > 0 ? exceeded : 0;
+        int64_t used_memory = task_group->memory_used();
+        int64_t exceeded = used_memory - task_group->memory_limit();
+        int64_t exceeded_memory = exceeded > 0 ? exceeded : 0;
         total_exceeded_memory += exceeded_memory;
         used_memorys.emplace_back(used_memory);
         exceeded_memorys.emplace_back(exceeded_memory);

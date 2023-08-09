@@ -181,7 +181,7 @@ void Decoder::init(FieldSchema* field_schema, cctz::time_zone* ctz) {
     if (_decode_params->ctz) {
         VecDateTimeValue t;
         t.from_unixtime(0, *_decode_params->ctz);
-        _decode_params->offset_days = doris::calc_daynr(t.year(), t.month(), t.day());
+        _decode_params->offset_days = t.day() == 31 ? 0 : 1;
     }
 }
 } // namespace doris::vectorized

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -161,5 +162,16 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
                 "phase", phase,
                 "stats", statistics
         );
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalLimit<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, null, physicalProperties,
+                statistics, child());
     }
 }

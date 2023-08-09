@@ -117,7 +117,7 @@ public class MasterOpExecutor {
             // may throw NullPointerException. add err msg
             throw new Exception("Failed to get master client.", e);
         }
-        final StringBuilder forwardMsg = new StringBuilder("forward to master FE %s" + thriftAddress.toString());
+        final StringBuilder forwardMsg = new StringBuilder("forward to master FE " + thriftAddress.toString());
         if (!params.isSyncJournalOnly()) {
             forwardMsg.append(", statement id: ").append(ctx.getStmtId());
         }

@@ -605,6 +605,10 @@ struct TStreamLoadPutRequest {
     44: optional bool enable_profile
     45: optional bool partial_update
     46: optional list<string> table_names
+    47: optional string load_sql // insert into sql used by stream load
+    48: optional i64 backend_id
+    49: optional i32 version // version 1 means use load_sql
+    50: optional string label
 }
 
 struct TStreamLoadPutResult {
@@ -619,6 +623,20 @@ struct TStreamLoadMultiTablePutResult {
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
+}
+
+// StreamLoadWith request status
+struct TStreamLoadWithLoadStatusRequest {
+    1: optional Types.TUniqueId loadId
+}
+
+struct TStreamLoadWithLoadStatusResult {
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
+    3: optional i64 total_rows
+    4: optional i64 loaded_rows
+    5: optional i64 filtered_rows
+    6: optional i64 unselected_rows
 }
 
 struct TKafkaRLTaskProgress {
@@ -759,6 +777,17 @@ struct TFrontendPingFrontendRequest {
    2: required string token
 }
 
+struct TDiskInfo {
+    1: required string dirType
+    2: required string dir
+    3: required string filesystem
+    4: required i64 blocks
+    5: required i64 used
+    6: required i64 available
+    7: required i32 useRate
+    8: required string mountedOn
+}
+
 struct TFrontendPingFrontendResult {
     1: required TFrontendPingFrontendStatusCode status
     2: required string msg
@@ -767,6 +796,7 @@ struct TFrontendPingFrontendResult {
     5: required i64 replayedJournalId
     6: required string version
     7: optional i64 lastStartupTime
+    8: optional list<TDiskInfo> diskInfos
 }
 
 struct TPropertyVal {
@@ -967,6 +997,7 @@ enum TBinlogType {
   DUMMY = 7,
   ALTER_DATABASE_PROPERTY = 8,
   MODIFY_TABLE_PROPERTY = 9,
+  BARRIER = 10,
 }
 
 struct TBinlog {
@@ -1120,6 +1151,7 @@ service FrontendService {
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
+    TStreamLoadWithLoadStatusResult streamLoadWithLoadStatus(1: TStreamLoadWithLoadStatusRequest request)
 
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 

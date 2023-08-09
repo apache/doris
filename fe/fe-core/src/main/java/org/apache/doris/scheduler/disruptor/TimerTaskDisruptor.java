@@ -17,10 +17,10 @@
 
 package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.scheduler.job.AsyncJobManager;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
-import com.lmax.disruptor.EventTranslatorTwoArg;
+import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -66,14 +66,11 @@ public class TimerTaskDisruptor implements Closeable {
     private boolean isClosed = false;
 
     /**
-     * The default {@link EventTranslatorTwoArg} to use for {@link #tryPublish(Long, Long)}.
+     * The default {@link EventTranslatorOneArg} to use for {@link #tryPublish(Long)}.
      * This is used to avoid creating a new object for each publish.
      */
-    private static final EventTranslatorTwoArg<TimerTaskEvent, Long, Long> TRANSLATOR
-            = (event, sequence, jobId, taskId) -> {
-                event.setJobId(jobId);
-                event.setTaskId(taskId);
-            };
+    private static final EventTranslatorOneArg<TimerTaskEvent, Long> TRANSLATOR
+            = (event, sequence, jobId) -> event.setJobId(jobId);
 
     public TimerTaskDisruptor(AsyncJobManager asyncJobManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
@@ -90,18 +87,17 @@ public class TimerTaskDisruptor implements Closeable {
     /**
      * Publishes an event to the disruptor.
      *
-     * @param eventId event job id
-     * @param taskId  event task id
+     * @param jobId  job id
      */
-    public void tryPublish(Long eventId, Long taskId) {
+    public void tryPublish(Long jobId) {
         if (isClosed) {
-            log.info("tryPublish failed, disruptor is closed, eventId: {}", eventId);
+            log.info("tryPublish failed, disruptor is closed, jobId: {}", jobId);
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, eventId, taskId);
+            disruptor.publishEvent(TRANSLATOR, jobId);
         } catch (Exception e) {
-            log.error("tryPublish failed, eventId: {}", eventId, e);
+            log.error("tryPublish failed, jobId: {}", jobId, e);
         }
     }
 
@@ -111,7 +107,7 @@ public class TimerTaskDisruptor implements Closeable {
             return false;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, timerTaskEvent.getJobId(), timerTaskEvent.getTaskId());
+            disruptor.publishEvent(TRANSLATOR, timerTaskEvent.getJobId());
             return true;
         } catch (Exception e) {
             log.error("tryPublish failed, eventJobId: {}", timerTaskEvent.getJobId(), e);

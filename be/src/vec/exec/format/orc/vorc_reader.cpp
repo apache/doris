@@ -148,6 +148,9 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    VecDateTimeValue t;
+    t.from_unixtime(0, ctz);
+    _offset_days = t.day() == 31 ? 0 : 1;
     _init_profile();
     _init_system_properties();
     _init_file_description();

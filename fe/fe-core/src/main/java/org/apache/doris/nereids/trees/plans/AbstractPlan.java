@@ -188,6 +188,18 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
+    public LogicalProperties computeLogicalProperties() {
+        boolean hasUnboundChild = children.stream()
+                .map(Plan::getLogicalProperties)
+                .anyMatch(UnboundLogicalProperties.class::isInstance);
+        if (hasUnboundChild || hasUnboundExpression()) {
+            return UnboundLogicalProperties.INSTANCE;
+        } else {
+            return new LogicalProperties(this::computeOutput);
+        }
+    }
+
+    @Override
     public Optional<Object> getMutableState(String key) {
         return mutableState.get(key);
     }

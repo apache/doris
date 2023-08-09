@@ -574,21 +574,22 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         data_column = doris_column->assume_mutable();
     }
 
+    ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
+    DataTypePtr& element_type = const_cast<DataTypePtr&>(
+            (reinterpret_cast<const DataTypeArray*>(remove_nullable(type).get()))
+                    ->get_nested_type());
     // read nested column
-    RETURN_IF_ERROR(_element_reader->read_column_data(
-            static_cast<ColumnArray&>(*data_column).get_data_ptr(),
-            const_cast<DataTypePtr&>(
-                    (reinterpret_cast<const DataTypeArray*>(remove_nullable(type).get()))
-                            ->get_nested_type()),
-            select_vector, batch_size, read_rows, eof, is_dict_filter));
+    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type, select_vector,
+                                                      batch_size, read_rows, eof, is_dict_filter));
     if (*read_rows == 0) {
         return Status::OK();
     }
 
+    ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*data_column).get_offsets();
     // fill offset and null map
-    fill_array_offset(_field_schema, static_cast<ColumnArray&>(*data_column).get_offsets(),
-                      null_map_ptr, _element_reader->get_rep_level(),
+    fill_array_offset(_field_schema, offsets_data, null_map_ptr, _element_reader->get_rep_level(),
                       _element_reader->get_def_level());
+    DCHECK_EQ(element_column->size(), offsets_data.back());
 
     return Status::OK();
 }
@@ -650,9 +651,11 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
         return Status::OK();
     }
 
+    DCHECK_EQ(key_column->size(), value_column->size());
     // fill offset and null map
     fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
                       _key_reader->get_def_level());
+    DCHECK_EQ(key_column->size(), map.get_offsets().back());
 
     return Status::OK();
 }

@@ -88,6 +88,20 @@ public class JoinOrderJobTest extends SqlTestBase {
     }
 
     @Test
+    protected void testConstantJoin() {
+        String sql = "select count(*) \n"
+                + "from \n"
+                + "T1 \n"
+                + " join (\n"
+                + "select * , now() as t from T2 \n"
+                + ") subTable on T1.id = t; \n";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .dpHypOptimize();
+    }
+
+    @Test
     protected void testCountJoin() {
         String sql = "select count(*) \n"
                 + "from \n"

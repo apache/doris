@@ -17,14 +17,18 @@
 
 package org.apache.doris.scheduler;
 
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
-import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.registry.JobRegister;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.registry.PersistentJobRegister;
 
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * This class registers timed scheduling events using the Netty time wheel algorithm to trigger events in a timely
@@ -34,45 +38,70 @@ import java.io.IOException;
  * consumption model that does not guarantee strict timing accuracy.
  */
 @Slf4j
-public class AsyncJobRegister implements JobRegister {
+public class AsyncJobRegister implements PersistentJobRegister {
 
     private final AsyncJobManager asyncJobManager;
 
-    public AsyncJobRegister() {
-        this.asyncJobManager = new AsyncJobManager();
+    public AsyncJobRegister(AsyncJobManager asyncJobManager) {
+        this.asyncJobManager = asyncJobManager;
     }
 
     @Override
-    public Long registerJob(String name, Long intervalMs, JobExecutor executor) {
+    public Long registerJob(String name, Long intervalMs, JobExecutor executor) throws DdlException {
         return this.registerJob(name, intervalMs, null, null, executor);
     }
 
     @Override
-    public Long registerJob(String name, Long intervalMs, Long startTimeStamp, JobExecutor executor) {
-        return this.registerJob(name, intervalMs, startTimeStamp, null, executor);
+    public Long registerJob(String name, Long intervalMs, Long startTimeMs, JobExecutor executor) throws DdlException {
+        return this.registerJob(name, intervalMs, startTimeMs, null, executor);
     }
 
     @Override
-    public Long registerJob(String name, Long intervalMs, Long startTimeStamp, Long endTimeStamp,
-                                 JobExecutor executor) {
+    public Long registerJob(String name, Long intervalMs, Long startTimeMs, Long endTimeStamp,
+                            JobExecutor executor) throws DdlException {
 
-        Job job = new Job(name, intervalMs, startTimeStamp, endTimeStamp, executor);
+        Job job = new Job(name, intervalMs, startTimeMs, endTimeStamp, executor);
         return asyncJobManager.registerJob(job);
     }
 
     @Override
-    public Boolean pauseJob(Long jobId) {
-        return asyncJobManager.pauseJob(jobId);
+    public Long registerJob(Job job) throws DdlException {
+        return asyncJobManager.registerJob(job);
     }
 
     @Override
-    public Boolean stopJob(Long jobId) {
-        return asyncJobManager.stopJob(jobId);
+    public void pauseJob(Long jobId) {
+        asyncJobManager.pauseJob(jobId);
     }
 
     @Override
-    public Boolean resumeJob(Long jobId) {
-        return asyncJobManager.resumeJob(jobId);
+    public void pauseJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException {
+        asyncJobManager.pauseJob(dbName, jobName, jobCategory);
+    }
+
+    @Override
+    public void resumeJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException {
+        asyncJobManager.resumeJob(dbName, jobName, jobCategory);
+    }
+
+    @Override
+    public void stopJob(Long jobId) {
+        asyncJobManager.stopJob(jobId);
+    }
+
+    @Override
+    public void stopJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException {
+        asyncJobManager.stopJob(dbName, jobName, jobCategory);
+    }
+
+    @Override
+    public void resumeJob(Long jobId) {
+        asyncJobManager.resumeJob(jobId);
+    }
+
+    @Override
+    public List<Job> getJobs(String dbFullName, String jobName, JobCategory jobCategory, PatternMatcher matcher) {
+        return asyncJobManager.queryJob(dbFullName, jobName, jobCategory, matcher);
     }
 
     @Override

@@ -60,6 +60,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -102,15 +103,14 @@ public class PlanReceiver implements AbstractReceiver {
     public boolean emitCsgCmp(long left, long right, List<Edge> edges) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
-
         processMissedEdges(left, right, edges);
 
-        Memo memo = jobContext.getCascadesContext().getMemo();
         emitCount += 1;
         if (emitCount > limit) {
             return false;
         }
 
+        Memo memo = jobContext.getCascadesContext().getMemo();
         GroupPlan leftPlan = new GroupPlan(planTable.get(left));
         GroupPlan rightPlan = new GroupPlan(planTable.get(right));
 
@@ -118,6 +118,7 @@ public class PlanReceiver implements AbstractReceiver {
         // In this step, we don't generate logical expression because they are useless in DPhyp.
         List<Expression> hashConjuncts = new ArrayList<>();
         List<Expression> otherConjuncts = new ArrayList<>();
+
         JoinType joinType = extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
         if (joinType == null) {
             return true;
@@ -126,6 +127,7 @@ public class PlanReceiver implements AbstractReceiver {
 
         List<Plan> physicalJoins = proposeAllPhysicalJoins(joinType, leftPlan, rightPlan, hashConjuncts,
                 otherConjuncts);
+
         List<Plan> physicalPlans = proposeProject(physicalJoins, edges, left, right);
 
         // Second, we copy all physical plan to Group and generate properties and calculate cost
@@ -188,7 +190,7 @@ public class PlanReceiver implements AbstractReceiver {
         // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
         for (Edge edge : hyperGraph.getEdges()) {
             long referenceNodes =
-                    LongBitmap.newBitmapUnion(edge.getOriginalLeft(), edge.getOriginalRight());
+                    LongBitmap.newBitmapUnion(edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
             if (LongBitmap.isSubset(referenceNodes, allReferenceNodes)
                     && !usedEdgesBitmap.get(edge.getIndex())) {
                 // add the missed edge to edges
@@ -317,6 +319,10 @@ public class PlanReceiver implements AbstractReceiver {
             hasGenerated.add(groupExpression);
 
             // process child first, plan's child may be changed due to mergeGroup
+            // due to mergeGroup, the children Group of groupExpression may be replaced, so we need to use lambda to
+            // get the child to make we can get child at the time we use child.
+            // If we use for child: groupExpression.children(), it means that we take it in advance. It may cause NPE,
+            // work flow: get children() to get left, right -> copyIn left() -> mergeGroup -> right is merged -> NPE
             Plan physicalPlan = groupExpression.getPlan();
             for (int i = 0; i < groupExpression.children().size(); i++) {
                 int childIdx = i;
@@ -344,7 +350,6 @@ public class PlanReceiver implements AbstractReceiver {
         long fullKey = LongBitmap.newBitmapUnion(left, right);
         List<Slot> outputs = allChild.get(0).getOutput();
         Set<Slot> outputSet = allChild.get(0).getOutputSet();
-        List<NamedExpression> allProjects = Lists.newArrayList();
 
         List<NamedExpression> complexProjects = new ArrayList<>();
         // Calculate complex expression should be done by current(fullKey) node
@@ -358,43 +363,23 @@ public class PlanReceiver implements AbstractReceiver {
 
         // complexProjectMap is created by a bottom up traverse of join tree, so child node is put before parent node
         // in the bitmaps
+        bitmaps.sort(Long::compare);
         for (long bitmap : bitmaps) {
             if (complexProjects.isEmpty()) {
-                complexProjects = complexProjectMap.get(bitmap);
+                complexProjects.addAll(complexProjectMap.get(bitmap));
             } else {
-                // The top project of (T1, T2, T3) is different after reorder
-                // we need merge Project1 and Project2 as Project4 after reorder
-                // T1 join T2 join T3:
-                //    Project1(a, e + f)
-                //        join(a = e)
-                //            Project2(a, b + d as e)
-                //                join(a = c)
-                //                    T1(a, b)
-                //                    T2(c, d)
-                //        T3(e, f)
-                //
-                // after reorder:
-                // T1 join T3 join T2:
-                //    Project4(a, b + d + f)
-                //        join(a = c)
-                //            Project3(a, b, f)
-                //                join(a = e)
-                //                    T1(a, b)
-                //                    T3(e, f)
-                //        T2(c, d)
-                //
-                complexProjects =
-                        PlanUtils.mergeProjections(complexProjects, complexProjectMap.get(bitmap));
+                // Rewrite project expression by its children
+                complexProjects.addAll(
+                        PlanUtils.mergeProjections(complexProjects, complexProjectMap.get(bitmap)));
             }
         }
-        allProjects.addAll(complexProjects);
 
         // calculate required columns by all parents
         Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
-
-        // add output slots belong to required slots to project list
-        allProjects.addAll(outputs.stream().filter(e -> requireSlots.contains(e))
-                .collect(Collectors.toList()));
+        List<NamedExpression> allProjects = Stream.concat(
+                outputs.stream().filter(e -> requireSlots.contains(e)),
+                complexProjects.stream().filter(e -> requireSlots.contains(e.toSlot()))
+        ).collect(Collectors.toList());
 
         // propose physical project
         if (allProjects.isEmpty()) {
@@ -416,7 +401,13 @@ public class PlanReceiver implements AbstractReceiver {
                     .map(c -> new PhysicalProject<>(projects, projectProperties, c))
                     .collect(Collectors.toList());
         }
-        Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size());
+        if (!(!projects.isEmpty() && projects.size() == allProjects.size())) {
+            Set<NamedExpression> s1 = projects.stream().collect(Collectors.toSet());
+            List<NamedExpression> s2 = allProjects.stream().filter(e -> !s1.contains(e)).collect(Collectors.toList());
+            System.out.println(s2);
+        }
+        Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size(),
+                " there are some projects left " + projects + allProjects);
 
         return allChild;
     }

@@ -372,6 +372,7 @@ struct TFileScanRangeParams {
     // Map of slot to its position in table schema. Only for Hive external table.
     19: optional map<string, i32> slot_name_to_schema_pos
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
+    21: optional Types.TUniqueId load_id
 }
 
 struct TFileRangeDesc {

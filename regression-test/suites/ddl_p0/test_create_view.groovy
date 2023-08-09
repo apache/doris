@@ -69,4 +69,46 @@ suite("test_create_view") {
     sql """select * from test_count_distinct"""
     sql """DROP VIEW IF EXISTS test_count_distinct"""
     sql """DROP TABLE IF EXISTS count_distinct"""
+
+    sql """DROP TABLE IF EXISTS t1"""
+    sql """
+    CREATE TABLE `t1` (
+        k1 int,
+        k2 date,
+        v1 int
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`,`k2`)
+        COMMENT '测试'
+        PARTITION BY RANGE(k2) (
+        PARTITION p1 VALUES [('2023-07-01'), ('2023-07-10')),
+        PARTITION p2 VALUES [('2023-07-11'), ('2023-07-20'))
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );"""
+    sql """DROP TABLE IF EXISTS t2"""
+    sql """
+    CREATE TABLE `t2` (
+        k1 int,
+        k2 date,
+        v1 int
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k1`,`k2`)
+        COMMENT '测试'
+        PARTITION BY RANGE(k2) (
+        PARTITION p1 VALUES [('2023-07-01'), ('2023-07-05')),
+        PARTITION p2 VALUES [('2023-07-05'), ('2023-07-15'))
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        ); """
+    sql """
+        CREATE VIEW IF NOT EXISTS my_view AS
+        SELECT t1.* FROM t1 PARTITION(p1) JOIN t2 PARTITION(p2) ON t1.k1 = t2.k1; """
+    sql """SELECT * FROM my_view"""
+    sql """DROP VIEW IF EXISTS my_view"""
+    sql """DROP TABLE IF EXISTS t1"""
+    sql """DROP TABLE IF EXISTS t2"""
 }

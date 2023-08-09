@@ -88,9 +88,11 @@ template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
     T val = 0;
-    if (!read_decimal_text_impl<T>(val, rb, precision, scale)) {
-        return Status::InvalidArgument("parse decimal fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (!read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), T>(
+                val, rb, precision, scale)) {
+        return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
+                                       std::string(rb.position(), rb.count()).c_str(),
+                                       DataTypeDecimalSerDe<T>::get_primitive_type());
     }
     column_data.emplace_back(val);
     return Status::OK();
@@ -156,8 +158,8 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
 template <typename T>
 bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-    *res = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
-                                                     &result);
+    *res = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type(), __int128>(
+            str.c_str(), str.size(), precision, scale, &result);
     return result == StringParser::PARSE_SUCCESS;
 }
 

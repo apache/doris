@@ -99,7 +99,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -108,7 +107,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.Version;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Daemon;
@@ -142,7 +140,9 @@ import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
+import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -193,7 +193,6 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
-import org.apache.doris.persist.StorageInfoV2;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
@@ -211,6 +210,11 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.scheduler.AsyncJobRegister;
+import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.JobTaskManager;
+import org.apache.doris.scheduler.registry.PersistentJobRegister;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.StatisticsAutoAnalyzer;
@@ -236,7 +240,6 @@ import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -253,11 +256,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -292,13 +293,10 @@ public class Env {
     public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
-    private static final String VERSION_DIR = "/VERSION";
-    private String latestFeVersion;
-    private String previousFeVersion;
     private String metaDir;
     private String bdbDir;
     private String imageDir;
-    private String versionDir;
+
     private MetaContext metaContext;
     private long epoch = 0;
 
@@ -330,8 +328,12 @@ public class Env {
     private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
+    private PersistentJobRegister persistentJobRegister;
+    private AsyncJobManager asyncJobManager;
+    private JobTaskManager jobTaskManager;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
+    private Daemon feDiskUpdater;  // Update fe disk info
     private Daemon replayer;
     private Daemon timePrinter;
     private Daemon listener;
@@ -585,7 +587,9 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
-
+        this.jobTaskManager = new JobTaskManager();
+        this.asyncJobManager = new AsyncJobManager();
+        this.persistentJobRegister = new AsyncJobRegister(asyncJobManager);
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -857,7 +861,6 @@ public class Env {
         this.metaDir = Config.meta_dir;
         this.bdbDir = this.metaDir + BDB_DIR;
         this.imageDir = this.metaDir + IMAGE_DIR;
-        this.versionDir = EnvUtils.getDorisHome() + VERSION_DIR;
 
         // 0. get local node and helper node info
         getSelfHostPort();
@@ -877,21 +880,12 @@ public class Env {
                 bdbDir.mkdirs();
             }
         }
-
         File imageDir = new File(this.imageDir);
-
         if (!imageDir.exists()) {
             imageDir.mkdirs();
         }
 
-        File verDir = new File(this.versionDir);
-
-        if (!verDir.exists()) {
-            verDir.mkdirs();
-        }
-
         // init plugin manager
-        initVersionInfo();
         pluginMgr.init();
         auditEventProcessor.start();
 
@@ -914,6 +908,9 @@ public class Env {
         // 6. start state listener thread
         createStateListener();
         listener.start();
+
+        // 7. create fe disk updater
+        createFeDiskUpdater();
 
         if (!Config.edit_log_type.equalsIgnoreCase("bdb")) {
             // If not using bdb, we need to notify the FE type transfer manually.
@@ -1366,6 +1363,18 @@ public class Env {
             editLog.logAddFirstFrontend(self);
 
             initLowerCaseTableNames();
+        } else {
+            if (journalVersion <= FeMetaVersion.VERSION_114) {
+                // if journal version is less than 114, which means it is upgraded from version before 2.0.
+                // When upgrading from 1.2 to 2.0, we need to make sure that the parallelism of query remain unchanged
+                // when switch to pipeline engine, otherwise it may impact the load of entire cluster
+                // because the default parallelism of pipeline engine is higher than previous version.
+                // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
+                int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
+                VariableMgr.setGlobalPipelineTask(newVal);
+                LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
+                        + "to parallel_fragment_exec_instance_num: {}", newVal);
+            }
         }
 
         getPolicyMgr().createDefaultStoragePolicy();
@@ -1515,6 +1524,8 @@ public class Env {
         getInternalCatalog().getEsRepository().start();
         // domain resolver
         domainResolver.start();
+        // fe disk updater
+        feDiskUpdater.start();
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {
@@ -1624,7 +1635,7 @@ public class Env {
                     + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
-                    MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
+                    MetaHelper.getFile(Storage.VERSION_FILE, dir));
             MetaHelper.complete(Storage.VERSION_FILE, dir);
             return true;
         } catch (Exception e) {
@@ -1642,13 +1653,19 @@ public class Env {
         try {
             String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), Config.http_port);
             String infoUrl = "http://" + hostPort + "/info";
-            StorageInfo info = getStorageInfo(infoUrl);
+            ResponseBody<StorageInfo> responseBody = MetaHelper
+                    .doGet(infoUrl, HTTP_TIMEOUT_SECOND * 1000, StorageInfo.class);
+            if (responseBody.getCode() != RestApiStatusCode.OK.code) {
+                LOG.warn("get image failed,responseBody:{}", responseBody);
+                throw new IOException(responseBody.toString());
+            }
+            StorageInfo info = responseBody.getData();
             long version = info.getImageSeq();
             if (version > localImageVersion) {
                 String url = "http://" + hostPort + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
-                MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
+                MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getFile(filename, dir));
                 MetaHelper.complete(filename, dir);
             } else {
                 LOG.warn("get an image with a lower version, localImageVersion: {}, got version: {}",
@@ -1678,42 +1695,6 @@ public class Env {
         }
 
         return containSelf;
-    }
-
-    private StorageInfo getStorageInfo(String url) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-
-        HttpURLConnection connection = null;
-        try {
-            connection = HttpURLUtil.getConnectionWithNodeIdent(url);
-            connection.setConnectTimeout(HTTP_TIMEOUT_SECOND * 1000);
-            connection.setReadTimeout(HTTP_TIMEOUT_SECOND * 1000);
-
-            String response;
-            try (BufferedReader bufferedReader = new BufferedReader(
-                    new InputStreamReader(connection.getInputStream()))) {
-                String line;
-                StringBuilder sb = new StringBuilder();
-                while ((line = bufferedReader.readLine()) != null) {
-                    sb.append(line);
-                }
-                response = sb.toString();
-            }
-
-            // For http v2, the response body for "/info" api changed from
-            // StorageInfo to StorageInfoV2.
-            // So we need to make it compatible with old api.
-            try {
-                return mapper.readValue(response, StorageInfo.class);
-            } catch (Exception e) {
-                // try new response body
-                return mapper.readValue(response, StorageInfoV2.class).data;
-            }
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
     }
 
     public StatisticsCache getStatisticsCache() {
@@ -1954,6 +1935,30 @@ public class Env {
     public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
         loadManager.readFields(in);
         LOG.info("finished replay loadJobsV2 from image");
+        return checksum;
+    }
+
+    public long loadAsyncJobManager(DataInputStream in, long checksum) throws IOException {
+        asyncJobManager.readFields(in);
+        LOG.info("finished replay asyncJobMgr from image");
+        return checksum;
+    }
+
+    public long saveAsyncJobManager(CountingDataOutputStream out, long checksum) throws IOException {
+        asyncJobManager.write(out);
+        LOG.info("finished save analysisMgr to image");
+        return checksum;
+    }
+
+    public long loadJobTaskManager(DataInputStream in, long checksum) throws IOException {
+        jobTaskManager.readFields(in);
+        LOG.info("finished replay jobTaskMgr from image");
+        return checksum;
+    }
+
+    public long saveJobTaskManager(CountingDataOutputStream out, long checksum) throws IOException {
+        jobTaskManager.write(out);
+        LOG.info("finished save jobTaskMgr to image");
         return checksum;
     }
 
@@ -2312,6 +2317,15 @@ public class Env {
             @Override
             protected void runAfterCatalogReady() {
                 globalTransactionMgr.removeExpiredAndTimeoutTxns();
+            }
+        };
+    }
+
+    public void createFeDiskUpdater() {
+        feDiskUpdater = new Daemon("feDiskUpdater", FeConstants.heartbeat_interval_second * 1000L) {
+            @Override
+            protected void runOneCycle() {
+                ExecuteEnv.getInstance().refreshAndGetDiskInfo(true);
             }
         };
     }
@@ -2833,7 +2847,14 @@ public class Env {
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
                                   long specificVersion) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
-                hidePassword, false, specificVersion, false);
+                hidePassword, false, specificVersion, false, false);
+    }
+
+    public static void getSyncedDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword,
+                                  long specificVersion) {
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition,
+                hidePassword, false, specificVersion, false, true);
     }
 
     /**
@@ -2845,7 +2866,7 @@ public class Env {
                                   List<String> addPartitionStmt, List<String> createRollupStmt,
                                   boolean separatePartition,
                                   boolean hidePassword, boolean getDdlForLike, long specificVersion,
-                                  boolean getBriefDdl) {
+                                  boolean getBriefDdl, boolean getDdlForSync) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3038,6 +3059,15 @@ public class Env {
                 sb.append(partition.getVisibleVersion()).append("\"");
             }
 
+            // mark this table is being synced
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED).append("\" = \"");
+            sb.append(String.valueOf(olapTable.isBeingSynced() || getDdlForSync)).append("\"");
+            // mark this table if it is a auto bucket table
+            if (getDdlForSync && olapTable.isAutoBucket()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET).append("\" = \"");
+                sb.append("true").append("\"");
+            }
+
             // colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
@@ -3118,6 +3148,37 @@ public class Env {
             if (olapTable.skipWriteIndexOnLoad()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
                 sb.append(olapTable.skipWriteIndexOnLoad()).append("\"");
+            }
+
+            // compaction policy
+            if (olapTable.getCompactionPolicy() != null && !olapTable.getCompactionPolicy().equals("")
+                    && !olapTable.getCompactionPolicy().equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY).append("\" = \"");
+                sb.append(olapTable.getCompactionPolicy()).append("\"");
+            }
+
+            // time series compaction goal size
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionGoalSizeMbytes()).append("\"");
+            }
+
+            // time series compaction file count threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionFileCountThreshold()).append("\"");
+            }
+
+            // time series compaction time threshold
+            if (olapTable.getCompactionPolicy() != null && olapTable.getCompactionPolicy()
+                                                            .equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)) {
+                sb.append(",\n\"").append(PropertyAnalyzer
+                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS).append("\" = \"");
+                sb.append(olapTable.getTimeSeriesCompactionTimeThresholdSeconds()).append("\"");
             }
 
             // dynamic schema
@@ -3677,6 +3738,18 @@ public class Env {
 
     public SyncJobManager getSyncJobManager() {
         return this.syncJobManager;
+    }
+
+    public PersistentJobRegister getJobRegister() {
+        return persistentJobRegister;
+    }
+
+    public AsyncJobManager getAsyncJobManager() {
+        return asyncJobManager;
+    }
+
+    public JobTaskManager getJobTaskManager() {
+        return jobTaskManager;
     }
 
     public SmallFileMgr getSmallFileMgr() {
@@ -4493,7 +4566,7 @@ public class Env {
         }
         tableProperty.buildInMemory()
                 .buildStoragePolicy()
-                .buildCcrEnable();
+                .buildIsBeingSynced();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -5345,64 +5418,6 @@ public class Env {
     private static void addTableComment(Table table, StringBuilder sb) {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
-        }
-    }
-
-    public void writeVersionFile(String version, int seq) {
-        String versionName = versionDir + "/" + version + "-commitid-" + seq + "-version";
-        File versionFile = new File(versionName);
-        try {
-            versionFile.createNewFile();
-        } catch (Exception e) {
-            LOG.error(e.toString());
-        }
-    }
-
-    public boolean isMajorVersionUpgrade() {
-        if (previousFeVersion == null) {
-            // There are two possible scenarios when there is no 'previousFeVersion':
-            // If 'image' is empty, it indicates a completely new FE.
-            // If 'image' is not empty, it means an upgrade from a lower version.
-            File imageDir = new File(this.imageDir);
-            File[] files = imageDir.listFiles();
-            if (files == null || files.length == 0) {
-                return false;
-            }
-            return true;
-        }
-        return previousFeVersion.charAt(0) != latestFeVersion.charAt(0);
-    }
-
-    private void initVersionInfo() {
-        latestFeVersion = Version.DORIS_BUILD_VERSION_MAJOR + "_" + Version.DORIS_BUILD_VERSION_MINOR + "_"
-                + Version.DORIS_BUILD_VERSION_PATCH;
-        File folder = new File(versionDir);
-        File[] files = folder.listFiles();
-        int previousSeq = 0;
-        if (files != null) {
-            // Every part meaning (2_0_0-commitid-1-version)
-            // [version] - [commitid] - [seq]
-            // 'VersionFile' can be transformed like this.
-            // 2_0_0-commitid-1-version -> 2_1_0-commitid-2-version ->
-            // 2_3_0-commitid-3-version -> 2_0_0-commitid-4-version
-            // You can observe the process of FE upgrades through these files.
-            for (File file : files) {
-                String[] splitArr = file.getName().split("-");
-                String version = splitArr[0];
-                int seq = Integer.parseInt(splitArr[2]);
-                if (seq > previousSeq) {
-                    previousSeq = seq;
-                    previousFeVersion = version;
-                }
-            }
-        }
-        if (previousFeVersion == null) {
-            writeVersionFile(latestFeVersion, 1);
-        } else if (!previousFeVersion.equals(latestFeVersion)) {
-            writeVersionFile(latestFeVersion, previousSeq + 1);
-        }
-        if (isMajorVersionUpgrade()) {
-            ConnectContext.isMajorVersionUpgrade = true;
         }
     }
 

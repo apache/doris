@@ -42,6 +42,10 @@
 #include <unordered_map>
 #include <utility>
 
+#ifdef DEBUG
+#include <unordered_set>
+#endif
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
@@ -1013,6 +1017,22 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     _add_batch_number = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
     _num_node_channels = ADD_COUNTER(_profile, "NumberNodeChannels", TUnit::UNIT);
     _load_mem_limit = state->get_load_mem_limit();
+
+#ifdef DEBUG
+    // check: tablet ids should be unique
+    {
+        std::unordered_set<int64_t> tablet_ids;
+        const auto& partitions = _vpartition->get_partitions();
+        for (int i = 0; i < _schema->indexes().size(); ++i) {
+            for (const auto& partition : partitions) {
+                for (const auto& tablet : partition->indexes[i].tablets) {
+                    CHECK(tablet_ids.count(tablet) == 0) << "found duplicate tablet id: " << tablet;
+                    tablet_ids.insert(tablet);
+                }
+            }
+        }
+    }
+#endif
 
     // open all channels
     const auto& partitions = _vpartition->get_partitions();

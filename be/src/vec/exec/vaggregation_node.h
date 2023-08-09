@@ -50,7 +50,6 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
-#include "vec/common/hash_table/fixed_hash_table.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/ph_hash_map.h"
@@ -314,13 +313,13 @@ struct AggregationMethodKeysFixed {
 
         for (size_t i = 0; i < key_columns.size(); ++i) {
             size_t size = key_sizes[i];
+            char* data = nullptr;
             key_columns[i]->resize(num_rows);
             // If we have a nullable column, get its nested column and its null map.
             if (is_column_nullable(*key_columns[i])) {
                 ColumnNullable& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
 
-                char* data =
-                        const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
+                data = const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
                 UInt8* nullmap = assert_cast<ColumnUInt8*>(&nullable_col.get_null_map_column())
                                          ->get_data()
                                          .data();
@@ -330,20 +329,34 @@ struct AggregationMethodKeysFixed {
                 size_t bucket = i / 8;
                 size_t offset = i % 8;
                 for (size_t j = 0; j < num_rows; j++) {
-                    const Key& key = keys[j];
-                    UInt8 val = (reinterpret_cast<const UInt8*>(&key)[bucket] >> offset) & 1;
-                    nullmap[j] = val;
-                    if (!val) {
-                        memcpy(data + j * size, reinterpret_cast<const char*>(&key) + pos, size);
-                    }
+                    nullmap[j] = (reinterpret_cast<const UInt8*>(&keys[j])[bucket] >> offset) & 1;
                 }
             } else {
-                char* data = const_cast<char*>(key_columns[i]->get_raw_data().data);
-                for (size_t j = 0; j < num_rows; j++) {
-                    const Key& key = keys[j];
-                    memcpy(data + j * size, reinterpret_cast<const char*>(&key) + pos, size);
-                }
+                data = const_cast<char*>(key_columns[i]->get_raw_data().data);
             }
+
+            auto foo = [&]<typename Fixed>(Fixed zero) {
+                CHECK_EQ(sizeof(Fixed), size);
+                for (size_t j = 0; j < num_rows; j++) {
+                    memcpy_fixed<Fixed>(data + j * sizeof(Fixed), (char*)(&keys[j]) + pos);
+                }
+            };
+
+            if (size == 1) {
+                foo(int8_t());
+            } else if (size == 2) {
+                foo(int16_t());
+            } else if (size == 4) {
+                foo(int32_t());
+            } else if (size == 8) {
+                foo(int64_t());
+            } else if (size == 16) {
+                foo(UInt128());
+            } else {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "pack_fixeds input invalid key size, key_size={}", size);
+            }
+
             pos += size;
         }
     }
@@ -854,6 +867,7 @@ protected:
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_keys;
     RuntimeProfile::Counter* _hash_table_compute_timer;
+    RuntimeProfile::Counter* _hash_table_emplace_timer;
     RuntimeProfile::Counter* _hash_table_input_counter;
     RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _expr_timer;
@@ -1077,18 +1091,11 @@ private:
 
                     {
                         SCOPED_TIMER(_deserialize_data_timer);
-                        _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                _deserialize_buffer.data(), *column, _agg_arena_pool.get(), rows);
+                        _aggregate_evaluators[i]->function()->deserialize_and_merge_vec_selected(
+                                _places.data(), _offsets_of_aggregate_states[i],
+                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
+                                _agg_arena_pool.get(), rows);
                     }
-
-                    DEFER({
-                        _aggregate_evaluators[i]->function()->destroy_vec(
-                                _deserialize_buffer.data(), rows);
-                    });
-
-                    _aggregate_evaluators[i]->function()->merge_vec_selected(
-                            _places.data(), _offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), _agg_arena_pool.get(), rows);
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add_selected(
                             block, _offsets_of_aggregate_states[i], _places.data(),
@@ -1119,18 +1126,11 @@ private:
 
                     {
                         SCOPED_TIMER(_deserialize_data_timer);
-                        _aggregate_evaluators[i]->function()->deserialize_from_column(
-                                _deserialize_buffer.data(), *column, _agg_arena_pool.get(), rows);
+                        _aggregate_evaluators[i]->function()->deserialize_and_merge_vec(
+                                _places.data(), _offsets_of_aggregate_states[i],
+                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
+                                _agg_arena_pool.get(), rows);
                     }
-
-                    DEFER({
-                        _aggregate_evaluators[i]->function()->destroy_vec(
-                                _deserialize_buffer.data(), rows);
-                    });
-
-                    _aggregate_evaluators[i]->function()->merge_vec(
-                            _places.data(), _offsets_of_aggregate_states[i],
-                            _deserialize_buffer.data(), _agg_arena_pool.get(), rows);
                 } else {
                     RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
                             block, _offsets_of_aggregate_states[i], _places.data(),

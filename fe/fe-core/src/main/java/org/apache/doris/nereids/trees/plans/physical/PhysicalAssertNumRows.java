@@ -129,4 +129,10 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
         return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child());
     }
+
+    @Override
+    public PhysicalAssertNumRows<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,
+                null, physicalProperties, statistics, child());
+    }
 }

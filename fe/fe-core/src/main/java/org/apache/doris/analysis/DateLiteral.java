@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -175,6 +176,7 @@ public class DateLiteral extends LiteralExpr {
 
     //Regex used to determine if the TIME field exists int date_format
     private static final Pattern HAS_TIME_PART = Pattern.compile("^.*[HhIiklrSsTp]+.*$");
+    private static final Pattern HAS_OFFSET_PART = Pattern.compile("[\\+\\-]\\d{2}:\\d{2}");
 
     //Date Literal persist type in meta
     private enum  DateLiteralType {
@@ -358,6 +360,27 @@ public class DateLiteral extends LiteralExpr {
             Preconditions.checkArgument(type.isDateType());
             TemporalAccessor dateTime = null;
             boolean parsed = false;
+            int offset = 0;
+
+            // parse timezone
+            if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
+                String tzString = new String();
+                if (haveTimeZoneName(s)) { // GMT, UTC+8, Z[, CN, Asia/Shanghai]
+                    int split = getTimeZoneSplitPos(s);
+                    Preconditions.checkArgument(split > 0);
+                    tzString = s.substring(split);
+                    s = s.substring(0, split);
+                } else { // +04:30
+                    Preconditions.checkArgument(s.charAt(s.length() - 6) == '-' || s.charAt(s.length() - 6) == '+');
+                    tzString = s.substring(s.length() - 6);
+                    s = s.substring(0, s.length() - 6);
+                }
+                ZoneId zone = ZoneId.of(tzString);
+                ZoneId dorisZone = DateUtils.getTimeZone();
+                offset = dorisZone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds()
+                        - zone.getRules().getOffset(java.time.Instant.now()).getTotalSeconds();
+            }
+
             if (!s.contains("-")) {
                 // handle format like 20210106, but should not handle 2021-1-6
                 for (DateTimeFormatter formatter : formatterList) {
@@ -455,6 +478,17 @@ public class DateLiteral extends LiteralExpr {
                 type = ScalarType.createDatetimeV2Type(scale);
             }
             this.type = type;
+
+            if (offset != 0) {
+                DateLiteral result = this.plusSeconds(offset);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+            }
+
             if (checkRange() || checkDate()) {
                 throw new AnalysisException("Datetime value is out of range");
             }
@@ -1769,5 +1803,28 @@ public class DateLiteral extends LiteralExpr {
             }
             return;
         }
+    }
+
+    private static boolean haveTimeZoneOffset(String arg) {
+        Preconditions.checkArgument(arg.length() > 6);
+        return HAS_OFFSET_PART.matcher(arg.substring(arg.length() - 6)).matches();
+    }
+
+    private static boolean haveTimeZoneName(String arg) {
+        for (char ch : arg.toCharArray()) {
+            if (Character.isUpperCase(ch) && ch != 'T') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int getTimeZoneSplitPos(String arg) {
+        int split = arg.length() - 1;
+        for (; !Character.isAlphabetic(arg.charAt(split)); split--) {
+        } // skip +8 of UTC+8
+        for (; split >= 0 && (Character.isUpperCase(arg.charAt(split)) || arg.charAt(split) == '/'); split--) {
+        }
+        return split + 1;
     }
 }

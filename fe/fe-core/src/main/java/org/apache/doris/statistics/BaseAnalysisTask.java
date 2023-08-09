@@ -20,19 +20,19 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 public abstract class BaseAnalysisTask {
 
@@ -99,8 +99,6 @@ public abstract class BaseAnalysisTask {
 
     protected StmtExecutor stmtExecutor;
 
-    protected Set<PrimitiveType> unsupportedType = new HashSet<>();
-
     protected volatile boolean killed;
 
     @VisibleForTesting
@@ -113,17 +111,7 @@ public abstract class BaseAnalysisTask {
         init(info);
     }
 
-    protected void initUnsupportedType() {
-        unsupportedType.add(PrimitiveType.HLL);
-        unsupportedType.add(PrimitiveType.BITMAP);
-        unsupportedType.add(PrimitiveType.ARRAY);
-        unsupportedType.add(PrimitiveType.MAP);
-        unsupportedType.add(PrimitiveType.JSONB);
-        unsupportedType.add(PrimitiveType.STRUCT);
-    }
-
     private void init(AnalysisInfo info) {
-        initUnsupportedType();
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
@@ -152,15 +140,23 @@ public abstract class BaseAnalysisTask {
             if (col == null) {
                 throw new RuntimeException(String.format("Column with name %s not exists", info.tblName));
             }
-            if (isUnsupportedType(col.getType().getPrimitiveType())) {
-                throw new RuntimeException(String.format("Column with type %s is not supported",
-                        col.getType().toString()));
-            }
+            Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
+                    String.format("Column with type %s is not supported", col.getType().toString()));
         }
 
     }
 
     public void execute() {
+        prepareExecution();
+        executeWithRetry();
+        afterExecution();
+    }
+
+    protected void prepareExecution() {
+        setTaskStateToRunning();
+    }
+
+    protected void executeWithRetry() {
         int retriedTimes = 0;
         while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
             if (killed) {
@@ -174,11 +170,16 @@ public abstract class BaseAnalysisTask {
                 if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     throw new RuntimeException(t);
                 }
+                StatisticsUtil.sleep(TimeUnit.SECONDS.toMillis(2 ^ retriedTimes) * 10);
             }
         }
     }
 
     public abstract void doExecute() throws Exception;
+
+    protected void afterExecution() {
+        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+    }
 
     protected void setTaskStateToRunning() {
         Env.getCurrentEnv().getAnalysisManager()
@@ -195,10 +196,6 @@ public abstract class BaseAnalysisTask {
                         String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
     }
 
-    public long getLastExecTime() {
-        return info.lastExecTimeInMs;
-    }
-
     public long getJobId() {
         return info.jobId;
     }
@@ -209,10 +206,6 @@ public abstract class BaseAnalysisTask {
             return "SUM(LENGTH(`${colName}`))";
         }
         return "COUNT(1) * " + column.getType().getSlotSize();
-    }
-
-    private boolean isUnsupportedType(PrimitiveType type) {
-        return unsupportedType.contains(type);
     }
 
     protected String getSampleExpression() {

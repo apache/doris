@@ -598,8 +598,6 @@ private:
     bool _try_close = false;
     bool _prepare = false;
 
-    std::atomic<bool> _open_partition_done {false};
-
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
 

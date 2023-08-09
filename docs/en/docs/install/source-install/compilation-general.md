@@ -29,7 +29,7 @@ under the License.
 
 This topic is about how to compile Doris from source.
 
-## Compile With Docker Development Image (Recommended)
+## Compile with Docker Development Image (Recommended)
 
 ### Use Off-the-Shelf Image
 

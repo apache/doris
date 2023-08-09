@@ -50,30 +50,38 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
 
     protected final Qualifier qualifier;
 
+    protected final List<NamedExpression> outputs;
+
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
+            List<NamedExpression> outputs,
             LogicalProperties logicalProperties,
             List<Plan> inputs) {
         super(planType, Optional.empty(), logicalProperties, inputs.toArray(new Plan[0]));
         this.qualifier = qualifier;
+        this.outputs = ImmutableList.copyOf(outputs);
     }
 
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
+            List<NamedExpression> outputs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             List<Plan> inputs) {
         super(planType, groupExpression, logicalProperties, inputs.toArray(new Plan[0]));
         this.qualifier = qualifier;
+        this.outputs = ImmutableList.copyOf(outputs);
     }
 
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
+            List<NamedExpression> outputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, List<Plan> inputs) {
         super(planType, groupExpression, logicalProperties,
                 physicalProperties, statistics, inputs.toArray(new Plan[0]));
         this.qualifier = qualifier;
+        this.outputs = ImmutableList.copyOf(outputs);
     }
 
     @Override
@@ -180,5 +188,12 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
             }
         }
         return pushedDown;
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return outputs.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
     }
 }

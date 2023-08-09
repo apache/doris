@@ -49,9 +49,14 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
+#include "gen_cpp/BackendService.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/stream_load_pipe.h"
@@ -109,12 +114,12 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exec/format/avro//avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
-#include "vec/exec/scan/avro_jni_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -167,12 +172,39 @@ private:
     google::protobuf::Closure* _done = nullptr;
 };
 
+template <typename T>
+concept CanCancel = requires(T* response) { response->mutable_status(); };
+
+template <CanCancel T>
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+    brpc::ClosureGuard closure_guard(done);
+    response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+    response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
+                                               pool.get_info());
+}
+
+template <typename T>
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+    brpc::ClosureGuard closure_guard(done);
+    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
+}
+
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
-          _heavy_work_pool(config::brpc_heavy_work_pool_threads,
-                           config::brpc_heavy_work_pool_max_queue_size, "brpc_heavy"),
-          _light_work_pool(config::brpc_light_work_pool_threads,
-                           config::brpc_light_work_pool_max_queue_size, "brpc_light") {
+          _heavy_work_pool(config::brpc_heavy_work_pool_threads != -1
+                                   ? config::brpc_heavy_work_pool_threads
+                                   : std::max(128, CpuInfo::num_cores() * 4),
+                           config::brpc_heavy_work_pool_max_queue_size != -1
+                                   ? config::brpc_heavy_work_pool_max_queue_size
+                                   : std::max(10240, CpuInfo::num_cores() * 320),
+                           "brpc_heavy"),
+          _light_work_pool(config::brpc_light_work_pool_threads != -1
+                                   ? config::brpc_light_work_pool_threads
+                                   : std::max(128, CpuInfo::num_cores() * 4),
+                           config::brpc_light_work_pool_max_queue_size != -1
+                                   ? config::brpc_light_work_pool_max_queue_size
+                                   : std::max(10240, CpuInfo::num_cores() * 320),
+                           "brpc_light") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
@@ -233,6 +265,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
+        signal::set_signal_task_id(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open(*request);
         if (!st.ok()) {
@@ -243,10 +276,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -258,10 +288,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -297,10 +324,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -316,10 +340,7 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(result, done, _light_work_pool);
     }
 }
 
@@ -331,10 +352,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
         _tablet_writer_add_block(controller, request, response, done);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -355,10 +373,7 @@ void PInternalServiceImpl::tablet_writer_add_block_by_http(
         }
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -373,6 +388,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            signal::set_signal_task_id(request->id());
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
@@ -386,10 +402,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -400,6 +413,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     bool ret = _light_work_pool.try_offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
+        signal::set_signal_task_id(request->id());
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->cancel(*request);
         if (!st.ok()) {
@@ -409,8 +423,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
         }
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -487,10 +500,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(result, done, _light_work_pool);
     }
 }
 
@@ -503,10 +513,7 @@ void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* controlle
         _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(result, done, _heavy_work_pool);
     }
 }
 
@@ -599,6 +606,14 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             st.to_protobuf(result->mutable_status());
             return;
         }
+        if (params.file_type == TFileType::FILE_STREAM) {
+            auto stream_load_ctx =
+                    ExecEnv::GetInstance()->new_load_stream_mgr()->get(params.load_id);
+            if (!stream_load_ctx) {
+                st = Status::InternalError("unknown stream load id: {}",
+                                           UniqueId(params.load_id).to_string());
+            }
+        }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {
             result->add_column_names(col_names[idx]);
@@ -610,10 +625,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(result, done, _heavy_work_pool);
     }
 }
 
@@ -640,10 +652,7 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -655,10 +664,7 @@ void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcCon
         _get_column_ids_by_tablet_ids(controller, request, response, done);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -711,6 +717,22 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         }
     }
     response->mutable_status()->set_status_code(TStatusCode::OK);
+}
+
+void PInternalServiceImpl::report_stream_load_status(google::protobuf::RpcController* controller,
+                                                     const PReportStreamLoadStatusRequest* request,
+                                                     PReportStreamLoadStatusResponse* response,
+                                                     google::protobuf::Closure* done) {
+    TUniqueId load_id;
+    load_id.__set_hi(request->load_id().hi());
+    load_id.__set_lo(request->load_id().lo());
+    Status st = Status::OK();
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(load_id);
+    if (!stream_load_ctx) {
+        st = Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
+    }
+    stream_load_ctx->promise.set_value(st);
+    st.to_protobuf(response->mutable_status());
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
@@ -774,10 +796,7 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
         Status::OK().to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -789,9 +808,7 @@ void PInternalServiceImpl::update_cache(google::protobuf::RpcController* control
         _exec_env->result_cache()->update(request, response);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->set_status(PCacheStatus::CANCELED);
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -803,9 +820,7 @@ void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controll
         _exec_env->result_cache()->fetch(request, result);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        result->set_status(PCacheStatus::CANCELED);
+        offer_failed(result, done, _heavy_work_pool);
     }
 }
 
@@ -817,9 +832,7 @@ void PInternalServiceImpl::clear_cache(google::protobuf::RpcController* controll
         _exec_env->result_cache()->clear(request, response);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->set_status(PCacheStatus::CANCELED);
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -838,10 +851,7 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -862,10 +872,7 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -886,10 +893,7 @@ void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* con
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -922,10 +926,7 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
         }
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -948,10 +949,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
         }
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -973,10 +971,7 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
         }
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -994,10 +989,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -1019,15 +1011,19 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           google::protobuf::Closure* done) {
     int64_t receive_time = GetCurrentTimeNanos();
     response->set_receive_time(receive_time);
-    PriorityThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
+
+    if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
+        // under high concurrency, thread pool will have a lot of lock contention.
+        _transmit_block(controller, request, response, done, Status::OK());
+        return;
+    }
+
+    FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
     bool ret = pool.try_offer([this, controller, request, response, done]() {
         _transmit_block(controller, request, response, done, Status::OK());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, pool);
     }
 }
 
@@ -1045,10 +1041,7 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
         _transmit_block(controller, new_request, response, new_done, st);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -1114,10 +1107,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
         }
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -1155,10 +1145,7 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
         }
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -1174,10 +1161,7 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
         response->mutable_status()->set_status_code(0);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 }
 
@@ -1395,10 +1379,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                     rowset_meta->tablet_id(), node_id, true);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
     Status::OK().to_protobuf(response->mutable_status());
 }
@@ -1469,10 +1450,7 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         Status::OK().to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
@@ -1645,10 +1623,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 

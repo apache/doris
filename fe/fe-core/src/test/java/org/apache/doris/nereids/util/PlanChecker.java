@@ -33,7 +33,6 @@ import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
-import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -243,23 +242,13 @@ public class PlanChecker {
 
     public PlanChecker dpHypOptimize() {
         double now = System.currentTimeMillis();
+        cascadesContext.getStatementContext().setDpHyp(true);
+        cascadesContext.getConnectContext().getSessionVariable().enableDPHypOptimizer = true;
         Group root = cascadesContext.getMemo().getRoot();
-        boolean changeRoot = false;
-        if (root.isValidJoinGroup()) {
-            // If the root group is join group, DPHyp can change the root group.
-            // To keep the root group is not changed, we add a dummy project operator above join
-            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
-            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
-            root = copyInResult.correspondingExpression.getOwnerGroup();
-            changeRoot = true;
-        }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.pushJob(new DeriveStatsJob(root.getLogicalExpression(),
+                cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (changeRoot) {
-            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
-        }
-        // if the root is not join, we need to optimize again.
         optimize();
         System.out.println("DPhyp:" + (System.currentTimeMillis() - now));
         return this;
@@ -357,7 +346,12 @@ public class PlanChecker {
     }
 
     private PlanChecker applyExploration(Group group, Rule rule) {
+        // copy children expression, because group may be changed after apply rule.
         List<GroupExpression> logicalExpressions = Lists.newArrayList(group.getLogicalExpressions());
+        // due to mergeGroup, the children Group of groupExpression may be replaced, so we need to use lambda to
+        // get the child to make we can get child at the time we use child.
+        // If we use for child: groupExpression.children(), it means that we take it in advance. It may cause NPE,
+        // work flow: get children() to get left, right -> copyIn left() -> mergeGroup -> right is merged -> NPE
         for (int i = 0; i < logicalExpressions.size(); i++) {
             final int childIdx = i;
             applyExploration(() -> logicalExpressions.get(childIdx), rule);
@@ -467,6 +461,13 @@ public class PlanChecker {
         Memo memo = cascadesContext.getMemo();
         checkSlotFromChildren(memo);
         assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    public PlanChecker nonMatch(PatternDescriptor<? extends Plan> patternDesc) {
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        assertMatches(memo, () -> !MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
         return this;
     }
 
@@ -602,7 +603,7 @@ public class PlanChecker {
     }
 
     public PhysicalPlan getBestPlanTree() {
-        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.GATHER);
     }
 
     public PhysicalPlan getBestPlanTree(PhysicalProperties properties) {

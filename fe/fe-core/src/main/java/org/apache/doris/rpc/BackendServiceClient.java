@@ -142,6 +142,11 @@ public class BackendServiceClient {
         return stub.getColumnIdsByTabletIds(request);
     }
 
+    public Future<InternalService.PReportStreamLoadStatusResponse> reportStreamLoadStatus(
+                            InternalService.PReportStreamLoadStatusRequest request) {
+        return stub.reportStreamLoadStatus(request);
+    }
+
     public void shutdown() {
         if (!channel.isShutdown()) {
             channel.shutdown();

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.Util;
@@ -48,9 +49,11 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected String icebergCatalogType;
     protected Catalog catalog;
     protected SupportsNamespaces nsCatalog;
+    private final long catalogId;
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
+        this.catalogId = catalogId;
     }
 
     @Override
@@ -113,6 +116,9 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     public org.apache.iceberg.Table getIcebergTable(String dbName, String tblName) {
         makeSureInitialized();
-        return catalog.loadTable(TableIdentifier.of(dbName, tblName));
+        return Env.getCurrentEnv()
+            .getExtMetaCacheMgr()
+            .getIcebergMetadataCache()
+            .getIcebergTable(catalog, catalogId, dbName, tblName);
     }
 }

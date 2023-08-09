@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Compilation on macOS",
+    "title": "Compilation on MacOS",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compile With macOS
+# Compilation on MacOS
 
 This topic is about how to compile Doris from source with macOS (both x86_64 and arm64).
 
@@ -38,8 +38,12 @@ This topic is about how to compile Doris from source with macOS (both x86_64 and
 1. Use [Homebrew](https://brew.sh/) to install dependencies.
     ```shell
     brew install automake autoconf libtool pkg-config texinfo coreutils gnu-getopt \
-        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@8 npm
+        python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@11 npm
     ```
+
+:::tip
+The version of jdk installed using brew is 11, because on macOS, the arm64 version of brew does not have version 8 of jdk by default
+:::
 
 2. Compile from source.
     ```shell
@@ -110,4 +114,5 @@ This topic is about how to compile Doris from source with macOS (both x86_64 and
    To fix this, please refer to the "Start-up" section above and reset  `file descriptors`.
 
 2. Java Version
-   Java 8 is recommended.
+
+   The version of jdk installed with brew is 11, because on macOS, the arm64 version of brew does not have version 8 of jdk by default, and you can also download the jdk installation package for installation

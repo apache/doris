@@ -182,8 +182,7 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-    - `auto` means process mem limit is equal to max(physical_mem * 0.9, physical_mem - 6.4G), 6.4G is the maximum memory reserved for the system by default.
-* Default value: auto
+* Default value: 80%
 
 #### `cluster_id`
 
@@ -326,7 +325,7 @@ There are two ways to configure BE configuration items:
 #### `fragment_pool_queue_size`
 
 * Description: The upper limit of query requests that can be processed on a single node
-* Default value: 2048
+* Default value: 4096
 
 #### `fragment_pool_thread_num_min`
 
@@ -336,7 +335,7 @@ There are two ways to configure BE configuration items:
 #### `fragment_pool_thread_num_max`
 
 * Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
-* Default value: 512
+* Default value: 2048
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -596,13 +595,13 @@ BaseCompaction:546859:
 
 * Type: int32
 * Description: The number of compaction tasks which execute in parallel for a disk(HDD).
-* Default value: 2
+* Default value: 4
 
 #### `compaction_task_num_per_fast_disk`
 
 * Type: int32
 * Description: The number of compaction tasks which execute in parallel for a fast disk(SSD).
-* Default value: 4
+* Default value: 8
 
 #### `cumulative_compaction_rounds_for_each_base_compaction_round`
 
@@ -629,17 +628,41 @@ BaseCompaction:546859:
 * Description: Enable to use segment compaction during loading to avoid -238 error
 * Default value: true
 
-#### `segcompaction_threshold_segment_num`
+#### `segcompaction_batch_size`
 
 * Type: int32
-* Description: Trigger segcompaction if the num of segments in a rowset exceeds this threshold
+* Description: Max number of segments allowed in a single segcompaction task.
 * Default value: 10
 
-#### `segcompaction_small_threshold`
+#### `segcompaction_candidate_max_rows`
 
 * Type: int32
-* Description: The segment whose row number above the threshold will be compacted during segcompaction
+* Description: Max row count allowed in a single source segment, bigger segments will be skipped.
 * Default value: 1048576
+
+#### `segcompaction_candidate_max_bytes`
+
+* Type: int64
+* Description: Max file size allowed in a single source segment, bigger segments will be skipped.
+* Default value: 104857600
+
+#### `segcompaction_task_max_rows`
+
+* Type: int32
+* Description: Max total row count allowed in a single segcompaction task.
+* Default value: 1572864
+
+#### `segcompaction_task_max_bytes`
+
+* Type: int64
+* Description: Max total file size allowed in a single segcompaction task.
+* Default value: 157286400
+
+#### `segcompaction_num_threads`
+
+* Type: int32
+* Description: Global segcompaction thread pool size.
+* Default value: 5
 
 #### `disable_compaction_trace_log`
 
@@ -664,33 +687,6 @@ BaseCompaction:546859:
 
 * Description: Minimal interval (s) to update peer replica infos
 * Default value: 60 (s)
-
-#### `compaction_policy`
-
-* Type: string
-* Description: Configure the compaction strategy in the compression phase. Currently, two compaction strategies are implemented, size_based and time_series.
-  - size_based: Version merging can only be performed when the disk volume of the rowset is the same order of magnitude. After merging, qualified rowsets are promoted to the base compaction stage. In the case of a large number of small batch imports, it can reduce the write magnification of base compact, balance the read magnification and space magnification, and reduce the data of file versions.
-  - time_series: When the disk size of a rowset accumulates to a certain threshold, version merging takes place. The merged rowset is directly promoted to the base compaction stage. This approach effectively reduces the write amplification rate of compaction, especially in scenarios with continuous imports in a time series context.
-* Default value: size_based
-
-#### `time_series_compaction_goal_size_mbytes`
-
-* Type: int64
-* Description: Enabling time series compaction will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
-* Default value: 512
-
-#### `time_series_compaction_file_count_threshold`
-
-* Type: int64
-* Description: Enabling time series compaction will utilize this parameter to adjust the minimum number of input files for each compaction. It comes into effect only when the condition specified by time_series_compaction_goal_size_mbytes is not met.
-  - If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
-* Default value: 2000
-
-#### `time_series_compaction_time_threshold_seconds`
-
-* Type: int64
-* Description: When time series compaction is enabled, a significant duration passes without a compaction being executed, a compaction will be triggered.
-* Default value: 3600 (s)
 
 
 ### Load

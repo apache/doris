@@ -9,9 +9,6 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN](ws1.ws_ship_date_sk = date_dim.d_date_sk)
-------------------PhysicalProject
---------------------filter((date_dim.d_date >= 2000-02-01)(cast(d_date as DATETIMEV2(0)) <= cast(days_add(cast('2000-2-01' as DATEV2), INTERVAL 60 DAY) as DATETIMEV2(0))))
-----------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws2.ws_order_number)( not (ws_warehouse_sk = ws_warehouse_sk))
@@ -35,4 +32,8 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------filter((cast(web_company_name as VARCHAR(*)) = 'pri'))
 ------------------------------------PhysicalOlapScan[web_site]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------filter((date_dim.d_date >= 2000-02-01)(cast(d_date as DATETIMEV2(0)) <= cast(days_add(cast('2000-2-01' as DATEV2), INTERVAL 60 DAY) as DATETIMEV2(0))))
+------------------------PhysicalOlapScan[date_dim]
 

@@ -62,7 +62,7 @@ DEFINE_Int32(brpc_port, "8060");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
-DEFINE_Int32(brpc_num_threads, "-1");
+DEFINE_Int32(brpc_num_threads, "256");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -231,8 +231,7 @@ DEFINE_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "48");
-// max number of remote scanner thread pool size
-DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "512");
+DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
@@ -268,8 +267,7 @@ DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
-// the clean interval of file descriptor cache and segment cache
-DEFINE_mInt32(cache_clean_interval, "60");
+DEFINE_mInt32(cache_prune_stale_interval, "10");
 // the clean interval of tablet lookup cache
 DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
@@ -313,6 +311,8 @@ DEFINE_Int32(index_page_cache_percentage, "10");
 DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
 DEFINE_Bool(disable_storage_row_cache, "true");
+// whether to disable pk page cache feature in storage
+DEFINE_Bool(disable_pk_storage_page_cache, "false");
 
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
@@ -377,9 +377,6 @@ DEFINE_mInt64(compaction_min_size_mbytes, "64");
 DEFINE_mInt64(cumulative_compaction_min_deltas, "5");
 DEFINE_mInt64(cumulative_compaction_max_deltas, "1000");
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DEFINE_mInt32(seg_compaction_max_threads, "10");
-
 // This config can be set to limit thread number in  multiget thread pool.
 DEFINE_mInt32(multi_get_max_threads, "10");
 
@@ -394,9 +391,9 @@ DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
-DEFINE_mInt32(compaction_task_num_per_disk, "2");
+DEFINE_mInt32(compaction_task_num_per_disk, "4");
 // compaction thread num for fast disk(typically .SSD), must be greater than 2.
-DEFINE_mInt32(compaction_task_num_per_fast_disk, "4");
+DEFINE_mInt32(compaction_task_num_per_fast_disk, "8");
 DEFINE_Validator(compaction_task_num_per_disk,
                  [](const int config) -> bool { return config >= 2; });
 DEFINE_Validator(compaction_task_num_per_fast_disk,
@@ -454,14 +451,10 @@ DEFINE_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
 
-// be brpc interface is classified into two categories: light and heavy
-// each category has diffrent thread number
-// threads to handle heavy api interface, such as transmit_data/transmit_block etc
-DEFINE_Int32(brpc_heavy_work_pool_threads, "128");
-// threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
-DEFINE_Int32(brpc_light_work_pool_threads, "128");
-DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
-DEFINE_Int32(brpc_light_work_pool_max_queue_size, "10240");
+DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
+DEFINE_Int32(brpc_light_work_pool_threads, "-1");
+DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
+DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "10240");
@@ -478,6 +471,7 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
+DEFINE_mBool(exchange_sink_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -495,8 +489,8 @@ DEFINE_mInt32(olap_table_sink_send_interval_ms, "1");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_pool_thread_num_min, "64");
-DEFINE_Int32(fragment_pool_thread_num_max, "512");
-DEFINE_Int32(fragment_pool_queue_size, "2048");
+DEFINE_Int32(fragment_pool_thread_num_max, "2048");
+DEFINE_Int32(fragment_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
@@ -521,6 +515,7 @@ DEFINE_Bool(enable_quadratic_probing, "false");
 DEFINE_String(pprof_profile_dir, "${DORIS_HOME}/log");
 // for jeprofile in jemalloc
 DEFINE_mString(jeprofile_dir, "${DORIS_HOME}/log");
+DEFINE_mBool(enable_je_purge_dirty_pages, "true");
 
 // to forward compatibility, will be removed later
 DEFINE_mBool(enable_token_check, "true");
@@ -648,8 +643,7 @@ DEFINE_String(default_rowset_type, "BETA");
 
 // Maximum size of a single message body in all protocols
 DEFINE_Int64(brpc_max_body_size, "3147483648");
-// Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
-DEFINE_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
+DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -916,11 +910,23 @@ DEFINE_Bool(hide_webserver_config_page, "false");
 
 DEFINE_Bool(enable_segcompaction, "true");
 
-// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
-DEFINE_Int32(segcompaction_threshold_segment_num, "10");
+// Max number of segments allowed in a single segcompaction task.
+DEFINE_Int32(segcompaction_batch_size, "10");
 
-// The segment whose row number above the threshold will be compacted during segcompaction
-DEFINE_Int32(segcompaction_small_threshold, "1048576");
+// Max row count allowed in a single source segment, bigger segments will be skipped.
+DEFINE_Int32(segcompaction_candidate_max_rows, "1048576");
+
+// Max file size allowed in a single source segment, bigger segments will be skipped.
+DEFINE_Int64(segcompaction_candidate_max_bytes, "104857600");
+
+// Max total row count allowed in a single segcompaction task.
+DEFINE_Int32(segcompaction_task_max_rows, "1572864");
+
+// Max total file size allowed in a single segcompaction task.
+DEFINE_Int64(segcompaction_task_max_bytes, "157286400");
+
+// Global segcompaction thread pool size.
+DEFINE_mInt32(segcompaction_num_threads, "5");
 
 // enable java udf and jdbc scannode
 DEFINE_Bool(enable_java_support, "true");
@@ -981,20 +987,6 @@ DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
-// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
-// In the case of time series compaction, the execution of compaction is adjusted
-// using parameters that have the prefix time_series_compaction.
-DEFINE_mString(compaction_policy, "size_based");
-DEFINE_Validator(compaction_policy, [](const std::string config) -> bool {
-    return config == "size_based" || config == "time_series";
-});
-// the size of input files for each compaction
-DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "512");
-// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
-DEFINE_mInt64(time_series_compaction_file_count_threshold, "2000");
-// if compaction has not been performed within 3600 seconds, a compaction will be triggered
-DEFINE_mInt64(time_series_compaction_time_threshold_seconds, "3600");
-
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");
 
@@ -1028,6 +1020,8 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+// Apply delete pred in cumu compaction
+DEFINE_mBool(enable_delete_when_cumu_compaction, "false");
 
 // max_write_buffer_number for rocksdb
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
@@ -1036,6 +1030,7 @@ DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
+DEFINE_mString(dwarf_location_info_mode, "FAST");
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
@@ -1050,6 +1045,13 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
+
+// enable window_funnel_function with different modes
+DEFINE_mBool(enable_window_funnel_function_v2, "false");
+
+DEFINE_Bool(enable_hdfs_hedged_read, "false");
+DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
+DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
 
 #ifdef BE_TEST
 // test s3
@@ -1417,7 +1419,7 @@ Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
+    static const std::string conffile = config::custom_config_dir + "/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {

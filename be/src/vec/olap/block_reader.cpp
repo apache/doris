@@ -227,7 +227,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         _next_block_func = &BlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        if (_reader_context.enable_unique_key_merge_on_write) {
+        if (read_params.reader_type == ReaderType::READER_QUERY &&
+            _reader_context.enable_unique_key_merge_on_write) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;
@@ -384,7 +385,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
         block->insert(column_with_type_and_name);
-        Block::filter_block(block, target_columns.size(), target_columns.size());
+        RETURN_IF_ERROR(Block::filter_block(block, target_columns.size(), target_columns.size()));
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
     }

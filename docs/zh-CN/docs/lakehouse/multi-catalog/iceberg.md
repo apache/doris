@@ -97,7 +97,22 @@ Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/doc
 CREATE CATALOG iceberg PROPERTIES (
     'type'='iceberg',
     'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181'
+);
+```
+
+如果使用HDFS存储数据，并开启了高可用模式，还需在Catalog中增加HDFS高可用配置：
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
     'uri' = 'http://172.21.0.1:8181',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.1:8020',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.2:8020',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 

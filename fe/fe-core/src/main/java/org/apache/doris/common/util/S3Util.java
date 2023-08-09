@@ -39,8 +39,12 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 
@@ -81,25 +85,48 @@ public class S3Util {
 
     private static String normalizedLocation(String location, Map<String, String> props) {
         try {
-            URI normalizedUri = new URI(location);
-            if (StringUtils.isEmpty(normalizedUri.getHost()) && location.startsWith(HdfsResource.HDFS_PREFIX)) {
-                // Need add hdfs host to location
-                String host = props.get(HdfsResource.DSF_NAMESERVICES);
-                if (StringUtils.isNotEmpty(host)) {
-                    // Replace 'hdfs://' to 'hdfs://name_service', for example: hdfs:///abc to hdfs://name_service/abc
-                    return location.replace(HdfsResource.HDFS_PREFIX, HdfsResource.HDFS_PREFIX + host);
-                } else {
-                    // If no hadoop HA config
-                    if (location.startsWith(HdfsResource.HDFS_PREFIX + '/')) {
-                        // Do not support hdfs:///location
-                        throw new RuntimeException("Invalid location with empty host: " + location);
-                    }
-                }
+            if (location.startsWith(HdfsResource.HDFS_PREFIX)) {
+                return normalizedHdfsPath(location, props);
             }
             return location;
-        } catch (URISyntaxException e) {
+        } catch (URISyntaxException | UnsupportedEncodingException e) {
             throw new RuntimeException(e.getMessage(), e);
         }
+    }
+
+    private static String normalizedHdfsPath(String location, Map<String, String> props)
+            throws URISyntaxException, UnsupportedEncodingException {
+        // Hive partition may contain special characters such as ' ', '<', '>' and so on.
+        // Need to encode these characters before creating URI.
+        // But doesn't encode '/' and ':' so that we can get the correct uri host.
+        location = URLEncoder.encode(location, StandardCharsets.UTF_8.name()).replace("%2F", "/").replace("%3A", ":");
+        URI normalizedUri = new URI(location);
+        // compatible with 'hdfs:///' or 'hdfs:/'
+        if (StringUtils.isEmpty(normalizedUri.getHost())) {
+            location = URLDecoder.decode(location, StandardCharsets.UTF_8.name());
+            String normalizedPrefix = HdfsResource.HDFS_PREFIX + "//";
+            String brokenPrefix = HdfsResource.HDFS_PREFIX + "/";
+            if (location.startsWith(brokenPrefix) && !location.startsWith(normalizedPrefix)) {
+                location = location.replace(brokenPrefix, normalizedPrefix);
+            }
+            // Need add hdfs host to location
+            String host = props.get(HdfsResource.DSF_NAMESERVICES);
+            if (StringUtils.isNotEmpty(host)) {
+                // Replace 'hdfs://key/' to 'hdfs://name_service/key/'
+                // Or hdfs:///abc to hdfs://name_service/abc
+                return location.replace(normalizedPrefix, normalizedPrefix + host + "/");
+            } else {
+                // 'hdfs://null/' equals the 'hdfs:///'
+                if (location.startsWith(HdfsResource.HDFS_PREFIX + "///")) {
+                    // Do not support hdfs:///location
+                    throw new RuntimeException("Invalid location with empty host: " + location);
+                } else {
+                    // Replace 'hdfs://key/' to '/key/', try access local NameNode on BE.
+                    return location.replace(normalizedPrefix, "/");
+                }
+            }
+        }
+        return URLDecoder.decode(location, StandardCharsets.UTF_8.name());
     }
 
     /**

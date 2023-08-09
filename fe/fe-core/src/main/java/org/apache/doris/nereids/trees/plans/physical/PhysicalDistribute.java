@@ -156,4 +156,15 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
                 type, buildSideNdv, exprOrder);
         return pushedDown;
     }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalDistribute<>(distributionSpec, groupExpression,
+                null, physicalProperties, statistics, child());
+    }
 }

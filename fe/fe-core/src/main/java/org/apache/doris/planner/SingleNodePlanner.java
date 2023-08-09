@@ -422,7 +422,8 @@ public class SingleNodePlanner {
 
     private void pushDownAggNoGrouping(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
         do {
-            if (CollectionUtils.isNotEmpty(root.getConjuncts())) {
+            if (CollectionUtils.isNotEmpty(root.getConjuncts())
+                    || CollectionUtils.isNotEmpty(root.getProjectList())) {
                 break;
             }
 
@@ -2374,7 +2375,18 @@ public class SingleNodePlanner {
                 // Forbid to register Conjuncts with SelectStmt' tuple when Select is constant
                 if ((queryStmt instanceof SelectStmt) && selectHasTableRef) {
                     final SelectStmt select = (SelectStmt) queryStmt;
-                    op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                    // if there is an agg node, we need register the constant conjuncts on agg node's tuple
+                    // this is consistent with migrateConstantConjuncts()
+                    if (select.getAggInfo() != null) {
+                        Map<Boolean, List<Expr>> splittedConjuncts = opConjuncts.stream()
+                                .collect(Collectors.partitioningBy(expr -> expr.isConstant()));
+                        op.getAnalyzer().registerConjuncts(splittedConjuncts.get(true),
+                                select.getAggInfo().getOutputTupleId().asList());
+                        op.getAnalyzer().registerConjuncts(splittedConjuncts.get(false),
+                                select.getTableRefIds());
+                    } else {
+                        op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                    }
                 } else if (queryStmt instanceof SetOperationStmt) {
                     final SetOperationStmt subSetOp = (SetOperationStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, subSetOp.getTupleId().asList());
@@ -2687,7 +2699,12 @@ public class SingleNodePlanner {
         if (aggregateInfo == null || aggregateInfo.getGroupingExprs().isEmpty()) {
             return;
         }
-        final List<Expr> predicates = getBoundPredicates(analyzer, aggregateInfo.getOutputTupleDesc());
+        // The output of the 1st phase agg is the 1st phase intermediate.
+        // see createSecondPhaseAggInfo method
+        final List<Expr> predicates = getBoundPredicates(analyzer,
+                aggregateInfo.getSecondPhaseDistinctAggInfo() != null
+                        ? aggregateInfo.getIntermediateTupleDesc()
+                        : aggregateInfo.getOutputTupleDesc());
         if (predicates.isEmpty()) {
             return;
         }
@@ -2713,7 +2730,11 @@ public class SingleNodePlanner {
         }
         final AggregateInfo secondPhaseAggInfo = firstPhaseAggInfo.getSecondPhaseDistinctAggInfo();
 
-        final List<TupleId> firstPhaseTupleIds = Lists.newArrayList(firstPhaseAggInfo.getOutputTupleId());
+        // The output of the 1st phase agg is the 1st phase intermediate.
+        // see createSecondPhaseAggInfo method
+        final List<TupleId> firstPhaseTupleIds = Lists.newArrayList(
+                secondPhaseAggInfo != null ? firstPhaseAggInfo.getIntermediateTupleId()
+                        : firstPhaseAggInfo.getOutputTupleId());
         pushDownPredicatesPastAggregationOnePhase(secondPhaseAggInfo, analyzer, stmt, firstPhaseTupleIds);
         pushDownPredicatesPastAggregationOnePhase(firstPhaseAggInfo, analyzer, stmt, stmt.getTableRefIds());
     }

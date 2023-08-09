@@ -36,6 +36,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -192,10 +193,10 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             }
         }
         if (containsUnsupportedTytpe) {
-            if (!ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
+            if (ConnectContext.get() == null
+                    || !ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
                 columnNames = columnNames.stream()
-                        .filter(c -> !ColumnStatistic.UNSUPPORTED_TYPE.contains(
-                                table.getColumn(c).getType()))
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(table.getColumn(c).getType()))
                         .collect(Collectors.toList());
             } else {
                 throw new AnalysisException(

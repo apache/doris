@@ -240,7 +240,7 @@ Status RowSourcesBuffer::_deserialize() {
 
 // ----------  vertical merge iterator context ----------//
 Status VerticalMergeIteratorContext::block_reset(const std::shared_ptr<Block>& block) {
-    if (!*block) {
+    if (!block->columns()) {
         const Schema& schema = _iter->schema();
         const auto& column_ids = schema.column_ids();
         for (size_t i = 0; i < schema.num_column_ids(); ++i) {

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
@@ -184,5 +185,16 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
             "hasGlobalLimit", hasGlobalLimit,
             "partitionLimit", partitionLimit
         );
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalPartitionTopN<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+            groupExpression, null, physicalProperties, statistics, child());
     }
 }

@@ -28,6 +28,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -284,7 +285,6 @@ public class HeartbeatMgr extends MasterDaemon {
         private Frontend fe;
         private int clusterId;
         private String token;
-        private long callerFeStartTime;
 
         public FrontendHeartbeatHandler(Frontend fe, int clusterId, String token) {
             this.fe = fe;
@@ -301,7 +301,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
                             Env.getCurrentEnv().getMaxJournalId(), System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
-                            ExecuteEnv.getInstance().getStartupTime());
+                            ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
@@ -322,8 +322,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getReplayedJournalId(),
-                            System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime());
-
+                            System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(),
+                            FeDiskInfo.fromThrifts(result.getDiskInfos()));
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
                 }

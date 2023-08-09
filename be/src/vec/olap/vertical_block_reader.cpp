@@ -69,8 +69,9 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
+        bool use_cache = !rs_split.rs_reader->rowset()->is_local();
         RETURN_IF_ERROR(rs_split.rs_reader->get_segment_iterators(&_reader_context, segment_iters,
-                                                                  {}, true));
+                                                                  {}, use_cache));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
         // rowset will be inited and push to heap, other segment will be inited later when current
@@ -455,6 +456,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                             .data();
 
             int cur_row = 0;
+            int delete_count = 0;
             while (cur_row < block_rows) {
                 if (_row_sources_buffer->get_agg_flag(row_source_idx)) {
                     row_source_idx++;
@@ -464,6 +466,10 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 filter_data[cur_row] = sign;
                 if (UNLIKELY(!sign)) {
                     _row_sources_buffer->set_agg_flag(row_source_idx, true);
+                    if (UNLIKELY(_reader_context.record_rowids)) {
+                        _block_row_locations[cur_row].row_id = -1;
+                        delete_count++;
+                    }
                 }
                 cur_row++;
                 row_source_idx++;
@@ -476,9 +482,13 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                                                              std::make_shared<DataTypeUInt8>(),
                                                              "__DORIS_COMPACTION_FILTER__"};
             block->insert(column_with_type_and_name);
-            Block::filter_block(block, target_columns.size(), target_columns.size());
+            RETURN_IF_ERROR(
+                    Block::filter_block(block, target_columns.size(), target_columns.size()));
             _stats.rows_del_filtered += block_rows - block->rows();
             DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
+            if (UNLIKELY(_reader_context.record_rowids)) {
+                DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
+            }
         }
 
         size_t filtered_rows_in_rs_buffer = 0;

@@ -149,3 +149,83 @@ under the License.
     ```
 
 14. When using JDBC Catalog to synchronize MySQL data to Doris, the date data synchronization error occurs. It is necessary to check whether the MySQL version corresponds to the MySQL driver package. For example, the driver com.mysql.cj.jdbc.Driver is required for MySQL8 and above.
+
+15. If an error is reported while configuring Kerberos in the catalog: `SIMPLE authentication is not enabled. Available:[TOKEN, KERBEROS]`.
+
+    Need to put `core-site.xml` to the `"${DORIS_HOME}/be/conf"` directory.
+
+    If an error is reported while accessing HDFS: `No common protection layer between client and server`, check the `hadoop.rpc.protection` on the client and server to make them consistent.
+
+    ```
+        <?xml version="1.0" encoding="UTF-8"?>
+        <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+        
+        <configuration>
+        
+            <property>
+                <name>hadoop.security.authentication</name>
+                <value>kerberos</value>
+            </property>
+        
+        </configuration>
+    ```
+
+16. The solutions when configuring Kerberos in the catalog and encounter an error: `Unable to obtain password from user`.
+    - The principal used must exist in the klist, use `klist -kt your.keytab` to check.
+    - Ensure the catalog configuration correct, such as missing the `yarn.resourcemanager.principal`.
+    - If the preceding checks are correct, the JDK version installed by yum or other package-management utility in the current system maybe have an unsupported encryption algorithm. It is recommended to install JDK by yourself and set `JAVA_HOME` environment variable.
+
+17. If an error is reported while querying the catalog with Kerberos: `GSSException: No valid credentials provided (Mechanism level: Failed to find any Kerberos Ticket)`.
+    - Restarting FE and BE can solve the problem in most cases. 
+    - Before the restart all the nodes, can put `-Djavax.security.auth.useSubjectCredsOnly=false` to the `JAVA_OPTS` in `"${DORIS_HOME}/be/conf/be.conf"`, which can obtain credentials through the underlying mechanism, rather than through the application.
+    - Get more solutions to common JAAS errors from the [JAAS Troubleshooting](https://docs.oracle.com/javase/8/docs/technotes/guides/security/jgss/tutorials/Troubleshooting.html).
+
+18. If an error related to the Hive Metastore is reported while querying the catalog: `Invalid method name`.
+
+    Configure the `hive.version`.
+
+    ```sql
+    CREATE CATALOG hive PROPERTIES (
+        'hive.version' = '2.x.x'
+    );
+    ```
+19. Use Hedged Read to optimize the problem of slow HDFS reading.
+
+     In some cases, the high load of HDFS may lead to a long time to read the data on HDFS, thereby slowing down the overall query efficiency. HDFS Client provides Hedged Read.
+     This function can start another read thread to read the same data when a read request exceeds a certain threshold and is not returned, and whichever is returned first will use the result.
+
+     This feature can be enabled in two ways:
+
+     - Specify in the parameters to create the Catalog:
+
+         ```
+         create catalog regression properties (
+             'type'='hms',
+             'hive.metastore.uris' = 'thrift://172.21.16.47:7004',
+             'dfs.client.hedged.read.threadpool.size' = '128',
+             'dfs.client.hedged.read.threshold.millis' = "500"
+         );
+         ```
+
+         `dfs.client.hedged.read.threadpool.size` indicates the number of threads used for Hedged Read, which are shared by one HDFS Client. Usually, for an HDFS cluster, BE nodes will share an HDFS Client.
+
+         `dfs.client.hedged.read.threshold.millis` is the read threshold in milliseconds. When a read request exceeds this threshold and is not returned, Hedged Read will be triggered.
+
+     - Configure parameters in be.conf
+
+         ```
+         enable_hdfs_hedged_read = true
+         hdfs_hedged_read_thread_num = 128
+         hdfs_hedged_read_threshold_time = 500
+         ```
+
+         This method will enable Hedged Read globally on BE nodes (not enabled by default). And ignore the Hedged Read property set when creating the Catalog.
+
+     After enabling it, you can see related parameters in Query Profile:
+
+     `TotalHedgedRead`: The number of Hedged Reads initiated.
+
+     `HedgedReadWins`: The number of successful Hedged Reads (numbers initiated and returned faster than the original request)
+
+     Note that the value here is the cumulative value of a single HDFS Client, not the value of a single query. The same HDFS Client will be reused by multiple queries.
+

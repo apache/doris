@@ -284,7 +284,8 @@ Status Tablet::_init_once_action() {
 #ifdef BE_TEST
     // init cumulative compaction policy by type
     _cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    _tablet_meta->compaction_policy());
 #endif
 
     RowsetVector rowset_vec;
@@ -664,6 +665,8 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
         return;
     }
     _tablet_meta->delete_stale_rs_meta_by_version(version);
+    // If the stale rowset was deleted, it need to remove the fds directly
+    SegmentLoader::instance()->erase_segments(SegmentCache::CacheKey(rowset_meta->rowset_id()));
     VLOG_NOTICE << "delete stale rowset. tablet=" << full_name() << ", version=" << version;
 }
 
@@ -1062,7 +1065,7 @@ uint32_t Tablet::_calc_base_compaction_score() const {
 
     // In the time series compaction policy, we want the base compaction to be triggered
     // when there are delete versions present.
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+    if (_tablet_meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         return (base_rowset_exist && has_delete) ? score : 0;
     }
 
@@ -3491,14 +3494,24 @@ std::pair<std::string, int64_t> Tablet::get_binlog_info(std::string_view binlog_
     return RowsetMetaManager::get_binlog_info(_data_dir->get_meta(), tablet_uid(), binlog_version);
 }
 
-std::string Tablet::get_binlog_rowset_meta(std::string_view binlog_version,
+std::string Tablet::get_rowset_binlog_meta(std::string_view binlog_version,
                                            std::string_view rowset_id) const {
-    return RowsetMetaManager::get_binlog_rowset_meta(_data_dir->get_meta(), tablet_uid(),
+    return RowsetMetaManager::get_rowset_binlog_meta(_data_dir->get_meta(), tablet_uid(),
                                                      binlog_version, rowset_id);
+}
+
+Status Tablet::get_rowset_binlog_metas(const std::vector<int64_t>& binlog_versions,
+                                       RowsetBinlogMetasPB* metas_pb) {
+    return RowsetMetaManager::get_rowset_binlog_metas(_data_dir->get_meta(), tablet_uid(),
+                                                      binlog_versions, metas_pb);
 }
 
 std::string Tablet::get_segment_filepath(std::string_view rowset_id,
                                          std::string_view segment_index) const {
+    return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
+}
+
+std::string Tablet::get_segment_filepath(std::string_view rowset_id, int64_t segment_index) const {
     return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
 }
 
@@ -3568,7 +3581,7 @@ void Tablet::gc_binlogs(int64_t version) {
         if (binlog_meta_entry_pb.has_rowset_id_v2()) {
             rowset_id = binlog_meta_entry_pb.rowset_id_v2();
         } else {
-            // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
+            // key is 'binlog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
             auto pos = key.rfind('_');
             if (pos == std::string::npos) {
                 LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
@@ -3605,6 +3618,10 @@ void Tablet::gc_binlogs(int64_t version) {
     if (!remove_binlog_files_failed) {
         meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys);
     }
+}
+
+Status Tablet::ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb) {
+    return RowsetMetaManager::ingest_binlog_metas(_data_dir->get_meta(), tablet_uid(), metas_pb);
 }
 
 Status Tablet::calc_delete_bitmap_between_segments(

@@ -119,7 +119,7 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    void close();
+    void close() override;
 
     RowRange get_whole_range() { return _whole_range; }
 
@@ -182,6 +182,7 @@ private:
 
     Status _open_file();
     void _init_profile();
+    void _close_internal();
     Status _next_row_group_reader();
     RowGroupReader::PositionDeleteContext _get_position_delete_ctx(
             const tparquet::RowGroup& row_group,

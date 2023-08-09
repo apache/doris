@@ -22,7 +22,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
+import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -106,6 +106,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
+    public static final String MAX_INSTANCE_NUM = "max_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
     public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
@@ -175,6 +176,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
     public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
+    public static final String ENABLE_STRICT_CONSISTENCY_DML = "enable_strict_consistency_dml";
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
@@ -358,6 +360,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
+
+    public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
     public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
 
@@ -545,7 +549,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COLOCATE_SCAN)
     public boolean enableColocateScan = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
+    @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableBucketShuffleJoin = true;
 
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
@@ -563,6 +567,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true)
     public int parallelPipelineTaskNum = 0;
+
+    @VariableMgr.VarAttr(name = MAX_INSTANCE_NUM)
+    public int maxInstanceNum = 64;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
     public boolean enableInsertStrict = true;
@@ -626,13 +633,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
     public boolean enableNereidsDML = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
+    @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
+    public boolean enableStrictConsistencyDml = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, varType = VariableAnnotation.EXPERIMENTAL_ONLINE)
     public boolean enableVectorizedEngine = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineEngine = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL)
+    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableAggState = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
@@ -785,7 +795,7 @@ public class SessionVariable implements Serializable, Writable {
      * would be coming soon.
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
-            fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
+            fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enableNereidsPlanner = true;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
@@ -830,7 +840,7 @@ public class SessionVariable implements Serializable, Writable {
     public String sessionContext = "";
 
     @VariableMgr.VarAttr(name = ENABLE_SINGLE_REPLICA_INSERT,
-            needForward = true, expType = ExperimentalType.EXPERIMENTAL)
+            needForward = true, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
@@ -842,7 +852,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COMMON_EXPR_PUSHDOWN, fuzzy = true)
     public boolean enableCommonExprPushdown = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true)
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
     public boolean enableLocalExchange = true;
 
     /**
@@ -994,7 +1004,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMinidump = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
-    public boolean enableFoldNondeterministicFn = true;
+    public boolean enableFoldNondeterministicFn = false;
 
     @VariableMgr.VarAttr(name = MINIDUMP_PATH)
     public String minidumpPath = "";
@@ -1058,6 +1068,9 @@ public class SessionVariable implements Serializable, Writable {
                     + "real time. If you want strong consistent reads between sessions, set this variable to true. "
     })
     public boolean enableStrongConsistencyRead = false;
+
+    @VariableMgr.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
+    public int parallelSyncAnalyzeTaskNum = 2;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1230,6 +1243,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getQueryTimeoutS() {
         return queryTimeoutS;
+    }
+
+    public void setEnableTwoPhaseReadOpt(boolean enable) {
+        enableTwoPhaseReadOpt = enable;
     }
 
     public int getMaxExecutionTimeMS() {
@@ -1471,7 +1488,8 @@ public class SessionVariable implements Serializable, Writable {
     public int getParallelExecInstanceNum() {
         if (enablePipelineEngine && parallelPipelineTaskNum == 0) {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
-            return (size + 1) / 2;
+            int autoInstance = (size + 1) / 2;
+            return Math.min(autoInstance, maxInstanceNum);
         } else if (enablePipelineEngine) {
             return parallelPipelineTaskNum;
         } else {
@@ -2385,8 +2403,8 @@ public class SessionVariable implements Serializable, Writable {
         VariableMgr.setVar(this, new SetVar(SessionVariable.ENABLE_NEREIDS_PLANNER, new StringLiteral("false")));
     }
 
-    // return number of variables by given experimental type
-    public int getVariableNumByExperimentalType(ExperimentalType type) {
+    // return number of variables by given variable annotation
+    public int getVariableNumByVariableAnnotation(VariableAnnotation type) {
         int num = 0;
         Field[] fields = SessionVariable.class.getDeclaredFields();
         for (Field f : fields) {
@@ -2394,7 +2412,7 @@ public class SessionVariable implements Serializable, Writable {
             if (varAttr == null) {
                 continue;
             }
-            if (varAttr.expType() == type) {
+            if (varAttr.varType() == type) {
                 ++num;
             }
         }

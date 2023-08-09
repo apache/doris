@@ -547,7 +547,12 @@ public class FunctionCallExpr extends Expr {
 
         for (int i = 0; i < len; ++i) {
             if (i != 0) {
-                sb.append(", ");
+                if (fnName.getFunction().equalsIgnoreCase("group_concat")
+                        && orderByElements.size() > 0 && i == len - orderByElements.size()) {
+                    sb.append(" ");
+                } else {
+                    sb.append(", ");
+                }
             }
             if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
                     && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
@@ -1531,6 +1536,20 @@ public class FunctionCallExpr extends Expr {
                                 .toSql());
             }
         }
+        if (fnName.getFunction().equalsIgnoreCase("date_trunc")) {
+            if ((children.size() != 2) || (getChild(1).isConstant() == false)
+                    || !(getChild(1) instanceof StringLiteral)) {
+                throw new AnalysisException(
+                        fnName.getFunction() + " needs two params, and the second is must be a string constant: "
+                                + this.toSql());
+            }
+            final String constParam = ((StringLiteral) getChild(1)).getValue().toLowerCase();
+            if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
+                    .contains(constParam)) {
+                throw new AnalysisException("date_trunc function second param only support argument is "
+                        + "year|quarter|month|week|day|hour|minute|second");
+            }
+        }
         if (fnName.getFunction().equalsIgnoreCase("char")) {
             if (!getChild(0).isConstant()) {
                 throw new AnalysisException(
@@ -1702,6 +1721,9 @@ public class FunctionCallExpr extends Expr {
                         && args[ix].isDecimalV3OrContainsDecimalV3())) {
                     // Do not do this cast if types are both decimalv3 with different precision/scale.
                     uncheckedCastChild(args[ix], i);
+                } else if (fnName.getFunction().equalsIgnoreCase("if")
+                        && argTypes[i].isArrayType() && ((ArrayType) argTypes[i]).getItemType().isNull()) {
+                    uncheckedCastChild(args[ix], i);
                 }
             }
         }
@@ -1785,6 +1807,11 @@ public class FunctionCallExpr extends Expr {
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
+        for (OrderByElement o : orderByElements) {
+            if (!o.getExpr().isAnalyzed) {
+                o.getExpr().analyzeImpl(analyzer);
+            }
+        }
     }
 
     // if return type is nested type, need to be determined the sub-element type
