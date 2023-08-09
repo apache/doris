@@ -1057,9 +1057,9 @@ public class PartitionCacheTest {
 
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT <slot 2> `eventdate` AS `eventdate`, <slot 3> count(`userid`) "
-                + "AS `count(``userid``)` FROM `testCluster:testDb`.`appevent` WHERE `eventdate` "
-                + ">= '2020-01-12 00:00:00' AND `eventdate` <= '2020-01-14 00:00:00' GROUP BY `eventdate`|");
+        Assert.assertEquals(cacheKey, "SELECT <slot 2> `eventdate` AS `eventdate`, <slot 3> count(`userid`) AS "
+                + "`count(``userid``)` FROM `testCluster:testDb`.`appevent` WHERE `eventdate` >= '2020-01-12' AND "
+                + "`eventdate` <= '2020-01-14' GROUP BY `eventdate`|");
     }
 
     @Test
@@ -1121,8 +1121,8 @@ public class PartitionCacheTest {
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Assert.assertEquals(cacheKey, "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`userid` AS "
                 + "`userid` FROM (SELECT `view2`.`eventdate` AS `eventdate`, `view2`.`userid` AS `userid` FROM "
-                + "`testCluster:testDb`.`view2` view2 WHERE `view2`.`eventdate` >= '2020-01-12 00:00:00' AND `view2`.`eventdate`"
-                + " <= '2020-01-14 00:00:00') origin|select eventdate, userid FROM appevent");
+                + "`testCluster:testDb`.`view2` view2 WHERE `view2`.`eventdate` >= '2020-01-12' AND `view2`.`eventdate` "
+                + "<= '2020-01-14') origin|select eventdate, userid FROM appevent");
     }
 
     @Test
