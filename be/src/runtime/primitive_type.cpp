@@ -154,6 +154,7 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::VARIANT:
         return TYPE_VARIANT;
+
     default:
         CHECK(false) << ", meet unknown type " << ttype;
         return INVALID_TYPE;
@@ -364,6 +365,9 @@ std::string type_to_string(PrimitiveType t) {
         return "STRUCT";
     case TYPE_LAMBDA_FUNCTION:
         return "LAMBDA_FUNCTION TYPE";
+    
+    case TYPE_VARIANT:
+        return "VARIANT";
 
     default:
         return "";
