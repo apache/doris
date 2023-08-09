@@ -134,7 +134,7 @@ int MergedPKIndexDeleteBitmapCalculatorContext::Comparator::compare_key(Slice co
 
 int MergedPKIndexDeleteBitmapCalculatorContext::Comparator::compare_seq(Slice const& lhs,
                                                                         Slice const& rhs) const {
-    if (UNLIKELY(_sequence_length == 0)) {
+    if (LIKELY(_sequence_length == 0)) {
         return 0;
     }
     auto lhs_seq = Slice(lhs.get_data() + lhs.get_size() - _sequence_length, _sequence_length);
