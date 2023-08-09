@@ -1,6 +1,6 @@
 ---
 {
-    "title": "group_bit_or",
+    "title": "GROUP_BIT_OR",
     "language": "en"
 }
 ---

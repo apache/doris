@@ -1,7 +1,7 @@
 ---
 {
-    "title": "group_bit_and",
-    "language": "en"
+    "title": "GROUP_BIT_OR",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,14 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## group_bit_and
+## group_bit_or
 ### description
 #### Syntax
 
-`expr GROUP_BIT_AND(expr)`
+`expr GROUP_BIT_OR(expr)`
 
-Perform an and calculation on expr, and return a new expr.
-All ints are supported
+对expr进行 or 计算, 返回新的expr
+支持所有INT类型
 
 ### example
 
@@ -47,14 +47,14 @@ mysql> select * from group_bit;
 +-------+
 4 rows in set (0.02 sec)
 
-mysql> select group_bit_and(value) from group_bit;
-+------------------------+
-| group_bit_and(`value`) |
-+------------------------+
-|                      0 |
-+------------------------+
+mysql> select group_bit_or(value) from group_bit;
++-----------------------+
+| group_bit_or(`value`) |
++-----------------------+
+|                     7 |
++-----------------------+
 ```
 
 ### keywords
 
-    GROUP_BIT_AND,BIT
+    GROUP_BIT_OR,BIT
