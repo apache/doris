@@ -89,7 +89,7 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
 
         new MockUp<OlapAnalysisTask>() {
             @Mock
-            public void execSQL(String sql) throws Exception {
+            public void execSQLs(List<String> sqls) throws Exception {
             }
         };
 
