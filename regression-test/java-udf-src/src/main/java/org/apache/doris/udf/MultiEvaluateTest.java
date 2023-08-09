@@ -29,7 +29,7 @@ public class MultiEvaluateTest extends UDF {
     }
 
     public Integer evaluate(Integer value1, Integer value2) {
-        return value1 == null || value1 == null ? null : value1 + value2;
+        return value1 == null || value2 == null ? null : value1 + value2;
     }
     
 }

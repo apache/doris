@@ -31,18 +31,18 @@ suite("test_javaudf_multi_evaluate") {
         sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
             `user_id`  INT    NOT NULL COMMENT "",
-            `float_1`  FLOAT  NOT NULL COMMENT "",
-            `int_1`  INT           COMMENT "",
-            `int_2` INT          COMMENT ""
+            `float_1`  FLOAT  COMMENT "",
+            `int_1`  INT      COMMENT "",
+            `int_2` INT       COMMENT ""
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
 
-        sql """ INSERT INTO ${tableName} (`user_id`,`float_1`,`int_1`,int_2) VALUES
+        sql """ INSERT INTO ${tableName} (`user_id`,`float_1`,`int_1`,`int_2`) VALUES
                 (1,1.11,2,3),
                 (2,null,3,4),
-                (3,3.33,2,null),
+                (3,3.33,2,null);
             """
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
