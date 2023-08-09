@@ -249,9 +249,8 @@ Status StorageEngine::start_bg_threads() {
 }
 
 void StorageEngine::_fd_cache_clean_callback() {
-    int32_t interval = 600;
+    int32_t interval = config::cache_clean_interval;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        interval = config::cache_clean_interval;
         if (interval <= 0) {
             LOG(WARNING) << "config of file descriptor clean interval is illegal: [" << interval
                          << "], force set to 3600 ";
