@@ -689,11 +689,8 @@ public class DeleteHandler implements Writable {
             // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
             // floating-point numbers, floating-point number not allowed in where clause
             if (column.getDataType().isFloatingPointType()) {
-                // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
                 throw new DdlException("Column[" + columnName + "] type is float or double.");
             }
-            LOG.warn("table {}, keysType: {}, column: {}, isSequenceColumn: {}, isKey: {}", table.getName(),
-                        table.getKeysType(), columnName, column.isSequenceColumn(), column.isKey());
             if (!column.isKey()) {
                 if (table.getKeysType() == KeysType.AGG_KEYS) {
                     throw new DdlException("delete predicate on value column only supports Unique table and"
