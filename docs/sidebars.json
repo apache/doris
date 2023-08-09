@@ -608,7 +608,7 @@
                         },
                         {
                             "type": "category",
-                            "label": "Condition Functions",
+                            "label": "Conditional Functions",
                             "items": [
                                 "sql-manual/sql-functions/conditional-functions/case",
                                 "sql-manual/sql-functions/conditional-functions/coalesce",
