@@ -31,7 +31,7 @@ Realized through flink doris connector
 
 **Note:** Because the Flink doris connector jar package is not in the Maven central warehouse, you need to compile it
 separately and add it to the classpath of your project. Refer to the compilation and use of Flink doris connector:
-[Flink doris connector]: https://doris.apache.org/master/zh-CN/extending-doris/flink-doris-connector.html
+[Flink doris connector]: https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector
 
 2.flink jdbc connector
 
