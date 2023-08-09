@@ -145,7 +145,6 @@ private:
     std::unique_ptr<std::vector<std::unique_ptr<SegmentCacheHandle>>> _seg_caches;
     MergedPKIndexDeleteBitmapCalculatorContext::Comparator _comparator {0};
     std::unique_ptr<Heap> _heap;
-    std::string _last_key;
     size_t _seq_col_length;
     bool _calc_delete_bitmap_between_rowsets;
 };
