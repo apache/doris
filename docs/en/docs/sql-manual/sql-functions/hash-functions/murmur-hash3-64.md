@@ -1,6 +1,6 @@
 ---
 {
-    "title": "murmur_hash3_32",
+    "title": "MURMUR_HASH3_64",
     "language": "en"
 }
 ---
@@ -22,40 +22,40 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## murmur_hash3_32
+## murmur_hash3_64
 
 ### description
 #### Syntax
 
-`INT MURMUR_HASH3_32(VARCHAR input, ...)`
+`BIGINT MURMUR_HASH3_64(VARCHAR input, ...)`
 
-Return the 32 bits murmur3 hash of input string.
+Return the 64 bits murmur3 hash of input string.
 
 ### example
 
 ```
-mysql> select murmur_hash3_32(null);
+mysql> select murmur_hash3_64(null);
 +-----------------------+
-| murmur_hash3_32(NULL) |
+| murmur_hash3_64(NULL) |
 +-----------------------+
 |                  NULL |
 +-----------------------+
 
-mysql> select murmur_hash3_32("hello");
+mysql> select murmur_hash3_64("hello");
 +--------------------------+
-| murmur_hash3_32('hello') |
+| murmur_hash3_64('hello') |
 +--------------------------+
-|               1321743225 |
+|     -3215607508166160593 |
 +--------------------------+
 
-mysql> select murmur_hash3_32("hello", "world");
+mysql> select murmur_hash3_64("hello", "world");
 +-----------------------------------+
-| murmur_hash3_32('hello', 'world') |
+| murmur_hash3_64('hello', 'world') |
 +-----------------------------------+
-|                         984713481 |
+|               3583109472027628045 |
 +-----------------------------------+
 ```
 
 ### keywords
 
-    MURMUR_HASH3_32,HASH
+    MURMUR_HASH3_64,HASH
