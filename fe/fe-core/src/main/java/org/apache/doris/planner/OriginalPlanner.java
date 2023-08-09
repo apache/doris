@@ -268,12 +268,14 @@ public class OriginalPlanner extends Planner {
         // exprs.
         if (queryStmt instanceof SelectStmt) {
             PlanFragment root = fragments.get(0);
-            List<Expr> slots = root.getOutputExprs();
+            List<SlotDescriptor> slots = analyzer.getDescTbl()
+                    .getTupleDesc(root.getPlanRoot().getOutputTupleIds().get(0))
+                    .getSlots();
             Preconditions.checkArgument(queryStmt.getResultExprs().size() == slots.size());
             for (int i = 0; i < slots.size(); ++i) {
                 if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
                     queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
-                            .setIsAllowNull(slots.get(i).isNullable());
+                            .setIsAllowNull(slots.get(i).getIsNullable());
                 }
             }
         }
