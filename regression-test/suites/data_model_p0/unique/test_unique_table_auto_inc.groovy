@@ -46,6 +46,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_basic.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_sql "select * from ${table1};"
     sql """ insert into ${table1} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
     qt_sql "select * from ${table1} order by id"
@@ -80,6 +81,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_basic.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_sql "select id, name, value from ${table2} order by id;"
     sql """ insert into ${table2} values("Bob", 100, 1230), ("Tom", 300, 1232), ("Carter", 500, 1234);"""
     qt_sql "select id, name, value from ${table2} order by id;"
@@ -114,6 +116,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_with_null.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_sql "select * from ${table3};"
     sql """ insert into ${table3} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
     qt_sql "select * from ${table3} order by id"
@@ -148,6 +151,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_update_inplace.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_update_inplace "select * from ${table4};"
     sql "drop table if exists ${table4};"
 
@@ -180,6 +184,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_basic.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_partial_update_key "select * from ${table5} order by id;"
 
     streamLoad {
@@ -193,6 +198,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_partial_update1.csv'
         time 10000
     }
+    sql "sync"
     qt_partial_update_key "select * from ${table5} order by id;"
     sql "drop table if exists ${table5};"
 
@@ -225,6 +231,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_basic.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_partial_update_value "select * from ${table6} order by id;"
 
     streamLoad {
@@ -238,6 +245,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_partial_update2.csv'
         time 10000
     }
+    sql "sync"
     qt_partial_update_value "select * from ${table6} order by id;"
     sql "drop table if exists ${table6};"
 
@@ -270,6 +278,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_basic.csv'
         time 10000 // limit inflight 10s
     }
+    sql "sync"
     qt_partial_update_value "select * from ${table7} order by id;"
 
     streamLoad {
@@ -283,6 +292,7 @@ suite("test_unique_table_auto_inc") {
         file 'auto_inc_partial_update2.csv'
         time 10000
     }
+    sql "sync"
     qt_partial_update_value "select * from ${table7} order by id;"
     sql "drop table if exists ${table7};"
 }

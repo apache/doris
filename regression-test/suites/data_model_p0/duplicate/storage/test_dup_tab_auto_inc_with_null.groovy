@@ -78,6 +78,7 @@ suite("test_dup_table_auto_inc_basic_with_null") {
         file 'auto_inc_basic_with_null_2.csv'
         time 10000 // limit inflight 10s
     }
+    sql """sync"""
     qt_auto_inc_ids "select * from ${table2};"
     sql "drop table if exists ${table2};"
 
@@ -110,6 +111,7 @@ suite("test_dup_table_auto_inc_basic_with_null") {
         file 'auto_inc_basic_with_null.csv'
         time 10000 // limit inflight 10s
     }
+    sql """sync"""
     qt_auto_inc_ids "select * from ${table3} order by id;"
     sql "drop table if exists ${table3};"
 
@@ -142,6 +144,7 @@ suite("test_dup_table_auto_inc_basic_with_null") {
         file 'auto_inc_basic_with_null_2.csv'
         time 10000 // limit inflight 10s
     }
+    sql """sync"""
     qt_auto_inc_ids "select * from ${table4} order by id;"
     sql "drop table if exists ${table4};"
 
