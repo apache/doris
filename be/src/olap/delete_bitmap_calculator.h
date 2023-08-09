@@ -108,16 +108,23 @@ class MergedPKIndexDeleteBitmapCalculator {
 public:
     MergedPKIndexDeleteBitmapCalculator() = default;
 
-    // Through the MergedPKIndexDeleteBitmapCalculator, we aim to find the
-    // positions of those rows covered by the newly added segments and
-    // record them in the delete bitmap.
+    // Through the MergedPKIndexDeleteBitmapCalculator, we .
     // In the calculator, we create a context for each segment of both the base data and delta data.
     // These contexts can be viewed as iterators, which are then placed into a heap.
     // We use a method similar to merge sorting to identify duplicate keys and update the delete-bitmap accordingly.
     //
+    // This calculator can calculate two types of delete bitmap: delete-bitmap inside a rowset and delete-bitmap between rowsets.
+    //
     // `segments` are the delta data
     // `specified_rowsets` are the base data
-    // `calc_delete_bitmap_between_segments` stands for whether we should find duplicate keys in `segments`
+    //
+    // If `specified_rowsets` is nullptr, this calculator will calculate the delete-bitmap between `segments`.
+    // Otherwise, this calculator will find the positions of those rows(in `specified_rowsets`)
+    // covered by the newly added segments(`segments`) and record them in the delete bitmap.
+    //
+    // If you want to calculate the delete bitmap inside a rowset, you need to set `specified_rowsets` as nullptr
+    // If you want to calculate the delete bitmap between rowsets but not inside a rowset,
+    // you need to pass the base rowsets to `specified_rowsets`
     Status init(std::vector<SegmentSharedPtr> const& segments,
                 const std::vector<RowsetSharedPtr>* specified_rowsets = nullptr,
                 size_t seq_col_length = 0, size_t max_batch_size = kMergedPKIteratorReadBatchSize);
