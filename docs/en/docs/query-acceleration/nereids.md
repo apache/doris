@@ -81,7 +81,4 @@ SET enable_fallback_to_original_planner=true;
 
 ### known issues
 
-- Cannot use query cache and partition cache to accelarate query
-- Not support MTMV
-- Not support MV created after version 2.0.0
-- Some unsupported subquery usage will produce an error result instead of an error
+- Cannot use partition cache to accelarate query
