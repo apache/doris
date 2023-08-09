@@ -48,29 +48,15 @@ void DataTypeMapSerDe::serialize_one_cell_to_text(const IColumn& column, int row
 
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
-    //bool is_key_string = remove_nullable(nested_keys_column.get_ptr())->is_column_string();
-    //bool is_val_string = remove_nullable(nested_values_column.get_ptr())->is_column_string();
     bw.write("{", 1);
     for (size_t i = offset; i < next_offset; ++i) {
         if (i != offset) {
             bw.write(&options.collection_delim, 1);
             bw.write(" ", 1);
         }
-        //if (is_key_string) {
-        //  bw.write("\"", 1);
         key_serde->serialize_one_cell_to_text(nested_keys_column, i, bw, options);
-        //bw.write("\"", 1);
-        //} else {
-        // key_serde->serialize_one_cell_to_text(nested_keys_column, i, bw, options);
-        //}
         bw.write(&options.map_key_delim, 1);
-        //        if (is_val_string) {
-        //            bw.write("\"", 1);
-        //            value_serde->serialize_one_cell_to_text(nested_values_column, i, bw, options);
-        //            bw.write("\"", 1);
-        //        } else {
         value_serde->serialize_one_cell_to_text(nested_values_column, i, bw, options);
-        //}
     }
     bw.write("}", 1);
 }
@@ -165,13 +151,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (options.converted_from_string &&
-                (next.starts_with("\"") || next.starts_with("'"))) {
-                next.remove_prefix(1);
-            }
-            if (options.converted_from_string && (next.ends_with("\"") || next.ends_with("'"))) {
-                next.remove_suffix(1);
-            }
+            if (options.converted_from_string) next.trim_quote();
+
             if (Status st = value_serde->deserialize_one_cell_from_text(nested_val_column, next,
                                                                         options);
                 !st.ok()) {
@@ -190,12 +171,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& 
     if (!has_quote && nested_level == 0 && idx == slice_size && idx != start_pos && key_added) {
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
-        if (options.converted_from_string && (next.starts_with("\"") || next.starts_with("'"))) {
-            next.remove_prefix(1);
-        }
-        if (options.converted_from_string && (next.ends_with("\"") || next.ends_with("'"))) {
-            next.remove_suffix(1);
-        }
+        if (options.converted_from_string) next.trim_quote();
+
         if (Status st =
                     value_serde->deserialize_one_cell_from_text(nested_val_column, next, options);
             !st.ok()) {
