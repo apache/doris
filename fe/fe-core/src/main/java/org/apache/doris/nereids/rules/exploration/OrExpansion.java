@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,7 +60,8 @@ public class OrExpansion extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(JoinUtils::shouldNestedLoopJoin)
-                .when(join -> join.getJoinType().isInnerJoin())
+                .when(join -> join.getJoinType().isInnerJoin()
+                        && ConnectContext.get().getSessionVariable().getEnablePipelineEngine())
                 .thenApply(ctx -> {
                     LogicalJoin<? extends Plan, ? extends Plan> join = ctx.root;
                     Preconditions.checkArgument(join.getHashJoinConjuncts().isEmpty(),
