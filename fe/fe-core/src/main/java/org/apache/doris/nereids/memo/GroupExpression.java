@@ -340,4 +340,8 @@ public class GroupExpression {
         builder.append(" (plan=").append(plan.toString()).append(")");
         return builder.toString();
     }
+
+    public ObjectId getId() {
+        return id;
+    }
 }
