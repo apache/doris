@@ -5998,12 +5998,6 @@ with_analysis_properties ::=
             put("incremental", "true");
         }};
     :}
-    | KW_AUTO
-    {:
-        RESULT = new HashMap<String, String>() {{
-            put("automatic", "true");
-        }};
-    :}
     | KW_SAMPLE KW_PERCENT INTEGER_LITERAL:samplePercent
     {:
         RESULT = new HashMap<String, String>() {{

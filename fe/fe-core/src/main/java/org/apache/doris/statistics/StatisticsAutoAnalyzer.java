@@ -77,9 +77,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         }
 
         analyzePeriodically();
-        if (!Config.enable_full_auto_analyze) {
-            analyzeAutomatically();
-        } else {
+        if (Config.enable_full_auto_analyze) {
             analyzeAll();
         }
     }
@@ -148,23 +146,6 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             }
         } catch (DdlException e) {
             LOG.warn("Failed to periodically analyze the statistics." + e);
-        }
-    }
-
-    private void analyzeAutomatically() {
-        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        List<AnalysisInfo> jobInfos = analysisManager.findAutomaticAnalysisJobs();
-        for (AnalysisInfo jobInfo : jobInfos) {
-            AnalysisInfo checkedJobInfo = null;
-            try {
-                checkedJobInfo = getReAnalyzeRequiredPart(jobInfo);
-                if (checkedJobInfo != null) {
-                    analysisManager.createSystemAnalysisJob(checkedJobInfo, analysisTaskExecutor);
-                }
-            } catch (Throwable t) {
-                LOG.warn("Failed to create analyze job: {}", checkedJobInfo, t);
-            }
-
         }
     }
 
