@@ -104,7 +104,13 @@ public:
 
 private:
     // extract 'column_name', 'op' and 'operands' to condition
-    bool _parse_condition(const DeleteSubPredicatePB& condition_str, TCondition* condition);
+    Status _parse_condition(const DeleteSubPredicatePB& condition_str, TCondition* condition);
+    Status _parse_condition(const std::string& condition_str, TCondition* condition);
+
+    template <typename SubPredicateList>
+    Status _parse_column_pred(TabletSchemaSPtr delete_pred_related_schema,
+                              const SubPredicateList& sub_pred_list,
+                              DeleteConditions* delete_conditions);
 
     [[nodiscard]] static std::string _trans_op(const string& op);
 

@@ -143,6 +143,7 @@ message DeletePredicatePB {
     repeated string sub_predicates = 2;
     repeated InPredicatePB in_predicates = 3;
     repeated DeleteSubPredicatePB sub_predicates_v2 = 4;
+    optional int32 sub_pred_version = 5; // if is set to 2, use sub_predicates_v2, is not set, use sub_predicates
 }
 
 message DeleteSubPredicatePB {
