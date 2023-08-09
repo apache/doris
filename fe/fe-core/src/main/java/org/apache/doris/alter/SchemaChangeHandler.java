@@ -2166,14 +2166,15 @@ public class SchemaChangeHandler extends AlterHandler {
                         .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)));
         }
 
+        if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)) {
+            LOG.info("Properties already up-to-date");
+            return;
+        }
+
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
                                         null, compactionPolicy, timeSeriesCompactionConfig);
-        }
-
-        if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()) {
-            LOG.info("Properties already up-to-date");
-            return;
         }
 
         olapTable.writeLockOrDdlException();
