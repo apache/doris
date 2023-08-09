@@ -125,8 +125,9 @@ bool MemInfo::process_minor_gc() {
         je_purge_all_arena_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
-        LOG(INFO) << fmt::format("End Minor GC, Free Memory {} Bytes. cost(us): {}, details: {}",
-                                 freed_mem, watch.elapsed_time() / 1000, ss.str());
+        LOG(INFO) << fmt::format("End Minor GC, Free Memory {}. cost(us): {}, details: {}",
+                                 PrettyPrinter::print(freed_mem, TUnit::BYTES),
+                                 watch.elapsed_time() / 1000, ss.str());
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
@@ -174,8 +175,9 @@ bool MemInfo::process_full_gc() {
         je_purge_all_arena_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
-        LOG(INFO) << fmt::format("End Full GC Free, Memory {} Bytes. cost(us): {}, details: {}",
-                                 freed_mem, watch.elapsed_time() / 1000, ss.str());
+        LOG(INFO) << fmt::format("End Full GC, Free Memory {}. cost(us): {}, details: {}",
+                                 PrettyPrinter::print(freed_mem, TUnit::BYTES),
+                                 watch.elapsed_time() / 1000, ss.str());
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
@@ -235,9 +237,10 @@ int64_t MemInfo::tg_hard_memory_limit_gc() {
             std::stringstream ss;
             tg_profile->pretty_print(&ss);
             LOG(INFO) << fmt::format(
-                    "End Task Group Overcommit Memory GC, Free Memory {} Bytes. cost(us): {}, "
+                    "End Task Group Overcommit Memory GC, Free Memory {}. cost(us): {}, "
                     "details: {}",
-                    total_free_memory, watch.elapsed_time() / 1000, ss.str());
+                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
+                    watch.elapsed_time() / 1000, ss.str());
         }
     }};
 
