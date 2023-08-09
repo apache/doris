@@ -338,10 +338,11 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replica_id,
                   int32_t schema_hash, int64_t tablet_id, int64_t txn_id, int64_t partition_id) {
     // create tablet
+    RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
     request.__set_replica_id(replica_id);
-    Status st = engine->create_tablet(request);
+    Status st = engine->create_tablet(request, &profile);
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();

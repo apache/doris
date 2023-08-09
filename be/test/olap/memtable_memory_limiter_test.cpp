@@ -112,9 +112,10 @@ protected:
 };
 
 TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
+    RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10000, 270068372, &request);
-    Status res = _engine->create_tablet(request);
+    Status res = _engine->create_tablet(request, &profile);
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
