@@ -123,6 +123,9 @@ public class DeleteStmt extends DdlStmt {
 
         // analyze predicate
         if (fromClause == null) {
+            if (wherePredicate == null) {
+                throw new AnalysisException("Where clause is not set");
+            }
             ExprRewriter exprRewriter = new ExprRewriter(EXPR_NORMALIZE_RULES);
             wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
             try {
