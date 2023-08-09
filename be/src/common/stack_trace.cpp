@@ -39,6 +39,8 @@
 
 #if USE_UNWIND
 #include <libunwind.h>
+#else
+#include <execinfo.h>
 #endif
 
 namespace {
@@ -294,12 +296,14 @@ StackTrace::StackTrace(const ucontext_t& signal_context) {
 }
 
 void StackTrace::tryCapture() {
+    // When unw_backtrace is not available, fall back on the standard
+    // `backtrace` function from execinfo.h.
 #if USE_UNWIND
     size = unw_backtrace(frame_pointers.data(), capacity);
-    __msan_unpoison(frame_pointers.data(), size * sizeof(frame_pointers[0]));
 #else
-    size = 0;
+    size = backtrace(frame_pointers.data(), capacity);
 #endif
+    __msan_unpoison(frame_pointers.data(), size * sizeof(frame_pointers[0]));
 }
 
 /// ClickHouse uses bundled libc++ so type names will be the same on every system thus it's safe to hardcode them
