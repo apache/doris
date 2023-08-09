@@ -158,10 +158,8 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
         old_version = old_rowset == nullptr ? -1 : old_rowset->end_version();
         new_version = new_rowset->end_version();
     }
-    if (profile != nullptr) {
-        COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "GetExistTabletVersion", "AddTablet"),
-                       static_cast<int64_t>(watch.reset()));
-    }
+    COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "GetExistTabletVersion", "AddTablet"),
+                   static_cast<int64_t>(watch.reset()));
 
     // In restore process, we replace all origin files in tablet dir with
     // the downloaded snapshot files. Then we try to reload tablet header.
@@ -214,20 +212,16 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     if (update_meta) {
         // call tablet save meta in order to valid the meta
         tablet->save_meta();
-        if (profile != nullptr) {
-            COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "SaveMeta", "AddTablet"),
-                           static_cast<int64_t>(watch.reset()));
-        }
+        COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "SaveMeta", "AddTablet"),
+                       static_cast<int64_t>(watch.reset()));
     }
     if (drop_old) {
         // If the new tablet is fresher than the existing one, then replace
         // the existing tablet with the new one.
         // Use default replica_id to ignore whether replica_id is match when drop tablet.
         Status status = _drop_tablet_unlocked(tablet_id, /* replica_id */ 0, keep_files, false);
-        if (profile != nullptr) {
-            COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "DropOldTablet", "AddTablet"),
-                           static_cast<int64_t>(watch.reset()));
-        }
+        COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "DropOldTablet", "AddTablet"),
+                       static_cast<int64_t>(watch.reset()));
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 status, strings::Substitute("failed to drop old tablet when add new tablet. "
                                             "tablet_id=$0",
@@ -244,10 +238,8 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     // Because table schema will copy in tablet, there will be double mem cost
     // so here multiply 2
     _tablet_meta_mem_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
-    if (profile != nullptr) {
-        COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
-                       static_cast<int64_t>(watch.reset()));
-    }
+    COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
+                   static_cast<int64_t>(watch.reset()));
 
     VLOG_NOTICE << "add tablet to map successfully."
                 << " tablet_id=" << tablet_id;
@@ -903,9 +895,10 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
             tablet->init(),
             strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
 
+    RuntimeProfile profile("CreateTablet");
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            _add_tablet_unlocked(tablet_id, tablet, update_meta, force, nullptr),
+            _add_tablet_unlocked(tablet_id, tablet, update_meta, force, &profile),
             strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
     return Status::OK();
