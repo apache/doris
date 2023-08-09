@@ -108,7 +108,6 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice
     //   2. keep a nested level to support nested complex type.
     int nested_level = 0;
     bool has_quote = false;
-    // 0, 1,-1,1
     std::vector<Slice> slices;
     slice.trim_prefix();
     slices.emplace_back(slice);
@@ -129,28 +128,13 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice
             // skip delimiter
             Slice next(slice.data + idx + 1, slice_size - idx - 1);
             next.trim_prefix();
-            if (options.converted_from_string && slices.back().size >= 2 &&
-                (slices.back()[0] == '"' || slices.back()[0] == '\'')) {
-                slices.back().remove_prefix(1);
-            }
-            if (options.converted_from_string && slices.back().size >= 2 &&
-                (slices.back()[slices.back().size - 1] == '"' ||
-                 (slices.back()[slices.back().size - 1] == '\''))) {
-                slices.back().remove_suffix(1);
-            }
+            if (options.converted_from_string) slices.back().trim_quote();
             slices.emplace_back(next);
         }
     }
 
-    if (options.converted_from_string && slices.back().size >= 2 &&
-        (slices.back()[0] == '"' || slices.back()[0] == '\'')) {
-        slices.back().remove_prefix(1);
-    }
-    if (options.converted_from_string && slices.back().size >= 2 &&
-        (slices.back()[slices.back().size - 1] == '"' ||
-         (slices.back()[slices.back().size - 1] == '\''))) {
-        slices.back().remove_suffix(1);
-    }
+    if (options.converted_from_string) slices.back().trim_quote();
+
     int elem_deserialized = 0;
     Status st = nested_serde->deserialize_column_from_text_vector(nested_column, slices,
                                                                   &elem_deserialized, options);
