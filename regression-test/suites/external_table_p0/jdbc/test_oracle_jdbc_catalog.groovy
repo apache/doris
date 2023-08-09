@@ -44,10 +44,10 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
-
-        sql  """ drop table if exists ${inDorisTable} """
+        sql """use ${internal_db_name}"""
+        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
-              CREATE TABLE ${inDorisTable} (
+              CREATE TABLE ${internal_db_name}.${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字",
                 `age` INT NULL COMMENT "年龄"
