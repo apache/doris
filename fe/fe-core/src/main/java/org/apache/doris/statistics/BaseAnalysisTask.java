@@ -196,6 +196,10 @@ public abstract class BaseAnalysisTask {
                         String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
     }
 
+    public long getLastExecTime() {
+        return info.lastExecTimeInMs;
+    }
+
     public long getJobId() {
         return info.jobId;
     }
