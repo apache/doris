@@ -750,8 +750,8 @@
                             "type": "category",
                             "label": "IP Functions",
                             "items": [
-                                "sql-manual/sql-functions/ip-functions/IPV4-NUM-TO-STRING",
-                                "sql-manual/sql-functions/ip-functions/INET_NTOA"
+                                "sql-manual/sql-functions/ip-functions/ipv4-num-to-string",
+                                "sql-manual/sql-functions/ip-functions/inet-ntoa"
                             ]
                         },
                         "sql-manual/sql-functions/cast",
