@@ -173,6 +173,11 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             return false;
         }
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
+        Preconditions.checkState(scan != null, "scan is null");
+        if (!RuntimeFilterGenerator.checkPhysicalRelationType(scan)
+                || !RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+            return false;
+        }
         if (scan instanceof PhysicalCTEConsumer) {
             // update the probeExpr
             int projIndex = -1;
@@ -196,9 +201,11 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
                 return false;
             }
             scan = aliasTransferMap.get(newProbeSlot).first;
+            Preconditions.checkState(scan != null, "scan is null");
             probeExpr = newProbeExpr;
         }
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        if (!RuntimeFilterGenerator.checkPhysicalRelationType(scan)
+                || !RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
             return false;
         }
 

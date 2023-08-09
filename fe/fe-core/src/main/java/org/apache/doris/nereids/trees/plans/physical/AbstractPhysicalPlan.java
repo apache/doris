@@ -105,11 +105,12 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
 
         Slot olapScanSlot = aliasTransferMap.get(probeSlot).second;
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+        Preconditions.checkState(olapScanSlot != null && scan != null,
+                "scan slot is null or scan is null");
+        if (!RuntimeFilterGenerator.checkPhysicalRelationType(scan)
+                || !RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
             return false;
         }
-        Preconditions.checkState(olapScanSlot != null && scan != null);
-
         // in-filter is not friendly to pipeline
         if (type == TRuntimeFilterType.IN_OR_BLOOM
                 && ctx.getSessionVariable().getEnablePipelineEngine()
