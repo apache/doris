@@ -240,12 +240,14 @@ public class DeleteStmt extends DdlStmt {
             Expr leftExpr = binaryPredicate.getChild(0);
             if (!(leftExpr instanceof SlotRef)) {
                 throw new AnalysisException(
-                        "Left expr of binary predicate should be column name, predicate=" + binaryPredicate.toSql());
+                        "Left expr of binary predicate should be column name, predicate: " + binaryPredicate.toSql()
+                                + ", left expr type:" + leftExpr.getType());
             }
             Expr rightExpr = binaryPredicate.getChild(1);
             if (!(rightExpr instanceof LiteralExpr)) {
                 throw new AnalysisException(
-                        "Right expr of binary predicate should be value, predicate=" + binaryPredicate.toSql());
+                        "Right expr of binary predicate should be value, predicate: " + binaryPredicate.toSql()
+                                + ", right expr type:" + rightExpr.getType());
             }
             deleteConditions.add(binaryPredicate);
         } else if (predicate instanceof CompoundPredicate) {
