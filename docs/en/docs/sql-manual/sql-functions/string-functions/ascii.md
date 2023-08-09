@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ascii",
+    "title": "ASCII",
     "language": "en"
 }
 ---
