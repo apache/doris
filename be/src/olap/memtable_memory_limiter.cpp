@@ -130,7 +130,8 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             if (!st.ok()) {
                 auto err_msg = fmt::format(
                         "tablet writer failed to reduce mem consumption by flushing memtable, "
-                        "tablet_id={}, err={}", writer->tablet_id(), st.to_string());
+                        "tablet_id={}, err={}",
+                        writer->tablet_id(), st.to_string());
                 LOG(WARNING) << err_msg;
                 writer->cancel_with_status(st);
             }
@@ -187,7 +188,8 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         if (!st.ok()) {
             auto err_msg = fmt::format(
                     "tablet writer failed to reduce mem consumption by flushing memtable, "
-                    "tablet_id={}, err={}", item.writer->tablet_id(), st.to_string());
+                    "tablet_id={}, err={}",
+                    item.writer->tablet_id(), st.to_string());
             LOG(WARNING) << err_msg;
             item.writer->cancel_with_status(st);
         }
