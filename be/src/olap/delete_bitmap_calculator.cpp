@@ -102,17 +102,29 @@ bool MergedPKIndexDeleteBitmapCalculatorContext::Comparator::operator()(
     CHECK(LIKELY(st.ok())) << fmt::format("Reading key1 but get st = {}", st);
     st = rhs->get_current_key(&key2);
     CHECK(LIKELY(st.ok())) << fmt::format("Reading key2 but get st = {}", st);
+    // We start by comparing the key portions of the two records.
+    // If they are not equal, we want the record with the smaller key to be popped from the heap first.
+    // Therefore, we need to return the result of key1 > key2.
     int key_cmp_result = compare_key(key1, key2);
     if (LIKELY(key_cmp_result != 0)) {
         return key_cmp_result > 0;
     }
+    // If key portions of the two records are equal,
+    // we want the record with the larger sequence value to be popped from the heap first.
+    // Therefore, we need to return the result of seq1 < seq2.
     int seq_cmp_result = compare_seq(key1, key2);
     if (LIKELY(seq_cmp_result != 0)) {
         return seq_cmp_result < 0;
     }
+    // Otherwise, if they have the same key and sequence value,
+    // we want the record with the larger version value to be popped from the heap first.
+    // Therefore, we need to return the result of version1 < version2.
     if (LIKELY(lhs->end_version() != rhs->end_version())) {
         return lhs->end_version() < rhs->end_version();
     }
+    // Lastly, if they have the same key, sequence value and version,
+    // we want the record with the larger segment id to be popped from the heap first.
+    // Therefore, we need to return the result of segid1 < segid2.
     return lhs->segment_id() < rhs->segment_id();
 }
 
@@ -142,6 +154,7 @@ Status MergedPKIndexDeleteBitmapCalculator::init(std::vector<SegmentSharedPtr> c
                                                  const std::vector<int64_t>* end_versions,
                                                  size_t num_base_segments, size_t seq_col_length,
                                                  size_t max_batch_size) {
+    // Assume that the first `num_base_segments` segments are the delta data, others are the base data.
     _seq_col_length = seq_col_length;
     _comparator = MergedPKIndexDeleteBitmapCalculatorContext::Comparator(seq_col_length);
     size_t num_segments = segments.size();
@@ -171,6 +184,7 @@ Status MergedPKIndexDeleteBitmapCalculator::init(
         const std::vector<RowsetSharedPtr>* specified_rowsets,
         bool calc_delete_bitmap_between_segments, size_t seq_col_length, size_t max_batch_size) {
     std::vector<SegmentSharedPtr> all_segments(segments);
+    // Assume that the delta segments' version is infinitely large.
     std::vector<int64_t> end_versions(segments.size(), INT64_MAX);
     _calc_delete_bitmap_between_segments = calc_delete_bitmap_between_segments;
     if (specified_rowsets) {
@@ -196,6 +210,11 @@ Status MergedPKIndexDeleteBitmapCalculator::init(
 Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitmap) {
     while (_heap->size() >= 2) {
         if (!_calc_delete_bitmap_between_segments) {
+            // This is a trick when we don't need to calculating the delete bitmap between delta data.
+            // Assuming that some smallest contexts correspond to segments of the base data,
+            // we only need to directly seek these contexts to the key represented
+            // by the smallest context of the delta data.
+            // It is the same if the smallest contexts correspond to segments of the delta data.
             bool should_return = false;
             while (true) {
                 auto st = step();
@@ -215,37 +234,44 @@ Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitma
                 break;
             }
         }
-        auto iter1 = _heap->top();
+        // We pop two context ctx1 and ctx2 from the heap.
+        // Apprently, ctx1's key is smaller than or equal to ctx2' key.
+        auto ctx1 = _heap->top();
         _heap->pop();
-        auto iter2 = _heap->top();
+        auto ctx2 = _heap->top();
         _heap->pop();
 
         Slice key1, key2;
-        RETURN_IF_ERROR(iter1->get_current_key(&key1));
-        RETURN_IF_ERROR(iter2->get_current_key(&key2));
+        RETURN_IF_ERROR(ctx1->get_current_key(&key1));
+        RETURN_IF_ERROR(ctx2->get_current_key(&key2));
 
-        if (LIKELY(!_comparator.is_key_same(key1, key2))) {
+        if (!_comparator.is_key_same(key1, key2)) {
+            // If key1 is not equal to key2, we can say that key1 is smaller than key2.
+            // So, we seek ctx1 to ctx2.
             auto key2_without_seq = Slice(key2.get_data(), key2.get_size() - _seq_col_length);
-            auto st = iter1->seek_at_or_after(key2_without_seq);
+            auto st = ctx1->seek_at_or_after(key2_without_seq);
             if (UNLIKELY(!(st.ok() || st.is<ErrorCode::END_OF_FILE>()))) {
                 return st;
             }
         } else {
-            delete_bitmap->add({iter2->rowset_id(), iter2->segment_id(), 0}, iter2->row_id());
-            iter2->advance();
+            // If key1 is equal to key2, the row ctx2 pointed now is to be deleted.
+            delete_bitmap->add({ctx2->rowset_id(), ctx2->segment_id(), 0}, ctx2->row_id());
+            ctx2->advance();
         }
 
-        if (!iter1->eof()) {
-            _heap->push(iter1);
+        if (!ctx1->eof()) {
+            _heap->push(ctx1);
         }
-        if (!iter2->eof()) {
-            _heap->push(iter2);
+        if (!ctx2->eof()) {
+            _heap->push(ctx2);
         }
     }
     return Status::OK();
 }
 
 Status MergedPKIndexDeleteBitmapCalculator::step() {
+    // `ctxs_to_seek` are the smallest contexts of same type of data (eithor base data or delta data).
+    // `target_ctx` is the context next to `ctxs_to_seek`
     std::vector<MergedPKIndexDeleteBitmapCalculatorContext*> ctxs_to_seek;
     MergedPKIndexDeleteBitmapCalculatorContext* target_ctx = nullptr;
     while (!_heap->empty()) {
@@ -258,9 +284,13 @@ Status MergedPKIndexDeleteBitmapCalculator::step() {
         _heap->pop();
         ctxs_to_seek.emplace_back(ctx);
     }
+    // If `target_ctx` is nullptr, we can say that the contexts are the same type of data.
+    // So there is no duplicate keys, and we should end this algorithm by returning not found error.
     if (target_ctx == nullptr) {
         return Status::NotFound("No target found");
     }
+    // Otherwise, we then seek all the contexts in `ctxs_to_seek` to `target_ctx`
+    // and append them to `ctxs_to_push`.
     Slice key;
     RETURN_IF_ERROR(target_ctx->get_current_key(&key));
     key = Slice(key.get_data(), key.get_size() - _seq_col_length);
@@ -274,11 +304,17 @@ Status MergedPKIndexDeleteBitmapCalculator::step() {
             ctxs_to_push.emplace_back(ctx);
         }
     }
+    // If all of the contexts in `ctxs_to_seek` reach the eof,
+    // we can go for another `step` process by returning end of file error.
     if (ctxs_to_push.empty()) {
         return Status::EndOfFile("No ctx to push");
     }
+    // Since contexts in `ctxs_to_push` lose their order,
+    // we have to sort them for further seek.
     std::sort(ctxs_to_push.begin(), ctxs_to_push.end(), _comparator);
     std::reverse(ctxs_to_push.begin(), ctxs_to_push.end());
+    // If some smallest contexts of `ctxs_to_push` have the same key,
+    // we have to advance the contexts whoses record pointed now are deleted.
     Slice first_key;
     for (size_t i = 0; i < ctxs_to_push.size(); ++i) {
         auto ctx = ctxs_to_push[i];

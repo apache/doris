@@ -108,6 +108,16 @@ class MergedPKIndexDeleteBitmapCalculator {
 public:
     MergedPKIndexDeleteBitmapCalculator() = default;
 
+    // Through the MergedPKIndexDeleteBitmapCalculator, we aim to find the
+    // positions of those rows covered by the newly added segments and
+    // record them in the delete bitmap.
+    // In the calculator, we create a context for each segment of both the base data and delta data.
+    // These contexts can be viewed as iterators, which are then placed into a heap.
+    // We use a method similar to merge sorting to identify duplicate keys and update the delete-bitmap accordingly.
+    //
+    // `segments` are the delta data
+    // `specified_rowsets` are the base data
+    // `calc_delete_bitmap_between_segments` stands for whether we should find duplicate keys in `segments`
     Status init(std::vector<SegmentSharedPtr> const& segments,
                 const std::vector<RowsetSharedPtr>* specified_rowsets = nullptr,
                 bool calc_delete_bitmap_between_segments = false, size_t seq_col_length = 0,
