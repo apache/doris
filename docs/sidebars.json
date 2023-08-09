@@ -501,8 +501,8 @@
                             "label": "Struct Functions",
                             "items": [
                                 "sql-manual/sql-functions/struct-functions/struct",
-                                "sql-manual/sql-functions/struct-functions/named_struct",
-                                "sql-manual/sql-functions/struct-functions/struct_element"
+                                "sql-manual/sql-functions/struct-functions/named-struct",
+                                "sql-manual/sql-functions/struct-functions/struct-element"
                             ]
                         },
                         {
