@@ -30,6 +30,7 @@ Broker is an optional process in the Doris cluster. It is mainly used to support
 
 - Apache HDFS
 - Aliyun OSS
+- Baidu Cloud BOS
 - Tencent Cloud CHDFS
 - Tencent Cloud GFS (since 1.2.0)
 - Huawei Cloud OBS (since 1.2.0)
@@ -215,6 +216,17 @@ Same as Apache HDFS
     "fs.oss.accessKeyId" = "",
     "fs.oss.accessKeySecret" = "",
     "fs.oss.endpoint" = ""
+)
+```
+
+#### Baidu Cloud OBS
+当前使用BOS时需要将[bos-hdfs-sdk-1.0.3-community.jar.zip](https://sdk.bce.baidu.com/console-sdk/bos-hdfs-sdk-1.0.3-community.jar.zip)下载并解压后把jar包放到broker的lib目录下。
+
+```
+(
+    "fs.bos.access.key" = "xx",
+    "fs.bos.secret.access.key" = "xx",
+    "fs.bos.endpoint" = "xx"
 )
 ```
 
