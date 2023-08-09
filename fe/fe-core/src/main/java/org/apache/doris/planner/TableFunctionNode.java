@@ -231,9 +231,4 @@ public class TableFunctionNode extends PlanNode {
             msg.table_function_node.addToOutputSlotIds(slotId.asInt());
         }
     }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
-    }
 }
