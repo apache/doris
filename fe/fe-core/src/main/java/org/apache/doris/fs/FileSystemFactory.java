@@ -66,7 +66,7 @@ public class FileSystemFactory {
             fsType = FileSystemType.S3;
         } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)) {
             fsType = FileSystemType.DFS;
-        } else if (location.startsWith(FeConstants.FS_PREFIX_OFS || location.startsWith(FeConstants.FS_PREFIX_COSN)) {
+        } else if (location.startsWith(FeConstants.FS_PREFIX_OFS) || location.startsWith(FeConstants.FS_PREFIX_COSN)) {
             // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS)) {
             fsType = FileSystemType.OFS;
         } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
