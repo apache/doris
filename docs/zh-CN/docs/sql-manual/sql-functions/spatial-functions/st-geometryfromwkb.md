@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ST_GeometryFromWKB,ST_GeomFromWKB",
+    "title": "ST_GEOMETRYFROMWKB,ST_GEOMFROMWKB",
     "language": "zh-CN"
 }
 ---

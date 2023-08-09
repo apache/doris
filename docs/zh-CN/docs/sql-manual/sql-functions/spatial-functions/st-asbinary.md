@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ST_AsBinary",
+    "title": "ST_ASBINARY",
     "language": "zh-CN"
 }
 ---

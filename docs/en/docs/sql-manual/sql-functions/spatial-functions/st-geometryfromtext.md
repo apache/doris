@@ -1,7 +1,7 @@
 ---
 {
-    "title": "ST_Point",
-    "language": "zh-CN"
+    "title": "ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT",
+    "language": "en"
 }
 ---
 
@@ -24,25 +24,24 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ST_Point
-### description
+## ST_GeometryFromText,ST_GeomFromText
+### Description
 #### Syntax
 
-`POINT ST_Point(DOUBLE x, DOUBLE y)`
+`GEOMETRY ST_GeometryFromText (VARCHAR wkt)`
 
 
-通过给定的X坐标值，Y坐标值返回对应的Point。
-当前这个值只是在球面集合上有意义，X/Y对应的是经度/纬度(longitude/latitude);ps:直接select ST_Point()会卡主，慎重！！！
+Converting a WKT (Well Known Text) into a corresponding memory geometry
 
 ### example
 
 ```
-mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
-+---------------------------------+
-| st_astext(st_point(24.7, 56.7)) |
-+---------------------------------+
-| POINT (24.7 56.7)               |
-+---------------------------------+
+mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
++---------------------------------------------------------+
+| st_astext(st_geometryfromtext('LINESTRING (1 1, 2 2)')) |
++---------------------------------------------------------+
+| LINESTRING (1 1, 2 2)                                   |
++---------------------------------------------------------+
 ```
 ### keywords
-ST_POINT,ST,POINT
+ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT

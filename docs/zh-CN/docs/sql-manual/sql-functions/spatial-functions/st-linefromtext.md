@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ST_GeometryFromText,ST_GeomFromText",
+    "title": "ST_LINEFROMTEXT,ST_LINESTRINGFROMTEXT",
     "language": "zh-CN"
 }
 ---
@@ -24,19 +24,19 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ST_GeometryFromText,ST_GeomFromText
+## ST_LineFromText,ST_LineStringFromText
 ### description
 #### Syntax
 
-`GEOMETRY ST_GeometryFromText(VARCHAR wkt)`
+`GEOMETRY ST_LineFromText(VARCHAR wkt)`
 
 
-将一个WKT（Well Known Text）转化为对应的内存的几何形式
+将一个WKT（Well Known Text）转化为一个Line形式的内存表现形式
 
 ### example
 
 ```
-mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
+mysql> SELECT ST_AsText(ST_LineFromText("LINESTRING (1 1, 2 2)"));
 +---------------------------------------------------------+
 | st_astext(st_geometryfromtext('LINESTRING (1 1, 2 2)')) |
 +---------------------------------------------------------+
@@ -44,4 +44,4 @@ mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
 +---------------------------------------------------------+
 ```
 ### keywords
-ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT
+ST_LINEFROMTEXT,ST_LINESTRINGFROMTEXT,ST,LINEFROMTEXT,LINESTRINGFROMTEXT
