@@ -1,7 +1,7 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-SUM",
-    "language": "zh-CN"
+    "title": "WINDOW_FUNCTION_AVG",
+    "language": "en"
 }
 ---
 
@@ -11,43 +11,43 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION SUM
+## WINDOW FUNCTION AVG
 ### description
 
-计算窗口内数据的和
+Calculate the mean of the data within the window
 
 ```sql
-SUM([DISTINCT | ALL] expression) [OVER (analytic_clause)]
+AVG([DISTINCT | ALL] *expression*) [OVER (*analytic_clause*)]
 ```
 
 ### example
 
-按照 property 进行分组，在组内计算当前行以及前后各一行的x列的和。
+Calculate the x-average of the current row and the rows before and after it
 
 ```sql
-select x, property,   
-sum(x) over    
+select x, property,    
+avg(x) over    
 (   
-partition by property   
-order by x   
+partition by property    
+order by x    
 rows between 1 preceding and 1 following    
-) as 'moving total'    
+) as 'moving average'    
 from int_t where property in ('odd','even');
 
-| x  | property | moving total |
-|----|----------|--------------|
-| 2  | even     | 6            |
-| 4  | even     | 12           |
-| 6  | even     | 18           |
-| 8  | even     | 24           |
-| 10 | even     | 18           |
-| 1  | odd      | 4            |
-| 3  | odd      | 9            |
-| 5  | odd      | 15           |
-| 7  | odd      | 21           |
-| 9  | odd      | 16           |
+ | x  | property | moving average |
+ |----|----------|----------------|
+ | 2  | even     | 3              |
+ | 4  | even     | 4              |
+ | 6  | even     | 6              |
+ | 8  | even     | 8              |
+ | 10 | even     | 9              |
+ | 1  | odd      | 2              |
+ | 3  | odd      | 3              |
+ | 5  | odd      | 5              |
+ | 7  | odd      | 7              |
+ | 9  | odd      | 8              |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,SUM
+    WINDOW,FUNCTION,AVG

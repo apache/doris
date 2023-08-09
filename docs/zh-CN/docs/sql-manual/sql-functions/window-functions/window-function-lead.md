@@ -1,7 +1,7 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-LEAD",
-    "language": "en"
+    "title": "WINDOW_FUNCTION_LEAD",
+    "language": "zh-CN"
 }
 ---
 
@@ -14,7 +14,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 ## WINDOW FUNCTION LEAD
 ### description
 
-The LEAD() method is used to calculate the value of the current line several lines backwards.
+LEAD() 方法用来计算当前行向后数若干行的值。
 
 ```sql
 LEAD(expr, offset, default) OVER (partition_by_clause order_by_clause)
@@ -22,7 +22,7 @@ LEAD(expr, offset, default) OVER (partition_by_clause order_by_clause)
 
 ### example
 
-Calculate the trend of the closing price of the second day compared with the closing price of the day, that is, the closing price of the second day is higher or lower than that of the day.
+计算第二天的收盘价对比当天收盘价的走势，即第二天收盘价比当天高还是低。
 
 ```sql
 select stock_symbol, closing_date, closing_price,    

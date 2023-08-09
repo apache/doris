@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-ROW_NUMBER",
+    "title": "WINDOW_FUNCTION_SUM",
     "language": "zh-CN"
 }
 ---
@@ -11,33 +11,43 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION ROW_NUMBER
+## WINDOW FUNCTION SUM
 ### description
 
-为每个 Partition 的每一行返回一个从1开始连续递增的整数。与 RANK() 和 DENSE_RANK() 不同的是，ROW_NUMBER() 返回的值不会重复也不会出现空缺，是连续递增的。
+计算窗口内数据的和
 
 ```sql
-ROW_NUMBER() OVER(partition_by_clause order_by_clause)
+SUM([DISTINCT | ALL] expression) [OVER (analytic_clause)]
 ```
 
 ### example
 
-```sql
-select x, y, row_number() over(partition by x order by y) as rank from int_t;
+按照 property 进行分组，在组内计算当前行以及前后各一行的x列的和。
 
-| x | y    | rank     |
-|---|------|----------|
-| 1 | 1    | 1        |
-| 1 | 2    | 2        |
-| 1 | 2    | 3        |
-| 2 | 1    | 1        |
-| 2 | 2    | 2        |
-| 2 | 3    | 3        |
-| 3 | 1    | 1        |
-| 3 | 1    | 2        |
-| 3 | 2    | 3        |
+```sql
+select x, property,   
+sum(x) over    
+(   
+partition by property   
+order by x   
+rows between 1 preceding and 1 following    
+) as 'moving total'    
+from int_t where property in ('odd','even');
+
+| x  | property | moving total |
+|----|----------|--------------|
+| 2  | even     | 6            |
+| 4  | even     | 12           |
+| 6  | even     | 18           |
+| 8  | even     | 24           |
+| 10 | even     | 18           |
+| 1  | odd      | 4            |
+| 3  | odd      | 9            |
+| 5  | odd      | 15           |
+| 7  | odd      | 21           |
+| 9  | odd      | 16           |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,ROW_NUMBER
+    WINDOW,FUNCTION,SUM

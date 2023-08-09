@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-MIN",
+    "title": "WINDOW_FUNCTION_SUM",
     "language": "en"
 }
 ---
@@ -11,38 +11,43 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION MIN
+## WINDOW FUNCTION SUM
 ### description
 
-The LEAD() method is used to calculate the minimum value within the window.
+Calculate the sum of the data in the window
 
 ```sql
-MAX([DISTINCT | ALL] expression) [OVER (analytic_clause)]
+SUM([DISTINCT | ALL] expression) [OVER (analytic_clause)]
 ```
 
 ### example
 
-Calculate the minimum value from the first row to the row after the current row
+Group by property, and calculate the sum of the x columns of the current row and the previous row within the group.
 
 ```sql
 select x, property,   
-min(x) over    
-(    
-order by property, x desc    
-rows between unbounded preceding and 1 following   
-) as 'local minimum'   
-from int_t where property in ('prime','square');
-| x | property | local minimum |
-|---|----------|---------------|
-| 7 | prime    | 5             |
-| 5 | prime    | 3             |
-| 3 | prime    | 2             |
-| 2 | prime    | 2             |
-| 9 | square   | 2             |
-| 4 | square   | 1             |
-| 1 | square   | 1             |
+sum(x) over    
+(   
+partition by property   
+order by x   
+rows between 1 preceding and 1 following    
+) as 'moving total'    
+from int_t where property in ('odd','even');
+
+| x  | property | moving total |
+|----|----------|--------------|
+| 2  | even     | 6            |
+| 4  | even     | 12           |
+| 6  | even     | 18           |
+| 8  | even     | 24           |
+| 10 | even     | 18           |
+| 1  | odd      | 4            |
+| 3  | odd      | 9            |
+| 5  | odd      | 15           |
+| 7  | odd      | 21           |
+| 9  | odd      | 16           |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,MIN
+    WINDOW,FUNCTION,SUM

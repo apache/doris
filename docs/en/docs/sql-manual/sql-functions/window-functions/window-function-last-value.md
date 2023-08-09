@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-RANK",
+    "title": "WINDOW_FUNCTION_LAST_VALUE",
     "language": "en"
 }
 ---
@@ -11,35 +11,35 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION RANK
+## WINDOW FUNCTION LAST_VALUE
 ### description
 
-The RANK() function is used to represent rankings. Unlike DENSE_RANK(), RANK() will have vacancies. For example, if there are two 1s in a row, the third number in RANK() is 3, not 2.
+LAST_VALUE() returns the last value in the window range. Opposite of FIRST_VALUE() .
 
 ```sql
-RANK() OVER(partition_by_clause order_by_clause)
+LAST_VALUE(expr) OVER(partition_by_clause order_by_clause [window_clause])
 ```
 
 ### example
 
-rank by x
+Using the data from the FIRST_VALUE() example:
 
 ```sql
-select x, y, rank() over(partition by x order by y) as rank from int_t;
+select country, name,    
+last_value(greeting)   
+over (partition by country order by name, greeting) as greeting   
+from mail_merge;
 
-| x  | y    | rank     |
-|----|------|----------|
-| 1  | 1    | 1        |
-| 1  | 2    | 2        |
-| 1  | 2    | 2        |
-| 2  | 1    | 1        |
-| 2  | 2    | 2        |
-| 2  | 3    | 3        |
-| 3  | 1    | 1        |
-| 3  | 1    | 1        |
-| 3  | 2    | 3        |
+| country | name    | greeting     |
+|---------|---------|--------------|
+| Germany | Boris   | Guten morgen |
+| Germany | Michael | Guten morgen |
+| Sweden  | Bjorn   | Tja          |
+| Sweden  | Mats    | Tja          |
+| USA     | John    | Hello        |
+| USA     | Pete    | Hello        |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,RANK
+    WINDOW,FUNCTION,LAST_VALUE

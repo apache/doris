@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-DENSE_RANK",
+    "title": "WINDOW_FUNCTION_AVG",
     "language": "zh-CN"
 }
 ---
@@ -11,35 +11,43 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION DENSE_RANK
+## WINDOW FUNCTION AVG
 ### description
 
-DENSE_RANK() 函数用来表示排名，与RANK()不同的是，DENSE_RANK() 不会出现空缺数字。比如，如果出现了两个并列的1，DENSE_RANK() 的第三个数仍然是2，而RANK()的第三个数是3。
+计算窗口内数据的平均值
 
 ```sql
-DENSE_RANK() OVER(partition_by_clause order_by_clause)
+AVG([DISTINCT | ALL] *expression*) [OVER (*analytic_clause*)]
 ```
 
 ### example
 
-按照 property 列分组对x列排名：
+计算当前行和它前后各一行数据的x平均值
 
 ```sql
- select x, y, dense_rank() over(partition by x order by y) as rank from int_t;
- 
- | x  | y    | rank     |
- |----|------|----------|
- | 1  | 1    | 1        |
- | 1  | 2    | 2        |
- | 1  | 2    | 2        |
- | 2  | 1    | 1        |
- | 2  | 2    | 2        |
- | 2  | 3    | 3        |
- | 3  | 1    | 1        |
- | 3  | 1    | 1        |
- | 3  | 2    | 2        |
+select x, property,    
+avg(x) over    
+(   
+partition by property    
+order by x    
+rows between 1 preceding and 1 following    
+) as 'moving average'    
+from int_t where property in ('odd','even');
+
+ | x  | property | moving average |
+ |----|----------|----------------|
+ | 2  | even     | 3              |
+ | 4  | even     | 4              |
+ | 6  | even     | 6              |
+ | 8  | even     | 8              |
+ | 10 | even     | 9              |
+ | 1  | odd      | 2              |
+ | 3  | odd      | 3              |
+ | 5  | odd      | 5              |
+ | 7  | odd      | 7              |
+ | 9  | odd      | 8              |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,DENSE_RANK
+    WINDOW,FUNCTION,AVG

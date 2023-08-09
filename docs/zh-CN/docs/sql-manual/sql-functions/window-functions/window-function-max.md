@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-LAST_VALUE",
+    "title": "WINDOW_FUNCTION_MAX",
     "language": "zh-CN"
 }
 ---
@@ -11,35 +11,39 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION LAST_VALUE
+## WINDOW FUNCTION MAX
 ### description
 
-LAST_VALUE() 返回窗口范围内的最后一个值。与 FIRST_VALUE() 相反。
+LEAD() 方法用来计算窗口内的最大值。
 
 ```sql
-LAST_VALUE(expr) OVER(partition_by_clause order_by_clause [window_clause])
+MAX([DISTINCT | ALL] expression) [OVER (analytic_clause)]
 ```
 
 ### example
 
-使用FIRST_VALUE()举例中的数据：
+计算从第一行到当前行之后一行的最大值
 
 ```sql
-select country, name,    
-last_value(greeting)   
-over (partition by country order by name, greeting) as greeting   
-from mail_merge;
+select x, property,   
+max(x) over    
+(   
+order by property, x    
+rows between unbounded preceding and 1 following    
+) as 'local maximum'    
+from int_t where property in ('prime','square');
 
-| country | name    | greeting     |
-|---------|---------|--------------|
-| Germany | Boris   | Guten morgen |
-| Germany | Michael | Guten morgen |
-| Sweden  | Bjorn   | Tja          |
-| Sweden  | Mats    | Tja          |
-| USA     | John    | Hello        |
-| USA     | Pete    | Hello        |
+| x | property | local maximum |
+|---|----------|---------------|
+| 2 | prime    | 3             |
+| 3 | prime    | 5             |
+| 5 | prime    | 7             |
+| 7 | prime    | 7             |
+| 1 | square   | 7             |
+| 4 | square   | 9             |
+| 9 | square   | 9             |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,LAST_VALUE
+    WINDOW,FUNCTION,MAX

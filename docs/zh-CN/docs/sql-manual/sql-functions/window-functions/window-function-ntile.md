@@ -1,6 +1,6 @@
 ---
 {
-    "title": "WINDOW-FUNCTION-MAX",
+    "title": "WINDOW_FUNCTION_NTILE",
     "language": "zh-CN"
 }
 ---
@@ -11,39 +11,33 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-## WINDOW FUNCTION MAX
+## WINDOW FUNCTION NTILE
 ### description
 
-LEAD() 方法用来计算窗口内的最大值。
+对于NTILE(n), 该函数会将排序分区中的所有行按顺序分配到n个桶中(编号较小的桶满了之后才能分配编号较大的桶)。对于每一行, NTILE()函数会返回该行数据所在的桶的编号(从1到n)。对于不能平均分配的情况, 优先分配到编号较小的桶中。所有桶中的行数相差不能超过1。目前n只能是正整数。
 
 ```sql
-MAX([DISTINCT | ALL] expression) [OVER (analytic_clause)]
+NTILE(n) OVER(partition_by_clause order_by_clause)
 ```
 
 ### example
 
-计算从第一行到当前行之后一行的最大值
-
 ```sql
-select x, property,   
-max(x) over    
-(   
-order by property, x    
-rows between unbounded preceding and 1 following    
-) as 'local maximum'    
-from int_t where property in ('prime','square');
+select x, y, ntile(2) over(partition by x order by y) as rank from int_t;
 
-| x | property | local maximum |
-|---|----------|---------------|
-| 2 | prime    | 3             |
-| 3 | prime    | 5             |
-| 5 | prime    | 7             |
-| 7 | prime    | 7             |
-| 1 | square   | 7             |
-| 4 | square   | 9             |
-| 9 | square   | 9             |
+| x | y    | rank     |
+|---|------|----------|
+| 1 | 1    | 1        |
+| 1 | 2    | 1        |
+| 1 | 2    | 2        |
+| 2 | 1    | 1        |
+| 2 | 2    | 1        |
+| 2 | 3    | 2        |
+| 3 | 1    | 1        |
+| 3 | 1    | 1        |
+| 3 | 2    | 2        |
 ```
 
 ### keywords
 
-    WINDOW,FUNCTION,MAX
+    WINDOW,FUNCTION,NTILE
