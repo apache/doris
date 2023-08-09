@@ -17,7 +17,6 @@
 
 #include "olap/delete_handler.h"
 
-#include <fmt/core.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <thrift/protocol/TDebugProtocol.h>
@@ -43,6 +42,11 @@ using std::vector;
 using std::string;
 using std::stringstream;
 
+using std::regex;
+using std::regex_error;
+using std::regex_match;
+using std::smatch;
+
 namespace doris {
 using namespace ErrorCode;
 
@@ -63,8 +67,6 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
         }
     }
 
-    // write version to distinguish against the former version of delete sub predicate
-    del_pred->set_sub_pred_version(2);
     // Store delete condition
     for (const TCondition& condition : conditions) {
         if (condition.condition_values.size() > 1) {
@@ -300,7 +302,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
-        if (delete_condition.has_sub_pred_version() && delete_condition.sub_pred_version() == 2) {
+        if (delete_condition.sub_predicates_size() == 0) {
             _parse_column_pred(delete_pred_related_schema, delete_condition.sub_predicates_v2(),
                                &temp);
         } else {
