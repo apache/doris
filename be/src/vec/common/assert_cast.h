@@ -25,7 +25,9 @@
 #include <typeindex>
 #include <typeinfo>
 
+#include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "fmt/format.h"
 #include "vec/common/demangle.h"
 
@@ -38,8 +40,10 @@ To assert_cast(From&& from) {
 #ifndef NDEBUG
     try {
         if constexpr (std::is_pointer_v<To>) {
-            if (typeid(*from) == typeid(std::remove_pointer_t<To>)) return static_cast<To>(from);
-            if constexpr (std::is_pointer_v<From>) {
+            if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
+                return static_cast<To>(from);
+            }
+            if constexpr (std::is_pointer_v<std::remove_reference_t<From>>) {
                 if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
                     return ptr;
                 }
@@ -48,7 +52,9 @@ To assert_cast(From&& from) {
                                           demangle(typeid(To).name()));
             }
         } else {
-            if (typeid(from) == typeid(To)) return static_cast<To>(from);
+            if (typeid(from) == typeid(To)) {
+                return static_cast<To>(from);
+            }
         }
     } catch (const std::exception& e) {
         LOG(FATAL) << "assert cast err:" << e.what();
@@ -60,4 +66,27 @@ To assert_cast(From&& from) {
 #else
     return static_cast<To>(from);
 #endif
+}
+
+// there is a performance loss in the release version, but it can avoid core dump
+template <typename To, typename From>
+To assert_cast_safe(From&& from) {
+    if constexpr (std::is_pointer_v<To>) {
+        if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
+            return static_cast<To>(from);
+        }
+        if constexpr (std::is_pointer_v<std::remove_reference_t<From>>) {
+            if (auto ptr = dynamic_cast<To>(from); ptr != nullptr) {
+                return ptr;
+            }
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Bad cast from type:{}* to {}",
+                                   demangle(typeid(*from).name()), demangle(typeid(To).name()));
+        }
+    } else {
+        if (typeid(from) == typeid(To)) {
+            return static_cast<To>(from);
+        }
+    }
+    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, "Bad cast from type:{} to {}",
+                           demangle(typeid(from).name()), demangle(typeid(To).name()));
 }
