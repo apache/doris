@@ -241,6 +241,9 @@ public class StatisticsCache {
         final StatisticsCacheKey k =
                 new StatisticsCacheKey(tableId, idxId, colName);
         final ColumnStatistic c = ColumnStatistic.fromResultRow(columnResults);
+        if (c == ColumnStatistic.UNKNOWN) {
+            return;
+        }
         putCache(k, c);
         TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest = new TUpdateFollowerStatsCacheRequest();
         updateFollowerStatsCacheRequest.key = GsonUtils.GSON.toJson(k);
