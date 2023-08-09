@@ -441,6 +441,7 @@ public class Group {
         str.append(" enforcers:\n");
         for (GroupExpression enforcer : enforcers) {
             str.append("    ").append(enforcer).append("\n");
+        }
         if (chosenGroupExpressionId != -1) {
             str.append("  chosen expression id: ").append(chosenGroupExpressionId).append("\n");
             str.append("  chosen properties: ").append(chosenProperties).append("\n");
