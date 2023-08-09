@@ -249,9 +249,8 @@ Status StorageEngine::start_bg_threads() {
 }
 
 void StorageEngine::_cache_clean_callback() {
-    int32_t interval = 600;
+    int32_t interval = config::cache_prune_stale_interval;
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        interval = config::cache_prune_stale_interval;
         if (interval <= 0) {
             LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
                          << "], force set to 3600 ";
