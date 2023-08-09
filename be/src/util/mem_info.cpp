@@ -232,7 +232,6 @@ int64_t MemInfo::tg_hard_memory_limit_gc() {
 
     Defer defer {[&]() {
         if (total_free_memory > 0) {
-            je_purge_all_arena_dirty_pages();
             std::stringstream ss;
             tg_profile->pretty_print(&ss);
             LOG(INFO) << fmt::format(
