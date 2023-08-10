@@ -204,6 +204,9 @@ public class FunctionSet<T> {
     public static final String HIST = "hist";
     public static final String MAP_AGG = "map_agg";
 
+    public static final String BITMAP_AGG = "bitmap_agg";
+    public static final String COUNT_BY_ENUM = "count_by_enum";
+
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
                     .put(Type.CHAR,
@@ -1282,6 +1285,16 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createBuiltin("group_bit_xor",
                     Lists.newArrayList(t), t, t, "", "", "", "", "",
                     false, true, false, true));
+            if (!t.equals(Type.LARGEINT)) {
+                addBuiltin(
+                        AggregateFunction.createBuiltin("bitmap_agg", Lists.newArrayList(t), Type.BITMAP, Type.BITMAP,
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                true, false, true, true));
+            }
         }
 
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
