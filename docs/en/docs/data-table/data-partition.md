@@ -145,7 +145,7 @@ It is also possible to use one layer of data partitioning, If you do not write t
 
 1. Partition
 
-   * You can specify one or more columns as the partitioning columns, but they have to be KEY columns. The usage of multi-column partitions is described further below. 
+   * You can specify one or more columns as the partitioning columns, but they have to be KEY columns. The usage of <A HREF="#range_multi_partition">**Range multi-column partitions ，** </A> <A HREF="#list_multi_partition">**List multi-column partitions** </A>  is described further below. 
    * Regardless of the type of the partitioning columns, double quotes are required for partition values.
    * There is no theoretical limit on the number of partitions.
    * If users create a table without specifying the partitions, the system will automatically generate a Partition with the same name as the table. This Partition contains all data in the table and is neither visible to users nor modifiable.
@@ -219,7 +219,7 @@ It is also possible to use one layer of data partitioning, If you do not write t
 
    In summary, the deletion of a partition does not change the range of the existing partitions, but might result in gaps. When a partition is added via the `VALUES LESS THAN` statement, the lower bound of one partition is the upper bound of its previous partition.
 
-   In addition to the single-column partitioning mentioned above, Range Partitioning also supports **multi-column partitioning**. Examples are as follows:
+   In addition to the single-column partitioning mentioned above, Range Partitioning also supports <a id="range_multi_partition">**Range multi-column partitioning**</a> . Examples are as follows:
 
    ```text
     PARTITION BY RANGE(`date`, `id`)
@@ -300,7 +300,7 @@ Range partitioning also supports batch partitioning. For example, you can create
     p_uk: ("London")
     ```
 
-  List partitioning also supports **multi-column partitioning**. Examples are as follows:
+  List partitioning also supports <a id="list_multi_partition">**multi-column partitioning**</a>. Examples are as follows:
 
   ```text
   PARTITION BY LIST(`id`, `city`)
