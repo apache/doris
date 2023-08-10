@@ -3702,7 +3702,7 @@ Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, i
                     {rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0})) {
             LOG(WARNING) << "check delete bitmap correctness failed, can't find sentinel mark in "
                             "rowset with RowsetId:"
-                         << rowsetid << "max_version:" << max_version;
+                         << rowsetid << ",max_version:" << max_version;
             DCHECK(false) << "check delete bitmap correctness failed!";
             return Status::OK();
         }
