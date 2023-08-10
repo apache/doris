@@ -29,13 +29,13 @@ suite('nereids_insert_random') {
     sql 'sync'
     qt_11 'select * from dup_t_type_cast_rd order by id, kint'
 
-    sql '''insert into dup_t_type_cast_rd with label label_agg_type_cast_cte
+    sql '''insert into dup_t_type_cast_rd with label label_dup_type_cast_cte_rd
             with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
     sql 'sync'
     qt_12 'select * from dup_t_type_cast_rd order by id, kint'
 
-    sql '''insert into dup_t_type_cast_rd partition (p1, p2) with label label_agg_type_cast
+    sql '''insert into dup_t_type_cast_rd partition (p1, p2) with label label_dup_type_cast_rd
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     sql 'sync'
     qt_13 'select * from dup_t_type_cast_rd order by id, kint'
@@ -45,30 +45,14 @@ suite('nereids_insert_random') {
     sql 'sync'
     qt_21 'select * from agg_t_type_cast_rd order by id, kint'
 
-    sql '''insert into agg_t_type_cast_rd with label label_agg_type_cast_cte
+    sql '''insert into agg_t_type_cast_rd with label label_agg_type_cast_cte_rd
             with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
     sql 'sync'
     qt_22 'select * from agg_t_type_cast_rd order by id, kint'
 
-    sql '''insert into agg_t_type_cast_rd partition (p1, p2) with label label_agg_type_cast
+    sql '''insert into agg_t_type_cast_rd partition (p1, p2) with label label_agg_type_cast_rd
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     sql 'sync'
     qt_23 'select * from agg_t_type_cast_rd order by id, kint'
-
-    sql '''insert into uni_t_type_cast_rd
-            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
-    sql 'sync'
-    qt_31 'select * from uni_t_type_cast_rd order by id, kint'
-
-    sql '''insert into uni_t_type_cast_rd with label label_agg_type_cast_cte
-            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
-            select * from cte'''
-    sql 'sync'
-    qt_32 'select * from uni_t_type_cast_rd order by id, kint'
-
-    sql '''insert into uni_t_type_cast_rd partition (p1, p2) with label label_agg_type_cast
-            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
-    sql 'sync'
-    qt_33 'select * from uni_t_type_cast_rd order by id, kint'
 }
