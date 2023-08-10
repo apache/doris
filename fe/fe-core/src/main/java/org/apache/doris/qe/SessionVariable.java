@@ -175,6 +175,8 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    public static final String MAX_JOIN_NUMBER_OF_REORDER = "max_join_number_of_reorder";
+
     public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
     public static final String ENABLE_STRICT_CONSISTENCY_DML = "enable_strict_consistency_dml";
 
@@ -745,6 +747,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
+    @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_OF_REORDER)
+    private int maxJoinNumberOfReorder = 63;
+
     @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
     private boolean enableBushyTree = false;
 
@@ -755,6 +760,15 @@ public class SessionVariable implements Serializable, Writable {
     public void setMaxJoinNumBushyTree(int maxJoinNumBushyTree) {
         this.maxJoinNumBushyTree = maxJoinNumBushyTree;
     }
+
+    public int getMaxJoinNumberOfReorder() {
+        return maxJoinNumberOfReorder;
+    }
+
+    public void setMaxJoinNumberOfReorder(int maxJoinNumberOfReorder) {
+        this.maxJoinNumberOfReorder = maxJoinNumberOfReorder;
+    }
+
 
     @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
     private int maxJoinNumBushyTree = 5;
