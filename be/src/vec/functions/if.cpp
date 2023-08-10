@@ -480,9 +480,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
-        const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
-
+        ColumnWithTypeAndName arg_then = block.get_by_position(arguments[1]);
+        ColumnWithTypeAndName arg_else = block.get_by_position(arguments[2]);
         /// A case for identical then and else (pointers are the same).
         if (arg_then.column.get() == arg_else.column.get()) {
             /// Just point result to them.
@@ -493,6 +492,17 @@ public:
         ColumnWithTypeAndName& cond_column = block.get_by_position(arguments[0]);
         cond_column.column = materialize_column_if_const(cond_column.column);
         const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
+
+        if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
+            if (then_is_const->only_null() == false && check_and_get_column<ColumnNullable>(then_is_const->get_data_column())) {
+                arg_then.column = then_is_const->get_data_column_ptr();
+            }
+        }
+        if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
+            if (else_is_const->only_null() == false && check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
+                arg_else.column = else_is_const->get_data_column_ptr();
+            }
+        }
 
         Status ret = Status::OK();
         if (execute_for_null_condition(context, block, arguments, arg_cond, arg_then, arg_else,
