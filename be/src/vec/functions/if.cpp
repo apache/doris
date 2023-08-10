@@ -494,12 +494,14 @@ public:
         const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
 
         if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
-            if (then_is_const->only_null() == false && check_and_get_column<ColumnNullable>(then_is_const->get_data_column())) {
+            if (then_is_const->only_null() == false &&
+                check_and_get_column<ColumnNullable>(then_is_const->get_data_column())) {
                 arg_then.column = then_is_const->get_data_column_ptr();
             }
         }
         if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
-            if (else_is_const->only_null() == false && check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
+            if (else_is_const->only_null() == false &&
+                check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
                 arg_else.column = else_is_const->get_data_column_ptr();
             }
         }
