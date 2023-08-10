@@ -190,7 +190,7 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
 
     if (probe_exprs.size() == 1) {
         auto is_nullable = probe_exprs[0]->root()->is_nullable();
-        auto type = probe_exprs[0]->root()->result_type();
+        PrimitiveType type = probe_exprs[0]->root()->result_type();
         switch (type) {
         case TYPE_TINYINT:
         case TYPE_BOOLEAN:
@@ -221,7 +221,8 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
                 t = Type::int128_key;
             } else {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
-                                "meet invalid type size, size={}, type={}", size, type);
+                                "meet invalid type size, size={}, type={}", size,
+                                type_to_string(type));
             }
             break;
         }
