@@ -530,7 +530,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             }
         } else if (_enable_pipeline_exec) {
             BroadcastPBlockHolder* block_holder = nullptr;
-            RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
+            RETURN_IF_ERROR(_get_next_available_buffer(block_holder));
             BROADCAST_ALL_CHANNELS(block_holder->get_block(), block_holder, );
         } else {
             BROADCAST_ALL_CHANNELS(_cur_pb_block, _cur_pb_block, _roll_pb_block());
@@ -623,7 +623,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
     if (_serializer.get_block() && _serializer.get_block()->rows() > 0) {
         BroadcastPBlockHolder* block_holder = nullptr;
-        RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
+        RETURN_IF_ERROR(_get_next_available_buffer(block_holder));
         {
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
             Block block = _serializer.get_block()->to_block();
@@ -767,9 +767,16 @@ void VDataStreamSender::_roll_pb_block() {
     _cur_pb_block = (_cur_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
 }
 
-Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** holder) {
-    DCHECK(_broadcast_pb_blocks[_broadcast_pb_block_idx].available());
-    *holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx];
+Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder*& holder) {
+    if (_broadcast_pb_block_idx >= _broadcast_pb_blocks.size()) {
+        return Status::InternalError(
+                "get_next_available_buffer meet invalid index, index={}, size={}",
+                _broadcast_pb_block_idx, _broadcast_pb_blocks.size());
+    }
+    if (!_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
+        return Status::InternalError("broadcast_pb_blocks not available");
+    }
+    holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx];
     _broadcast_pb_block_idx++;
     return Status::OK();
 }

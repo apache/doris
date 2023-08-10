@@ -129,7 +129,7 @@ protected:
     friend class BlockSerializer;
 
     void _roll_pb_block();
-    Status _get_next_available_buffer(BroadcastPBlockHolder** holder);
+    Status _get_next_available_buffer(BroadcastPBlockHolder*& holder);
 
     Status get_partition_column_result(Block* block, int* result) const {
         int counter = 0;
