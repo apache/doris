@@ -232,7 +232,7 @@ Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitma
             }
         }
         // We pop two context ctx1 and ctx2 from the heap.
-        // Apprently, ctx1's key is smaller than or equal to ctx2' key.
+        // Apprently, ctx1's key is smaller than or equal to ctx2's key.
         auto ctx1 = _heap->top();
         _heap->pop();
         auto ctx2 = _heap->top();
