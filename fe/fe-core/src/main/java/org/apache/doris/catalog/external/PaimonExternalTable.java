@@ -99,6 +99,7 @@ public class PaimonExternalTable extends ExternalTable {
             case VARCHAR:
             case BINARY:
             case CHAR:
+            case VARBINARY:
                 return Type.STRING;
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;

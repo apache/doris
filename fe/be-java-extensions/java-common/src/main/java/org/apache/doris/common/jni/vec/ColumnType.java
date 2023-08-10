@@ -17,6 +17,9 @@
 
 package org.apache.doris.common.jni.vec;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -30,6 +33,7 @@ import java.util.regex.Pattern;
  * If decimalv2 is deprecated, we can unify decimal32 & decimal64 & decimal128 into decimal.
  */
 public class ColumnType {
+    private static final Logger LOG = LoggerFactory.getLogger(ColumnType.class);
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
@@ -234,6 +238,10 @@ public class ColumnType {
     }
 
     public static ColumnType parseType(String columnName, String hiveType) {
+        System.out.println("columnName:" + columnName);
+        LOG.warn("columnName:" + columnName);
+        LOG.warn("hiveType:" + hiveType);
+        System.out.println("hiveType:" + hiveType);
         String lowerCaseType = hiveType.toLowerCase();
         Type type = Type.UNSUPPORTED;
         int length = -1;
@@ -268,6 +276,7 @@ public class ColumnType {
                 type = Type.DATEV2;
                 break;
             case "binary":
+            case "bytes":
                 type = Type.BINARY;
                 break;
             case "string":
@@ -279,27 +288,27 @@ public class ColumnType {
                     precision = 6; // default
                     Matcher match = digitPattern.matcher(lowerCaseType);
                     if (match.find()) {
-                        precision = Integer.parseInt(match.group(1));
+                        precision = Integer.parseInt(match.group(1).trim());
                     }
                 } else if (lowerCaseType.startsWith("char")) {
                     Matcher match = digitPattern.matcher(lowerCaseType);
                     if (match.find()) {
                         type = Type.CHAR;
-                        length = Integer.parseInt(match.group(1));
+                        length = Integer.parseInt(match.group(1).trim());
                     }
                 } else if (lowerCaseType.startsWith("varchar")) {
                     Matcher match = digitPattern.matcher(lowerCaseType);
                     if (match.find()) {
                         type = Type.VARCHAR;
-                        length = Integer.parseInt(match.group(1));
+                        length = Integer.parseInt(match.group(1).trim());
                     }
                 } else if (lowerCaseType.startsWith("decimal")) {
                     int s = lowerCaseType.indexOf('(');
                     int e = lowerCaseType.indexOf(')');
                     if (s != -1 && e != -1) {
                         String[] ps = lowerCaseType.substring(s + 1, e).split(",");
-                        precision = Integer.parseInt(ps[0]);
-                        scale = Integer.parseInt(ps[1]);
+                        precision = Integer.parseInt(ps[0].trim());
+                        scale = Integer.parseInt(ps[1].trim());
                         if (lowerCaseType.startsWith("decimalv2")) {
                             type = Type.DECIMALV2;
                         } else if (lowerCaseType.startsWith("decimal32")) {
