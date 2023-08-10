@@ -30,10 +30,10 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
         String exMysqlTable = "doris_ex_tb";
         String exMysqlTable1 = "doris_ex_tb1";
         String exMysqlTable2 = "doris_ex_tb2";
-	String exMysqlTypeTable = "doris_ex_type_tb";
-        String inDorisTable = "doris_in_tb";
-        String inDorisTable1 = "doris_in_tb1";
-        String inDorisTable2 = "doris_in_tb2";
+	    String exMysqlTypeTable = "doris_ex_type_tb";
+        String inDorisTable = "test_jdbc_mysql_doris_in_tb";
+        String inDorisTable1 = "test_jdbc_mysql_doris_in_tb1";
+        String inDorisTable2 = "test_jdbc_mysql_doris_in_tb2";
 
         sql """drop resource if exists $jdbcResourceMysql57;"""
         sql """
