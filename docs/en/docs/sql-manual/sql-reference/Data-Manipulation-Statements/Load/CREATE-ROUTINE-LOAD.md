@@ -249,6 +249,9 @@ FROM data_source [data_source_properties]
   11. `load_to_single_tablet`
       Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
 
+  12. `partial_columns`
+      Boolean type, True means that use partial column update, the default value is false, this parameter is only allowed to be set when the table model is Unique and Merge on Write is used. Multi-table does not support this parameter.
+  
 - `FROM data_source [data_source_properties]`
 
   The type of data source. Currently supports:
