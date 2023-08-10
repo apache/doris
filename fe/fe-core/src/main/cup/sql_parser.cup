@@ -1140,7 +1140,11 @@ stmt ::=
     | sync_stmt : stmt
     {: RESULT = stmt; :}
     | insert_stmt : stmt
-    {: RESULT = stmt; :}
+    {:
+        RESULT = stmt;
+        stmt.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
+    :}
     | insert_overwrite_stmt : stmt
     {: RESULT = stmt; :}
     | update_stmt : stmt
