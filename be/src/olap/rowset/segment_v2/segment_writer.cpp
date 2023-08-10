@@ -511,9 +511,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     "index builder num rows: {}",
                     _num_rows_written, row_pos, _primary_key_index_builder->num_rows());
         }
-        for (size_t pos = row_pos; pos < row_pos + num_rows; pos++) {
-            std::string key = _full_encode_keys(key_columns, pos);
-            _encode_seq_column(seq_column, pos - row_pos, &key);
+        for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
+            std::string key = _full_encode_keys(key_columns, block_pos);
+            _encode_seq_column(seq_column, block_pos - row_pos, &key);
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
         }
     }
