@@ -316,11 +316,14 @@ public class ColumnDef {
         if (typeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) typeDef.getType();
             if (targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet()) {
-                if (targetType.getPrimitiveType() != PrimitiveType.STRING) {
-                    targetType.setLength(1);
-                } else {
+                if (targetType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+                    // always set varchar length MAX_VARCHAR_LENGTH
+                    targetType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
+                } else if (targetType.getPrimitiveType() == PrimitiveType.STRING) {
                     // always set text length MAX_STRING_LENGTH
                     targetType.setLength(ScalarType.MAX_STRING_LENGTH);
+                } else {
+                    targetType.setLength(1);
                 }
             }
         }
