@@ -133,6 +133,7 @@ public class NereidsPlanner extends Planner {
         ArrayList<String> columnLabelList = physicalPlan.getOutput().stream().map(NamedExpression::getName)
                 .collect(Collectors.toCollection(ArrayList::new));
         logicalPlanAdapter.setColLabels(columnLabelList);
+        logicalPlanAdapter.setTables(cascadesContext.getTables());
     }
 
     @VisibleForTesting

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -43,6 +44,7 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
     private final LogicalPlan logicalPlan;
     private List<Expr> resultExprs;
     private ArrayList<String> colLabels;
+    private List<TableIf> tables;
 
     public LogicalPlanAdapter(LogicalPlan logicalPlan, StatementContext statementContext) {
         this.logicalPlan = logicalPlan;
@@ -79,6 +81,10 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
         return colLabels;
     }
 
+    public List<TableIf> getTables() {
+        return tables;
+    }
+
     @Override
     public List<Expr> getResultExprs() {
         return resultExprs;
@@ -90,6 +96,10 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
 
     public void setColLabels(ArrayList<String> colLabels) {
         this.colLabels = colLabels;
+    }
+
+    public void setTables(List<TableIf> tables) {
+        this.tables = tables;
     }
 
     public StatementContext getStatementContext() {

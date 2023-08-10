@@ -34,6 +34,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
@@ -49,6 +50,7 @@ import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -326,7 +328,7 @@ public class CacheAnalyzer {
         latestTable.debug();
 
         addAllViewStmt((SetOperationStmt) parsedStmt);
-        String allViewExpandStmtListStr = parsedStmt.toSql() + "|" + StringUtils.join(allViewStmtSet, "|");
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
 
         if (now == 0) {
             now = nowtime();
@@ -337,7 +339,7 @@ public class CacheAnalyzer {
                 LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
-            cache = new SqlCache(this.queryId);
+            cache = new SqlCache(this.queryId, parsedStmt.toSql());
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
@@ -383,8 +385,10 @@ public class CacheAnalyzer {
             return CacheMode.NoNeed;
         }
 
-        String cacheKey = ((LogicalPlanAdapter) parsedStmt).getStatementContext()
-                .getOriginStatement().originStmt.toLowerCase();
+
+        addAllViewStmtForTblIfs(((LogicalPlanAdapter) parsedStmt).getTables());
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
+
         if (now == 0) {
             now = nowtime();
         }
@@ -394,8 +398,9 @@ public class CacheAnalyzer {
                 LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
-            cache = new SqlCache(this.queryId);
-            ((SqlCache) cache).setCacheInfo(this.latestTable, cacheKey);
+            cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
+                        .getOriginStatement().originStmt);
+            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
         }
@@ -579,7 +584,22 @@ public class CacheAnalyzer {
         return cacheTable;
     }
 
-    private void addAllViewStmt(List<TableRef> tblRefs) {
+    private void addAllViewStmtForTblIfs(List<TableIf> tblIfs) {
+        if (CollectionUtils.isEmpty(tblIfs)) {
+            return;
+        }
+        for (TableIf tblIf : tblIfs) {
+            if (tblIf instanceof View) {
+                View view = (View) tblIf;
+                if (!view.isLocalView()) {
+                    allViewStmtSet.add(view.getInlineViewDef());
+                }
+                addAllViewStmt(view.getQueryStmt());
+            }
+        }
+    }
+
+    private void addAllViewStmtForTblRefs(List<TableRef> tblRefs) {
         for (TableRef tblRef : tblRefs) {
             if (tblRef instanceof InlineViewRef) {
                 InlineViewRef inlineViewRef = (InlineViewRef) tblRef;
@@ -599,7 +619,7 @@ public class CacheAnalyzer {
 
     private void addAllViewStmt(QueryStmt queryStmt) {
         if (queryStmt instanceof SelectStmt) {
-            addAllViewStmt(((SelectStmt) queryStmt).getTableRefs());
+            addAllViewStmtForTblRefs(((SelectStmt) queryStmt).getTableRefs());
         } else if (queryStmt instanceof SetOperationStmt) {
             for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) queryStmt).getOperands()) {
                 addAllViewStmt(operand.getQueryStmt());
