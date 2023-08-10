@@ -80,6 +80,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -214,12 +215,16 @@ public class InternalCatalog implements CatalogIf<Database> {
     private IcebergTableCreationRecordMgr icebergTableCreationRecordMgr = new IcebergTableCreationRecordMgr();
 
     public InternalCatalog() {
-        // create info schema db
-        final InfoSchemaDb db = new InfoSchemaDb(SystemInfoService.DEFAULT_CLUSTER);
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        // do not call unprotectedCreateDb, because it will cause loop recursive when initializing Env singleton
-        idToDb.put(db.getId(), db);
-        fullNameToDb.put(db.getFullName(), db);
+        // create internal databases
+        List<Database> internalDbs = new ArrayList<>();
+        internalDbs.add(new InfoSchemaDb(SystemInfoService.DEFAULT_CLUSTER));
+        internalDbs.add(new MysqlDb(SystemInfoService.DEFAULT_CLUSTER));
+
+        for (Database idb : internalDbs) {
+            // do not call unprotectedCreateDb, because it will cause loop recursive when initializing Env singleton
+            idToDb.put(idb.getId(), idb);
+            fullNameToDb.put(idb.getFullName(), idb);
+        }
     }
 
     @Override
@@ -1066,9 +1071,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         String tableName = stmt.getTableName();
 
         // check if db exists
-        Database db = (Database) getDbOrDdlException(dbName);
-        // InfoSchemaDb can not create table
-        if (db instanceof InfoSchemaDb) {
+        Database db = getDbOrDdlException(dbName);
+        // InfoSchemaDb and MysqlDb can not create table manually
+        if (db instanceof InfoSchemaDb || db instanceof MysqlDb) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
                     ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
         }
@@ -3063,8 +3068,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Map.Entry<Long, Database> entry : idToDb.entrySet()) {
             Database db = entry.getValue();
             String dbName = db.getFullName();
-            // Don't write information_schema db meta
-            if (!InfoSchemaDb.isInfoSchemaDb(dbName)) {
+            // Don't write information_schema & mysql db meta
+            if (!InfoSchemaDb.isInfoSchemaDb(dbName) && !MysqlDb.isMysqlDb(dbName)) {
                 checksum ^= entry.getKey();
                 db.write(dos);
             }
