@@ -71,7 +71,7 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     // get the size of the content already appendded
     size_t get_size() const { return _size; }
     // get the underlying stream containing
-    std::shared_ptr<std::iostream> get_stream() const { return _stream_ptr; }
+    const std::shared_ptr<std::iostream>& get_stream() const { return _stream_ptr; }
     // get file offset corresponding to the buffer
     size_t get_file_offset() const { return _offset; }
     // set the offset of the buffer
