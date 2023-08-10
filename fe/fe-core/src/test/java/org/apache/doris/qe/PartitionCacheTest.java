@@ -1144,7 +1144,7 @@ public class PartitionCacheTest {
     @Test
     public void testSqlCacheKeyWithViewForNereids() {
         Env.getCurrentSystemInfo();
-        StatementBase parseStmt = parseSql("SELECT * from testDb.view1");
+        StatementBase parseStmt = parseSqlByNereids("SELECT * from testDb.view1");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
         List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
@@ -1189,7 +1189,7 @@ public class PartitionCacheTest {
     @Test
     public void testSqlCacheKeyWithSubSelectViewForNereids() {
         Env.getCurrentSystemInfo();
-        StatementBase parseStmt = parseSql(
+        StatementBase parseStmt = parseSqlByNereids(
                 "select origin.eventdate as eventdate, origin.userid as userid\n"
                         + "from (\n"
                         + "    select view2.eventdate as eventdate, view2.userid as userid \n"
@@ -1306,8 +1306,8 @@ public class PartitionCacheTest {
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Assert.assertEquals(cacheKey, "SELECT * from testDb.view4"
-                    + "|select eventdate, COUNT(userid) FROM view2 " +
-                    "WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate"
+                    + "|select eventdate, COUNT(userid) FROM view2 "
+                    + "WHERE eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate"
                     + "|select eventdate, userid FROM appevent");
     }
 
