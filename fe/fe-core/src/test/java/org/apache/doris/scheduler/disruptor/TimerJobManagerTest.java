@@ -23,7 +23,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.manager.TimerJobManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import lombok.extern.slf4j.Slf4j;
 import mockit.Expectations;
@@ -39,9 +40,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
-public class AsyncJobManagerTest {
+public class TimerJobManagerTest {
 
-    AsyncJobManager asyncJobManager;
+    TimerJobManager timerJobManager;
 
     @Mocked
     EditLog editLog;
@@ -55,13 +56,16 @@ public class AsyncJobManagerTest {
         job.setCycleJob(true);
         job.setJobCategory(JobCategory.COMMON);
         testExecuteCount.set(0);
-        asyncJobManager = new AsyncJobManager();
+        timerJobManager = new TimerJobManager();
+        TransientTaskManager transientTaskManager = new TransientTaskManager();
+        TaskDisruptor taskDisruptor = new TaskDisruptor(this.timerJobManager, transientTaskManager);
+        this.timerJobManager.setDisruptor(taskDisruptor);
     }
 
     @Test
     public void testCycleScheduler(@Mocked Env env) throws DdlException {
         setContext(env);
-        asyncJobManager.registerJob(job);
+        timerJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(30, TimeUnit.SECONDS).until(() -> testExecuteCount.get() >= 3);
     }
@@ -79,10 +83,10 @@ public class AsyncJobManagerTest {
     @Test
     public void testCycleSchedulerAndStop(@Mocked Env env) throws DdlException {
         setContext(env);
-        asyncJobManager.registerJob(job);
+        timerJobManager.registerJob(job);
         long startTime = System.currentTimeMillis();
         Awaitility.await().atMost(8, TimeUnit.SECONDS).until(() -> testExecuteCount.get() >= 1);
-        asyncJobManager.unregisterJob(job.getJobId());
+        timerJobManager.unregisterJob(job.getJobId());
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(30, TimeUnit.SECONDS).until(() -> System.currentTimeMillis() >= startTime + 13000L);
         Assertions.assertEquals(1, testExecuteCount.get());
@@ -94,7 +98,7 @@ public class AsyncJobManagerTest {
         job.setStartTimeMs(System.currentTimeMillis() + 6000L);
         long endTimestamp = System.currentTimeMillis() + 19000L;
         job.setEndTimeMs(endTimestamp);
-        asyncJobManager.registerJob(job);
+        timerJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
 
         Awaitility.await().atMost(60, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
@@ -107,7 +111,7 @@ public class AsyncJobManagerTest {
         setContext(env);
         long endTimestamp = System.currentTimeMillis() + 13000;
         job.setEndTimeMs(endTimestamp);
-        asyncJobManager.registerJob(job);
+        timerJobManager.registerJob(job);
 
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(36, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
@@ -121,7 +125,7 @@ public class AsyncJobManagerTest {
 
         long startTimestamp = System.currentTimeMillis() + 6000L;
         job.setStartTimeMs(startTimestamp);
-        asyncJobManager.registerJob(job);
+        timerJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(14, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
                 >= startTimestamp + 7000L);
@@ -136,7 +140,7 @@ public class AsyncJobManagerTest {
         job.setIntervalMs(0L);
         job.setStartTimeMs(startTimestamp);
         job.setCycleJob(false);
-        asyncJobManager.registerJob(job);
+        timerJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(14, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
                 >= startTimestamp + 7000L);
@@ -145,7 +149,7 @@ public class AsyncJobManagerTest {
 
     @AfterEach
     public void after() throws IOException {
-        asyncJobManager.close();
+        timerJobManager.close();
     }
 
     class TestExecutor implements JobExecutor<Boolean> {

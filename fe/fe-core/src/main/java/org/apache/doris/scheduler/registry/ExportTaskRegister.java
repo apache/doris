@@ -15,21 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.executor;
+package org.apache.doris.scheduler.registry;
 
 import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
-/**
- * A functional interface for executing a job.
- * todo
- */
-@FunctionalInterface
-public interface MemoryTaskExecutor<T> {
+public class ExportTaskRegister implements TransientTaskRegister {
+    private final TransientTaskManager transientTaskManager;
 
-    /**
-     * Executes the event job and returns the result.
-     * Exceptions will be caught internally, so there is no need to define or throw them separately.
-     */
-    void execute() throws JobException;
+    public ExportTaskRegister(TransientTaskManager transientTaskManager) {
+        this.transientTaskManager = transientTaskManager;
+    }
+
+    @Override
+    public Long registerTask(TransientTaskExecutor executor) {
+        return transientTaskManager.registerMemoryTask(executor);
+    }
+
+    @Override
+    public void cancelTask(Long taskId) throws JobException {
+        transientTaskManager.cancelMemoryTask(taskId);
+    }
 }
-

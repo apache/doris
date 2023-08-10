@@ -15,17 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.registry;
+package org.apache.doris.scheduler.constants;
 
-import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
+public enum TaskType {
+    TimerJobTask,
 
-/**
- * todo
- * Support in-memory job registration in the future
- */
-public interface MemoryTaskRegister {
-
-    Long registerTask(MemoryTaskExecutor executor);
-
-    void cancelTask(Long taskId);
+    TransientTask
 }
