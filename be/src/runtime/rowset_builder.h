@@ -61,7 +61,6 @@ struct BuildContext {
     int64_t txn_id;
     int64_t partition_id;
     PUniqueId load_id;
-    bool is_high_priority = false;
     OlapTableSchemaParam* table_schema_param;
     int64_t index_id = 0;
 };
@@ -90,8 +89,6 @@ private:
     Status _build_current_tablet_schema(int64_t index_id,
                                         const OlapTableSchemaParam* table_schema_param,
                                         const TabletSchema& ori_tablet_schema);
-
-    RowsetSharedPtr _build_rowset();
 
     bool _is_init = false;
     bool _is_closed = false;
