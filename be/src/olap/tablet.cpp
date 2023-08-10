@@ -2977,14 +2977,14 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     }
     DCHECK_EQ(total, row_id) << "segment total rows: " << total << " row_id:" << row_id;
 
-    RowsetIdUnorderedSet rowsetids;
-    for (const auto& rowset : specified_rowsets) {
-        rowsetids.emplace(rowset->rowset_id());
-        LOG(INFO) << "[tabletID:" << tablet_id() << "]"
-                  << "[_add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
-                  << "add:" << rowset->rowset_id();
-    }
     if (config::enable_merge_on_write_correctness_check) {
+        RowsetIdUnorderedSet rowsetids;
+        for (const auto& rowset : specified_rowsets) {
+            rowsetids.emplace(rowset->rowset_id());
+            LOG(INFO) << "[tabletID:" << tablet_id() << "]"
+                      << "[_add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
+                      << "add:" << rowset->rowset_id();
+        }
         _add_sentinel_mark_to_delete_bitmap(delete_bitmap, rowsetids);
     }
 
