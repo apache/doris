@@ -31,6 +31,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -303,12 +304,12 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
         if (delete_condition.sub_predicates_size() == 0) {
-            _parse_column_pred(delete_pred_related_schema, delete_condition.sub_predicates_v2(),
-                               &temp);
+            RETURN_IF_ERROR(_parse_column_pred(delete_pred_related_schema,
+                                               delete_condition.sub_predicates_v2(), &temp));
         } else {
             // make it compatible with the former versions
-            _parse_column_pred(delete_pred_related_schema, delete_condition.sub_predicates(),
-                               &temp);
+            RETURN_IF_ERROR(_parse_column_pred(delete_pred_related_schema,
+                                               delete_condition.sub_predicates(), &temp));
         }
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;

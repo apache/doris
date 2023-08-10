@@ -104,7 +104,7 @@ public:
 
 private:
     // extract 'column_name', 'op' and 'operands' to condition
-    Status _parse_condition(const DeleteSubPredicatePB& condition_str, TCondition* condition);
+    Status _parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition);
     Status _parse_condition(const std::string& condition_str, TCondition* condition);
 
     template <typename SubPredicateList>
