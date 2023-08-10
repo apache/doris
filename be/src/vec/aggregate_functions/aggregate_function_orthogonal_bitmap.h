@@ -88,6 +88,7 @@ public:
             return;
         }
         result |= rhs.result;
+        AggOrthBitmapBaseData<T>::first_init = false;
     }
 
     void write(BufferWritable& buf) {
@@ -122,6 +123,7 @@ public:
             return;
         }
         AggOrthBitmapBaseData<T>::bitmap.merge(rhs.bitmap);
+        AggOrthBitmapBaseData<T>::first_init = false;
     }
 
     void write(BufferWritable& buf) {
@@ -157,6 +159,7 @@ public:
             return;
         }
         result += rhs.result;
+        AggOrthBitmapBaseData<T>::first_init = false;
     }
 
     void write(BufferWritable& buf) {
@@ -172,7 +175,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = static_cast<ColumnVector<Int64>&>(to);
-        column.get_data().emplace_back(result);
+        column.get_data().emplace_back(result ? result
+                                              : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 
 private:
