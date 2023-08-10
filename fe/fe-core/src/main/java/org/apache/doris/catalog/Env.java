@@ -4504,7 +4504,11 @@ public class Env {
         }
         tableProperty.buildInMemory()
                 .buildStoragePolicy()
-                .buildIsBeingSynced();
+                .buildIsBeingSynced()
+                .buildCompactionPolicy()
+                .buildTimeSeriesCompactionGoalSizeMbytes()
+                .buildTimeSeriesCompactionFileCountThreshold()
+                .buildTimeSeriesCompactionTimeThresholdSeconds();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
