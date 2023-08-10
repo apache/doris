@@ -66,14 +66,14 @@ public:
     MergedPKIndexDeleteBitmapCalculatorContext(
             std::unique_ptr<segment_v2::IndexedColumnIterator> iter,
             vectorized::DataTypePtr index_type, RowsetId rowset_id, size_t end_version,
-            int32_t segment_id, bool is_base_segment, size_t num_rows,
+            int32_t segment_id, bool is_delta_segment, size_t num_rows,
             size_t batch_max_size = kMergedPKIteratorReadBatchSize)
             : _iter(std::move(iter)),
               _index_type(index_type),
               _num_rows(num_rows),
               _max_batch_size(batch_max_size),
               _end_version(end_version),
-              _base_segment(is_base_segment),
+              _delta_segment(is_delta_segment),
               _rowset_id(rowset_id),
               _segment_id(segment_id) {}
     Status get_current_key(Slice* slice);
@@ -84,7 +84,7 @@ public:
     [[nodiscard]] int32_t segment_id() const { return _segment_id; }
     [[nodiscard]] RowsetId rowset_id() const { return _rowset_id; }
     [[nodiscard]] int64_t end_version() const { return _end_version; }
-    [[nodiscard]] bool is_base_segment() const { return _base_segment; }
+    [[nodiscard]] bool is_delta_segment() const { return _delta_segment; }
 
 private:
     Status _next_batch(size_t row_id);
@@ -98,7 +98,7 @@ private:
     size_t const _num_rows;
     size_t const _max_batch_size;
     size_t const _end_version;
-    bool const _base_segment;
+    bool const _delta_segment;
     RowsetId const _rowset_id;
     int32_t const _segment_id;
     bool _excat_match;

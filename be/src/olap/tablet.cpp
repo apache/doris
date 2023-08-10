@@ -3703,7 +3703,7 @@ Status Tablet::calc_delete_bitmap_between_segments(
     }
 
     MergedPKIndexDeleteBitmapCalculator calculator;
-    RETURN_IF_ERROR(calculator.init(segments, nullptr, true, seq_col_length));
+    RETURN_IF_ERROR(calculator.init(segments, nullptr, seq_col_length));
     RETURN_IF_ERROR(calculator.process(delete_bitmap));
 
     LOG(INFO) << fmt::format(

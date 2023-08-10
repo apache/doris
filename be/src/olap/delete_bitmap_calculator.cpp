@@ -267,21 +267,21 @@ Status MergedPKIndexDeleteBitmapCalculator::process(DeleteBitmapPtr delete_bitma
 }
 
 Status MergedPKIndexDeleteBitmapCalculator::step() {
-    // `ctxs_to_seek` are the smallest contexts of same type of data (eithor base data or delta data).
+    // `ctxs_to_seek` are the smallest contexts of same type of data (either base data or delta data).
     // `target_ctx` is the context next to `ctxs_to_seek`
     std::vector<MergedPKIndexDeleteBitmapCalculatorContext*> ctxs_to_seek;
     MergedPKIndexDeleteBitmapCalculatorContext* target_ctx = nullptr;
     while (!_heap->empty()) {
         auto ctx = _heap->top();
         if (!ctxs_to_seek.empty() &&
-            ctx->is_base_segment() != ctxs_to_seek.back()->is_base_segment()) {
+            ctx->is_delta_segment() != ctxs_to_seek.back()->is_delta_segment()) {
             target_ctx = ctx;
             break;
         }
         _heap->pop();
         ctxs_to_seek.emplace_back(ctx);
     }
-    // If `target_ctx` is nullptr, we can say that the contexts are the same type of data.
+    // If `target_ctx` is nullptr, we can say that all of the contexts in heap are the same type of data.
     // So there is no duplicate keys, and we should end this algorithm by returning not found error.
     if (target_ctx == nullptr) {
         return Status::NotFound("No target found");
