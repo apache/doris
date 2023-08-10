@@ -2040,5 +2040,8 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean infodb_support_ext_catalog = false;
+
+    @ConfField(mutable = true)
+    public static boolean use_mysql_bigint_for_largeint = false;
 }
 
