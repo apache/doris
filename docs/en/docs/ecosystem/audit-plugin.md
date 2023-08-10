@@ -51,7 +51,9 @@ After executing `sh build_plugin.sh` in the Doris code directory, you will get t
 
 ### Deployment
 
-You can place this file on an http download server or copy(or unzip) it to the specified directory of all FEs. Here we use the latter.
+You can place this file on an http download server or copy(or unzip) it to the specified directory of all FEs. Here we use the latter.  
+The installation of this plugin can be found in [INSTALL](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN.md)  
+After executing install, the AuditLoader directory will be automatically generated.
 
 ### Installation
 

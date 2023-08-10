@@ -51,7 +51,9 @@ auditloader plugin的配置位于`${DORIS}/fe_plugins/auditloader/src/main/assem
 
 ### 部署
 
-您可以将这个文件放置在一个 http 服务器上，或者拷贝`auditloader.zip`(或者解压`auditloader.zip`)到所有 FE 的指定目录下。这里我们使用后者。
+您可以将这个文件放置在一个 http 服务器上，或者拷贝`auditloader.zip`(或者解压`auditloader.zip`)到所有 FE 的指定目录下。这里我们使用后者。  
+该插件的安装可以参阅 [INSTALL](../sql-manual/sql-reference/Database-Administration-Statements/INSTALL-PLUGIN.md)  
+执行install后会自动生成AuditLoader目录
 
 ### 安装
 
