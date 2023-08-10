@@ -58,12 +58,13 @@ suite("test_hive_schema_evolution", "p0,external,hive,external_docker,external_d
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
             String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "suites.external_table_p0.hive.test_hive_schema_evolution"
+            String catalog_name = "test_hive_schema_evolution"
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                 "type"="hms",
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
             );"""
+            sql """switch ${catalog_name}"""
             sql """use `${catalog_name}`.`default`"""
 
             q_text()

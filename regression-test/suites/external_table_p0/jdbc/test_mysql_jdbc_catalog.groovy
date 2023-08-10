@@ -28,7 +28,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
-        String inDorisTable = "doris_in_tb";
+        String inDorisTable = "test_mysql_jdbc_doris_in_tb";
         String ex_tb0 = "ex_tb0";
         String ex_tb1 = "ex_tb1";
         String ex_tb2 = "ex_tb2";
@@ -69,9 +69,10 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        sql  """ drop table if exists ${inDorisTable} """
+        sql """use ${internal_db_name}"""
+        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
-              CREATE TABLE ${inDorisTable} (
+              CREATE TABLE ${internal_db_name}.${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10

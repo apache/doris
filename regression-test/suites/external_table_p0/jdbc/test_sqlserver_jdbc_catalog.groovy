@@ -24,10 +24,10 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "sqlserver_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
-        String ex_db_name = "dbo";
+        String ex_db_name = "doris_test";
         String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
 
-        String inDorisTable = "doris_in_tb";
+        String inDorisTable = "test_sqlserver_doris_in_tb";
 
         sql """ drop catalog if exists ${catalog_name} """
 
@@ -39,7 +39,7 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
-
+        sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
               CREATE TABLE ${inDorisTable} (
