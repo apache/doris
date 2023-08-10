@@ -243,7 +243,8 @@ struct TEsScanRange {
 struct TFileTextScanRangeParams {
     1: optional string column_separator;
     2: optional string line_delimiter;
-    3: optional string array_delimiter;
+    3: optional string collection_delimiter;// array ,map ,struct delimiter 
+    4: optional string mapkv_delimiter;
 }
 
 struct TFileScanSlotInfo {
