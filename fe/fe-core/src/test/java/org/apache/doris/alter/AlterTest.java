@@ -160,6 +160,10 @@ public class AlterTest {
                 "CREATE STORAGE POLICY testPolicy2\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3\",\n"
                         + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
+        createRemoteStoragePolicy(
+                "CREATE STORAGE POLICY testPolicyAnotherResource\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3_1\",\n"
+                        + "  \"cooldown_ttl\" = \"1\"\n" + ");");
+
         createTable("CREATE TABLE test.tbl_remote\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
                 + ")\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
                 + "    PARTITION p2 values less than('2020-03-01'),\n"
@@ -597,8 +601,13 @@ public class AlterTest {
         }
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
-        // alter remote_storage
+        // alter remote_storage to one not exist policy
         stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_policy' = 'testPolicy3')";
+        alterTable(stmt, true);
+        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
+        // alter remote_storage to one another one which points to another resource
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_policy' = 'testPolicyAnotherResource')";
         alterTable(stmt, true);
         Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
 
