@@ -43,7 +43,7 @@ public:
 
     class Iterator;
 
-    FixedContainer() : _size(0) { static_assert(N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE); }
+    FixedContainer() : _size(0) { static_assert(N >= 0 && N <= FIXED_CONTAINER_MAX_SIZE); }
 
     ~FixedContainer() = default;
 
@@ -61,7 +61,7 @@ public:
 
     // Use '|' instead of '||' has better performance by test.
     ALWAYS_INLINE bool find(const T& value) const {
-        if (_size == 0) {
+        if constexpr (N == 0) {
             return false;
         }
         if constexpr (N == 1) {
