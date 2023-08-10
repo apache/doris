@@ -180,7 +180,7 @@ public class StoragePolicy extends Policy {
 
         checkResourceIsExist(this.storageResource);
         if (!addResourceReference() && !ifNotExists) {
-            throw new AnalysisException("this policy has been added to s3 resource once, policy has been created.");
+            throw new AnalysisException("this policy has been added to s3 resource or hdfs resource once, policy has been created.");
         }
     }
 
