@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import java.util.List;
 
@@ -51,7 +50,7 @@ public abstract class CompoundPredicate extends BinaryOperator {
     }
 
     @Override
-    public AbstractDataType inputType() {
+    public DataType inputType() {
         return BooleanType.INSTANCE;
     }
 

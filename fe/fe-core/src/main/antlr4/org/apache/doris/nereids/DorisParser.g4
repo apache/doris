@@ -59,7 +59,7 @@ statement
 
 identifierOrText
     : errorCapturingIdentifier
-    | STRING
+    | STRING_LITERAL
     ;
 
 userIdentify
@@ -366,10 +366,13 @@ primaryExpression
     | qualifiedName DOT ASTERISK                                                               #star
     | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
       (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
-      (OVER windowSpec)?                                                                        #functionCall
+      (OVER windowSpec)?                                                                       #functionCall
+    | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
+    | value=primaryExpression LEFT_BRACKET begin=valueExpression
+      COLON (end=valueExpression)? RIGHT_BRACKET                                               #arraySlice
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
-    | ATSIGN identifierOrText                                                                        #userVariable
-    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
+    | ATSIGN identifierOrText                                                                  #userVariable
+    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                   #systemVariable
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
@@ -425,10 +428,10 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                                  #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING                                                                                   #stringLiteral
+    | STRING_LITERAL                                                                                   #stringLiteral
     ;
 
 comparisonOperator
@@ -452,7 +455,23 @@ unitIdentifier
     ;
 
 dataType
-    : identifier (LEFT_PAREN (ASTERISK | INTEGER_VALUE (COMMA INTEGER_VALUE)*) RIGHT_PAREN)?     #primitiveDataType
+    : complex=ARRAY LT dataType GT                              #complexDataType
+    | complex=MAP LT dataType COMMA dataType GT                 #complexDataType
+    | complex=STRUCT LT complexColTypeList GT                   #complexDataType
+    | identifier (LEFT_PAREN INTEGER_VALUE
+      (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                      #primitiveDataType
+    ;
+
+complexColTypeList
+    : complexColType (COMMA complexColType)*
+    ;
+
+complexColType
+    : identifier COLON dataType commentSpec?
+    ;
+
+commentSpec
+    : COMMENT STRING_LITERAL
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`

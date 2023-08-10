@@ -37,7 +37,7 @@ public class AnyValue extends AggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.retArgType(0).args(AnyDataType.INSTANCE)
+            FunctionSignature.retArgType(0).args(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
 
     /**
