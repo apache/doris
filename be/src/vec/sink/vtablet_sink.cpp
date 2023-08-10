@@ -1376,8 +1376,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     }
     if (typeid(*input_block) == typeid(doris::vectorized::FutureBlock)) {
         auto* future_block = dynamic_cast<vectorized::FutureBlock*>(input_block);
-        int64_t filtered_rows1 = _block_convertor->num_filtered_rows() +
-                                 _tablet_finder->num_filtered_rows();
+        int64_t filtered_rows1 =
+                _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
         auto block_status = std::make_tuple<bool, Status, int64_t, int64_t>(
                 true, Status::OK(), rows, rows - filtered_rows1 + filtered_rows);
         std::unique_lock<doris::Mutex> l(*(future_block->lock));

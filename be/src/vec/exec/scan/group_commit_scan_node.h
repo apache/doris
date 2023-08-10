@@ -36,9 +36,11 @@ public:
     std::string get_name() override;
 
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+
 protected:
     Status _init_profile() override;
     Status _process_conjuncts() override;
+
 private:
     int64_t _table_id;
     std::shared_ptr<LoadInstanceInfo> load_instance_info;

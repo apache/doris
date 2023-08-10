@@ -77,6 +77,7 @@ protected:
     Container data;
     IndexByName index_by_name;
     std::vector<bool> row_same_bit;
+
 private:
     int64_t _decompress_time_ns = 0;
     int64_t _decompressed_bytes = 0;
@@ -648,7 +649,7 @@ class FutureBlock : public Block {
     ENABLE_FACTORY_CREATOR(FutureBlock);
 
 public:
-    FutureBlock(): Block() {};
+    FutureBlock() : Block() {};
     void swap_future_block(std::shared_ptr<FutureBlock> other);
     void set_info(int64_t block_schema_version, const TUniqueId& block_unique_id, bool first,
                   bool block_eos);

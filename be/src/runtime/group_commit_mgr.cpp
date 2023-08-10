@@ -206,10 +206,10 @@ Status GroupCommitTable::_create_group_commit_load(
     auto instance_id = params.params.fragment_instance_id;
     auto schema_version = result.base_schema_version;
     VLOG_DEBUG << "create plan fragment, table=" << table_id
-               << ", instance_id=" << print_id(instance_id) << ", schema version=" << schema_version;
+               << ", instance_id=" << print_id(instance_id)
+               << ", schema version=" << schema_version;
     {
-        load_instance_info =
-                std::make_shared<LoadInstanceInfo>(instance_id, schema_version);
+        load_instance_info = std::make_shared<LoadInstanceInfo>(instance_id, schema_version);
         std::unique_lock l(_lock);
         load_instance_infos.emplace(instance_id, load_instance_info);
     }
@@ -332,11 +332,10 @@ Status GroupCommitMgr::group_commit_insert(int64_t table_id, const TPlan& plan,
         DescriptorTbl* desc_tbl = nullptr;
         RETURN_IF_ERROR(DescriptorTbl::create(runtime_state->obj_pool(), tdesc_tbl, &desc_tbl));
         runtime_state->set_desc_tbl(desc_tbl);
-        auto file_scan_node = vectorized::NewFileScanNode(runtime_state->obj_pool(), plan_node, *desc_tbl);
+        auto file_scan_node =
+                vectorized::NewFileScanNode(runtime_state->obj_pool(), plan_node, *desc_tbl);
         std::unique_ptr<int, std::function<void(int*)>> close_scan_node_func(
-                (int*)0x01, [&](int*) {
-                    file_scan_node.close(runtime_state.get());
-                });
+                (int*)0x01, [&](int*) { file_scan_node.close(runtime_state.get()); });
         // TFileFormatType::FORMAT_PROTO, TFileType::FILE_STREAM, set _range.load_id
         RETURN_IF_ERROR(file_scan_node.init(plan_node, runtime_state.get()));
         RETURN_IF_ERROR(file_scan_node.prepare(runtime_state.get()));
