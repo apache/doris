@@ -79,7 +79,8 @@ bool ExchangeSinkBuffer::is_pending_finish() {
     bool need_cancel = _context->is_canceled();
 
     for (auto& pair : _instance_to_package_queue_mutex) {
-        std::unique_lock<std::mutex> lock(*(pair.second));
+        std::unique_lock lock(*(pair.second));
+//        std::unique_lock<std::mutex> lock(*(pair.second));
         auto& id = pair.first;
         if (!_instance_to_sending_by_pipeline.at(id)) {
             // when pending finish, we need check whether current query is cancelled
@@ -104,7 +105,7 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     if (_instance_to_package_queue_mutex.count(low_id)) {
         return;
     }
-    _instance_to_package_queue_mutex[low_id] = std::make_unique<std::mutex>();
+    _instance_to_package_queue_mutex[low_id] = std::make_unique<bthread::Mutex>();
     _instance_to_seq[low_id] = 0;
     _instance_to_package_queue[low_id] = std::queue<TransmitInfo, std::list<TransmitInfo>>();
     _instance_to_broadcast_package_queue[low_id] =
@@ -130,7 +131,7 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
     TUniqueId ins_id = request.channel->_fragment_instance_id;
     bool send_now = false;
     {
-        std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
+        std::unique_lock lock(*_instance_to_package_queue_mutex[ins_id.lo]);
         // Do not have in process rpc, directly send
         if (_instance_to_sending_by_pipeline[ins_id.lo]) {
             send_now = true;
@@ -156,7 +157,7 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
     bool send_now = false;
     request.block_holder->ref();
     {
-        std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[ins_id.lo]);
+        std::unique_lock lock(*_instance_to_package_queue_mutex[ins_id.lo]);
         // Do not have in process rpc, directly send
         if (_instance_to_sending_by_pipeline[ins_id.lo]) {
             send_now = true;
@@ -172,7 +173,7 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
 }
 
 Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    std::unique_lock lock(*_instance_to_package_queue_mutex[id]);
 
     DCHECK(_instance_to_sending_by_pipeline[id] == false);
 
@@ -313,7 +314,7 @@ void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id)
 }
 
 void ExchangeSinkBuffer::_ended(InstanceLoId id) {
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    std::unique_lock lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_sending_by_pipeline[id] = true;
     _instance_watcher[id].stop();
 }
@@ -325,13 +326,13 @@ void ExchangeSinkBuffer::_failed(InstanceLoId id, const std::string& err) {
 }
 
 void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    std::unique_lock lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
     _instance_to_sending_by_pipeline[id] = true;
 }
 
 bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
-    std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+    std::unique_lock lock(*_instance_to_package_queue_mutex[id]);
     return _instance_to_receiver_eof[id];
 }
 

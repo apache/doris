@@ -111,6 +111,7 @@ void PipelineTask::_init_profile() {
 
     _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
     _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
+    _try_close_timer = ADD_TIMER(_task_profile, "Task23TryCloseTime");
     _src_pending_finish_check_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishCheckTime");
     _src_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime");
     _src_pending_finish_over_timer1 = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime1");
@@ -298,9 +299,11 @@ Status PipelineTask::try_close() {
         return Status::OK();
     }
     _try_close_flag = true;
+    _pipeline_task_watcher.elapsed_time();
     if (!_prepared) {
         return Status::OK();
     }
+    COUNTER_SET(_try_close_timer, (int64_t)_pipeline_task_watcher.elapsed_time());
     Status status1;
     {
         SCOPED_TIMER(_try_close_sink_timer);

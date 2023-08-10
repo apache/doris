@@ -424,14 +424,20 @@ void FragmentMgr::remove_fragment_exec_state(std::shared_ptr<FragmentExecState> 
 }
 
 void FragmentMgr::remove_pipeline_context(
-    std::shared_ptr<pipeline::PipelineFragmentContext>& share_pip_ctx) {
+        std::shared_ptr<pipeline::PipelineFragmentContext>& f_context) {
     std::lock_guard<std::mutex> lock(_lock);
-    auto query_id = share_pip_ctx->get_query_id();
-    auto* q_context = share_pip_ctx->get_query_context();
+    auto query_id = f_context->get_query_id();
+    LOG(INFO) << "remove 1 " << print_id(query_id);
+    auto* q_context = f_context->get_query_context();
+    LOG(INFO) << "remove 2 " << q_context;
     bool all_done = q_context->countdown();
-    this->_pipeline_map.erase(share_pip_ctx->get_fragment_instance_id());
+    LOG(INFO) << "remove 3 " << all_done;
+    auto ins_id = f_context->get_fragment_instance_id();
+    _pipeline_map.erase(f_context->get_fragment_instance_id());
+    LOG(INFO) << "remove 4" << print_id(ins_id) << ", q_id " << print_id(query_id) << ", all_done "
+              << all_done;
     if (all_done) {
-        this->_query_ctx_map.erase(query_id);
+        _query_ctx_map.erase(query_id);
     }
 }
 
@@ -698,7 +704,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         {
             std::lock_guard<std::mutex> lock(_lock);
+
             _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
+            LOG(INFO) << "insert " << print_id(fragment_instance_id);
             _cv.notify_all();
         }
 

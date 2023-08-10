@@ -365,6 +365,8 @@ private:
     bool _is_eos = false;
     RuntimeProfile::Counter* _eos_timer;
     int64_t _eos_time = 0;
+    RuntimeProfile::Counter* _try_close_timer;
+
     //time 3
     bool _is_src_pending_finish_over = false;
     bool _is_src_pending_finish_over1 = false;

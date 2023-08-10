@@ -134,7 +134,7 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
-
+    LOG(WARNING) << "~PFC " << print_id(_fragment_instance_id);
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -209,8 +209,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
 
     LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", _query_id)
-            .tag("instance_id", local_params.fragment_instance_id)
+            .tag("query_id", print_id(_query_id))
+            .tag("instance_id", print_id(local_params.fragment_instance_id))
             .tag("backend_num", local_params.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
@@ -754,11 +754,9 @@ void PipelineFragmentContext::_close_action() {
     auto close_time = _fragment_watcher.elapsed_time();
     _runtime_profile->total_time_counter()->update(close_time);
     COUNTER_UPDATE(_close_timer, close_time);
-    this->send_report();
     // all submitted tasks done
-    auto share_this = shared_from_this();
-    _exec_env->fragment_mgr()->remove_pipeline_context(share_this);
     _exec_env->send_report_thread_pool()->submit_func([&, this] {
+        this->send_report();
         if (_runtime_state != nullptr) {
             // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
             SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -767,6 +765,8 @@ void PipelineFragmentContext::_close_action() {
         } else {
             _finish_call_back(_runtime_state.get(), &_exec_status);
         }
+        auto share_this = shared_from_this();
+        _exec_env->fragment_mgr()->remove_pipeline_context(share_this);
     });
 }
 
@@ -799,17 +799,14 @@ void PipelineFragmentContext::send_report() {
         return;
     }
 
-    auto share_this = shared_from_this();
-    _exec_env->send_report_thread_pool()->submit_func([&, this] {
-        share_this->_report_status_cb(
-                {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
-                 _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
-                 !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
-                 _fragment_instance_id, _backend_num, _runtime_state.get(),
-                 std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
-                 std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                           std::placeholders::_2)});
-    });
+    _report_status_cb(
+            {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
+             _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
+             !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
+             _fragment_instance_id, _backend_num, _runtime_state.get(),
+             std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
+             std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
+                       std::placeholders::_2)});
 }
 
 } // namespace doris::pipeline

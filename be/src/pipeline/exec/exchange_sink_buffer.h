@@ -25,6 +25,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <bthread/mutex.h>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -175,7 +176,7 @@ public:
     void update_profile(RuntimeProfile* profile);
 
 private:
-    phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
+    phmap::flat_hash_map<InstanceLoId, std::unique_ptr<bthread::Mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
