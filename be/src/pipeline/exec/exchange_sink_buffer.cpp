@@ -367,7 +367,7 @@ void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_ti
     }
     *max_time = local_max_time;
     *max_callback_time = local_max_callback_time;
-    *max_callback_exec_time = local_min_callback_time;
+    *max_callback_exec_time = local_max_callback_exec_time;
     *min_time = local_min_time;
     *min_callback_time = local_min_callback_time;
     *min_callback_exec_time = local_min_callback_exec_time;
@@ -386,8 +386,8 @@ void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time, i
     _rpc_count++;
     DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
     int64_t rpc_forward_time = receive_time - start_rpc_time;
-    int64_t rpc_callback_time = receive_time - start_rpc_time;
-    int64_t callback_exec_time = receive_time - start_rpc_time;
+    int64_t rpc_callback_time = callback_start_time - receive_time;
+    int64_t callback_exec_time = callback_end_time - callback_start_time;
     if (rpc_forward_time > 0) {
         _instance_to_rpc_time[id] += rpc_forward_time;
     }
