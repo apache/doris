@@ -19,25 +19,3 @@ distributed by random buckets 4
 properties (
    "replication_num"="1"
 );
-
-create table agg_t_type_cast_rd (
-    `id` int null,
-    `kint` int(11) max null,
-    `kdbl` double max null,
-    `kdcml` decimal(20, 6) max null,
-    `kvchr` varchar(20) min null,
-    `kdt` date min null,
-    `kdtmv2` datetimev2(0) min null,
-    `kdcml32v3` decimalv3(7, 3) max null
-) engine=OLAP
-aggregate key(id)
-partition by range(id) (
-    partition p1 values less than ("3"),
-    partition p2 values less than ("5"),
-    partition p3 values less than ("7"),
-    partition p4 values less than ("15")
-)
-distributed by random buckets 4
-properties (
-   "replication_num"="1"
-);

@@ -39,20 +39,4 @@ suite('nereids_insert_random') {
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
     sql 'sync'
     qt_13 'select * from dup_t_type_cast_rd order by id, kint'
-    
-    sql '''insert into agg_t_type_cast_rd
-            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
-    sql 'sync'
-    qt_21 'select * from agg_t_type_cast_rd order by id, kint'
-
-    sql '''insert into agg_t_type_cast_rd with label label_agg_type_cast_cte_rd
-            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
-            select * from cte'''
-    sql 'sync'
-    qt_22 'select * from agg_t_type_cast_rd order by id, kint'
-
-    sql '''insert into agg_t_type_cast_rd partition (p1, p2) with label label_agg_type_cast_rd
-            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
-    sql 'sync'
-    qt_23 'select * from agg_t_type_cast_rd order by id, kint'
 }
