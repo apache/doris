@@ -115,7 +115,9 @@ lru_cache_test
 /ui/dist
 
 # ignore pom.xml
-**/pom.xml
+/**/pom.xml
+/pom.xml
+
 
 # ignore repository
 *~/*
