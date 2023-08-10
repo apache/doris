@@ -61,6 +61,9 @@ public:
 
     // Use '|' instead of '||' has better performance by test.
     ALWAYS_INLINE bool find(const T& value) const {
+        if (_size == 0) {
+            return false;
+        }
         if constexpr (N == 1) {
             return (value == _data[0]);
         }
