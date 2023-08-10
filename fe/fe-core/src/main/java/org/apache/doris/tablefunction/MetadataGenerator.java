@@ -83,6 +83,9 @@ public class MetadataGenerator {
             case FRONTENDS:
                 result = frontendsMetadataResult(params);
                 break;
+            case FRONTENDS_DISKS:
+                result = frontendsDisksMetadataResult(params);
+                break;
             case WORKLOAD_GROUPS:
                 result = workloadGroupsMetadataResult(params);
                 break;
@@ -253,6 +256,29 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
+        for (List<String> info : infos) {
+            TRow trow = new TRow();
+            for (String item : info) {
+                trow.addToColumnValue(new TCell().setStringVal(item));
+            }
+            dataBatch.add(trow);
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult frontendsDisksMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetFrontendsMetadataParams()) {
+            return errorResult("frontends metadata param is not set.");
+        }
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<List<String>> infos = Lists.newArrayList();
+        FrontendsProcNode.getFrontendsDiskInfo(Env.getCurrentEnv(), infos);
         for (List<String> info : infos) {
             TRow trow = new TRow();
             for (String item : info) {

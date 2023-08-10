@@ -38,6 +38,8 @@ suite("test_table_level_compaction_policy") {
                     "time_series_compaction_time_threshold_seconds" = "86400"
              );
         """
+    sql """sync"""
+
     def showResult1 = sql """show create table ${tableName}"""
     logger.info("${showResult1}")
     assertTrue(showResult1.toString().containsIgnoreCase('"compaction_policy" = "time_series"'))
@@ -48,6 +50,7 @@ suite("test_table_level_compaction_policy") {
     sql """
         alter table ${tableName} set ("time_series_compaction_goal_size_mbytes" = "1024")
         """
+    sql """sync"""
 
     def showResult2 = sql """show create table ${tableName}"""
     logger.info("${showResult2}")
@@ -56,6 +59,7 @@ suite("test_table_level_compaction_policy") {
     sql """
         alter table ${tableName} set ("time_series_compaction_file_count_threshold" = "6000")
         """
+    sql """sync"""
 
     def showResult3 = sql """show create table ${tableName}"""
     logger.info("${showResult3}")
@@ -64,12 +68,14 @@ suite("test_table_level_compaction_policy") {
      sql """
         alter table ${tableName} set ("time_series_compaction_time_threshold_seconds" = "3000")
         """
+    sql """sync"""
 
     def showResult4 = sql """show create table ${tableName}"""
     logger.info("${showResult4}")
     assertTrue(showResult4.toString().containsIgnoreCase('"time_series_compaction_time_threshold_seconds" = "3000"'))
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """sync"""
 
     sql """
             CREATE TABLE ${tableName} (
@@ -84,11 +90,14 @@ suite("test_table_level_compaction_policy") {
                     "replication_num" = "1"
              );
         """
+    sql """sync"""
+
     def showResult5 = sql """show create table ${tableName}"""
     logger.info("${showResult5}")
     assertFalse(showResult5.toString().containsIgnoreCase('"compaction_policy"'))
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """sync"""
 
     test {
         sql """
@@ -197,6 +206,7 @@ suite("test_table_level_compaction_policy") {
                     "replication_num" = "1"
              );
         """
+        sql """sync"""
 
         sql """
             alter table  ${tableName} set ("compaction_policy" = "ok")
@@ -204,4 +214,5 @@ suite("test_table_level_compaction_policy") {
         exception "Table compaction policy only support for time_series or size_based"
     }
     sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """sync"""
 }

@@ -18,7 +18,7 @@
 #include "olap/memtable_memory_limiter.h"
 
 #include "common/config.h"
-#include "olap/delta_writer.h"
+#include "olap/memtable_writer.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
@@ -61,12 +61,12 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
-void MemTableMemoryLimiter::register_writer(DeltaWriter* writer) {
+void MemTableMemoryLimiter::register_writer(MemTableWriter* writer) {
     std::lock_guard<std::mutex> l(_lock);
     _writers.insert(writer);
 }
 
-void MemTableMemoryLimiter::deregister_writer(DeltaWriter* writer) {
+void MemTableMemoryLimiter::deregister_writer(MemTableWriter* writer) {
     std::lock_guard<std::mutex> l(_lock);
     _writers.erase(writer);
 }
@@ -130,8 +130,8 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             if (!st.ok()) {
                 auto err_msg = fmt::format(
                         "tablet writer failed to reduce mem consumption by flushing memtable, "
-                        "tablet_id={}, txn_id={}, err={}",
-                        writer->tablet_id(), writer->txn_id(), st.to_string());
+                        "tablet_id={}, err={}",
+                        writer->tablet_id(), st.to_string());
                 LOG(WARNING) << err_msg;
                 writer->cancel_with_status(st);
             }
@@ -150,7 +150,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 
         std::ostringstream oss;
         oss << "reducing memory of " << writers_to_reduce_mem.size()
-            << " delta writers (total mem: "
+            << " memtable writers (total mem: "
             << PrettyPrinter::print_bytes(mem_consumption_in_picked_writer)
             << ", max mem: " << PrettyPrinter::print_bytes(writers_to_reduce_mem.front().mem_size)
             << ", min mem:" << PrettyPrinter::print_bytes(writers_to_reduce_mem.back().mem_size)
@@ -188,8 +188,8 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         if (!st.ok()) {
             auto err_msg = fmt::format(
                     "tablet writer failed to reduce mem consumption by flushing memtable, "
-                    "tablet_id={}, txn_id={}, err={}",
-                    item.writer->tablet_id(), item.writer->txn_id(), st.to_string());
+                    "tablet_id={}, err={}",
+                    item.writer->tablet_id(), st.to_string());
             LOG(WARNING) << err_msg;
             item.writer->cancel_with_status(st);
         }

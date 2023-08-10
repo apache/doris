@@ -15,22 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.disruptor;
+package org.apache.doris.common.classloader;
 
-import com.lmax.disruptor.EventFactory;
-import lombok.Data;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.List;
 
-/**
- * This class represents an event task that can be produced and consumed by the Disruptor.
- * The event task contains the ID of the event job and the ID of the event task itself.
- * The class also provides an event factory to create instances of {@link TimerTaskEvent}.
- * <p>
- * it's used by {@link TimerTaskDisruptor} and {@link TimerTaskExpirationHandler}
- */
-@Data
-public class TimerTaskEvent {
+public class JniScannerClassLoader extends URLClassLoader {
 
-    private Long jobId;
+    private final String scannerName;
 
-    public static final EventFactory<TimerTaskEvent> FACTORY = TimerTaskEvent::new;
+    public JniScannerClassLoader(String scannerName, List<URL> urls) {
+        super(urls.toArray(new URL[0]), ClassLoader.getSystemClassLoader());
+        this.scannerName = scannerName;
+    }
+
+    @Override
+    public String toString() {
+        return "JniScannerClassLoader{"
+                + "scannerName='" + scannerName
+                + '}';
+    }
 }

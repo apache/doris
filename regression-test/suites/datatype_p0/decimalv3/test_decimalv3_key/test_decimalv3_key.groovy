@@ -15,21 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.executor;
+suite("test_decimalv3_key") {
 
-import org.apache.doris.scheduler.exception.JobException;
+    sql "drop table if exists d_table"
 
-/**
- * A functional interface for executing a job.
- * todo
- */
-@FunctionalInterface
-public interface MemoryTaskExecutor<T> {
+    sql """
+    create table d_table (
+      k1 decimal null,
+      k2 decimal not null
+    )
+    duplicate key (k1)
+    distributed BY hash(k1) buckets 3
+    properties("replication_num" = "1");
+    """
 
-    /**
-     * Executes the event job and returns the result.
-     * Exceptions will be caught internally, so there is no need to define or throw them separately.
-     */
-    void execute() throws JobException;
+    sql """
+    insert into d_table values(999999999,999999999);
+    """
+
+    qt_test "select count(*) from d_table;"
 }
-

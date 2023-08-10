@@ -190,7 +190,11 @@ public class PropertyAnalyzer {
 
         TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
         long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
-        String newStoragePolicy = oldDataProperty.getStoragePolicy();
+        final String oldStoragePolicy = oldDataProperty.getStoragePolicy();
+        // When we create one table with table's property set storage policy,
+        // the properties wouldn't contain storage policy so the hasStoragePolicy would be false,
+        // then we would just set the partition's storage policy the same as the table's
+        String newStoragePolicy = oldStoragePolicy;
         boolean hasStoragePolicy = false;
         boolean storageMediumSpecified = false;
 
@@ -252,6 +256,26 @@ public class PropertyAnalyzer {
             }
 
             StoragePolicy storagePolicy = (StoragePolicy) policy;
+            // Consider a scenario where if cold data has already been uploaded to resource A,
+            // and the user attempts to modify the policy to upload it to resource B,
+            // the data needs to be transferred from A to B.
+            // However, Doris currently does not support cross-bucket data transfer, therefore,
+            // changing the policy to a different policy with different resource is disabled.
+            // As for the case where the resource is the same, modifying the cooldown time is allowed,
+            // as this will not affect the already cooled data, but only the new data after modifying the policy.
+            if (null != oldStoragePolicy && !oldStoragePolicy.equals(newStoragePolicy)) {
+                // check remote storage policy
+                StoragePolicy oldPolicy = StoragePolicy.ofCheck(oldStoragePolicy);
+                Policy p = Env.getCurrentEnv().getPolicyMgr().getPolicy(oldPolicy);
+                if ((p instanceof StoragePolicy)) {
+                    String newResource = storagePolicy.getStorageResource();
+                    String oldResource = ((StoragePolicy) p).getStorageResource();
+                    if (!newResource.equals(oldResource)) {
+                        throw new AnalysisException("currently do not support change origin "
+                                + "storage policy to another one with different resource: ");
+                    }
+                }
+            }
             // check remote storage cool down timestamp
             if (storagePolicy.getCooldownTimestampMs() != -1) {
                 if (storagePolicy.getCooldownTimestampMs() <= currentTimeMs) {

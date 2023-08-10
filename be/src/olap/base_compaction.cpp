@@ -122,7 +122,6 @@ void BaseCompaction::_filter_input_rowset() {
 Status BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets = _tablet->pick_candidate_rowsets_to_base_compaction();
     RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
-    RETURN_IF_ERROR(_check_rowset_overlapping(_input_rowsets));
     _filter_input_rowset();
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>("_input_rowsets.size() is 1");
@@ -214,19 +213,6 @@ Status BaseCompaction::pick_rowsets_to_compact() {
             "cumulative_base_ratio={}, interval_since_last_base_compaction={}",
             _tablet->full_name(), _input_rowsets.size() - 1, cumulative_base_ratio,
             interval_since_last_base_compaction);
-}
-
-Status BaseCompaction::_check_rowset_overlapping(const std::vector<RowsetSharedPtr>& rowsets) {
-    for (auto& rs : rowsets) {
-        if (rs->rowset_meta()->is_segments_overlapping()) {
-            return Status::Error<BE_SEGMENTS_OVERLAPPING>(
-                    "There is overlapping rowset before cumulative point, rowset version={}-{}, "
-                    "cumulative point={}, tablet={}",
-                    rs->start_version(), rs->end_version(), _tablet->cumulative_layer_point(),
-                    _tablet->full_name());
-        }
-    }
-    return Status::OK();
 }
 
 } // namespace doris

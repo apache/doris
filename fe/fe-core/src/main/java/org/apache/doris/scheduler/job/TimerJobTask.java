@@ -17,7 +17,7 @@
 
 package org.apache.doris.scheduler.job;
 
-import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
+import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 
 import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
@@ -27,11 +27,11 @@ import java.util.UUID;
 
 /**
  * This class represents a timer task that can be scheduled by a Netty timer.
- * When the timer task is triggered, it produces an event task using the Disruptor.
- * The event task contains the ID of the event and the ID of the task itself.
+ * When the timer task is triggered, it produces a Job task using the Disruptor.
+ * The Job task contains the ID of the Job and the ID of the task itself.
  */
 @Getter
-public class DorisTimerTask implements TimerTask {
+public class TimerJobTask implements TimerTask {
 
     private final Long jobId;
 
@@ -40,12 +40,12 @@ public class DorisTimerTask implements TimerTask {
 
     private final Long startTimestamp;
 
-    private final TimerTaskDisruptor timerTaskDisruptor;
+    private final TaskDisruptor taskDisruptor;
 
-    public DorisTimerTask(Long jobId, Long startTimestamp, TimerTaskDisruptor timerTaskDisruptor) {
+    public TimerJobTask(Long jobId, Long startTimestamp, TaskDisruptor taskDisruptor) {
         this.jobId = jobId;
         this.startTimestamp = startTimestamp;
-        this.timerTaskDisruptor = timerTaskDisruptor;
+        this.taskDisruptor = taskDisruptor;
     }
 
     @Override
@@ -53,6 +53,6 @@ public class DorisTimerTask implements TimerTask {
         if (timeout.isCancelled()) {
             return;
         }
-        timerTaskDisruptor.tryPublish(jobId);
+        taskDisruptor.tryPublish(jobId);
     }
 }

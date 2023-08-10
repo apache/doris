@@ -17,15 +17,16 @@
 
 package org.apache.doris.scheduler.registry;
 
-import org.apache.doris.scheduler.executor.MemoryTaskExecutor;
+import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
 /**
  * todo
  * Support in-memory job registration in the future
  */
-public interface MemoryTaskRegister {
+public interface TransientTaskRegister {
 
-    Long registerTask(MemoryTaskExecutor executor);
+    Long registerTask(TransientTaskExecutor executor);
 
-    void cancelTask(Long taskId);
+    void cancelTask(Long taskId) throws JobException;
 }
