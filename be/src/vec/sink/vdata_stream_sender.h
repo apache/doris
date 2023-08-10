@@ -73,9 +73,10 @@ class BlockSerializer {
 public:
     BlockSerializer(VDataStreamSender* parent, bool is_local = false);
     Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
-                                 const std::vector<int>* rows = nullptr);
-    Status serialize_block(PBlock* dest, int num_receivers = 1);
-    Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
+                                 const std::vector<int>* rows = nullptr,
+                                 bool clear_after_serialize = true);
+    Status serialize_block(PBlock* dest, int num_receivers = 1, bool clear_after_serialize = true);
+    Status serialize_block(const Block* src, PBlock* dest, int num_receivers = 1);
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
 
