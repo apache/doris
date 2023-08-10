@@ -192,8 +192,6 @@ mysql> SELECT * FROM stats_test.example_tbl;
 
 列统计信息主要包括列的行数、最大值、最小值、NULL 值个数等，通过 `ANALYZE TABLE` 语句进行收集。
 
-执行 SQL 语句时，优化器在大多数情况下只会用到部分列（例如， `WHERE`、`JOIN`、`ORDER BY`、`GROUP BY` 子句中出现的列）的统计信息。如果一个表有很多列，收集所有列的统计信息会有较大的开销。为了降低开销，可以只收集特定列的统计信息供优化器使用。
-
 示例：
 
 - 收集 `example_tbl` 表所有列的统计信息，使用以下语法：
@@ -221,8 +219,6 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
 ##### 收集直方图信息
 
 列直方图信息用于描述列分布的情况，它将数据根据大小分成若干个区间（桶），并使用简单的统计量来表示每个区间中数据的特征。通过 `ANALYZE TABLE` 语句配合 `WITH HISTOGRAM` 进行收集。
-
-和收集普通统计信息一样，可以指定列来收集其直方图信息。相比普通统计信息，收集直方图信息耗时更长，所以为了降低开销，我们可以只收集特定列的直方图信息供优化器使用。
 
 示例：
 
@@ -936,15 +932,27 @@ DROP ANALYZE JOB [JOB_ID]
 
 ## Full auto analyze
 
-用户可以使用选项 `enable_full_auto_analyze` 来决定是否启用Full auto analyze。如果启用，Doris会自动分析除了一些内部数据库（如`information_db`等）之外的所有数据库，并忽略AUTO/PERIOD作业。默认情况下，该选项为true。
+用户可以使用选项 `enable_full_auto_analyze` 来决定是否启用Full auto analyze。如果启用，Doris会自动分析除了一些内部数据库（如`information_db`等）之外的所有数据库，并忽略AUTO作业。默认情况下，该选项为true。
 
 ## Other ANALYZE configuration item
 
-| conf                                                    | comment                                                 | default value                  |
-|---------------------------------------------------------|---------------------------------------------------------|--------------------------------|
-| statistics_sql_parallel_exec_instance_num               | 控制每个统计信息收集SQL在BE侧的并发实例数/pipeline task num               | 1                              |
-| statistics_sql_mem_limit_in_bytes                       | 控制每个统计信息SQL可占用的BE内存                                     | 2L * 1024 * 1024 * 1024 (2GiB) |
-| statistics_simultaneously_running_task_num              | 可并发执行的AnalyzeTask数量                                     | 10                             |
-| analyze_task_timeout_in_minutes                         | AnalyzeTask执行超时时间                                       | 2hours                         |
-| full_auto_analyze_start_time/full_auto_analyze_end_time | Full auto analyze 执行时间范围，该时间段之外的时间不会触发full auto analyze | 00:00:00-23:59:59|                      |
-|stats_cache_size| 统计信息缓存的实际内存占用大小高度依赖于数据的特性，因为在不同的数据集和场景中，最大/最小值的平均大小和直方图的桶数量会有很大的差异。此外，JVM版本等因素也会对其产生影响。在这里，我将给出统计信息缓存在包含10_0000个项目时所占用的内存大小。每个项目的最大/最小值的平均长度为32，列名的平均长度为16，并且每个列都有一个具有128个桶的直方图。在这种情况下，统计信息缓存总共占用了911.954833984MiB的内存。如果没有直方图，统计信息缓存总共占用了61.2777404785MiB的内存。强烈不建议分析具有非常大字符串值的列，因为这可能导致FE内存溢出（OOM）。 | 10_0000                                                                                                      |
+| conf                                                    | comment                                                                                                                                                                                                                                                                                             | default value                  |
+|---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------|
+| statistics_sql_parallel_exec_instance_num               | 控制每个统计信息收集SQL在BE侧的并发实例数/pipeline task num                                                                                                                                                                                                                                                           | 1                              |
+| statistics_sql_mem_limit_in_bytes                       | 控制每个统计信息SQL可占用的BE内存                                                                                                                                                                                                                                                                                 | 2L * 1024 * 1024 * 1024 (2GiB) |
+| statistics_simultaneously_running_task_num              | 通过`ANALYZE TABLE[DATABASE]`提交异步作业后，可同时analyze的列的数量，所有异步任务共同受到该参数约束                                                                                                                                                                                                                                  | 5                              |
+| analyze_task_timeout_in_minutes                         | AnalyzeTask执行超时时间                                                                                                                                                                                                                                                                                   | 12 hours                       |
+| full_auto_analyze_start_time/full_auto_analyze_end_time | Full auto analyze 执行时间范围，该时间段之外的时间不会触发full auto analyze                                                                                                                                                                                                                                             | 00:00:00-02:00:00              |                      |
+|stats_cache_size| 统计信息缓存的实际内存占用大小高度依赖于数据的特性，因为在不同的数据集和场景中，最大/最小值的平均大小和直方图的桶数量会有很大的差异。此外，JVM版本等因素也会对其产生影响。在这里，我将给出统计信息缓存在包含10_0000个项目时所占用的内存大小。每个项目的最大/最小值的平均长度为32，列名的平均长度为16，并且每个列都有一个具有128个桶的直方图。在这种情况下，统计信息缓存总共占用了911.954833984MiB的内存。如果没有直方图，统计信息缓存总共占用了61.2777404785MiB的内存。强烈不建议分析具有非常大字符串值的列，因为这可能导致FE内存溢出（OOM）。 | 10_0000                        |
+|full_auto_analyze_simultaneously_running_task_num| 控制并发执行的full auto analyze                                                                                                                                                                                                                                                                            | 5                              |
+|parallel_sync_analyze_task_num| 每次通过`ANALYZE...WITH SYNC`提交同步作业时，可同时analyze的列的数量                                                                                                                                                                                                                                                    | 2                              |
+
+## 常见问题
+
+### ANALYZE WITH SYNC 执行失败：Failed to analyze following columns...
+
+SQL执行时间受`query_timeout`会话变量控制，该变量默认值为300秒，`ANALYZE DATABASE/TABLE`等语句通常耗时较大，很容易超过该时间限制而被cancel，建议根据ANALYZE对象的数据量适当增大`query_timeout`的值。
+
+### ANALYZE提交报错：Stats table not available...
+
+执行ANALYZE时统计数据会被写入到内部表`__internal_schema.column_statistics`中，FE会在执行ANALYZE前检查该表tablet状态，如果存在不可用的tablet则拒绝执行任务。出现该报错请检查BE集群状态。
