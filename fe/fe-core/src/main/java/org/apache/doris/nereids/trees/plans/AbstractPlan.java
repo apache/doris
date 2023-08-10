@@ -22,7 +22,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.MutableState;
@@ -138,25 +137,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         }
         json.put("children", childrenJson);
         return json;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        AbstractPlan that = (AbstractPlan) o;
-        // stats should don't need.
-        return Objects.equals(getLogicalProperties(), that.getLogicalProperties());
-    }
-
-    @Override
-    public int hashCode() {
-        // stats should don't need.
-        return Objects.hash(getLogicalProperties());
     }
 
     @Override
