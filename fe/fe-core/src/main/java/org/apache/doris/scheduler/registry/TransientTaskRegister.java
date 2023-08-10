@@ -15,22 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.disruptor;
+package org.apache.doris.scheduler.registry;
 
-import com.lmax.disruptor.EventFactory;
-import lombok.Data;
+import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 
 /**
- * This class represents an event task that can be produced and consumed by the Disruptor.
- * The event task contains the ID of the event job and the ID of the event task itself.
- * The class also provides an event factory to create instances of {@link TimerTaskEvent}.
- * <p>
- * it's used by {@link TimerTaskDisruptor} and {@link TimerTaskExpirationHandler}
+ * todo
+ * Support in-memory job registration in the future
  */
-@Data
-public class TimerTaskEvent {
+public interface TransientTaskRegister {
 
-    private Long jobId;
+    Long registerTask(TransientTaskExecutor executor);
 
-    public static final EventFactory<TimerTaskEvent> FACTORY = TimerTaskEvent::new;
+    void cancelTask(Long taskId) throws JobException;
 }

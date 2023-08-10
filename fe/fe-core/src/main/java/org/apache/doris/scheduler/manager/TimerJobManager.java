@@ -25,12 +25,13 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.constants.JobStatus;
-import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
-import org.apache.doris.scheduler.job.DorisTimerTask;
+import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.TimerJobTask;
 
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.Timeout;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
@@ -46,7 +47,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
-public class AsyncJobManager implements Closeable, Writable {
+public class TimerJobManager implements Closeable, Writable {
 
     private final ConcurrentHashMap<Long, Job> jobMap = new ConcurrentHashMap<>(128);
 
@@ -76,11 +77,11 @@ public class AsyncJobManager implements Closeable, Writable {
      * disruptor is used to handle task
      * disruptor will start a thread pool to handle task
      */
-    private final TimerTaskDisruptor disruptor;
+    @Setter
+    private TaskDisruptor disruptor;
 
-    public AsyncJobManager() {
+    public TimerJobManager() {
         dorisTimer.start();
-        this.disruptor = new TimerTaskDisruptor(this);
         this.lastBatchSchedulerTimestamp = System.currentTimeMillis();
         batchSchedulerTasks();
         cycleSystemSchedulerTasks();
@@ -360,7 +361,7 @@ public class AsyncJobManager implements Closeable, Writable {
      *                         delay seconds, we just can be second precision
      */
     public void putOneTask(Long jobId, Long startExecuteTime) {
-        DorisTimerTask task = new DorisTimerTask(jobId, startExecuteTime, disruptor);
+        TimerJobTask task = new TimerJobTask(jobId, startExecuteTime, disruptor);
         if (isClosed) {
             log.info("putOneTask failed, scheduler is closed, jobId: {}", task.getJobId());
             return;

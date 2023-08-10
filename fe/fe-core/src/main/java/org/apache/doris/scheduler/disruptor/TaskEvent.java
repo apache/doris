@@ -15,25 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.exception;
+package org.apache.doris.scheduler.disruptor;
+
+import org.apache.doris.scheduler.constants.TaskType;
+
+import com.lmax.disruptor.EventFactory;
+import lombok.Data;
 
 /**
- * This class represents a job exception that can be thrown when a job is executed.
+ * This class represents an event task that can be produced and consumed by the Disruptor.
+ * The event task contains the ID of the event job and the ID of the event task itself.
+ * The class also provides an event factory to create instances of {@link TaskEvent}.
+ * <p>
+ * it's used by {@link TaskDisruptor} and {@link TaskHandler}
  */
-public class JobException extends Exception {
-    public JobException(String message) {
-        super(message);
-    }
+@Data
+public class TaskEvent {
+    /**
+     * If taskType == AsyncJobTask : id means AsyncJob id.
+     * If taskType == MemoryTask : id means MemoryTask id.
+     */
+    private Long id;
 
-    public JobException(String format, Object... msg) {
-        super(String.format(format, msg));
-    }
+    private TaskType taskType;
 
-    public JobException(String message, Throwable cause) {
-        super(message, cause);
-    }
-
-    public JobException(Throwable cause) {
-        super(cause);
-    }
+    public static final EventFactory<TaskEvent> FACTORY = TaskEvent::new;
 }

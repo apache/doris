@@ -15,25 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.exception;
+package org.apache.doris.scheduler.executor;
+
+import org.apache.doris.scheduler.exception.JobException;
 
 /**
- * This class represents a job exception that can be thrown when a job is executed.
+ * A functional interface for executing a memory task.
  */
-public class JobException extends Exception {
-    public JobException(String message) {
-        super(message);
-    }
+public interface TransientTaskExecutor<T> {
 
-    public JobException(String format, Object... msg) {
-        super(String.format(format, msg));
-    }
+    /**
+     * Executes the memory task.
+     * Exceptions will be caught internally, so there is no need to define or throw them separately.
+     */
+    void execute() throws JobException;
 
-    public JobException(String message, Throwable cause) {
-        super(message, cause);
-    }
-
-    public JobException(Throwable cause) {
-        super(cause);
-    }
+    /**
+     * Cancel the memory task.
+     */
+    void cancel() throws JobException;
 }
+

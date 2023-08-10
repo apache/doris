@@ -17,10 +17,13 @@
 
 package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.scheduler.manager.AsyncJobManager;
+import org.apache.doris.scheduler.constants.TaskType;
+import org.apache.doris.scheduler.manager.TimerJobManager;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorOneArg;
+import com.lmax.disruptor.EventTranslatorTwoArg;
 import com.lmax.disruptor.TimeoutException;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -42,9 +45,9 @@ import java.util.concurrent.TimeUnit;
  * <p>The work handler also handles system events by scheduling batch scheduler tasks.
  */
 @Slf4j
-public class TimerTaskDisruptor implements Closeable {
+public class TaskDisruptor implements Closeable {
 
-    private final Disruptor<TimerTaskEvent> disruptor;
+    private final Disruptor<TaskEvent> disruptor;
     private static final int DEFAULT_RING_BUFFER_SIZE = 1024;
 
     /**
@@ -69,23 +72,26 @@ public class TimerTaskDisruptor implements Closeable {
      * The default {@link EventTranslatorOneArg} to use for {@link #tryPublish(Long)}.
      * This is used to avoid creating a new object for each publish.
      */
-    private static final EventTranslatorOneArg<TimerTaskEvent, Long> TRANSLATOR
-            = (event, sequence, jobId) -> event.setJobId(jobId);
+    private static final EventTranslatorTwoArg<TaskEvent, Long, TaskType> TRANSLATOR
+            = (event, sequence, jobId, taskType) -> {
+                event.setId(jobId);
+                event.setTaskType(taskType);
+            };
 
-    public TimerTaskDisruptor(AsyncJobManager asyncJobManager) {
+    public TaskDisruptor(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
-        disruptor = new Disruptor<>(TimerTaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
+        disruptor = new Disruptor<>(TaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
-        WorkHandler<TimerTaskEvent>[] workers = new TimerTaskExpirationHandler[DEFAULT_CONSUMER_COUNT];
+        WorkHandler<TaskEvent>[] workers = new TaskHandler[DEFAULT_CONSUMER_COUNT];
         for (int i = 0; i < DEFAULT_CONSUMER_COUNT; i++) {
-            workers[i] = new TimerTaskExpirationHandler(asyncJobManager);
+            workers[i] = new TaskHandler(timerJobManager, transientTaskManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);
         disruptor.start();
     }
 
     /**
-     * Publishes an event to the disruptor.
+     * Publishes a job to the disruptor.
      *
      * @param jobId  job id
      */
@@ -95,23 +101,26 @@ public class TimerTaskDisruptor implements Closeable {
             return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, jobId);
+            disruptor.publishEvent(TRANSLATOR, jobId, TaskType.TimerJobTask);
         } catch (Exception e) {
             log.error("tryPublish failed, jobId: {}", jobId, e);
         }
     }
 
-    public boolean tryPublish(TimerTaskEvent timerTaskEvent) {
+    /**
+     * Publishes a task to the disruptor.
+     *
+     * @param taskId  task id
+     */
+    public void tryPublishTask(Long taskId) {
         if (isClosed) {
-            log.info("tryPublish failed, disruptor is closed, eventJobId: {}", timerTaskEvent.getJobId());
-            return false;
+            log.info("tryPublish failed, disruptor is closed, taskId: {}", taskId);
+            return;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, timerTaskEvent.getJobId());
-            return true;
+            disruptor.publishEvent(TRANSLATOR, taskId, TaskType.TransientTask);
         } catch (Exception e) {
-            log.error("tryPublish failed, eventJobId: {}", timerTaskEvent.getJobId(), e);
-            return false;
+            log.error("tryPublish failed, taskId: {}", taskId, e);
         }
     }
 
