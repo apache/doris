@@ -123,7 +123,9 @@ Status ScannerContext::init() {
 
 #ifndef BE_TEST
     // 3. get thread token
-    thread_token = _state->get_query_ctx()->get_token();
+    if (_state->get_query_ctx()) {
+        thread_token = _state->get_query_ctx()->get_token();
+    }
 #endif
 
     // 4. This ctx will be submitted to the scanner scheduler right after init.

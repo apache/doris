@@ -119,12 +119,12 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
     _span = tracer->StartSpan("Plan_fragment_executor");
     OpentelemetryScope scope {_span};
-
     if (request.__isset.query_options) {
         _timeout_second = request.query_options.execution_timeout;
     }
 
     const TPlanFragmentExecParams& params = request.params;
+    _group_commit = params.group_commit;
     LOG_INFO("PlanFragmentExecutor::prepare")
             .tag("query_id", print_id(_query_ctx->query_id()))
             .tag("instance_id", print_id(params.fragment_instance_id))
@@ -316,20 +316,35 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             return Status::OK();
         }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
-        doris::vectorized::Block block;
+        std::unique_ptr<doris::vectorized::Block> block =
+                _group_commit ? doris::vectorized::FutureBlock::create_unique()
+                              : doris::vectorized::Block::create_unique();
         bool eos = false;
 
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
-            RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
+            RETURN_IF_ERROR(get_vectorized_internal(block.get(), &eos));
 
             // Collect this plan and sub plan statistics, and send to parent plan.
             if (_collect_query_statistics_with_every_batch) {
                 _collect_query_statistics();
             }
 
-            if (!eos || block.rows() > 0) {
-                auto st = _sink->send(runtime_state(), &block);
+            if (!eos || block->rows() > 0) {
+                auto st = _sink->send(runtime_state(), block.get());
+                if (UNLIKELY(!st.ok() || block->rows() == 0)) {
+                    auto block_ptr = block.get();
+                    if (typeid(*block_ptr) == typeid(doris::vectorized::FutureBlock)) {
+                        auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
+                        std::unique_lock<doris::Mutex> l(*(future_block->lock));
+                        if (!std::get<0>(*(future_block->block_status))) {
+                            auto block_status = std::make_tuple<bool, Status, int64_t, int64_t>(
+                                    true, Status(st), 0, 0);
+                            block_status.swap(*(future_block->block_status));
+                            future_block->cv->notify_all();
+                        }
+                    }
+                }
                 if (st.is<END_OF_FILE>()) {
                     break;
                 }

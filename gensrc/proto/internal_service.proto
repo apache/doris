@@ -691,12 +691,36 @@ message PGlobRequest {
 }
 
 message PGlobResponse {
-    message PFileInfo {
-        optional string file = 1;
-        optional int64 size = 2;
-    };
+  message PFileInfo {
+    optional string file = 1;
+    optional int64 size = 2;
+  };
+  required PStatus status = 1;
+  repeated PFileInfo files = 2;
+}
+
+message PGroupCommitInsertRequest {
+    optional int64 db_id = 1;
+    optional int64 table_id = 2;
+    //  Descriptors.TDescriptorTable
+    optional bytes desc_tbl = 3;
+    optional int64 base_schema_version = 4;
+
+    // TExecPlanFragmentParams -> TPlanFragment -> PlanNodes.TPlan
+    optional bytes plan_node = 5;
+    // TScanRangeParams
+    optional bytes scan_range_params = 6;
+
+    optional PUniqueId pipe_id = 7;
+    repeated PDataRow data = 8;
+}
+
+message PGroupCommitInsertResponse {
     required PStatus status = 1;
-    repeated PFileInfo files = 2;
+    optional string label = 2;
+    optional int64 txn_id = 3;
+    optional int64 loaded_rows = 4;
+    optional int64 filtered_rows = 5;
 }
 
 message POpenStreamSinkRequest {
@@ -784,5 +808,6 @@ service PBackendService {
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
     rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
     rpc glob(PGlobRequest) returns (PGlobResponse);
+    rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
 };
 

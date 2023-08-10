@@ -23,6 +23,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertRequest;
+import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFoldConstantParams;
@@ -399,6 +401,7 @@ public class BackendServiceProxy {
         }
     }
 
+<<<<<<< HEAD
     public Future<InternalService.PGlobResponse> glob(TNetworkAddress address,
             InternalService.PGlobRequest request) throws RpcException {
         try {
@@ -411,4 +414,15 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<PGroupCommitInsertResponse> groupCommitInsert(TNetworkAddress address,
+            PGroupCommitInsertRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.groupCommitInsert(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to group commit insert from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
 }
