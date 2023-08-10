@@ -126,9 +126,9 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                element_reader, max_buf_size));
         element_reader->set_nested_column();
-        ArrayColumnReader* array_reader = new ArrayColumnReader(row_ranges, ctz, io_ctx);
+        auto array_reader = ArrayColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
-        reader.reset(array_reader);
+        reader.reset();
     } else if (field->type.type == TYPE_MAP) {
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
@@ -138,9 +138,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                io_ctx, value_reader, max_buf_size));
         key_reader->set_nested_column();
         value_reader->set_nested_column();
-        MapColumnReader* map_reader = new MapColumnReader(row_ranges, ctz, io_ctx);
+        auto map_reader = MapColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
-        reader.reset(map_reader);
     } else if (field->type.type == TYPE_STRUCT) {
         std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
         for (int i = 0; i < field->children.size(); ++i) {
@@ -150,14 +149,12 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             child_reader->set_nested_column();
             child_readers.emplace_back(std::move(child_reader));
         }
-        StructColumnReader* struct_reader = new StructColumnReader(row_ranges, ctz, io_ctx);
+        auto struct_reader = StructColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
-        reader.reset(struct_reader);
     } else {
         const tparquet::ColumnChunk& chunk = row_group.columns[field->physical_column_index];
-        ScalarColumnReader* scalar_reader = new ScalarColumnReader(row_ranges, chunk, ctz, io_ctx);
+        auto scalar_reader = ScalarColumnReader::create_unique(row_ranges, chunk, ctz, io_ctx);
         RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
-        reader.reset(scalar_reader);
     }
     return Status::OK();
 }
