@@ -18,7 +18,6 @@
 #include "vec/runtime/vparquet_writer.h"
 
 #include <arrow/io/type_fwd.h>
-#include <byteswap.h>
 #include <glog/logging.h>
 #include <math.h>
 #include <parquet/column_writer.h>
