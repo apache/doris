@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -138,8 +137,8 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         }
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
         Table table = db.getTableOrAnalysisException(job.getTableName());
-        if (isPartialUpdate && ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS) {
-            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique tables.");
+        if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
     }
 

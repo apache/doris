@@ -353,8 +353,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign())) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
-        if (isPartialUpdate && ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS) {
-            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique tables.");
+        if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
     }
 
