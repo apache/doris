@@ -787,6 +787,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
         return res;
     }
 
+    int curr_sweep_batch_size = 0;
     try {
         // Sort pathes by name, that is by delete time.
         std::vector<path> sorted_pathes;
@@ -821,6 +822,13 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
                                  << ", error=" << ret.to_string();
                     res = Status::Error<OS_ERROR>();
                     continue;
+                }
+
+                curr_sweep_batch_size++;
+                if (config::garbage_sweep_batch_size > 0 &&
+                    curr_sweep_batch_size >= config::garbage_sweep_batch_size) {
+                    curr_sweep_batch_size = 0;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
             } else {
                 // Because files are ordered by filename, i.e. by create time, so all the left files are not expired.
