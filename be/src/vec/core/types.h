@@ -380,6 +380,8 @@ struct Decimal {
         return *this;
     }
 
+    auto operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
+
     static constexpr int max_string_length() {
         constexpr auto precision =
                 std::is_same_v<T, Int32>

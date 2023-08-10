@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "vec/core/types.h"
+
 namespace common {
 template <typename T>
 inline bool add_overflow(T x, T y, T& res) {
@@ -82,6 +84,12 @@ inline bool sub_overflow(__int128 x, __int128 y, __int128& res) {
 template <typename T>
 inline bool mul_overflow(T x, T y, T& res) {
     return __builtin_mul_overflow(x, y, &res);
+}
+
+template <typename T>
+inline bool mul_overflow(doris::vectorized::Decimal<T> x, doris::vectorized::Decimal<T> y,
+                         doris::vectorized::Decimal<T>& res) {
+    return __builtin_mul_overflow(x.value, y.value, &res.value);
 }
 
 template <>
