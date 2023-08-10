@@ -21,10 +21,12 @@ suite('update_unique_table') {
     sql 'set enable_nereids_dml=true'
 
     sql 'update t1 set c1 = 5 where id = 3'
+    sql 'sync'
     
     qt_sql 'select * from t1 order by id'
 
     sql 'update t1 set c1 = c1 + 1, c3 = c2 * 2 where id = 1'
+    sql 'sync'
 
     qt_sql 'select * from t1 order by id'
 
@@ -34,6 +36,7 @@ suite('update_unique_table') {
         from t2 inner join t3 on t2.id = t3.id
         where t1.id = t2.id;
     '''
+    sql 'sync'
 
     qt_sql 'select * from t1 order by id'
 }
