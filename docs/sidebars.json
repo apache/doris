@@ -722,6 +722,7 @@
                                 "sql-manual/sql-functions/table-functions/explode-numbers-outer",
                                 "sql-manual/sql-functions/table-functions/s3",
                                 "sql-manual/sql-functions/table-functions/hdfs",
+                                "sql-manual/sql-functions/table-functions/local",
                                 "sql-manual/sql-functions/table-functions/iceberg-meta",
                                 "sql-manual/sql-functions/table-functions/backends",
                                 "sql-manual/sql-functions/table-functions/frontends",
