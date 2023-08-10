@@ -215,7 +215,18 @@ struct FloorCeilImpl {
     template <typename NativeType>
     static void vector(const PaddedPODArray<NativeType>& dates, PaddedPODArray<NativeType>& res,
                        NullMap& null_map) {
-        vector_constant_delta<NativeType, Int32>(dates, Int32(1), res, null_map);
+        // vector_constant_delta<NativeType, Int32>(dates, Int32(1), res, null_map);
+        for (int i = 0; i < dates.size(); ++i) {
+            if constexpr (std::is_same_v<NativeType, UInt32>) {
+                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(dates[i], res[i],
+                                                                                null_map[i]);
+            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
+                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                        dates[i], res[i], null_map[i]);
+            } else {
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], res[i], null_map[i]);
+            }
+        }
     }
 
     template <typename NativeType>
@@ -475,6 +486,155 @@ struct TimeRound {
     }
 
     template <typename NativeType, typename DateValueType>
+    static void time_round(const DateValueType& ts2, DateValueType& ts1, UInt8& is_null) {
+        // ts2 --- > ts1
+        constexpr Int32 period = 1;
+        ts1 = ts2;
+        int64_t diff;
+        int64_t trivial_part_ts1;
+        int64_t trivial_part_ts2;
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            if constexpr (Impl::Unit == YEAR) {
+                diff = (ts2.year() - ts1.year());
+                trivial_part_ts2 = ts2.to_int64() % 10000000000;
+                trivial_part_ts1 = ts1.to_int64() % 10000000000;
+            }
+            if constexpr (Impl::Unit == MONTH) {
+                diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
+                trivial_part_ts2 = ts2.to_int64() % 100000000;
+                trivial_part_ts1 = ts1.to_int64() % 100000000;
+            }
+            if constexpr (Impl::Unit == WEEK) {
+                diff = ts2.daynr() / 7 - ts1.daynr() / 7;
+                trivial_part_ts2 = ts2.daynr() % 7 * 24 * 3600 + ts2.hour() * 3600 +
+                                   ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.daynr() % 7 * 24 * 3600 + ts1.hour() * 3600 +
+                                   ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == DAY) {
+                diff = ts2.daynr() - ts1.daynr();
+                trivial_part_ts2 = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == HOUR) {
+                diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
+                trivial_part_ts2 = ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == MINUTE) {
+                diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
+                       (ts2.minute() - ts1.minute());
+                trivial_part_ts2 = ts2.second();
+                trivial_part_ts1 = ts1.second();
+            }
+            if constexpr (Impl::Unit == SECOND) {
+                diff = ts2.second_diff(ts1);
+                trivial_part_ts1 = 0;
+                trivial_part_ts2 = 0;
+            }
+        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
+            if constexpr (Impl::Unit == YEAR) {
+                diff = (ts2.year() - ts1.year());
+                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
+                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
+            }
+            if constexpr (Impl::Unit == MONTH) {
+                diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
+                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
+                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
+            }
+            if constexpr (Impl::Unit == WEEK) {
+                diff = ts2.daynr() / 7 - ts1.daynr() / 7;
+                trivial_part_ts2 = ts2.daynr() % 7 * 24 * 3600 + ts2.hour() * 3600 +
+                                   ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.daynr() % 7 * 24 * 3600 + ts1.hour() * 3600 +
+                                   ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == DAY) {
+                diff = ts2.daynr() - ts1.daynr();
+                trivial_part_ts2 = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == HOUR) {
+                diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
+                trivial_part_ts2 = ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == MINUTE) {
+                diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
+                       (ts2.minute() - ts1.minute());
+                trivial_part_ts2 = ts2.second();
+                trivial_part_ts1 = ts1.second();
+            }
+            if constexpr (Impl::Unit == SECOND) {
+                diff = ts2.second_diff(ts1);
+                trivial_part_ts1 = 0;
+                trivial_part_ts2 = 0;
+            }
+        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
+            if constexpr (Impl::Unit == YEAR) {
+                diff = (ts2.year() - ts1.year());
+                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
+                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
+            }
+            if constexpr (Impl::Unit == MONTH) {
+                diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
+                trivial_part_ts2 = ts2.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
+                trivial_part_ts1 = ts1.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
+            }
+            if constexpr (Impl::Unit == WEEK) {
+                diff = ts2.daynr() / 7 - ts1.daynr() / 7;
+                trivial_part_ts2 = ts2.daynr() % 7 * 24 * 3600 + ts2.hour() * 3600 +
+                                   ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.daynr() % 7 * 24 * 3600 + ts1.hour() * 3600 +
+                                   ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == DAY) {
+                diff = ts2.daynr() - ts1.daynr();
+                trivial_part_ts2 = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.hour() * 3600 + ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == HOUR) {
+                diff = (ts2.daynr() - ts1.daynr()) * 24 + (ts2.hour() - ts1.hour());
+                trivial_part_ts2 = ts2.minute() * 60 + ts2.second();
+                trivial_part_ts1 = ts1.minute() * 60 + ts1.second();
+            }
+            if constexpr (Impl::Unit == MINUTE) {
+                diff = (ts2.daynr() - ts1.daynr()) * 24 * 60 + (ts2.hour() - ts1.hour()) * 60 +
+                       (ts2.minute() - ts1.minute());
+                trivial_part_ts2 = ts2.second();
+                trivial_part_ts1 = ts1.second();
+            }
+            if constexpr (Impl::Unit == SECOND) {
+                diff = ts2.second_diff(ts1);
+                trivial_part_ts1 = 0;
+                trivial_part_ts2 = 0;
+            }
+        }
+
+        //round down/up to specific time-unit(HOUR/DAY/MONTH...) by increase/decrease diff variable
+        if constexpr (Impl::Type == CEIL) {
+            //e.g. hour_ceil(ts: 00:00:40, origin: 00:00:30), ts should be rounded to 01:00:30
+            diff += trivial_part_ts2 > trivial_part_ts1;
+        }
+        if constexpr (Impl::Type == FLOOR) {
+            //e.g. hour_floor(ts: 01:00:20, origin: 00:00:30), ts should be rounded to 00:00:30
+            diff -= trivial_part_ts2 < trivial_part_ts1;
+        }
+
+        //round down/up inside time period(several time-units)
+        int64_t count = period;
+        int64_t delta_inside_period = (diff % count + count) % count;
+        int64_t step = diff - delta_inside_period +
+                       (Impl::Type == FLOOR        ? 0
+                        : delta_inside_period == 0 ? 0
+                                                   : count);
+        bool is_neg = step < 0;
+        TimeInterval interval(Impl::Unit, is_neg ? -step : step, is_neg);
+        is_null = !ts1.template date_add_interval<Impl::Unit>(interval);
+    }
+
+    template <typename NativeType, typename DateValueType>
     static void time_round(NativeType date, Int32 period, NativeType origin_date, NativeType& res,
                            UInt8& is_null) {
         res = origin_date;
@@ -503,6 +663,24 @@ struct TimeRound {
         }
 
         TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, period, ts1, is_null);
+    }
+
+    template <typename NativeType, typename DateValueType>
+    static void time_round(NativeType date, NativeType& res, UInt8& is_null) {
+        auto ts2 = binary_cast<NativeType, DateValueType>(date);
+        if (!ts2.is_valid_date()) {
+            is_null = true;
+            return;
+        }
+        auto& ts1 = (DateValueType&)(res);
+        if constexpr (Impl::Unit != WEEK) {
+            ts1.from_olap_datetime(FIRST_DAY);
+        } else {
+            // Only week use the FIRST SUNDAY
+            ts1.from_olap_datetime(FIRST_SUNDAY);
+        }
+
+        TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, ts1, is_null);
     }
 };
 
