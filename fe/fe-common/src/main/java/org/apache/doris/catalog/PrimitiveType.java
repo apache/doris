@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Preconditions;
@@ -1180,6 +1181,12 @@ public enum PrimitiveType {
                 return MysqlColType.MYSQL_TYPE_LONG;
             case BIGINT:
                 return MysqlColType.MYSQL_TYPE_LONGLONG;
+            case LARGEINT:
+                if (Config.use_mysql_bigint_for_largeint) {
+                    return MysqlColType.MYSQL_TYPE_LONGLONG;
+                } else {
+                    return MysqlColType.MYSQL_TYPE_STRING;
+                }
             case FLOAT:
                 return MysqlColType.MYSQL_TYPE_FLOAT;
             case DOUBLE:
