@@ -1,5 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 17:23:14 CST 2023
-netty-transport-native-kqueue-4.1.94.Final-osx-aarch_64.jar>allmaven=
-netty-transport-native-kqueue-4.1.94.Final.pom>allmaven=
-netty-transport-native-kqueue-4.1.94.Final-osx-x86_64.jar>allmaven=

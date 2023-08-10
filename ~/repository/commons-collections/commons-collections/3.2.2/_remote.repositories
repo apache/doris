@@ -1,5 +1,0 @@
-#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
-#Mon Aug 07 17:24:08 CST 2023
-commons-collections-3.2.2.pom>huawei-obs-sdk=
-commons-collections-3.2.2.jar>huawei-obs-sdk=
-commons-collections-3.2.2.jar>allmaven=
