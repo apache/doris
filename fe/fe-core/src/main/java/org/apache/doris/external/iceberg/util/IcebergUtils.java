@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
@@ -59,12 +60,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,8 +79,6 @@ public class IcebergUtils {
             return 0;
         }
     };
-    static DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
-            .withZone(ZoneId.systemDefault());
     static long MILLIS_TO_NANO_TIME = 1000;
 
     /**
@@ -375,23 +369,7 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-
-            String formatDate = String.format("%04d%02d%02d%02d%02d%02d",
-                    dateLiteral.getYear(),
-                    dateLiteral.getMonth(),
-                    dateLiteral.getDay(),
-                    dateLiteral.getHour(),
-                    dateLiteral.getMinute(),
-                    dateLiteral.getSecond());
-            Date date;
-            try {
-                date = Date.from(
-                        LocalDateTime.parse(formatDate, dateFormatter).atZone(ZoneId.systemDefault()).toInstant());
-            } catch (DateTimeParseException e) {
-                LOG.error("Failed to parse date from \"" + formatDate + "\".");
-                return null;
-            }
-            return date.getTime() * MILLIS_TO_NANO_TIME;
+            return dateLiteral.unixTimestamp(TimeUtils.getTimeZone()) * MILLIS_TO_NANO_TIME;
         } else if (expr instanceof DecimalLiteral) {
             DecimalLiteral decimalLiteral = (DecimalLiteral) expr;
             return decimalLiteral.getValue();
