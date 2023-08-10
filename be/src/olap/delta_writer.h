@@ -30,9 +30,11 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/delta_writer_context.h"
 #include "olap/memtable_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset_builder.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
@@ -53,14 +55,6 @@ class RowsetWriter;
 namespace vectorized {
 class Block;
 } // namespace vectorized
-
-struct WriteRequest : MemTableWriter::WriteRequest {
-    int32_t schema_hash;
-    int64_t txn_id;
-    int64_t partition_id;
-    int64_t index_id = 0;
-    OlapTableSchemaParam* table_schema_param;
-};
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
@@ -93,6 +87,8 @@ public:
     void add_finished_slave_replicas(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
                                              success_slave_tablet_node_ids);
 
+    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
+
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
     Status cancel();
@@ -109,26 +105,18 @@ public:
 
     int64_t txn_id() const { return _req.txn_id; }
 
-    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
-
     int64_t total_received_rows() const { return _total_received_rows; }
 
     int64_t num_rows_filtered() const;
 
     // For UT
-    DeleteBitmapPtr get_delete_bitmap() { return _delete_bitmap; }
+    DeleteBitmapPtr get_delete_bitmap() { return _rowset_builder.get_delete_bitmap(); }
 
     MemTableWriter* memtable_writer() { return &_memtable_writer; }
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                 const UniqueId& load_id);
-
-    void _garbage_collection();
-
-    void _build_current_tablet_schema(int64_t index_id,
-                                      const OlapTableSchemaParam* table_schema_param,
-                                      const TabletSchema& ori_tablet_schema);
 
     void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
 
@@ -137,15 +125,10 @@ private:
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
-    TabletSharedPtr _tablet;
-    RowsetSharedPtr _cur_rowset;
-    std::shared_ptr<RowsetWriter> _rowset_writer;
+    RowsetBuilder _rowset_builder;
     MemTableWriter _memtable_writer;
-    TabletSchemaSPtr _tablet_schema;
-    bool _delta_written_success;
 
     StorageEngine* _storage_engine;
-    UniqueId _load_id;
 
     std::mutex _lock;
 
@@ -153,18 +136,12 @@ private:
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;
     std::shared_mutex _slave_node_lock;
 
-    DeleteBitmapPtr _delete_bitmap = nullptr;
-    std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
-    // current rowset_ids, used to do diff in publish_version
-    RowsetIdUnorderedSet _rowset_ids;
-    // current max version, used to calculate delete bitmap
-    int64_t _cur_max_version;
-
     // total rows num written by DeltaWriter
     int64_t _total_received_rows = 0;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _commit_txn_timer = nullptr;
 
     MonotonicStopWatch _lock_watch;
 };

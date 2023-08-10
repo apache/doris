@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/delta_writer_context.h"
 #include "olap/memtable.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -61,15 +62,6 @@ enum MemType { WRITE = 1, FLUSH = 2, ALL = 3 };
 // This class is NOT thread-safe, external synchronization is required.
 class MemTableWriter {
 public:
-    struct WriteRequest {
-        int64_t tablet_id;
-        PUniqueId load_id;
-        TupleDescriptor* tuple_desc;
-        // slots are in order of tablet's schema
-        const std::vector<SlotDescriptor*>* slots;
-        bool is_high_priority = false;
-    };
-
     MemTableWriter(const WriteRequest& req, RuntimeProfile* profile);
 
     ~MemTableWriter();
