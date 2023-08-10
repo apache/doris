@@ -50,7 +50,9 @@ public class SqlCache extends Cache {
 
     public String getSqlWithViewStmt() {
         String originSql = selectStmt != null ? selectStmt.toSql() : this.originSql;
-        return originSql + "|" + allViewExpandStmtListStr;
+        String cacheKey = originSql + "|" + allViewExpandStmtListStr;
+        LOG.debug("Cache key: {}", cacheKey);
+        return cacheKey;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {

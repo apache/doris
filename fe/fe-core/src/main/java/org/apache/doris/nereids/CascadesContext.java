@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -61,6 +62,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -97,6 +99,7 @@ public class CascadesContext implements ScheduleContext {
     private final RuntimeFilterContext runtimeFilterContext;
     private Optional<Scope> outerScope = Optional.empty();
     private List<TableIf> tables = null;
+    private Set<View> views = Sets.newHashSet();
 
     private boolean isRewriteRoot;
     private volatile boolean isTimeout = false;
@@ -353,6 +356,14 @@ public class CascadesContext implements ScheduleContext {
             throw new AnalysisException("Minidump cache can not find table:" + tableName);
         }
         return null;
+    }
+
+    public void addView(View view) {
+        this.views.add(view);
+    }
+
+    public List<View> getViews() {
+        return ImmutableList.copyOf(views);
     }
 
     public List<TableIf> getTables() {

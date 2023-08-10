@@ -34,7 +34,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
@@ -50,7 +49,6 @@ import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,6 +59,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Analyze which caching mode a SQL is suitable for
@@ -189,6 +188,10 @@ public class CacheAnalyzer {
      */
     public void checkCacheMode(long now) {
         cacheMode = innerCheckCacheMode(now);
+    }
+
+    public void checkCacheModeForNereids(long now) {
+        cacheMode = innerCheckCacheModeForNereids(now);
     }
 
     private CacheMode innerCheckCacheMode(long now) {
@@ -385,8 +388,8 @@ public class CacheAnalyzer {
             return CacheMode.NoNeed;
         }
 
-
-        addAllViewStmtForTblIfs(((LogicalPlanAdapter) parsedStmt).getTables());
+        allViewStmtSet.addAll(((LogicalPlanAdapter) parsedStmt).getViews()
+                    .stream().map(view -> view.getDdlSql()).collect(Collectors.toSet()));
         String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
 
         if (now == 0) {
@@ -395,7 +398,7 @@ public class CacheAnalyzer {
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                LOG.debug("Query cache time :{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
             cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
@@ -584,22 +587,7 @@ public class CacheAnalyzer {
         return cacheTable;
     }
 
-    private void addAllViewStmtForTblIfs(List<TableIf> tblIfs) {
-        if (CollectionUtils.isEmpty(tblIfs)) {
-            return;
-        }
-        for (TableIf tblIf : tblIfs) {
-            if (tblIf instanceof View) {
-                View view = (View) tblIf;
-                if (!view.isLocalView()) {
-                    allViewStmtSet.add(view.getInlineViewDef());
-                }
-                addAllViewStmt(view.getQueryStmt());
-            }
-        }
-    }
-
-    private void addAllViewStmtForTblRefs(List<TableRef> tblRefs) {
+    private void addAllViewStmt(List<TableRef> tblRefs) {
         for (TableRef tblRef : tblRefs) {
             if (tblRef instanceof InlineViewRef) {
                 InlineViewRef inlineViewRef = (InlineViewRef) tblRef;
@@ -619,7 +607,7 @@ public class CacheAnalyzer {
 
     private void addAllViewStmt(QueryStmt queryStmt) {
         if (queryStmt instanceof SelectStmt) {
-            addAllViewStmtForTblRefs(((SelectStmt) queryStmt).getTableRefs());
+            addAllViewStmt(((SelectStmt) queryStmt).getTableRefs());
         } else if (queryStmt instanceof SetOperationStmt) {
             for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) queryStmt).getOperands()) {
                 addAllViewStmt(operand.getQueryStmt());
