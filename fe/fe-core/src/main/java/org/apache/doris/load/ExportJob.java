@@ -78,7 +78,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -372,8 +371,8 @@ public class ExportJob implements Writable {
         int outfileNum = this.parallelism;
         if (tabletsAllNum < this.parallelism) {
             outfileNum = tabletsAllNum;
-            log.warn("Export Job [{}]: The number of tablets ({}) is smaller than parallelism ({}), "
-                        + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelNum);
+            LOG.warn("Export Job [{}]: The number of tablets ({}) is smaller than parallelism ({}), "
+                        + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelism);
         }
         Integer start = 0;
         for (int i = 0; i < outfileNum; ++i) {
