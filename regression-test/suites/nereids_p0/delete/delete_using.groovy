@@ -23,7 +23,7 @@ suite('nereids_delete_using') {
     sql 'insert into t1(id, c1, c2, c3) select id, c1 * 2, c2, c3 from t1'
     sql 'insert into t2(id, c1, c2, c3) select id, c1, c2 * 2, c3 from t2'
     sql 'insert into t2(c1, c3) select c1 + 1, c3 + 1 from (select id, c1, c3 from t1 order by id, c1 limit 10) t1, t3'
-
+    sql 'sync'
     qt_sql 'select * from t1 order by id, id1'
 
     sql '''
@@ -31,6 +31,7 @@ suite('nereids_delete_using') {
         using t2 join t3 on t2.id = t3.id
         where t1.id = t2.id;
     '''
+    sql 'sync'
 
     qt_sql 'select * from t1 order by id, id1'
 }
