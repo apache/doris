@@ -78,6 +78,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -237,6 +238,7 @@ public class ExportJob implements Writable {
     public void analyze() throws UserException {
         exportTable.readLock();
         try {
+            // generateQueryStmtOld
             generateQueryStmt();
         } finally {
             exportTable.readUnlock();
@@ -246,9 +248,61 @@ public class ExportJob implements Writable {
 
     public void generateExportJobExecutor() {
         jobExecutorList = Lists.newArrayList();
-        for (List<SelectStmt> selectStmtList : selectStmtListPerParallel) {
-            ExportTaskExecutor executor = new ExportTaskExecutor(selectStmtList, this);
+        for (List<SelectStmt> selectStmts : selectStmtListPerParallel) {
+            ExportTaskExecutor executor = new ExportTaskExecutor(selectStmts, this);
             jobExecutorList.add(executor);
+        }
+    }
+
+    private void generateQueryStmtOld() throws UserException {
+        SelectList list = new SelectList();
+        if (exportColumns.isEmpty()) {
+            list.addItem(SelectListItem.createStarItem(this.tableName));
+        } else {
+            for (Column column : exportTable.getBaseSchema()) {
+                String colName = column.getName().toLowerCase();
+                if (exportColumns.contains(colName)) {
+                    SlotRef slotRef = new SlotRef(this.tableName, colName);
+                    SelectListItem selectListItem = new SelectListItem(slotRef, null);
+                    list.addItem(selectListItem);
+                }
+            }
+        }
+
+        ArrayList<ArrayList<Long>> tabletsListPerQuery = splitTablets();
+
+        ArrayList<ArrayList<TableRef>> tableRefListPerQuery = Lists.newArrayList();
+        for (ArrayList<Long> tabletsList : tabletsListPerQuery) {
+            TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(), null, tabletsList,
+                    this.tableRef.getTableSample(), this.tableRef.getCommonHints());
+            ArrayList<TableRef> tableRefList = Lists.newArrayList();
+            tableRefList.add(tblRef);
+            tableRefListPerQuery.add(tableRefList);
+        }
+        LOG.info("Export task is split into {} outfile statements.", tableRefListPerQuery.size());
+
+        if (LOG.isDebugEnabled()) {
+            for (int i = 0; i < tableRefListPerQuery.size(); i++) {
+                LOG.debug("Outfile clause {} is responsible for tables: {}", i,
+                        tableRefListPerQuery.get(i).get(0).getSampleTabletIds());
+            }
+        }
+
+        for (ArrayList<TableRef> tableRefList : tableRefListPerQuery) {
+            FromClause fromClause = new FromClause(tableRefList);
+            // generate outfile clause
+            OutFileClause outfile = new OutFileClause(this.exportPath, this.format, convertOutfileProperties());
+            SelectStmt selectStmt = new SelectStmt(list, fromClause, this.whereExpr, null,
+                    null, null, LimitElement.NO_LIMIT);
+            selectStmt.setOutFileClause(outfile);
+            selectStmt.setOrigStmt(new OriginStatement(selectStmt.toSql(), 0));
+            selectStmtList.add(selectStmt);
+        }
+        stmtExecutorList = Arrays.asList(new StmtExecutor[selectStmtList.size()]);
+        if (LOG.isDebugEnabled()) {
+            for (int i = 0; i < selectStmtList.size(); i++) {
+                LOG.debug("Outfile clause {} is: {}", i, selectStmtList.get(i).toSql());
+            }
         }
     }
 
@@ -277,9 +331,9 @@ public class ExportJob implements Writable {
         // debug LOG output
         if (LOG.isDebugEnabled()) {
             for (int i = 0; i < tableRefListPerParallel.size(); i++) {
-                LOG.info("ExportTaskExecutor {} is responsible for tablets:", i);
+                LOG.debug("ExportTaskExecutor {} is responsible for tablets:", i);
                 for (TableRef tableRef : tableRefListPerParallel.get(i)) {
-                    LOG.info("Tablet id: [{}]", tableRef.getSampleTabletIds());
+                    LOG.debug("Tablet id: [{}]", tableRef.getSampleTabletIds());
                 }
             }
         }
