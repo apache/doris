@@ -482,6 +482,29 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, true>>;
 
+enum class HashKeyType {
+    EMPTY = 0,
+    without_key,
+    serialized,
+    int8_key,
+    int16_key,
+    int32_key,
+    int32_key_phase2,
+    int64_key,
+    int64_key_phase2,
+    int128_key,
+    int128_key_phase2,
+    int64_keys,
+    int64_keys_phase2,
+    int128_keys,
+    int128_keys_phase2,
+    int256_keys,
+    int256_keys_phase2,
+    string_key,
+    int136_keys,
+    int136_keys_phase2,
+};
+
 struct AggregatedDataVariants {
     AggregatedDataVariants() = default;
     AggregatedDataVariants(const AggregatedDataVariants&) = delete;
@@ -489,28 +512,7 @@ struct AggregatedDataVariants {
     AggregatedDataWithoutKey without_key = nullptr;
     AggregatedMethodVariants _aggregated_method_variant;
 
-    enum class Type {
-        EMPTY = 0,
-        without_key,
-        serialized,
-        int8_key,
-        int16_key,
-        int32_key,
-        int32_key_phase2,
-        int64_key,
-        int64_key_phase2,
-        int128_key,
-        int128_key_phase2,
-        int64_keys,
-        int64_keys_phase2,
-        int128_keys,
-        int128_keys_phase2,
-        int256_keys,
-        int256_keys_phase2,
-        string_key,
-        int136_keys,
-        int136_keys_phase2,
-    };
+    using Type = HashKeyType;
 
     constexpr static Type get_type(Type t, bool phase2) {
         if (!phase2) {
@@ -623,7 +625,7 @@ struct AggregatedDataVariants {
                     AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, is_nullable>>();
             break;
         default:
-            DCHECK(false) << "Do not have a rigth agg data type";
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
         }
     }
     void init(Type type, bool is_nullable = false) {

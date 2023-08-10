@@ -33,6 +33,7 @@
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"
+#include "vec/exec/vaggregation_node.h"
 
 namespace doris {
 namespace vectorized {
@@ -310,23 +311,12 @@ struct PartitionedHashMapVariants {
     PartitionedHashMapVariants& operator=(const PartitionedHashMapVariants&) = delete;
     PartitionedMethodVariants _partition_method_variant;
 
-    enum class Type {
-        EMPTY = 0,
-        serialized,
-        int8_key,
-        int16_key,
-        int32_key,
-        int64_key,
-        int128_key,
-        int64_keys,
-        int128_keys,
-        int256_keys,
-        string_key,
-    };
+    using Type = HashKeyType;
 
     Type _type = Type::EMPTY;
 
-    void init(Type type, bool is_nullable = false) {
+    template <bool is_nullable>
+    void init(Type type) {
         _type = type;
         switch (_type) {
         case Type::serialized: {
@@ -390,33 +380,18 @@ struct PartitionedHashMapVariants {
             break;
         }
         case Type::int64_keys: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt64Key, true>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt64Key, false>>();
-            }
+            _partition_method_variant
+                    .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt64Key, is_nullable>>();
             break;
         }
         case Type::int128_keys: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt128Key, true>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt128Key, false>>();
-            }
+            _partition_method_variant
+                    .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt128Key, is_nullable>>();
             break;
         }
         case Type::int256_keys: {
-            if (is_nullable) {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt256Key, true>>();
-            } else {
-                _partition_method_variant
-                        .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt256Key, false>>();
-            }
+            _partition_method_variant
+                    .emplace<PartitionMethodKeysFixed<PartitionDataWithUInt256Key, is_nullable>>();
             break;
         }
         case Type::string_key: {
@@ -431,7 +406,14 @@ struct PartitionedHashMapVariants {
             break;
         }
         default:
-            DCHECK(false) << "Do not have a rigth partition by data type: ";
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
+        }
+    }
+    void init(Type type, bool is_nullable = false) {
+        if (is_nullable) {
+            init<true>(type);
+        } else {
+            init<false>(type);
         }
     }
 };
