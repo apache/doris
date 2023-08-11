@@ -74,7 +74,7 @@ public:
     static inline int64_t IncreaseReservedBufferSize(int n) {
         return INITIAL_RESERVED_BUFFER_SIZE << n;
     }
-    static Status get_jni_scanner_class(JNIEnv* env, std::string classname, jclass* loaded_class);
+    static Status get_jni_scanner_class(JNIEnv* env, const char* classname, jclass* loaded_class);
     static jobject convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map);
     static std::map<std::string, std::string> convert_to_cpp_map(JNIEnv* env, jobject map);
 
