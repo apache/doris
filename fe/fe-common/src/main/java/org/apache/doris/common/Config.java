@@ -72,6 +72,8 @@ public class Config extends ConfigBase {
     @ConfField public static String sys_log_delete_age = "7d";
     @Deprecated
     @ConfField public static String sys_log_roll_mode = "SIZE-MB-1024";
+    @ConfField
+    public static boolean sys_log_enable_compress = false;
 
     /**
      * audit_log_dir:
@@ -114,6 +116,8 @@ public class Config extends ConfigBase {
     @Deprecated
     @ConfField
     public static String audit_log_roll_mode = "TIME-DAY";
+    @ConfField
+    public static boolean audit_log_enable_compress = false;
 
     /**
      * plugin_dir:
