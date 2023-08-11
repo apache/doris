@@ -103,7 +103,6 @@ std::string DeleteHandler::_trans_op(const std::string& opt) {
     } else if (op == ">") {
         op += ">";
     }
-    string condition_str;
     if ("IS" != op) {
         if (op == "*=") {
             op = "=";
