@@ -243,7 +243,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_DECIMAL32: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int32_t value = StringParser::string_to_decimal<int32_t>(
+        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32, int32_t>(
                 data, len, slot_desc->type().precision, slot_desc->type().scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
@@ -256,7 +256,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_DECIMAL64: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int64_t value = StringParser::string_to_decimal<int64_t>(
+        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64, int64_t>(
                 data, len, slot_desc->type().precision, slot_desc->type().scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
@@ -269,8 +269,9 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
     }
     case TYPE_DECIMAL128I: {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        vectorized::Int128 value = StringParser::string_to_decimal<vectorized::Int128>(
-                data, len, slot_desc->type().precision, slot_desc->type().scale, &result);
+        vectorized::Int128 value =
+                StringParser::string_to_decimal<TYPE_DECIMAL128I, vectorized::Int128>(
+                        data, len, slot_desc->type().precision, slot_desc->type().scale, &result);
         if (result != StringParser::PARSE_SUCCESS) {
             parse_result = StringParser::PARSE_FAILURE;
             break;
@@ -410,7 +411,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                     }
                     case TYPE_DECIMAL32: {
                         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                        int32_t value = StringParser::string_to_decimal<int32_t>(
+                        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32, int32_t>(
                                 data + fr, i - fr, Sub_type.precision, Sub_type.scale, &result);
                         if (result != StringParser::PARSE_SUCCESS) {
                             local_parse_result = StringParser::PARSE_FAILURE;
@@ -421,7 +422,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                     }
                     case TYPE_DECIMAL64: {
                         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                        int64_t value = StringParser::string_to_decimal<int64_t>(
+                        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64, int64_t>(
                                 data + fr, i - fr, Sub_type.precision, Sub_type.scale, &result);
                         if (result != StringParser::PARSE_SUCCESS) {
                             local_parse_result = StringParser::PARSE_FAILURE;
@@ -433,7 +434,8 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                     case TYPE_DECIMAL128I: {
                         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                         vectorized::Int128 value =
-                                StringParser::string_to_decimal<vectorized::Int128>(
+                                StringParser::string_to_decimal<TYPE_DECIMAL128I,
+                                                                vectorized::Int128>(
                                         data + fr, i - fr, Sub_type.precision, Sub_type.scale,
                                         &result);
                         if (result != StringParser::PARSE_SUCCESS) {
