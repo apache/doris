@@ -314,10 +314,6 @@ Status CsvReader::init_reader(bool is_load) {
                 _value_separator_length, _enclose);
     }
 
-    //get array delimiter
-    _array_delimiter = _params.file_attributes.text_params.array_delimiter;
-    _text_converter->set_array_delimiter(_array_delimiter[0]);
-
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
