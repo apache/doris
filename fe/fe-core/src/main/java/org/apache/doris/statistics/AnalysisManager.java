@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeDBStmt;
-import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
@@ -170,13 +169,6 @@ public class AnalysisManager extends Daemon implements Writable {
 
     public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
-        List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDB(db, analyzeDBStmt.getAnalyzeProperties());
-        if (!analyzeDBStmt.isSync()) {
-            sendJobId(analysisInfos, proxy);
-        }
-    }
-
-    public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties) {
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         db.readLock();
@@ -186,30 +178,27 @@ public class AnalysisManager extends Daemon implements Writable {
                 if (table instanceof View) {
                     continue;
                 }
-                TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
+                TableName tableName = new TableName(analyzeDBStmt.getCtlIf().getName(), db.getFullName(),
                         table.getName());
-                AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
+                AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeDBStmt.getAnalyzeProperties(), tableName,
                         null, db.getId(), table);
                 try {
                     analyzeTblStmt.check();
                 } catch (AnalysisException analysisException) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            analysisException.getMessage(), analysisException);
+                    throw new DdlException(analysisException.getMessage(), analysisException);
                 }
                 analyzeStmts.add(analyzeTblStmt);
             }
             for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
-                try {
-                    analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
-                } catch (DdlException e) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            e.getMessage(), e);
-                }
+                analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
             }
-            return analysisInfos;
+            if (!analyzeDBStmt.isSync()) {
+                sendJobId(analysisInfos, proxy);
+            }
         } finally {
             db.readUnlock();
         }
+
     }
 
     // Each analyze stmt corresponding to an analysis job.
