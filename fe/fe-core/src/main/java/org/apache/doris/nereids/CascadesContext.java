@@ -99,7 +99,6 @@ public class CascadesContext implements ScheduleContext {
     private final RuntimeFilterContext runtimeFilterContext;
     private Optional<Scope> outerScope = Optional.empty();
     private List<TableIf> tables = null;
-    private Set<View> views = Sets.newHashSet();
 
     private boolean isRewriteRoot;
     private volatile boolean isTimeout = false;
@@ -356,14 +355,6 @@ public class CascadesContext implements ScheduleContext {
             throw new AnalysisException("Minidump cache can not find table:" + tableName);
         }
         return null;
-    }
-
-    public void addView(View view) {
-        this.views.add(view);
-    }
-
-    public List<View> getViews() {
-        return ImmutableList.copyOf(views);
     }
 
     public List<TableIf> getTables() {
