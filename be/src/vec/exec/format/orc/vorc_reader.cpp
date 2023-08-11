@@ -929,9 +929,9 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::DATE:
         return TypeDescriptor(PrimitiveType::TYPE_DATEV2);
     case orc::TypeKind::VARCHAR:
-        return TypeDescriptor(PrimitiveType::TYPE_VARCHAR);
+        return TypeDescriptor::create_varchar_type(orc_type->getMaximumLength());
     case orc::TypeKind::CHAR:
-        return TypeDescriptor(PrimitiveType::TYPE_CHAR);
+        return TypeDescriptor::create_char_type(orc_type->getMaximumLength());
     case orc::TypeKind::TIMESTAMP_INSTANT:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {

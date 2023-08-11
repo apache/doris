@@ -129,6 +129,11 @@ protected:
     // These columns will be filled by default value or null.
     std::unordered_set<std::string> _missing_cols;
 
+    //  The col names and types of source file, such as parquet, orc files.
+    std::vector<std::string> _source_file_col_names;
+    std::vector<TypeDescriptor> _source_file_col_types;
+    std::map<std::string, TypeDescriptor*> _source_file_col_name_types;
+
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
@@ -195,6 +200,8 @@ private:
     Status _fill_missing_columns(size_t rows);
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
+    Status _truncate_char_or_varchar_columns(Block* block);
+    void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
     Status _process_conjuncts_for_dict_filter();

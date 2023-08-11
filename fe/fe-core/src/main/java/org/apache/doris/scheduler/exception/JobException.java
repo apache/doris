@@ -25,6 +25,10 @@ public class JobException extends Exception {
         super(message);
     }
 
+    public JobException(String format, Object... msg) {
+        super(String.format(format, msg));
+    }
+
     public JobException(String message, Throwable cause) {
         super(message, cause);
     }

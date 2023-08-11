@@ -70,6 +70,10 @@ public class Group {
 
     private Statistics statistics;
 
+    private PhysicalProperties chosenProperties;
+
+    private int chosenGroupExpressionId = -1;
+
     /**
      * Constructor for Group.
      *
@@ -198,10 +202,17 @@ public class Group {
      * @return {@link Optional} of cost and {@link GroupExpression} of physical plan pair.
      */
     public Optional<Pair<Cost, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
+        chosenProperties = physicalProperties;
         if (physicalProperties == null || lowestCostPlans.isEmpty()) {
+            chosenGroupExpressionId = -1;
             return Optional.empty();
         }
-        return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
+        Optional<Pair<Cost, GroupExpression>> costAndGroupExpression =
+                Optional.ofNullable(lowestCostPlans.get(physicalProperties));
+        if (costAndGroupExpression.isPresent()) {
+            chosenGroupExpressionId = costAndGroupExpression.get().second.getId().asInt();
+        }
+        return costAndGroupExpression;
     }
 
     public GroupExpression getBestPlan(PhysicalProperties properties) {
@@ -430,6 +441,10 @@ public class Group {
         str.append(" enforcers:\n");
         for (GroupExpression enforcer : enforcers) {
             str.append("    ").append(enforcer).append("\n");
+        }
+        if (chosenGroupExpressionId != -1) {
+            str.append("  chosen expression id: ").append(chosenGroupExpressionId).append("\n");
+            str.append("  chosen properties: ").append(chosenProperties).append("\n");
         }
         return str.toString();
     }

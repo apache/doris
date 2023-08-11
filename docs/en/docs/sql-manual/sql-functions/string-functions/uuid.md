@@ -1,6 +1,6 @@
 ---
 {
-    "title": "uuid",
+    "title": "UUID",
     "language": "en"
 }
 ---

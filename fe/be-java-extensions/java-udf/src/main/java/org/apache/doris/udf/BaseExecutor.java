@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
+import org.apache.doris.common.jni.utils.JNINativeMethod;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
@@ -73,24 +74,6 @@ public abstract class BaseExecutor {
     // The JavaUdfDataType enum maps it to corresponding primitive type.
     protected JavaUdfDataType[] argTypes;
     protected JavaUdfDataType retType;
-
-    // Input buffer from the backend. This is valid for the duration of an
-    // evaluate() call.
-    // These buffers are allocated in the BE.
-    protected final long inputBufferPtrs;
-    protected final long inputNullsPtrs;
-    protected final long inputOffsetsPtrs;
-    protected final long inputArrayNullsPtrs;
-    protected final long inputArrayStringOffsetsPtrs;
-
-    // Output buffer to return non-string values. These buffers are allocated in the
-    // BE.
-    protected final long outputBufferPtr;
-    protected final long outputNullPtr;
-    protected final long outputOffsetsPtr;
-    protected final long outputArrayNullPtr;
-    protected final long outputArrayStringOffsetsPtr;
-    protected final long outputIntermediateStatePtr;
     protected Class[] argClass;
     protected MethodAccess methodAccess;
 
@@ -108,18 +91,6 @@ public abstract class BaseExecutor {
         } catch (TException e) {
             throw new InternalException(e.getMessage());
         }
-        inputBufferPtrs = request.input_buffer_ptrs;
-        inputNullsPtrs = request.input_nulls_ptrs;
-        inputOffsetsPtrs = request.input_offsets_ptrs;
-        inputArrayNullsPtrs = request.input_array_nulls_buffer_ptr;
-        inputArrayStringOffsetsPtrs = request.input_array_string_offsets_ptrs;
-        outputBufferPtr = request.output_buffer_ptr;
-        outputNullPtr = request.output_null_ptr;
-        outputOffsetsPtr = request.output_offsets_ptr;
-        outputIntermediateStatePtr = request.output_intermediate_state_ptr;
-        outputArrayNullPtr = request.output_array_null_ptr;
-        outputArrayStringOffsetsPtr = request.output_array_string_offsets_ptr;
-
         Type[] parameterTypes = new Type[request.fn.arg_types.size()];
         for (int i = 0; i < request.fn.arg_types.size(); ++i) {
             parameterTypes[i] = Type.fromThrift(request.fn.arg_types.get(i));
@@ -131,359 +102,6 @@ public abstract class BaseExecutor {
 
     protected abstract void init(TJavaUdfExecutorCtorParams request, String jarPath,
             Type funcRetType, Type... parameterTypes) throws UdfRuntimeException;
-
-    protected Object[] allocateInputObjects(long row, int argClassOffset) throws UdfRuntimeException {
-        Object[] inputObjects = new Object[argTypes.length];
-
-        for (int i = 0; i < argTypes.length; ++i) {
-            if (UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) != -1
-                    && (UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                    UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) + row) == 1)) {
-                inputObjects[i] = null;
-                continue;
-            }
-            switch (argTypes[i]) {
-                case BOOLEAN:
-                    inputObjects[i] = UdfUtils.UNSAFE.getBoolean(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + row);
-                    break;
-                case TINYINT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getByte(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + row);
-                    break;
-                case SMALLINT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getShort(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    break;
-                case INT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getInt(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    break;
-                case BIGINT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    break;
-                case FLOAT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getFloat(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    break;
-                case DOUBLE:
-                    inputObjects[i] = UdfUtils.UNSAFE.getDouble(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    break;
-                case DATE: {
-                    long data = UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    inputObjects[i] = UdfUtils.convertDateToJavaDate(data, argClass[i + argClassOffset]);
-                    break;
-                }
-                case DATETIME: {
-                    long data = UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    inputObjects[i] = UdfUtils.convertDateTimeToJavaDateTime(data, argClass[i + argClassOffset]);
-                    break;
-                }
-                case DATEV2: {
-                    int data = UdfUtils.UNSAFE.getInt(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    inputObjects[i] = UdfUtils.convertDateV2ToJavaDate(data, argClass[i + argClassOffset]);
-                    break;
-                }
-                case DATETIMEV2: {
-                    long data = UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + argTypes[i].getLen() * row);
-                    inputObjects[i] = UdfUtils.convertDateTimeV2ToJavaDateTime(data, argClass[i + argClassOffset]);
-                    break;
-                }
-                case LARGEINT: {
-                    long base = UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                            + argTypes[i].getLen() * row;
-                    byte[] bytes = new byte[argTypes[i].getLen()];
-                    UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, argTypes[i].getLen());
-
-                    inputObjects[i] = new BigInteger(UdfUtils.convertByteOrder(bytes));
-                    break;
-                }
-                case DECIMALV2:
-                case DECIMAL32:
-                case DECIMAL64:
-                case DECIMAL128: {
-                    long base = UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                            + argTypes[i].getLen() * row;
-                    byte[] bytes = new byte[argTypes[i].getLen()];
-                    UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, argTypes[i].getLen());
-
-                    BigInteger value = new BigInteger(UdfUtils.convertByteOrder(bytes));
-                    inputObjects[i] = new BigDecimal(value, argTypes[i].getScale());
-                    break;
-                }
-                case CHAR:
-                case VARCHAR:
-                case STRING: {
-                    long offset = Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * row));
-                    long numBytes = row == 0 ? offset
-                            : offset - Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
-                                    UdfUtils.UNSAFE.getLong(null,
-                                            UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * (row - 1)));
-                    long base = row == 0
-                            ? UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                            : UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i))
-                                    + offset - numBytes;
-                    byte[] bytes = new byte[(int) numBytes];
-                    UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
-                    inputObjects[i] = new String(bytes, StandardCharsets.UTF_8);
-                    break;
-                }
-                case ARRAY_TYPE: {
-                    Type type = argTypes[i].getItemType();
-                    inputObjects[i] = arrayTypeInputData(type, i, row);
-                    break;
-                }
-                default:
-                    throw new UdfRuntimeException("Unsupported argument type: " + argTypes[i]);
-            }
-        }
-        return inputObjects;
-    }
-
-    public ArrayList<?> arrayTypeInputData(Type type, int argIdx, long row)
-            throws UdfRuntimeException {
-        long offsetStart = (row == 0) ? 0
-                : Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null,
-                        UdfUtils.getAddressAtOffset(inputOffsetsPtrs, argIdx)) + 8L * (row - 1)));
-        long offsetEnd = Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null,
-                UdfUtils.getAddressAtOffset(inputOffsetsPtrs, argIdx)) + 8L * row));
-        long arrayNullMapBase = UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx));
-        long arrayInputBufferBase = UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx));
-
-        switch (type.getPrimitiveType()) {
-            case BOOLEAN: {
-                ArrayList<Boolean> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        boolean value = UdfUtils.UNSAFE.getBoolean(null, arrayInputBufferBase + offsetRow);
-                        data.add(value);
-                    }
-                }
-                return data;
-            }
-            case TINYINT: {
-                ArrayList<Byte> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        byte value = UdfUtils.UNSAFE.getByte(null, arrayInputBufferBase + offsetRow);
-                        data.add(value);
-                    }
-                }
-                return data;
-            }
-            case SMALLINT: {
-                ArrayList<Short> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        short value = UdfUtils.UNSAFE.getShort(null, arrayInputBufferBase + 2L * offsetRow);
-                        data.add(value);
-                    }
-                }
-                return data;
-            }
-            case INT: {
-                ArrayList<Integer> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        int value = UdfUtils.UNSAFE.getInt(null, arrayInputBufferBase + 4L * offsetRow);
-                        data.add(value);
-                    }
-                }
-                return data;
-            }
-            case BIGINT: {
-                ArrayList<Long> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 8L * offsetRow);
-                        data.add(value);
-                    }
-                }
-                return data;
-            }
-            case FLOAT: {
-                ArrayList<Float> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        float value = UdfUtils.UNSAFE.getFloat(null, arrayInputBufferBase + 4L * offsetRow);
-                        data.add(value);
-                    }
-                }
-                return data;
-            }
-            case DOUBLE: {
-                ArrayList<Double> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        double value = UdfUtils.UNSAFE.getDouble(null, arrayInputBufferBase + 8L * offsetRow);
-                        data.add(value);
-                    }
-                }
-                return data;
-            }
-            case DATE: {
-                ArrayList<LocalDate> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 8L * offsetRow);
-                        // TODO: now argClass[argIdx + argClassOffset] is java.util.ArrayList, can't get
-                        // nested class type
-                        // LocalDate obj = UdfUtils.convertDateToJavaDate(value, argClass[argIdx +
-                        // argClassOffset]);
-                        LocalDate obj = (LocalDate) UdfUtils.convertDateToJavaDate(value, LocalDate.class);
-                        data.add(obj);
-                    }
-                }
-                return data;
-            }
-            case DATETIME: {
-                ArrayList<LocalDateTime> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 8L * offsetRow);
-                        // Object obj = UdfUtils.convertDateTimeToJavaDateTime(value, argClass[argIdx +
-                        // argClassOffset]);
-                        LocalDateTime obj = (LocalDateTime) UdfUtils.convertDateTimeToJavaDateTime(value,
-                                LocalDateTime.class);
-                        data.add(obj);
-                    }
-                }
-                return data;
-            }
-            case DATEV2: {
-                ArrayList<LocalDate> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        int value = UdfUtils.UNSAFE.getInt(null, arrayInputBufferBase + 4L * offsetRow);
-                        // Object obj = UdfUtils.convertDateV2ToJavaDate(value, argClass[argIdx +
-                        // argClassOffset]);
-                        LocalDate obj = (LocalDate) UdfUtils.convertDateV2ToJavaDate(value, LocalDate.class);
-                        data.add(obj);
-                    }
-                }
-                return data;
-            }
-            case DATETIMEV2: {
-                ArrayList<LocalDateTime> data = new ArrayList<>();
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 8L * offsetRow);
-                        LocalDateTime obj = (LocalDateTime) UdfUtils.convertDateTimeV2ToJavaDateTime(value,
-                                LocalDateTime.class);
-                        data.add(obj);
-                    }
-                }
-                return data;
-            }
-            case LARGEINT: {
-                ArrayList<BigInteger> data = new ArrayList<>();
-                byte[] bytes = new byte[16];
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 16L * offsetRow);
-                        UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
-                        data.add(new BigInteger(UdfUtils.convertByteOrder(bytes)));
-                    }
-                }
-                return data;
-            }
-            case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128: {
-                int len;
-                if (type.getPrimitiveType() == PrimitiveType.DECIMAL32) {
-                    len = 4;
-                } else if (type.getPrimitiveType() == PrimitiveType.DECIMAL64) {
-                    len = 8;
-                } else {
-                    len = 16;
-                }
-                ArrayList<BigDecimal> data = new ArrayList<>();
-                byte[] bytes = new byte[len];
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + len * offsetRow);
-                        UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, len);
-                        BigInteger bigInteger = new BigInteger(UdfUtils.convertByteOrder(bytes));
-                        data.add(new BigDecimal(bigInteger, argTypes[argIdx].getScale()));
-                    }
-                }
-                return data;
-            }
-            case CHAR:
-            case VARCHAR:
-            case STRING: {
-                ArrayList<String> data = new ArrayList<>();
-                long strOffsetBase = UdfUtils.UNSAFE
-                        .getLong(null, UdfUtils.getAddressAtOffset(inputArrayStringOffsetsPtrs, argIdx));
-                for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
-                        data.add(null);
-                    } else {
-                        long stringOffsetStart = (offsetRow == 0) ? 0
-                                : Integer.toUnsignedLong(
-                                        UdfUtils.UNSAFE.getInt(null, strOffsetBase + 4L * (offsetRow - 1)));
-                        long stringOffsetEnd = Integer
-                                .toUnsignedLong(UdfUtils.UNSAFE.getInt(null, strOffsetBase + 4L * offsetRow));
-
-                        long numBytes = stringOffsetEnd - stringOffsetStart;
-                        long base = arrayInputBufferBase + stringOffsetStart;
-                        byte[] bytes = new byte[(int) numBytes];
-                        UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
-                        data.add(new String(bytes, StandardCharsets.UTF_8));
-                    }
-                }
-                return data;
-            }
-            default:
-                throw new UdfRuntimeException("Unsupported argument type in nested array: " + type);
-        }
-    }
-
-    protected abstract long getCurrentOutputOffset(long row, boolean isArrayType);
 
     /**
      * Close the class loader we may have created.
@@ -502,76 +120,74 @@ public abstract class BaseExecutor {
         classLoader = null;
     }
 
-    // Sets the result object 'obj' into the outputBufferPtr and outputNullPtr_
-    protected boolean storeUdfResult(Object obj, long row, Class retClass) throws UdfRuntimeException {
-        if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) != -1) {
-            UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputNullPtr) + row, (byte) 0);
-        }
+    public void copyTupleBasicResult(Object obj, long row, Class retClass,
+            long outputBufferBase, long charsAddress, long offsetsAddr, JavaUdfDataType retType)
+            throws UdfRuntimeException {
         switch (retType) {
             case BOOLEAN: {
                 boolean val = (boolean) obj;
-                UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                UdfUtils.UNSAFE.putByte(outputBufferBase + row * retType.getLen(),
                         val ? (byte) 1 : 0);
-                return true;
+                break;
             }
             case TINYINT: {
-                UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                UdfUtils.UNSAFE.putByte(outputBufferBase + row * retType.getLen(),
                         (byte) obj);
-                return true;
+                break;
             }
             case SMALLINT: {
-                UdfUtils.UNSAFE.putShort(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                UdfUtils.UNSAFE.putShort(outputBufferBase + row * retType.getLen(),
                         (short) obj);
-                return true;
+                break;
             }
             case INT: {
-                UdfUtils.UNSAFE.putInt(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                UdfUtils.UNSAFE.putInt(outputBufferBase + row * retType.getLen(),
                         (int) obj);
-                return true;
+                break;
             }
             case BIGINT: {
-                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                UdfUtils.UNSAFE.putLong(outputBufferBase + row * retType.getLen(),
                         (long) obj);
-                return true;
+                break;
             }
             case FLOAT: {
-                UdfUtils.UNSAFE.putFloat(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                UdfUtils.UNSAFE.putFloat(outputBufferBase + row * retType.getLen(),
                         (float) obj);
-                return true;
+                break;
             }
             case DOUBLE: {
-                UdfUtils.UNSAFE.putDouble(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                UdfUtils.UNSAFE.putDouble(outputBufferBase + row * retType.getLen(),
                         (double) obj);
-                return true;
+                break;
             }
             case DATE: {
                 long time = UdfUtils.convertToDate(obj, retClass);
-                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
-                return true;
+                UdfUtils.UNSAFE.putLong(outputBufferBase + row * retType.getLen(), time);
+                break;
             }
             case DATETIME: {
                 long time = UdfUtils.convertToDateTime(obj, retClass);
-                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
-                return true;
+                UdfUtils.UNSAFE.putLong(outputBufferBase + row * retType.getLen(), time);
+                break;
             }
             case DATEV2: {
                 int time = UdfUtils.convertToDateV2(obj, retClass);
-                UdfUtils.UNSAFE.putInt(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
-                return true;
+                UdfUtils.UNSAFE.putInt(outputBufferBase + row * retType.getLen(), time);
+                break;
             }
             case DATETIMEV2: {
                 long time = UdfUtils.convertToDateTimeV2(obj, retClass);
-                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), time);
-                return true;
+                UdfUtils.UNSAFE.putLong(outputBufferBase + row * retType.getLen(), time);
+                break;
             }
             case LARGEINT: {
                 BigInteger data = (BigInteger) obj;
                 byte[] bytes = UdfUtils.convertByteOrder(data.toByteArray());
 
-                //here value is 16 bytes, so if result data greater than the maximum of 16 bytes
-                //it will return a wrong num to backend;
+                // here value is 16 bytes, so if result data greater than the maximum of 16
+                // bytesit will return a wrong num to backend;
                 byte[] value = new byte[16];
-                //check data is negative
+                // check data is negative
                 if (data.signum() == -1) {
                     Arrays.fill(value, (byte) -1);
                 }
@@ -580,14 +196,14 @@ public abstract class BaseExecutor {
                 }
 
                 UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), value.length);
-                return true;
+                        outputBufferBase + row * retType.getLen(), value.length);
+                break;
             }
             case DECIMALV2: {
                 BigDecimal retValue = ((BigDecimal) obj).setScale(9, RoundingMode.HALF_EVEN);
                 BigInteger data = retValue.unscaledValue();
                 byte[] bytes = UdfUtils.convertByteOrder(data.toByteArray());
-                //TODO: here is maybe overflow also, and may find a better way to handle
+                // TODO: here is maybe overflow also, and may find a better way to handle
                 byte[] value = new byte[16];
                 if (data.signum() == -1) {
                     Arrays.fill(value, (byte) -1);
@@ -598,8 +214,8 @@ public abstract class BaseExecutor {
                 }
 
                 UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), value.length);
-                return true;
+                        outputBufferBase + row * retType.getLen(), value.length);
+                break;
             }
             case DECIMAL32:
             case DECIMAL64:
@@ -607,7 +223,7 @@ public abstract class BaseExecutor {
                 BigDecimal retValue = ((BigDecimal) obj).setScale(retType.getScale(), RoundingMode.HALF_EVEN);
                 BigInteger data = retValue.unscaledValue();
                 byte[] bytes = UdfUtils.convertByteOrder(data.toByteArray());
-                //TODO: here is maybe overflow also, and may find a better way to handle
+                // TODO: here is maybe overflow also, and may find a better way to handle
                 byte[] value = new byte[retType.getLen()];
                 if (data.signum() == -1) {
                     Arrays.fill(value, (byte) -1);
@@ -618,413 +234,29 @@ public abstract class BaseExecutor {
                 }
 
                 UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), value.length);
-                return true;
+                        outputBufferBase + row * retType.getLen(), value.length);
+                break;
             }
             case CHAR:
             case VARCHAR:
             case STRING: {
-                long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr);
                 byte[] bytes = ((String) obj).getBytes(StandardCharsets.UTF_8);
-                long offset = getCurrentOutputOffset(row, false);
-                if (offset + bytes.length > bufferSize) {
-                    return false;
-                }
+                long offset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
+                int needLen = (int) (offset + bytes.length);
+                outputBufferBase = JNINativeMethod.resizeStringColumn(charsAddress, needLen);
                 offset += bytes.length;
-                UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row,
-                        Integer.parseUnsignedInt(String.valueOf(offset)));
-                UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + offset - bytes.length, bytes.length);
+                UdfUtils.UNSAFE.putInt(null, offsetsAddr + 4L * row, Integer.parseUnsignedInt(String.valueOf(offset)));
+                UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, outputBufferBase + offset - bytes.length,
+                        bytes.length);
                 updateOutputOffset(offset);
-                return true;
+                break;
             }
-            case ARRAY_TYPE: {
-                Type type = retType.getItemType();
-                return arrayTypeOutputData(obj, type, row);
-            }
+            case ARRAY_TYPE:
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType);
         }
     }
 
-    public boolean arrayTypeOutputData(Object obj, Type type, long row) throws UdfRuntimeException {
-        long offset = getCurrentOutputOffset(row, true);
-        long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr);
-        long outputNullMapBase = UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr);
-        long outputBufferBase = UdfUtils.UNSAFE.getLong(null, outputBufferPtr);
-        switch (type.getPrimitiveType()) {
-            case BOOLEAN: {
-                ArrayList<Boolean> data = (ArrayList<Boolean>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    Boolean value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE.putByte(outputBufferBase + (offset + i), value ? (byte) 1 : 0);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case TINYINT: {
-                ArrayList<Byte> data = (ArrayList<Byte>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    Byte value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE.putByte(outputBufferBase + (offset + i), value);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case SMALLINT: {
-                ArrayList<Short> data = (ArrayList<Short>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    Short value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE.putShort(outputBufferBase + ((offset + i) * 2L), value);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case INT: {
-                ArrayList<Integer> data = (ArrayList<Integer>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    Integer value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE.putInt(outputBufferBase + ((offset + i) * 4L), value);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case BIGINT: {
-                ArrayList<Long> data = (ArrayList<Long>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    Long value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE.putLong(outputBufferBase + ((offset + i) * 8L), value);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case FLOAT: {
-                ArrayList<Float> data = (ArrayList<Float>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    Float value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE.putFloat(outputBufferBase + ((offset + i) * 4L), value);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case DOUBLE: {
-                ArrayList<Double> data = (ArrayList<Double>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    Double value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE.putDouble(outputBufferBase + ((offset + i) * 8L), value);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case DATE: {
-                ArrayList<LocalDate> data = (ArrayList<LocalDate>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    LocalDate value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        long time = UdfUtils.convertToDate(value, LocalDate.class);
-                        UdfUtils.UNSAFE.putLong(outputBufferBase + ((offset + i) * 8L), time);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case DATETIME: {
-                ArrayList<LocalDateTime> data = (ArrayList<LocalDateTime>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    LocalDateTime value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        long time = UdfUtils.convertToDateTime(value, LocalDateTime.class);
-                        UdfUtils.UNSAFE.putLong(outputBufferBase + ((offset + i) * 8L), time);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case DATEV2: {
-                ArrayList<LocalDate> data = (ArrayList<LocalDate>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    LocalDate value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        int time = UdfUtils.convertToDateV2(value, LocalDate.class);
-                        UdfUtils.UNSAFE.putInt(outputBufferBase + ((offset + i) * 4L), time);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case DATETIMEV2: {
-                ArrayList<LocalDateTime> data = (ArrayList<LocalDateTime>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    LocalDateTime value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        long time = UdfUtils.convertToDateTimeV2(value, LocalDateTime.class);
-                        UdfUtils.UNSAFE.putLong(outputBufferBase + ((offset + i) * 8L), time);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case LARGEINT: {
-                ArrayList<BigInteger> data = (ArrayList<BigInteger>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    BigInteger bigInteger = data.get(i);
-                    if (bigInteger == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
-                        byte[] value = new byte[16];
-                        // check data is negative
-                        if (bigInteger.signum() == -1) {
-                            Arrays.fill(value, (byte) -1);
-                        }
-                        for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
-                            value[index] = bytes[index];
-                        }
-                        UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                                outputBufferBase + ((offset + i) * 16L), value.length);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case DECIMALV2: {
-                ArrayList<BigDecimal> data = (ArrayList<BigDecimal>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    BigDecimal bigDecimal = data.get(i);
-                    if (bigDecimal == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        BigInteger bigInteger = bigDecimal.setScale(9, RoundingMode.HALF_EVEN).unscaledValue();
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
-                        byte[] value = new byte[16];
-                        // check data is negative
-                        if (bigInteger.signum() == -1) {
-                            Arrays.fill(value, (byte) -1);
-                        }
-                        for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
-                            value[index] = bytes[index];
-                        }
-                        UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                                outputBufferBase + ((offset + i) * 16L), value.length);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128: {
-                ArrayList<BigDecimal> data = (ArrayList<BigDecimal>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                for (int i = 0; i < num; ++i) {
-                    BigDecimal bigDecimal = data.get(i);
-                    if (bigDecimal == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        BigInteger bigInteger = bigDecimal.setScale(retType.getScale(), RoundingMode.HALF_EVEN)
-                                .unscaledValue();
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
-                        byte[] value = new byte[16];
-                        // check data is negative
-                        if (bigInteger.signum() == -1) {
-                            Arrays.fill(value, (byte) -1);
-                        }
-                        for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
-                            value[index] = bytes[index];
-                        }
-                        UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                                outputBufferBase + ((offset + i) * 16L), value.length);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            case CHAR:
-            case VARCHAR:
-            case STRING: {
-                ArrayList<String> data = (ArrayList<String>) obj;
-                int num = data.size();
-                if (offset + num > bufferSize) {
-                    return false;
-                }
-                long outputStrOffsetBase = UdfUtils.UNSAFE.getLong(null, outputArrayStringOffsetsPtr);
-                for (int i = 0; i < num; ++i) {
-                    String value = data.get(i);
-                    if (value == null) {
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
-                    } else {
-                        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-                        long strOffset = (offset + i == 0) ? 0
-                                : Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
-                                        outputStrOffsetBase + ((offset + i - 1) * 4L)));
-                        if (strOffset + bytes.length > bufferSize) {
-                            return false;
-                        }
-                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
-                        strOffset += bytes.length;
-                        UdfUtils.UNSAFE.putInt(null, outputStrOffsetBase + 4L * (offset + i),
-                                Integer.parseUnsignedInt(String.valueOf(strOffset)));
-                        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                                outputBufferBase + strOffset - bytes.length, bytes.length);
-                    }
-                }
-                offset += num;
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(offset)));
-                updateOutputOffset(offset);
-                return true;
-            }
-            default:
-                throw new UdfRuntimeException("Unsupported argument type in nested array: " + type);
-        }
-    }
 
     protected void updateOutputOffset(long offset) {
     }
@@ -1556,120 +788,129 @@ public abstract class BaseExecutor {
             PrimitiveType type) {
         long hasPutElementNum = 0;
         for (int row = 0; row < numRows; ++row) {
-            switch (type) {
-                case BOOLEAN: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayBooleanResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case TINYINT: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayTinyIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case SMALLINT: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArraySmallIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case INT: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case BIGINT: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayBigIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case LARGEINT: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayLargeIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case FLOAT: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayFloatResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DOUBLE: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDoubleResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case CHAR:
-                case VARCHAR:
-                case STRING: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayStringResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr);
-                    break;
-                }
-                case DATE: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDateResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DATETIME: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDateTimeResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DATEV2: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDateV2Result(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DATETIMEV2: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDateTimeV2Result(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DECIMALV2: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDecimalResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DECIMAL32: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDecimalV3Result(retType.getScale(), 4L, hasPutElementNum, isNullable, row,
-                                    result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DECIMAL64: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDecimalV3Result(retType.getScale(), 8L, hasPutElementNum, isNullable, row,
-                                    result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DECIMAL128: {
-                    hasPutElementNum = UdfConvert
-                            .copyBatchArrayDecimalV3Result(retType.getScale(), 16L, hasPutElementNum, isNullable, row,
-                                    result, nullMapAddr,
-                                    offsetsAddr, nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                default: {
-                    Preconditions.checkState(false, "Not support type in array: " + retType);
-                    break;
-                }
+            hasPutElementNum = copyTupleArrayResultImpl(hasPutElementNum, isNullable, row, result[row], nullMapAddr,
+                    offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr, type);
+        }
+    }
+
+    public long copyTupleArrayResultImpl(long hasPutElementNum, boolean isNullable, int row, Object result,
+            long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr,
+            PrimitiveType type) {
+        switch (type) {
+            case BOOLEAN: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayBooleanResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case TINYINT: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayTinyIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case SMALLINT: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArraySmallIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case INT: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case BIGINT: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayBigIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case LARGEINT: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayLargeIntResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case FLOAT: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayFloatResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case DOUBLE: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDoubleResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case CHAR:
+            case VARCHAR:
+            case STRING: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayStringResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr);
+                break;
+            }
+            case DATE: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDateResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case DATETIME: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDateTimeResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case DATEV2: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDateV2Result(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case DATETIMEV2: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDateTimeV2Result(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case DECIMALV2: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDecimalResult(hasPutElementNum, isNullable, row, result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case DECIMAL32: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDecimalV3Result(retType.getScale(), 4L, hasPutElementNum, isNullable, row,
+                                result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case DECIMAL64: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDecimalV3Result(retType.getScale(), 8L, hasPutElementNum, isNullable, row,
+                                result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            case DECIMAL128: {
+                hasPutElementNum = UdfConvert
+                        .copyBatchArrayDecimalV3Result(retType.getScale(), 16L, hasPutElementNum, isNullable, row,
+                                result, nullMapAddr,
+                                offsetsAddr, nestedNullMapAddr, dataAddr);
+                break;
+            }
+            default: {
+                Preconditions.checkState(false, "Not support type in array: " + retType);
+                break;
             }
         }
+        return hasPutElementNum;
     }
 
     public void buildArrayListFromHashMap(Object[] result, PrimitiveType keyType, PrimitiveType valueType,

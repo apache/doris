@@ -1172,8 +1172,16 @@ public class Config extends ConfigBase {
     /**
      * Set the maximum number of rows that can be cached
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大行数。",
+        "Maximum number of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
     public static int cache_result_max_row_count = 3000;
+
+    /**
+     * Set the maximum data size that can be cached
+     */
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大数据大小。",
+        "Maximum data size of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
+    public static int cache_result_max_data_size = 31457280; // 30M
 
     /**
      * Used to limit element num of InPredicate in delete statement.
@@ -2066,4 +2074,9 @@ public class Config extends ConfigBase {
             "Export任务允许的最大并行数",
             "The maximum parallelism allowed by Export job"})
     public static int maximum_parallelism_of_export_job = 50;
+
+    @ConfField(mutable = true, description = {
+            "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
+            "Whether to use mysql's bigint type to return Doris's largeint type"})
+    public static boolean use_mysql_bigint_for_largeint = false;
 }

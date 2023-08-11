@@ -346,19 +346,6 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         auto& key_null_map_data =
                 assert_cast<ColumnVector<UInt8>*>(key_data_column_null_map.get())->get_data();
         auto key_nested_nullmap_address = reinterpret_cast<int64_t>(key_null_map_data.data());
-        int64_t key_nested_data_address = 0, key_nested_offset_address = 0;
-        if (key_data_column->is_column_string()) {
-            ColumnString* str_col = assert_cast<ColumnString*>(key_data_column.get());
-            ColumnString::Chars& chars = assert_cast<ColumnString::Chars&>(str_col->get_chars());
-            ColumnString::Offsets& offsets =
-                    assert_cast<ColumnString::Offsets&>(str_col->get_offsets());
-            key_nested_data_address = reinterpret_cast<int64_t>(&chars);
-            key_nested_offset_address = reinterpret_cast<int64_t>(offsets.data());
-        } else {
-            key_nested_data_address =
-                    reinterpret_cast<int64_t>(key_data_column->get_raw_data().data);
-        }
-
         ColumnNullable& map_value_column_nullable =
                 assert_cast<ColumnNullable&>(map_col->get_values());
         auto value_data_column_null_map = map_value_column_nullable.get_null_map_column_ptr();
@@ -366,19 +353,6 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         auto& value_null_map_data =
                 assert_cast<ColumnVector<UInt8>*>(value_data_column_null_map.get())->get_data();
         auto value_nested_nullmap_address = reinterpret_cast<int64_t>(value_null_map_data.data());
-        int64_t value_nested_data_address = 0, value_nested_offset_address = 0;
-        // array type need pass address: [nullmap_address], offset_address, nested_nullmap_address, nested_data_address/nested_char_address,nested_offset_address
-        if (value_data_column->is_column_string()) {
-            ColumnString* str_col = assert_cast<ColumnString*>(value_data_column.get());
-            ColumnString::Chars& chars = assert_cast<ColumnString::Chars&>(str_col->get_chars());
-            ColumnString::Offsets& offsets =
-                    assert_cast<ColumnString::Offsets&>(str_col->get_offsets());
-            value_nested_data_address = reinterpret_cast<int64_t>(&chars);
-            value_nested_offset_address = reinterpret_cast<int64_t>(offsets.data());
-        } else {
-            value_nested_data_address =
-                    reinterpret_cast<int64_t>(value_data_column->get_raw_data().data);
-        }
         jmethodID map_size = env->GetMethodID(hashmap_class, "size", "()I");
         int element_size = 0; // get all element size in num_rows of map column
         for (int i = 0; i < num_rows; ++i) {
@@ -393,6 +367,30 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         memset(key_null_map_data.data(), 0, element_size);
         map_value_column_nullable.resize(element_size);
         memset(value_null_map_data.data(), 0, element_size);
+        int64_t key_nested_data_address = 0, key_nested_offset_address = 0;
+        if (key_data_column->is_column_string()) {
+            ColumnString* str_col = assert_cast<ColumnString*>(key_data_column.get());
+            ColumnString::Chars& chars = assert_cast<ColumnString::Chars&>(str_col->get_chars());
+            ColumnString::Offsets& offsets =
+                    assert_cast<ColumnString::Offsets&>(str_col->get_offsets());
+            key_nested_data_address = reinterpret_cast<int64_t>(&chars);
+            key_nested_offset_address = reinterpret_cast<int64_t>(offsets.data());
+        } else {
+            key_nested_data_address =
+                    reinterpret_cast<int64_t>(key_data_column->get_raw_data().data);
+        }
+        int64_t value_nested_data_address = 0, value_nested_offset_address = 0;
+        if (value_data_column->is_column_string()) {
+            ColumnString* str_col = assert_cast<ColumnString*>(value_data_column.get());
+            ColumnString::Chars& chars = assert_cast<ColumnString::Chars&>(str_col->get_chars());
+            ColumnString::Offsets& offsets =
+                    assert_cast<ColumnString::Offsets&>(str_col->get_offsets());
+            value_nested_data_address = reinterpret_cast<int64_t>(&chars);
+            value_nested_offset_address = reinterpret_cast<int64_t>(offsets.data());
+        } else {
+            value_nested_data_address =
+                    reinterpret_cast<int64_t>(value_data_column->get_raw_data().data);
+        }
         env->CallNonvirtualVoidMethod(jni_ctx->executor, jni_env->executor_cl,
                                       jni_env->executor_result_map_batch_id, result_nullable,
                                       num_rows, result_obj, nullmap_address, offset_address,
