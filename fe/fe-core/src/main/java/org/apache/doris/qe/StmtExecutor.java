@@ -141,8 +141,8 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
-import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -2512,9 +2512,6 @@ public class StmtExecutor {
 
     private List<ResultRow> convertResultBatchToResultRows(TResultBatch batch) {
         List<String> columns = parsedStmt.getColLabels();
-        List<PrimitiveType> types = parsedStmt.getResultExprs().stream()
-                .map(e -> e.getType().getPrimitiveType())
-                .collect(Collectors.toList());
         List<ResultRow> resultRows = new ArrayList<>();
         List<ByteBuffer> rows = batch.getRows();
         for (ByteBuffer buffer : rows) {
@@ -2525,8 +2522,7 @@ public class StmtExecutor {
                 String value = queryBuffer.readStringWithLength();
                 values.add(value);
             }
-
-            ResultRow resultRow = new ResultRow(columns, types, values);
+            ResultRow resultRow = new ResultRow(values);
             resultRows.add(resultRow);
         }
         return resultRows;
@@ -2547,6 +2543,14 @@ public class StmtExecutor {
 
     public void setProxyResultSet(ShowResultSet proxyResultSet) {
         this.proxyResultSet = proxyResultSet;
+    }
+
+    public ConnectContext getContext() {
+        return context;
+    }
+
+    public OriginStatement getOriginStmt() {
+        return originStmt;
     }
 }
 

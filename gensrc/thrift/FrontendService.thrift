@@ -1101,7 +1101,7 @@ struct TGetBinlogLagResult {
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
-    2: optional string colStats;
+    2: list<string> statsRows;
 }
 
 struct TAutoIncrementRangeRequest {
