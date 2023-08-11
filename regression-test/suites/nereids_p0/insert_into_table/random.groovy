@@ -15,22 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_insert_array_type") {
+suite('nereids_insert_random') {
     sql 'use nereids_insert_into_table_test'
+    sql 'clean label from nereids_insert_into_table_test'
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
     sql 'set enable_strict_consistency_dml=true'
 
-    test {
-        sql 'insert into arr_t select id, kaint from src'
-        exception 'type ARRAY<INT> is unsupported for Nereids'
-    }
-
-    sql 'set enable_fallback_to_original_planner=true'
-
-    sql 'insert into arr_t select id, kaint from src'
+    sql '''insert into dup_t_type_cast_rd
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
     sql 'sync'
-    sql 'select * from arr_t'
+    qt_11 'select * from dup_t_type_cast_rd order by id, kint'
+
+    sql '''insert into dup_t_type_cast_rd with label label_dup_type_cast_cte_rd
+            with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
+            select * from cte'''
+    sql 'sync'
+    qt_12 'select * from dup_t_type_cast_rd order by id, kint'
+
+    sql '''insert into dup_t_type_cast_rd partition (p1, p2) with label label_dup_type_cast_rd
+            select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
+    sql 'sync'
+    qt_13 'select * from dup_t_type_cast_rd order by id, kint'
 }
