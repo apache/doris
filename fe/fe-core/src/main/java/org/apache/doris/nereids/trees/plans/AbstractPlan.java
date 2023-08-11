@@ -22,7 +22,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.MutableState;
@@ -141,25 +140,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        AbstractPlan that = (AbstractPlan) o;
-        // stats should don't need.
-        return Objects.equals(getLogicalProperties(), that.getLogicalProperties());
-    }
-
-    @Override
-    public int hashCode() {
-        // stats should don't need.
-        return Objects.hash(getLogicalProperties());
-    }
-
-    @Override
     public List<Slot> getOutput() {
         return getLogicalProperties().getOutput();
     }
@@ -207,14 +187,5 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public void setMutableState(String key, Object state) {
         this.mutableState = this.mutableState.set(key, state);
-    }
-
-    @Override
-    public boolean deepEquals(TreeNode o) {
-        AbstractPlan that = (AbstractPlan) o;
-        if (Objects.equals(getLogicalProperties(), that.getLogicalProperties())) {
-            return super.deepEquals(o);
-        }
-        return false;
     }
 }
