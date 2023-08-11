@@ -56,7 +56,7 @@ suite('load') {
             // load data from cos
             def loadSql = new File("""${context.file.parent}/ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
             loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
-            sql loadSql
+            sql loadSql 
 
             // check load state
             while (true) {
