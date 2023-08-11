@@ -15,25 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.classloader;
+package org.apache.doris.common.util;
 
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.util.List;
+import org.apache.doris.common.Config;
 
-public class JniScannerClassLoader extends URLClassLoader {
+public class DbUtil {
 
-    private final String scannerName;
-
-    public JniScannerClassLoader(String scannerName, List<URL> urls, ClassLoader parent) {
-        super(urls.toArray(new URL[0]), parent);
-        this.scannerName = scannerName;
+    public static long getCreateReplicasTimeoutMs(int tabletNum) {
+        long timeout = Config.tablet_create_timeout_second * 1000L * tabletNum;
+        timeout = Math.max(timeout, Config.min_create_table_timeout_second * 1000);
+        timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
+        return timeout;
     }
 
-    @Override
-    public String toString() {
-        return "JniScannerClassLoader{"
-                + "scannerName='" + scannerName
-                + '}';
-    }
 }

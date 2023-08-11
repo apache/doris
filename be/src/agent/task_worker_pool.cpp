@@ -1259,11 +1259,18 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
             _tasks.pop_front();
         }
         const TCreateTabletReq& create_tablet_req = agent_task_req.create_tablet_req;
+        RuntimeProfile runtime_profile("CreateTablet");
+        RuntimeProfile* profile = &runtime_profile;
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::agent_task_trace_threshold_sec) {
-                LOG(WARNING) << "create tablet cost " << watch.elapsed_time() / 1e9;
+            int64_t elapsed_time = static_cast<int64_t>(watch.elapsed_time());
+            if (elapsed_time / 1e9 > config::agent_task_trace_threshold_sec) {
+                COUNTER_UPDATE(profile->total_time_counter(), elapsed_time);
+                std::stringstream ss;
+                profile->pretty_print(&ss);
+                LOG(WARNING) << "create tablet cost(s) " << elapsed_time / 1e9 << std::endl
+                             << ss.str();
             }
         });
         DorisMetrics::instance()->create_tablet_requests_total->increment(1);
@@ -1271,7 +1278,7 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
 
         std::vector<TTabletInfo> finish_tablet_infos;
         VLOG_NOTICE << "create tablet: " << create_tablet_req;
-        Status status = _env->storage_engine()->create_tablet(create_tablet_req);
+        Status status = _env->storage_engine()->create_tablet(create_tablet_req, profile);
         if (!status.ok()) {
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             LOG_WARNING("failed to create tablet, reason={}", status.to_string())
@@ -1281,8 +1288,12 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
         } else {
             ++_s_report_version;
             // get path hash of the created tablet
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    create_tablet_req.tablet_id);
+            TabletSharedPtr tablet;
+            {
+                SCOPED_TIMER(ADD_TIMER(profile, "GetTablet"));
+                tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                        create_tablet_req.tablet_id);
+            }
             DCHECK(tablet != nullptr);
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->table_id();

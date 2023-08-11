@@ -122,9 +122,6 @@ public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         LogicalDeferMaterializeResultSink<?> that = (LogicalDeferMaterializeResultSink<?>) o;
         return selectedIndexId == that.selectedIndexId && Objects.equals(logicalResultSink,
                 that.logicalResultSink) && Objects.equals(olapTable, that.olapTable);
@@ -132,7 +129,7 @@ public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), logicalResultSink, olapTable, selectedIndexId);
+        return Objects.hash(logicalResultSink, olapTable, selectedIndexId);
     }
 
     @Override
