@@ -69,7 +69,7 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             SubqueryExpr subqueryExpr, Optional<Expression> correlationFilter,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<Expression> subCorrespondingConjunct,
-            boolean inProject,
+            boolean needAddSubOutputToProjects,
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_APPLY, groupExpression, logicalProperties, leftChild, rightChild);
         this.correlationSlot = correlationSlot == null ? ImmutableList.of() : ImmutableList.copyOf(correlationSlot);
@@ -77,15 +77,16 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         this.correlationFilter = correlationFilter;
         this.markJoinSlotReference = markJoinSlotReference;
         this.subCorrespondingConjunct = subCorrespondingConjunct;
-        this.needAddSubOutputToProjects = inProject;
+        this.needAddSubOutputToProjects = needAddSubOutputToProjects;
     }
 
     public LogicalApply(List<Expression> correlationSlot, SubqueryExpr subqueryExpr,
             Optional<Expression> correlationFilter, Optional<MarkJoinSlotReference> markJoinSlotReference,
-            Optional<Expression> subCorrespondingConjunct, boolean inProject,
+            Optional<Expression> subCorrespondingConjunct, boolean needAddSubOutputToProjects,
             LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery) {
-        this(Optional.empty(), Optional.empty(), correlationSlot, subqueryExpr,
-                correlationFilter, markJoinSlotReference, subCorrespondingConjunct, inProject, input, subquery);
+        this(Optional.empty(), Optional.empty(), correlationSlot, subqueryExpr, correlationFilter,
+                markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects, input,
+                subquery);
     }
 
     public List<Expression> getCorrelationSlot() {

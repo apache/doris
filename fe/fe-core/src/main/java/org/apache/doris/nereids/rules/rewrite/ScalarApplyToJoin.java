@@ -83,7 +83,9 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
             throw new AnalysisException("correlationFilter can't be null in correlatedToJoin");
         }
 
-        return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN,
+        return new LogicalJoin<>(
+                apply.isNeedAddSubOutputToProjects() ? JoinType.LEFT_OUTER_JOIN
+                        : JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.extractConjunction(
                     apply.getSubCorrespondingConjunct().isPresent()
