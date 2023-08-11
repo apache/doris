@@ -471,9 +471,11 @@ public:
 };
 
 TEST_F(TestDeltaWriter, open) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10003, 270068375, &request);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, profile.get());
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -491,7 +493,6 @@ TEST_F(TestDeltaWriter, open) {
     DeltaWriter* delta_writer = nullptr;
 
     // test vec delta writer
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     EXPECT_NE(delta_writer, nullptr);
@@ -508,9 +509,11 @@ TEST_F(TestDeltaWriter, open) {
 }
 
 TEST_F(TestDeltaWriter, vec_write) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10004, 270068376, &request);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -527,7 +530,6 @@ TEST_F(TestDeltaWriter, vec_write) {
     WriteRequest write_req = {10004,   270068376,  WriteType::LOAD,        20002, 30002,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
@@ -664,10 +666,12 @@ TEST_F(TestDeltaWriter, vec_write) {
 }
 
 TEST_F(TestDeltaWriter, vec_sequence_col) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     sleep(20);
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -683,7 +687,6 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
@@ -773,10 +776,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 }
 
 TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
+    RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     sleep(20);
     create_tablet_request_with_sequence_col(10005, 270068377, &request, true);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, &profile);
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();

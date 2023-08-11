@@ -173,9 +173,10 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 }
 
 TEST_F(RemoteRowsetGcTest, normal) {
+    RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status st = k_engine->create_tablet(request);
+    Status st = k_engine->create_tablet(request, &profile);
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
