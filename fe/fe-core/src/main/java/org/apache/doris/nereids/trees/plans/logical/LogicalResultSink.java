@@ -108,15 +108,12 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         LogicalResultSink<?> that = (LogicalResultSink<?>) o;
         return Objects.equals(outputExprs, that.outputExprs);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), outputExprs);
+        return Objects.hash(outputExprs);
     }
 }
