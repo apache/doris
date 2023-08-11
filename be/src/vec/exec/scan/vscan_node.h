@@ -80,9 +80,7 @@ public:
 
     int runtime_filter_num() const { return (int)_runtime_filter_ctxs.size(); }
 
-    TupleId input_tuple_id() const { return _input_tuple_id; }
     TupleId output_tuple_id() const { return _output_tuple_id; }
-    const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
 
     enum class PushDownType {
@@ -159,11 +157,7 @@ protected:
 
 protected:
     RuntimeState* _state;
-    // For load scan node, there should be both input and output tuple descriptor.
-    // For query scan node, there is only output_tuple_desc.
-    TupleId _input_tuple_id = -1;
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
     // These two values are from query_options
