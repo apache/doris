@@ -238,10 +238,6 @@ public class ColumnType {
     }
 
     public static ColumnType parseType(String columnName, String hiveType) {
-        System.out.println("columnName:" + columnName);
-        LOG.warn("columnName:" + columnName);
-        LOG.warn("hiveType:" + hiveType);
-        System.out.println("hiveType:" + hiveType);
         String lowerCaseType = hiveType.toLowerCase();
         Type type = Type.UNSUPPORTED;
         int length = -1;

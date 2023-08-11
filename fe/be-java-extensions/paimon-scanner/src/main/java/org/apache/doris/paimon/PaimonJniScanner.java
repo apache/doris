@@ -112,8 +112,6 @@ public class PaimonJniScanner extends JniScanner {
                         fields[i], paimonAllFieldNames));
             }
             DataType dataType = table.rowType().getTypeAt(index);
-            System.out.println("columnName1:" + fields[i]);
-            System.out.println("hiveType1:" + dataType.toString());
             columnTypes[i] = ColumnType.parseType(fields[i], dataType.toString());
         }
         super.types = columnTypes;
