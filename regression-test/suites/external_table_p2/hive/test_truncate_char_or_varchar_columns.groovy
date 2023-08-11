@@ -1,3 +1,4 @@
+package suites.external_table_p2.hive
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_truncate_char_or_varchar_columns", "p2") {
+suite("test_truncate_char_or_varchar_columns", "p2,external,hive,external_remote,external_remote_hive") {
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
