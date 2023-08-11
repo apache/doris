@@ -91,7 +91,7 @@ public:
 
     // size of [ in ( 1 , 2  , 3 , null) ]  is 3
     size_t get_size_with_out_null(FunctionContext* context) {
-        if ((context->get_num_args() - 1) > 8) {
+        if ((context->get_num_args() - 1) > FIXED_CONTAINER_MAX_SIZE) {
             return context->get_num_args() - 1;
         }
         size_t sz = 0;
