@@ -74,7 +74,6 @@ void TabletSchemaCache::_recycle() {
         }
     }
     _is_stopped = true;
-    LOG(INFO) << "xxx yyy stopped ";
 }
 
 } // namespace doris

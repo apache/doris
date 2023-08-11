@@ -52,13 +52,13 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
@@ -809,8 +809,7 @@ public class RestoreJob extends AbstractJob {
             AgentTaskExecutor.submit(batchTask);
 
             // estimate timeout
-            long timeout = Config.tablet_create_timeout_second * 1000L * batchTask.getTaskNum();
-            timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(batchTask.getTaskNum());
             try {
                 LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
                         batchTask.getTaskNum(), timeout);
@@ -880,9 +879,10 @@ public class RestoreJob extends AbstractJob {
                 }
             }
         } else {
-            List<Entry<Long, Long>> unfinishedMarks = latch.getLeftMarks();
             // only show at most 10 results
-            List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 10));
+            List<String> subList = latch.getLeftMarks().stream().limit(10)
+                    .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                    .collect(Collectors.toList());
             String idStr = Joiner.on(", ").join(subList);
             status = new Status(ErrCode.COMMON_ERROR,
                     "Failed to create replicas for restore. unfinished marks: " + idStr);

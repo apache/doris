@@ -187,12 +187,13 @@ protected:
         rowset_writer_context->version.second = 10;
 
 #if 0
+        RuntimeProfile profile("CreateTablet");
         TCreateTabletReq req;
         req.table_id =
         req.tablet_id =
         req.tablet_scheme =
         req.partition_id =
-        l_engine->create_tablet(req);
+        l_engine->create_tablet(req, &profile);
         rowset_writer_context->tablet = l_engine->tablet_manager()->get_tablet(TTabletId tablet_id);
 #endif
         std::shared_ptr<DataDir> data_dir = std::make_shared<DataDir>(lTestDir);

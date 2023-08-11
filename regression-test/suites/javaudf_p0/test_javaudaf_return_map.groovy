@@ -88,13 +88,13 @@ suite("test_javaudaf_return_map") {
 
         qt_select_2 """ select aggmap2(id,d) from aggdb; """
 
-        qt_select_3 """ select aggmap(id) from aggdb group by id; """
+        qt_select_3 """ select aggmap(id) from aggdb group by id order by id; """
 
-        qt_select_4 """ select aggmap2(id,d) from aggdb group by id; """
+        qt_select_4 """ select aggmap2(id,d) from aggdb group by id order by id; """
 
         qt_select_5 """ select aggmap3(id,d) from aggdb; """
 
-        qt_select_6 """ select aggmap3(id,d) from aggdb group by id; """
+        qt_select_6 """ select aggmap3(id,d) from aggdb group by id order by id; """
     } finally {
         try_sql("DROP FUNCTION IF EXISTS aggmap(int);")
         try_sql("DROP FUNCTION IF EXISTS aggmap2(int,double);")

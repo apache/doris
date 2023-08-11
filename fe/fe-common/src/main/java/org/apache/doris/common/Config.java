@@ -418,7 +418,11 @@ public class Config extends ConfigBase {
                             + "eg. if you create a table with #m tablets and #n replicas for each tablet, "
                             + "the create table request will run at most "
                             + "(m * n * tablet_create_timeout_second) before timeout"})
-    public static int tablet_create_timeout_second = 1;
+    public static int tablet_create_timeout_second = 2;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"创建表的最小超时时间，单位是秒。",
+            "Minimal waiting time for creating a table, in seconds."})
+    public static int min_create_table_timeout_second = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {"创建表的最大超时时间，单位是秒。",
             "Maximal waiting time for creating a table, in seconds."})
@@ -2074,4 +2078,9 @@ public class Config extends ConfigBase {
             "Export任务允许的最大并行数",
             "The maximum parallelism allowed by Export job"})
     public static int maximum_parallelism_of_export_job = 50;
+
+    @ConfField(mutable = true, description = {
+            "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
+            "Whether to use mysql's bigint type to return Doris's largeint type"})
+    public static boolean use_mysql_bigint_for_largeint = false;
 }
