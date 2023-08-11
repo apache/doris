@@ -73,9 +73,9 @@ class BlockSerializer {
 public:
     BlockSerializer(VDataStreamSender* parent, bool is_local = false);
     Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
-                                 const std::vector<int>* rows, bool clear_after_serialize);
-    Status serialize_block(PBlock* dest, int num_receivers, bool clear_after_serialize);
-    Status serialize_block(const Block* src, PBlock* dest, int num_receivers);
+                                 const std::vector<int>* rows = nullptr);
+    Status serialize_block(PBlock* dest, int num_receivers = 1);
+    Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
 
@@ -486,8 +486,8 @@ public:
 
         bool serialized = false;
         _pblock = std::make_unique<PBlock>();
-        RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized,
-                                                          &rows, true));
+        RETURN_IF_ERROR(
+                _serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, &rows));
         if (serialized) {
             RETURN_IF_ERROR(send_current_block(false));
         }
@@ -503,7 +503,7 @@ public:
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         if (eos) {
             _pblock = std::make_unique<PBlock>();
-            RETURN_IF_ERROR(_serializer.serialize_block(_pblock.get(), 1, true));
+            RETURN_IF_ERROR(_serializer.serialize_block(_pblock.get(), 1));
         }
         RETURN_IF_ERROR(send_block(_pblock.release(), eos));
         return Status::OK();

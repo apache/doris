@@ -111,7 +111,7 @@ Status Channel::send_current_block(bool eos) {
     }
     SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
     if (eos) {
-        RETURN_IF_ERROR(_serializer.serialize_block(_ch_cur_pb_block, 1, true));
+        RETURN_IF_ERROR(_serializer.serialize_block(_ch_cur_pb_block, 1));
     }
     RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
     ch_roll_pb_block();
@@ -202,8 +202,8 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
     }
 
     bool serialized = false;
-    RETURN_IF_ERROR(_serializer.next_serialized_block(block, _ch_cur_pb_block, 1, &serialized,
-                                                      &rows, true));
+    RETURN_IF_ERROR(
+            _serializer.next_serialized_block(block, _ch_cur_pb_block, 1, &serialized, &rows));
     if (serialized) {
         RETURN_IF_ERROR(send_current_block(false));
     }
@@ -494,30 +494,27 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
 #ifndef BROADCAST_ALL_CHANNELS
-#define BROADCAST_ALL_CHANNELS(PBLOCK, PBLOCK_TO_SEND, POST_PROCESS)                       \
-    {                                                                                      \
-        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());                                    \
-        bool serialized = false;                                                           \
-        RETURN_IF_ERROR(_serializer.next_serialized_block(block, PBLOCK, _channels.size(), \
-                                                          &serialized, nullptr, false));   \
-        if (serialized) {                                                                  \
-            Status status;                                                                 \
-            Block merged_block = _serializer.get_block()->to_block();                      \
-            for (auto channel : _channels) {                                               \
-                if (!channel->is_receiver_eof()) {                                         \
-                    if (channel->is_local()) {                                             \
-                        status = channel->send_local_block(&merged_block);                 \
-                    } else {                                                               \
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());                    \
-                        status = channel->send_block(PBLOCK_TO_SEND, false);               \
-                    }                                                                      \
-                    HANDLE_CHANNEL_STATUS(state, channel, status);                         \
-                }                                                                          \
-            }                                                                              \
-            merged_block.clear_column_data();                                              \
-            _serializer.get_block()->set_muatable_columns(merged_block.mutate_columns());  \
-            POST_PROCESS;                                                                  \
-        }                                                                                  \
+#define BROADCAST_ALL_CHANNELS(PBLOCK, PBLOCK_TO_SEND, POST_PROCESS)                              \
+    {                                                                                             \
+        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());                                           \
+        bool serialized = false;                                                                  \
+        RETURN_IF_ERROR(                                                                          \
+                _serializer.next_serialized_block(block, PBLOCK, _channels.size(), &serialized)); \
+        if (serialized) {                                                                         \
+            Status status;                                                                        \
+            for (auto channel : _channels) {                                                      \
+                if (!channel->is_receiver_eof()) {                                                \
+                    if (channel->is_local()) {                                                    \
+                        status = channel->send_local_block(block);                                \
+                    } else {                                                                      \
+                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());                           \
+                        status = channel->send_block(PBLOCK_TO_SEND, false);                      \
+                    }                                                                             \
+                    HANDLE_CHANNEL_STATUS(state, channel, status);                                \
+                }                                                                                 \
+            }                                                                                     \
+            POST_PROCESS;                                                                         \
+        }                                                                                         \
     }
 #endif
         // 1. serialize depends on it is not local exchange
@@ -550,7 +547,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             } else {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(
-                        _serializer.serialize_block(block, current_channel->ch_cur_pb_block(), 1));
+                        _serializer.serialize_block(block, current_channel->ch_cur_pb_block()));
                 auto status = current_channel->send_block(current_channel->ch_cur_pb_block(), eos);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
                 current_channel->ch_roll_pb_block();
@@ -710,8 +707,7 @@ BlockSerializer::BlockSerializer(VDataStreamSender* parent, bool is_local)
         : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
 
 Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int num_receivers,
-                                              bool* serialized, const std::vector<int>* rows,
-                                              bool clear_after_serialize) {
+                                              bool* serialized, const std::vector<int>* rows) {
     if (_mutable_block == nullptr) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
@@ -731,7 +727,7 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
 
     if (_mutable_block->rows() >= _batch_size) {
         if (!_is_local) {
-            RETURN_IF_ERROR(serialize_block(dest, num_receivers, clear_after_serialize));
+            RETURN_IF_ERROR(serialize_block(dest, num_receivers));
         }
         *serialized = true;
         return Status::OK();
@@ -740,21 +736,18 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, int nu
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(PBlock* dest, int num_receivers,
-                                        bool clear_after_serialize) {
+Status BlockSerializer::serialize_block(PBlock* dest, int num_receivers) {
     if (_mutable_block && _mutable_block->rows() > 0) {
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
-        if (clear_after_serialize) {
-            block.clear_column_data();
-        }
+        block.clear_column_data();
         _mutable_block->set_muatable_columns(block.mutate_columns());
     }
 
     return Status::OK();
 }
 
-Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, int num_receivers) {
+Status BlockSerializer::serialize_block(Block* src, PBlock* dest, int num_receivers) {
     {
         SCOPED_TIMER(_parent->_serialize_batch_timer);
         dest->Clear();
