@@ -163,56 +163,64 @@ private:
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column,
                               const UInt8* right_nested_null_map, const UInt8* outer_null_map) {
-        // check array nested column type and get data
-        const auto& nested_data =
-                reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
+        if constexpr (!std::is_same_v<NestedColumnType, RightColumnType>) {
+            throw Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "array_index meet invalid input, NestedColumnType={}, RightColumnType={}",
+                    typeid(NestedColumnType).name(), typeid(RightColumnType).name());
+        } else {
+            // check array nested column type and get data
+            const auto& nested_data =
+                    reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
 
-        // check right column type and get data
-        const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
+            // check right column type and get data
+            const auto& right_data =
+                    reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
-        // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size());
-        auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
-        auto& dst_null_data = dst_null_column->get_data();
+            // prepare return data
+            auto dst = ColumnVector<ResultType>::create(offsets.size());
+            auto& dst_data = dst->get_data();
+            auto dst_null_column = ColumnUInt8::create(offsets.size());
+            auto& dst_null_data = dst_null_column->get_data();
 
-        // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            if (outer_null_map && outer_null_map[row]) {
-                dst_null_data[row] = true;
-                continue;
-            }
-            dst_null_data[row] = false;
-            ResultType res = 0;
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-            for (size_t pos = 0; pos < len; ++pos) {
-                // match null value
-                if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
-                    nested_null_map[pos + off]) {
-                    ConcreteAction::apply(res, pos);
-                    if constexpr (!ConcreteAction::resume_execution) {
-                        break;
-                    }
-                }
-                // some is null while another is not
-                if (right_nested_null_map && nested_null_map &&
-                    right_nested_null_map[row] != nested_null_map[pos + off]) {
+            // process
+            for (size_t row = 0; row < offsets.size(); ++row) {
+                if (outer_null_map && outer_null_map[row]) {
+                    dst_null_data[row] = true;
                     continue;
                 }
-                if (nested_null_map && nested_null_map[pos + off]) {
-                    continue;
-                }
-                if (nested_data[pos + off] == right_data[row]) {
-                    ConcreteAction::apply(res, pos);
-                    if constexpr (!ConcreteAction::resume_execution) {
-                        break;
+                dst_null_data[row] = false;
+                ResultType res = 0;
+                size_t off = offsets[row - 1];
+                size_t len = offsets[row] - off;
+                for (size_t pos = 0; pos < len; ++pos) {
+                    // match null value
+                    if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
+                        nested_null_map[pos + off]) {
+                        ConcreteAction::apply(res, pos);
+                        if constexpr (!ConcreteAction::resume_execution) {
+                            break;
+                        }
+                    }
+                    // some is null while another is not
+                    if (right_nested_null_map && nested_null_map &&
+                        right_nested_null_map[row] != nested_null_map[pos + off]) {
+                        continue;
+                    }
+                    if (nested_null_map && nested_null_map[pos + off]) {
+                        continue;
+                    }
+                    if (nested_data[pos + off] == right_data[row]) {
+                        ConcreteAction::apply(res, pos);
+                        if constexpr (!ConcreteAction::resume_execution) {
+                            break;
+                        }
                     }
                 }
+                dst_data[row] = res;
             }
-            dst_data[row] = res;
+            return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
         }
-        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
     }
 
     template <typename NestedColumnType>

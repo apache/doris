@@ -676,17 +676,17 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32> {
-    using CppType = int32_t;
+    using CppType = vectorized::Decimal32;
     using UnsignedCppType = uint32_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64> {
-    using CppType = int64_t;
+    using CppType = vectorized::Decimal64;
     using UnsignedCppType = uint64_t;
 };
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
-    using CppType = int128_t;
+    using CppType = vectorized::Decimal128;
     using UnsignedCppType = uint128_t;
 };
 template <>
@@ -798,11 +798,11 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
 
     static inline void set_to_max(void* buf) {
-        set_cpp_type_value(buf, std::numeric_limits<CppType>::max());
+        set_cpp_type_value(buf, type_limit<CppType>::max());
     }
 
     static inline void set_to_min(void* buf) {
-        set_cpp_type_value(buf, std::numeric_limits<CppType>::min());
+        set_cpp_type_value(buf, type_limit<CppType>::min());
     }
 
     static std::string to_string(const void* src) {
@@ -1037,14 +1037,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
         *reinterpret_cast<int32_t*>(buf) = (int32_t)value;
         return Status::OK();
     }
-    static void set_to_max(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        *data = 999999999;
-    }
-    static void set_to_min(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        *data = -999999999;
-    }
+
+    using BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>::set_to_max;
+    using BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>::set_to_min;
 };
 
 template <>
@@ -1062,14 +1057,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
         *reinterpret_cast<int64_t*>(buf) = (int64_t)value;
         return Status::OK();
     }
-    static void set_to_max(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        *data = 999999999999999999ll;
-    }
-    static void set_to_min(void* buf) {
-        CppType* data = reinterpret_cast<CppType*>(buf);
-        *data = -999999999999999999ll;
-    }
+
+    using BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>::set_to_max;
+    using BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>::set_to_min;
 };
 
 template <>
@@ -1093,16 +1083,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
         fmt::format_to(buffer, "{}", value);
         return std::string(buffer.data(), buffer.size());
     }
-    static void set_to_max(void* buf) {
-        *reinterpret_cast<PackedInt128*>(buf) =
-                static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
-    }
-    static void set_to_min(void* buf) {
-        *reinterpret_cast<PackedInt128*>(buf) =
-                -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-                  static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
-    }
+    using BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>::set_to_max;
+    using BaseFieldtypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>::set_to_min;
 };
 
 template <>

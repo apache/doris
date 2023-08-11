@@ -25,6 +25,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "common/status.h"
@@ -93,72 +94,81 @@ private:
     template <typename NestedColumnType, typename RightColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const IColumn& right_column, const UInt8* nested_null_map) {
-        // check array nested column type and get data
-        const auto& src_data = reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
-
-        // check target column type and get data
-        const auto& target_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
-
-        PaddedPODArray<UInt8>* dst_null_map = nullptr;
-        MutableColumnPtr array_nested_column = nullptr;
-        IColumn* dst_column;
-        if (nested_null_map) {
-            auto dst_nested_column =
-                    ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
-            array_nested_column = dst_nested_column->get_ptr();
-            dst_column = dst_nested_column->get_nested_column_ptr();
-            dst_null_map = &dst_nested_column->get_null_map_data();
-            dst_null_map->reserve(offsets.back());
+        if constexpr (!std::is_same_v<NestedColumnType, RightColumnType>) {
+            throw Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "array_remove meet invalid input, NestedColumnType={}, RightColumnType={}",
+                    typeid(NestedColumnType).name(), typeid(RightColumnType).name());
         } else {
-            auto dst_nested_column = nested_column.clone_empty();
-            array_nested_column = dst_nested_column->get_ptr();
-            dst_column = dst_nested_column;
-        }
+            // check array nested column type and get data
+            const auto& src_data =
+                    reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
 
-        auto& dst_data = reinterpret_cast<NestedColumnType&>(*dst_column).get_data();
-        dst_data.reserve(offsets.back());
+            // check target column type and get data
+            const auto& target_data =
+                    reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
-        auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
-        auto& dst_offsets = dst_offsets_column->get_data();
-        dst_offsets.reserve(offsets.size());
-
-        size_t cur = 0;
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-
-            if (len == 0) {
-                // case: array:[], target:1 ==> []
-                dst_offsets.push_back(cur);
-                continue;
+            PaddedPODArray<UInt8>* dst_null_map = nullptr;
+            MutableColumnPtr array_nested_column = nullptr;
+            IColumn* dst_column;
+            if (nested_null_map) {
+                auto dst_nested_column =
+                        ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
+                array_nested_column = dst_nested_column->get_ptr();
+                dst_column = dst_nested_column->get_nested_column_ptr();
+                dst_null_map = &dst_nested_column->get_null_map_data();
+                dst_null_map->reserve(offsets.back());
+            } else {
+                auto dst_nested_column = nested_column.clone_empty();
+                array_nested_column = dst_nested_column->get_ptr();
+                dst_column = dst_nested_column;
             }
 
-            size_t count = 0;
-            for (size_t pos = 0; pos < len; ++pos) {
-                if (nested_null_map && nested_null_map[off + pos]) {
-                    // case: array:[Null], target:1 ==> [Null]
-                    dst_data.push_back(typename NestedColumnType::value_type());
-                    dst_null_map->push_back(1);
+            auto& dst_data = reinterpret_cast<NestedColumnType&>(*dst_column).get_data();
+            dst_data.reserve(offsets.back());
+
+            auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
+            auto& dst_offsets = dst_offsets_column->get_data();
+            dst_offsets.reserve(offsets.size());
+
+            size_t cur = 0;
+            for (size_t row = 0; row < offsets.size(); ++row) {
+                size_t off = offsets[row - 1];
+                size_t len = offsets[row] - off;
+
+                if (len == 0) {
+                    // case: array:[], target:1 ==> []
+                    dst_offsets.push_back(cur);
                     continue;
                 }
 
-                if (src_data[off + pos] == target_data[row]) {
-                    ++count;
-                } else {
-                    dst_data.push_back(src_data[off + pos]);
-                    if (nested_null_map) {
-                        dst_null_map->push_back(0);
+                size_t count = 0;
+                for (size_t pos = 0; pos < len; ++pos) {
+                    if (nested_null_map && nested_null_map[off + pos]) {
+                        // case: array:[Null], target:1 ==> [Null]
+                        dst_data.push_back(typename NestedColumnType::value_type());
+                        dst_null_map->push_back(1);
+                        continue;
+                    }
+
+                    if (src_data[off + pos] == target_data[row]) {
+                        ++count;
+                    } else {
+                        dst_data.push_back(src_data[off + pos]);
+                        if (nested_null_map) {
+                            dst_null_map->push_back(0);
+                        }
                     }
                 }
+
+                cur += len - count;
+                dst_offsets.push_back(cur);
             }
 
-            cur += len - count;
-            dst_offsets.push_back(cur);
+            auto dst = ColumnArray::create(std::move(array_nested_column),
+                                           std::move(dst_offsets_column));
+            return dst;
         }
-
-        auto dst =
-                ColumnArray::create(std::move(array_nested_column), std::move(dst_offsets_column));
-        return dst;
     }
 
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,

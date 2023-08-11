@@ -109,9 +109,9 @@ private:
         }
     }
 
-    template <typename Y>
+    template <typename Y, template <typename> typename ColumnContainer>
     void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
-                                         ColumnVector<Y>* res_ptr) {
+                                         ColumnContainer<Y>* res_ptr) {
         static_assert(std::is_same_v<T, Y>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
@@ -459,6 +459,8 @@ public:
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
         if constexpr (std::is_same_v<ColumnVector<T>, ColumnType>) {
+            insert_default_value_res_column(sel, sel_size, column);
+        } else if constexpr (std::is_same_v<ColumnDecimal<T>, ColumnType>) {
             insert_default_value_res_column(sel, sel_size, column);
         } else if constexpr (std::is_same_v<T, StringRef>) {
             insert_string_to_res_column(sel, sel_size, column);
