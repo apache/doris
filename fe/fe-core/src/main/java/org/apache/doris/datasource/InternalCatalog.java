@@ -1885,7 +1885,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
                 } else {
-                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
                     errMsg += "Timeout:" + (timeout / 1000) + " seconds.";
                     // only show at most 3 results
                     List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
