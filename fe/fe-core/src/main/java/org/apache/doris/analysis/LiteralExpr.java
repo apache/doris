@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -89,7 +90,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 literalExpr = new JsonLiteral(value);
                 break;
             case GEOMETRY:
-                literalExpr = new GeometryLiteral(value);
+                try {
+                    literalExpr = new GeometryLiteral(value.getBytes("ISO-8859-1"));
+                } catch (UnsupportedEncodingException e) {
+                    throw new AnalysisException("Fail to get geometry bytes");
+                }
                 break;
             case DATE:
             case DATETIME:
@@ -139,7 +144,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         } else if (expr instanceof JsonLiteral) {
             literalExpr = new JsonLiteral(value);
         } else if (expr instanceof GeometryLiteral) {
-            literalExpr = new GeometryLiteral(value);
+            literalExpr = new GeometryLiteral(value.getBytes());
         } else if (expr instanceof DateLiteral) {
             literalExpr = new DateLiteral(value, expr.getType());
         } else {

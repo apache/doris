@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TGeometryLiteral;
@@ -30,20 +29,19 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Objects;
 
 public class GeometryLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(GeometryLiteral.class);
-    private String value;
-    // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
-    private String beConverted = "";
+    private byte[] value;
 
     public GeometryLiteral() {
         super();
         type = Type.GEOMETRY;
     }
 
-    public GeometryLiteral(String value) throws AnalysisException {
+    public GeometryLiteral(byte[] value) throws AnalysisException {
         super();
         this.value = value;
         type = Type.GEOMETRY;
@@ -53,10 +51,6 @@ public class GeometryLiteral extends LiteralExpr {
     protected GeometryLiteral(GeometryLiteral other) {
         super(other);
         value = other.value;
-    }
-
-    public void setBeConverted(String val) {
-        this.beConverted = val;
     }
 
     @Override
@@ -69,7 +63,7 @@ public class GeometryLiteral extends LiteralExpr {
         throw new RuntimeException("Not support comparison between GEOMETRY literals");
     }
 
-    public String getValue() {
+    public byte[] getValue() {
         return value;
     }
 
@@ -80,18 +74,18 @@ public class GeometryLiteral extends LiteralExpr {
 
     @Override
     public String toSqlImpl() {
-        return "'" + value.replaceAll("'", "''") + "'";
+        return "'" + getStringValue() + "'";
     }
 
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.GEOMETRY_LITERAL;
-        msg.geometry_literal = new TGeometryLiteral(getUnescapedValue());
+        msg.geometry_literal = new TGeometryLiteral(ByteBuffer.wrap(getValue()));
     }
 
     @Override
     public String getStringValue() {
-        return value;
+        return getValue().toString();
     }
 
     @Override
@@ -99,13 +93,7 @@ public class GeometryLiteral extends LiteralExpr {
         return null;
     }
 
-    public String getUnescapedValue() {
-        // Unescape string exactly like Hive does. Hive's method assumes
-        // quotes so we add them here to reuse Hive's code.
-        return value;
-    }
-
-    public String getGeometryValue() {
+    public byte[] getGeometryValue() {
         return value;
     }
 
@@ -120,7 +108,7 @@ public class GeometryLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getRealValue() {
+    public byte[] getRealValue() {
         return getGeometryValue();
     }
 
@@ -133,12 +121,15 @@ public class GeometryLiteral extends LiteralExpr {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-        Text.writeString(out, value);
+        int length = value.length;
+        out.writeInt(length);
+        out.write(value, 0, length);
     }
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        value = Text.readString(in);
+        int length = in.readInt();
+        in.readFully(value, 0, length);
     }
 
     public static GeometryLiteral read(DataInput in) throws IOException {

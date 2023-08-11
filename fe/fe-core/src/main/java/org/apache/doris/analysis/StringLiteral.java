@@ -313,7 +313,11 @@ public class StringLiteral extends LiteralExpr {
         } else if (targetType.isJsonbType()) {
             return new JsonLiteral(value);
         } else if (targetType.isGeometryType()) {
-            return new GeometryLiteral(value);
+            try {
+                return new GeometryLiteral(value.getBytes("ISO-8859-1"));
+            } catch (UnsupportedEncodingException e) {
+                throw new AnalysisException("Fail to get geometry bytes");
+            }
         }
         return super.uncheckedCastTo(targetType);
     }

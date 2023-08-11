@@ -28,7 +28,7 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_geometry.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -56,7 +56,7 @@ struct StContainsState {
     std::vector<std::shared_ptr<GeoShape>> shapes;
 };
 
-template <typename Impl, typename ReturnType = DataTypeString>
+template <typename Impl, typename ReturnType = DataTypeGeometry>
 class GeoFunction : public IFunction {
 public:
     static constexpr auto name = Impl::NAME;
@@ -69,6 +69,8 @@ public:
         return make_nullable(std::make_shared<ReturnType>());
     }
     bool use_default_implementation_for_nulls() const override { return true; }
+
+    bool use_default_implementation_for_constants() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {

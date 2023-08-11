@@ -194,7 +194,7 @@ struct TJsonLiteral {
 }
 
 struct TGeometryLiteral {
-  1: required string value;
+  1: required binary value;
 }
 
 struct TInfoFunc {

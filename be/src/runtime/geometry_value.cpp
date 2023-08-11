@@ -21,19 +21,16 @@
 
 namespace doris {
 
-Status GeometryBinaryValue::from_geometry_string(const char* s, int length) {
-    GeoParseStatus status;
-    std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(s, length, &status));
-    if (shape == nullptr || status != GEO_PARSE_OK) {
-        return Status::InvalidArgument("geometry parse error: {} for value: {}", "Invalid WKT data",
+Status GeometryBinaryValue::from_geometry_string(const char* s, size_t length) {
+
+    size_t a = length;
+    std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(s, a));
+    if (shape == nullptr) {
+        return Status::InvalidArgument("geometry parse error for value: {}", "Invalid data",
                                        std::string_view(s, length));
     }
-
-    std::string res = GeoShape::as_binary(shape.get(), 0);
-    len = res.size();
-    ptr = new char[len + 1];
-    std::copy(res.begin(), res.end(), const_cast<char*>(ptr));
-    const_cast<char*>(ptr)[len] = '\0';
+    len = length;
+    ptr = s;
     DCHECK_LE(len, MAX_LENGTH);
     return Status::OK();
 }
