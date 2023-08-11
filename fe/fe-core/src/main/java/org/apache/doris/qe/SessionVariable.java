@@ -635,7 +635,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
     public boolean enableNereidsDML = false;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
