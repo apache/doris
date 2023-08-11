@@ -43,6 +43,10 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
         super(child);
     }
 
+    private Not(List<Expression> child) {
+        super(child);
+    }
+
     @Override
     public boolean nullable() throws UnboundException {
         return child().nullable();
@@ -88,7 +92,7 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     @Override
     public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        Not not = new Not(children.get(0));
+        Not not = new Not(children);
         not.isGeneratedIsNotNull = this.isGeneratedIsNotNull;
         return not;
     }
