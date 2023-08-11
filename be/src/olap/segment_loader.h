@@ -111,7 +111,7 @@ public:
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
                          bool use_cache = false);
 
-    void erase_segment(const SegmentCache::CacheKey& key);
+    void erase_segments(const SegmentCache::CacheKey& key);
 
 private:
     SegmentLoader();

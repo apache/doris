@@ -679,6 +679,19 @@ message PReportStreamLoadStatusResponse {
     optional PStatus status = 1;
 }
 
+message PGlobRequest {
+    optional string pattern = 1;
+}
+
+message PGlobResponse {
+    message PFileInfo {
+        optional string file = 1;
+        optional int64 size = 2;
+    };
+    required PStatus status = 1;
+    repeated PFileInfo files = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -717,5 +730,6 @@ service PBackendService {
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
     rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
+    rpc glob(PGlobRequest) returns (PGlobResponse);
 };
 

@@ -828,7 +828,7 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集小于cache_result_max_row_count，则结果集会被缓存，下一条相同的SQL会命中缓存
+如果设置为 true，SQL 查询结果集将被缓存。如果查询中所有表的所有分区最后一次访问版本时间的间隔大于cache_last_version_interval_second，且结果集行数小于cache_result_max_row_count，且数据大小小于cache_result_max_data_size，则结果集会被缓存，下一条相同的SQL会命中缓存
 
 如果设置为 true，FE 会启用 sql 结果缓存，该选项适用于离线数据更新场景
 
@@ -856,6 +856,16 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 是否为 Master FE 节点独有的配置项：false
 
 设置可以缓存的最大行数，详细的原理可以参考官方文档：操作手册->分区缓存
+
+#### `cache_result_max_data_size`
+
+默认值：31457280
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+设置可以缓存的最大数据大小，单位Bytes
 
 #### `cache_last_version_interval_second`
 

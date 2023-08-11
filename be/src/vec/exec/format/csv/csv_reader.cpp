@@ -283,6 +283,12 @@ Status CsvReader::init_reader(bool is_load) {
     _trim_tailing_spaces =
             (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
+    _collection_delimiter = _params.file_attributes.text_params.collection_delimiter;
+    _text_converter->set_collection_delimiter(_collection_delimiter[0]);
+
+    _map_kv_delimiter = _params.file_attributes.text_params.mapkv_delimiter;
+    _text_converter->set_map_kv_delimiter(_map_kv_delimiter[0]);
+
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
     }
@@ -688,9 +694,11 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
     _text_converter->set_escape_char(_escape);
 
-    //get array delimiter
-    _array_delimiter = _params.file_attributes.text_params.array_delimiter;
-    _text_converter->set_array_delimiter(_array_delimiter[0]);
+    _collection_delimiter = _params.file_attributes.text_params.collection_delimiter;
+    _text_converter->set_collection_delimiter(_collection_delimiter[0]);
+
+    _map_kv_delimiter = _params.file_attributes.text_params.mapkv_delimiter;
+    _text_converter->set_map_kv_delimiter(_map_kv_delimiter[0]);
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file

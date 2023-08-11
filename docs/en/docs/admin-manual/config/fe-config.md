@@ -827,7 +827,7 @@ IsMutable：true
 
 MasterOnly：false
 
-If this switch is turned on, the SQL query result set will be cached. If the interval between the last visit version time in all partitions of all tables in the query is greater than cache_last_version_interval_second, and the result set is less than cache_result_max_row_count, the result set will be cached, and the next same SQL will hit the cache
+If this switch is turned on, the SQL query result set will be cached. If the interval between the last visit version time in all partitions of all tables in the query is greater than cache_last_version_interval_second, and the result set is less than cache_result_max_row_count, and the data size is less than cache_result_max_data_size, the result set will be cached, and the next same SQL will hit the cache
 
 If set to true, fe will enable sql result caching. This option is suitable for offline data update scenarios
 
@@ -854,7 +854,17 @@ IsMutable：true
 
 MasterOnly：false
 
-In order to avoid occupying too much memory, the maximum number of rows that can be cached is 2000 by default. If this threshold is exceeded, the cache cannot be set
+In order to avoid occupying too much memory, the maximum number of rows that can be cached is 3000 by default. If this threshold is exceeded, the cache cannot be set
+
+#### `cache_result_max_data_size`
+
+Default: 31457280
+
+IsMutable: true
+
+MasterOnly: false
+
+In order to avoid occupying too much memory, the maximum data size of rows that can be cached is 10MB by default. If this threshold is exceeded, the cache cannot be set
 
 #### `cache_last_version_interval_second`
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SQL问题",
+    "title": "SQL 问题",
     "language": "zh-CN"
 }
 ---

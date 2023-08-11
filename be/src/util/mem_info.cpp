@@ -125,8 +125,9 @@ bool MemInfo::process_minor_gc() {
         je_purge_all_arena_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
-        LOG(INFO) << fmt::format("End Minor GC, Free Memory {} Bytes. cost(us): {}, details: {}",
-                                 freed_mem, watch.elapsed_time() / 1000, ss.str());
+        LOG(INFO) << fmt::format("End Minor GC, Free Memory {}. cost(us): {}, details: {}",
+                                 PrettyPrinter::print(freed_mem, TUnit::BYTES),
+                                 watch.elapsed_time() / 1000, ss.str());
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
@@ -174,8 +175,9 @@ bool MemInfo::process_full_gc() {
         je_purge_all_arena_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
-        LOG(INFO) << fmt::format("End Full GC Free, Memory {} Bytes. cost(us): {}, details: {}",
-                                 freed_mem, watch.elapsed_time() / 1000, ss.str());
+        LOG(INFO) << fmt::format("End Full GC, Free Memory {}. cost(us): {}, details: {}",
+                                 PrettyPrinter::print(freed_mem, TUnit::BYTES),
+                                 watch.elapsed_time() / 1000, ss.str());
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
@@ -224,7 +226,23 @@ bool MemInfo::process_full_gc() {
 }
 
 int64_t MemInfo::tg_hard_memory_limit_gc() {
+    MonotonicStopWatch watch;
+    watch.start();
     std::vector<taskgroup::TaskGroupPtr> task_groups;
+    std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
+    int64_t total_free_memory = 0;
+
+    Defer defer {[&]() {
+        if (total_free_memory > 0) {
+            std::stringstream ss;
+            tg_profile->pretty_print(&ss);
+            LOG(INFO) << fmt::format(
+                    "End Task Group Overcommit Memory GC, Free Memory {}. cost(us): {}, "
+                    "details: {}",
+                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
+                    watch.elapsed_time() / 1000, ss.str());
+        }
+    }};
 
     ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
@@ -232,14 +250,13 @@ int64_t MemInfo::tg_hard_memory_limit_gc() {
             },
             &task_groups);
 
-    int64_t total_free_memory = 0;
     for (const auto& task_group : task_groups) {
         taskgroup::TaskGroupInfo tg_info;
         task_group->task_group_info(&tg_info);
         auto used = task_group->memory_used();
         total_free_memory += MemTrackerLimiter::tg_memory_limit_gc(
                 used - tg_info.memory_limit, used, tg_info.id, tg_info.name, tg_info.memory_limit,
-                task_group->mem_tracker_limiter_pool(), nullptr);
+                task_group->mem_tracker_limiter_pool(), tg_profile.get());
     }
     return total_free_memory;
 }

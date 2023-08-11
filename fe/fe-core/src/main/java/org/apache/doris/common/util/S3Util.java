@@ -53,9 +53,10 @@ public class S3Util {
 
     public static boolean isObjStorage(String location) {
         return isObjStorageUseS3Client(location)
-                || location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_OSS)
-                || location.startsWith(FeConstants.FS_PREFIX_OBS);
+            // if treat cosn(tencent hadoop-cos) as a s3 file system, may bring incompatible issues
+            || (location.startsWith(FeConstants.FS_PREFIX_COS) && !location.startsWith(FeConstants.FS_PREFIX_COSN))
+            || location.startsWith(FeConstants.FS_PREFIX_OSS)
+            || location.startsWith(FeConstants.FS_PREFIX_OBS);
     }
 
     private static boolean isObjStorageUseS3Client(String location) {

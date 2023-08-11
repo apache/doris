@@ -18,6 +18,7 @@
 suite("or_expansion") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "SET enable_pipeline_engine = true"
     def db = "nereids_test_query_db"
     sql "use ${db}"
 
