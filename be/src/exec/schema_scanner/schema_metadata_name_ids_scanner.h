@@ -31,12 +31,12 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-class SchemaSimpleTablesScanner : public SchemaScanner {
-    ENABLE_FACTORY_CREATOR(SchemaSimpleTablesScanner);
+class SchemaMetadataNameIdsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaMetadataNameIdsScanner);
 
 public:
-    SchemaSimpleTablesScanner();
-    ~SchemaSimpleTablesScanner() override;
+    SchemaMetadataNameIdsScanner();
+    ~SchemaMetadataNameIdsScanner() override;
 
     Status start(RuntimeState* state) override;
     Status get_next_block(vectorized::Block* block, bool* eos) override;
@@ -47,7 +47,7 @@ private:
 
     int _db_index;
     TGetDbsResult _db_result;
-    TListSimpleTableStatusResult _table_result;
+    TListTableMetadataNameIdsResult _table_result;
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 

@@ -353,12 +353,13 @@ struct TListTableStatusResult {
     1: required list<TTableStatus> tables
 }
 
-struct TSimpleTableStatus {
-	1: required string name
-	2: required i64 id 
+struct TTableMetadataNameIds {
+    1: optional string name
+    2: optional i64 id 
 }
-struct TListSimpleTableStatusResult {
-	1: required list<TSimpleTableStatus> tables 
+
+struct TListTableMetadataNameIdsResult {
+    1: optional list<TTableMetadataNameIds> tables 
 }
 
 // getTableNames returns a list of unqualified table names
@@ -1144,7 +1145,7 @@ service FrontendService {
     TMasterOpResult forward(1: TMasterOpRequest params)
 
     TListTableStatusResult listTableStatus(1: TGetTablesParams params)
-    TListSimpleTableStatusResult listSimpleTableStatus(1: TGetTablesParams params)
+    TListTableMetadataNameIdsResult listTableMetadataNameIds(1: TGetTablesParams params)
     TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)

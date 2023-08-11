@@ -415,7 +415,8 @@ public class SchemaTable extends Table {
                             .column("ROUTINE_TYPE", ScalarType.createVarchar(64))
                             .column("DATA_TYPEDTD_IDENDS", ScalarType.createVarchar(64))
                             .build()))
-            .put("simple_tables", new SchemaTable(SystemIdGenerator.getNextId(), "simple_tables", TableType.SCHEMA,
+            .put("metadata_name_ids", new SchemaTable(SystemIdGenerator.getNextId(),
+                        "metadata_name_ids", TableType.SCHEMA,
                     builder().column("CATALOG_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("CATALOG_NAME", ScalarType.createVarchar(FN_REFLEN))
                             .column("DATABASE_ID", ScalarType.createType(PrimitiveType.BIGINT))

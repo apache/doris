@@ -145,7 +145,7 @@ import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
-import org.apache.doris.thrift.TListSimpleTableStatusResult;
+import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadTxn2PCRequest;
 import org.apache.doris.thrift.TLoadTxn2PCResult;
@@ -178,7 +178,6 @@ import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
-import org.apache.doris.thrift.TSimpleTableStatus;
 import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
 import org.apache.doris.thrift.TSnapshotType;
 import org.apache.doris.thrift.TStatus;
@@ -189,6 +188,7 @@ import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TStreamLoadWithLoadStatusRequest;
 import org.apache.doris.thrift.TStreamLoadWithLoadStatusResult;
 import org.apache.doris.thrift.TTableIndexQueryStats;
+import org.apache.doris.thrift.TTableMetadataNameIds;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TUniqueId;
@@ -697,14 +697,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    public TListSimpleTableStatusResult listSimpleTableStatus(TGetTablesParams params) throws TException {
+    public TListTableMetadataNameIdsResult listTableMetadataNameIds(TGetTablesParams params) throws TException {
 
-        long timeoutTs = System.currentTimeMillis() + exeEnv.getScheduler().getContext(0)
-                        .getSessionVariable().getQuerySimpleTablesTimeout() * 1000L;
+
+        long timeoutTs = System.currentTimeMillis() + Config.query_metadata_name_ids_timeout * 1000L;
 
         LOG.debug("get list simple table request: {}", params);
-        TListSimpleTableStatusResult result = new TListSimpleTableStatusResult();
-        List<TSimpleTableStatus> tablesResult = Lists.newArrayList();
+        TListTableMetadataNameIdsResult result = new TListTableMetadataNameIdsResult();
+        List<TTableMetadataNameIds> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
@@ -743,7 +743,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             if (matcher != null && !matcher.match(table.getName())) {
                                 continue;
                             }
-                            TSimpleTableStatus status = new TSimpleTableStatus();
+                            TTableMetadataNameIds status = new TTableMetadataNameIds();
                             status.setName(table.getName());
                             status.setId(table.getId());
 

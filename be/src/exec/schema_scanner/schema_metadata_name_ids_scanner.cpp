@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_simple_tables_scanner.h"
+#include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/FrontendService_types.h>
@@ -39,22 +39,22 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-std::vector<SchemaScanner::ColumnDesc> SchemaSimpleTablesScanner::_s_tbls_columns = {
+std::vector<SchemaScanner::ColumnDesc> SchemaMetadataNameIdsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
-        {"CATALOG_ID", TYPE_BIGINT, sizeof(int64_t), false},
-        {"CATALOG_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"DATABASE_ID", TYPE_BIGINT, sizeof(int64_t), false},
-        {"DATABASE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"CATALOG_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CATALOG_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"DATABASE_ID", TYPE_BIGINT, sizeof(int64_t), true},
+        {"DATABASE_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
-SchemaSimpleTablesScanner::SchemaSimpleTablesScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_SIMPLE_TABLES), _db_index(0) {}
+SchemaMetadataNameIdsScanner::SchemaMetadataNameIdsScanner()
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_METADATA_NAME_IDS), _db_index(0) {}
 
-SchemaSimpleTablesScanner::~SchemaSimpleTablesScanner() {}
+SchemaMetadataNameIdsScanner::~SchemaMetadataNameIdsScanner() {}
 
-Status SchemaSimpleTablesScanner::start(RuntimeState* state) {
+Status SchemaMetadataNameIdsScanner::start(RuntimeState* state) {
     if (!_is_init) {
         return Status::InternalError("used before initialized.");
     }
@@ -86,7 +86,7 @@ Status SchemaSimpleTablesScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaSimpleTablesScanner::_get_new_table() {
+Status SchemaMetadataNameIdsScanner::_get_new_table() {
     SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
@@ -109,15 +109,15 @@ Status SchemaSimpleTablesScanner::_get_new_table() {
     }
 
     if (nullptr != _param->ip && 0 != _param->port) {
-        RETURN_IF_ERROR(SchemaHelper::list_simple_table_status(*(_param->ip), _param->port,
-                                                               table_params, &_table_result));
+        RETURN_IF_ERROR(SchemaHelper::list_table_metadata_name_ids(*(_param->ip), _param->port,
+                                                                   table_params, &_table_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
     return Status::OK();
 }
 
-Status SchemaSimpleTablesScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto table_num = _table_result.tables.size();
     if (table_num == 0) {
@@ -183,12 +183,16 @@ Status SchemaSimpleTablesScanner::_fill_block_impl(vectorized::Block* block) {
             fill_dest_column_for_range(block, 3, null_datas);
         }
     }
-    // table_id
+    //     table_id
     {
         int64_t srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
-            srcs[i] = _table_result.tables[i].id;
-            datas[i] = &srcs;
+            if (_table_result.tables[i].__isset.id) {
+                srcs[i] = _table_result.tables[i].id;
+                datas[i] = &srcs;
+            } else {
+                datas[i] = nullptr;
+            }
         }
         fill_dest_column_for_range(block, 4, datas);
     }
@@ -197,9 +201,13 @@ Status SchemaSimpleTablesScanner::_fill_block_impl(vectorized::Block* block) {
     {
         StringRef strs[table_num];
         for (int i = 0; i < table_num; ++i) {
-            const std::string* src = &_table_result.tables[i].name;
-            strs[i] = StringRef(src->c_str(), src->size());
-            datas[i] = strs + i;
+            if (_table_result.tables[i].__isset.name) {
+                const std::string* src = &_table_result.tables[i].name;
+                strs[i] = StringRef(src->c_str(), src->size());
+                datas[i] = strs + i;
+            } else {
+                datas[i] = nullptr;
+            }
         }
         fill_dest_column_for_range(block, 5, datas);
     }
@@ -207,7 +215,7 @@ Status SchemaSimpleTablesScanner::_fill_block_impl(vectorized::Block* block) {
     return Status::OK();
 }
 
-Status SchemaSimpleTablesScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaMetadataNameIdsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

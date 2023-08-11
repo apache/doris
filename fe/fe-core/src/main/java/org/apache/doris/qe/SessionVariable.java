@@ -67,7 +67,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
 
-    public static final String QUERY_SIMPLE_TABLES_TIMEOUT = "query_simple_tables_timeout";
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
@@ -444,10 +443,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
     public int insertTimeoutS = 14400;
 
-    //query  internal.information_schema.simple_tables time
-    @VariableMgr.VarAttr(name = QUERY_SIMPLE_TABLES_TIMEOUT)
-    public int querySimpleTablesTimeout = 3;
-
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
@@ -729,6 +724,7 @@ public class SessionVariable implements Serializable, Writable {
     public int getBeNumberForTest() {
         return beNumberForTest;
     }
+
     @VariableMgr.VarAttr(name = PROFILLING)
     public boolean profiling = false;
 
@@ -1316,9 +1312,6 @@ public class SessionVariable implements Serializable, Writable {
         return insertTimeoutS;
     }
 
-    public int getQuerySimpleTablesTimeout() {
-        return querySimpleTablesTimeout;
-    }
 
     public void setInsertTimeoutS(int insertTimeoutS) {
         this.insertTimeoutS = insertTimeoutS;
