@@ -77,6 +77,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -407,13 +408,26 @@ public class LoadManager implements Writable {
      **/
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
+        removeLoadJobIf(job -> job.isExpired(currentTimeMs));
+    }
 
+    /**
+     * Remove completed jobs if total job num exceed Config.label_num_threshold
+     */
+    public void removeFinishedLoadJob() {
+        if (idToLoadJob.size() < Config.label_num_threshold) {
+            return;
+        }
+        removeLoadJobIf(LoadJob::isCompleted);
+    }
+
+    private void removeLoadJobIf(Predicate<LoadJob> pred) {
         writeLock();
         try {
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
             while (iter.hasNext()) {
                 LoadJob job = iter.next().getValue();
-                if (job.isExpired(currentTimeMs)) {
+                if (pred.test(job)) {
                     iter.remove();
                     Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
                     List<LoadJob> list = map.get(job.getLabel());

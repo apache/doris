@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
@@ -45,6 +46,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class SyncJobManager implements Writable {
@@ -283,13 +285,28 @@ public class SyncJobManager implements Writable {
     // Stopped jobs will be removed after Config.label_keep_max_second.
     public void cleanOldSyncJobs() {
         LOG.debug("begin to clean old sync jobs ");
+        cleanFinishedSyncJobsIf(job -> job.isExpired(System.currentTimeMillis()));
+    }
+
+    /**
+     * Remove completed jobs if total job num exceed Config.label_num_threshold
+     */
+    public void cleanFinishedSyncJobs() {
+        if (idToSyncJob.size() < Config.label_num_threshold) {
+            return;
+        }
+        LOG.debug("begin to clean finished sync jobs ");
+        cleanFinishedSyncJobsIf(SyncJob::isCompleted);
+    }
+
+    public void cleanFinishedSyncJobsIf(Predicate<SyncJob> pred) {
         long currentTimeMs = System.currentTimeMillis();
         writeLock();
         try {
             Iterator<Map.Entry<Long, SyncJob>> iterator = idToSyncJob.entrySet().iterator();
             while (iterator.hasNext()) {
                 SyncJob syncJob = iterator.next().getValue();
-                if (syncJob.isExpired(currentTimeMs)) {
+                if (pred.test(syncJob)) {
                     if (!dbIdToJobNameToSyncJobs.containsKey(syncJob.getDbId())) {
                         continue;
                     }
@@ -307,7 +324,7 @@ public class SyncJobManager implements Writable {
                             .add("finishTimeMs", syncJob.getFinishTimeMs())
                             .add("currentTimeMs", currentTimeMs)
                             .add("jobState", syncJob.getJobState())
-                            .add("msg", "old sync job has been cleaned")
+                            .add("msg", "sync job has been cleaned")
                     );
                 }
             }

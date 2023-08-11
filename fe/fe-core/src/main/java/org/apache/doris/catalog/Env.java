@@ -2441,6 +2441,10 @@ public class Env {
                 loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
                 deleteHandler.removeOldDeleteInfos();
+
+                if (Config.label_num_threshold > 0) {
+                    loadManager.removeFinishedLoadJob();
+                }
             }
         };
     }

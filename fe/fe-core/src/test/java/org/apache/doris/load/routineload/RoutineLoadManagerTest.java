@@ -801,7 +801,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                routineLoadJob.needRemove();
+                routineLoadJob.isExpired();
                 minTimes = 0;
                 result = true;
                 routineLoadJob.getDbId();
