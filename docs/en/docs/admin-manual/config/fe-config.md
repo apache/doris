@@ -1680,6 +1680,16 @@ Default：SIZE-MB-1024
 
 The size of the log split, split a log file every 1 G
 
+<version since="dev">
+
+#### `sys_log_enable_compress`
+
+Default: false
+
+If true, will compress fe.log & fe.warn.log by gzip
+
+</version>
+
 #### `audit_log_dir`
 
 Default：DORIS_HOME_DIR + "/log"
@@ -1724,6 +1734,16 @@ support format:
 - 10h     10 hours
 - 60m     60 min
 - 120s    120 seconds
+
+<version since="dev">
+
+#### `audit_log_enable_compress`
+
+Default: false
+
+If true, will compress fe.audit.log by gzip
+
+</version>
 
 ### Storage
 
