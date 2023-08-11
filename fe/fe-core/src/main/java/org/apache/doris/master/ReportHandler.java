@@ -1188,7 +1188,21 @@ public class ReportHandler extends Daemon {
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
                     visibleVersion, replicaAlloc, aliveBeIds);
 
-            if (isColocateBackend || status.first == TabletStatus.VERSION_INCOMPLETE
+            // FORCE_REDUNDANT is a specific missing case.
+            // So it can add replica when it's in FORCE_REDUNDANT.
+            // But must be careful to avoid: delete a replica then add it back, then repeat forever.
+            // If this replica is sched available and existing another replica is sched unavailable,
+            // it's safe to add this replica.
+            // Because if the tablet scheduler want to delete a replica, it will choose the sched
+            // unavailable replica and avoid the repeating loop as above.
+            boolean canAddForceRedundant = status.first == TabletStatus.FORCE_REDUNDANT
+                    && infoService.checkBackendScheduleAvailable(backendId)
+                    && tablet.getReplicas().stream().anyMatch(
+                            r -> !infoService.checkBackendScheduleAvailable(r.getBackendId()));
+
+            if (isColocateBackend
+                    || canAddForceRedundant
+                    || status.first == TabletStatus.VERSION_INCOMPLETE
                     || status.first == TabletStatus.REPLICA_MISSING
                     || status.first == TabletStatus.UNRECOVERABLE) {
                 long lastFailedVersion = -1L;
@@ -1264,7 +1278,10 @@ public class ReportHandler extends Daemon {
 
                 Env.getCurrentEnv().getEditLog().logAddReplica(info);
 
-                LOG.info("add replica[{}-{}] to catalog. backend[{}]", tabletId, replicaId, backendId);
+                LOG.info("add replica[{}-{}] to catalog. backend[{}], tablet status {}, tablet size {}, "
+                        + "is colocate backend {}",
+                        tabletId, replicaId, backendId, status.first.name(), tablet.getReplicas().size(),
+                        isColocateBackend);
                 return true;
             } else {
                 // replica is enough. check if this tablet is already in meta
@@ -1275,7 +1292,9 @@ public class ReportHandler extends Daemon {
                         return true;
                     }
                 }
-                LOG.warn("replica is enough[{}-{}]", tablet.getReplicas().size(), replicaAlloc.toCreateStmt());
+                LOG.warn("no add replica [{}-{}] cause it is enough[{}-{}], tablet status {}",
+                        tabletId, replicaId, tablet.getReplicas().size(), replicaAlloc.toCreateStmt(),
+                        status.first.name());
                 return false;
             }
         } finally {

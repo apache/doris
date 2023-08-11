@@ -897,6 +897,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
         return res;
     }
 
+    int curr_sweep_batch_size = 0;
     try {
         // Sort pathes by name, that is by delete time.
         std::vector<path> sorted_pathes;
@@ -927,6 +928,13 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
                 res = io::global_local_filesystem()->delete_directory(path_name);
                 if (!res.ok()) {
                     continue;
+                }
+
+                curr_sweep_batch_size++;
+                if (config::garbage_sweep_batch_size > 0 &&
+                    curr_sweep_batch_size >= config::garbage_sweep_batch_size) {
+                    curr_sweep_batch_size = 0;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
             } else {
                 // Because files are ordered by filename, i.e. by create time, so all the left files are not expired.
@@ -1009,15 +1017,18 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
 }
 
 // TODO(zc): refactor this funciton
-Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
+Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile) {
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;
-    stores = get_stores_for_create_tablet(request.storage_medium);
+    {
+        SCOPED_TIMER(ADD_TIMER(profile, "GetStores"));
+        stores = get_stores_for_create_tablet(request.storage_medium);
+    }
     if (stores.empty()) {
         return Status::Error<CE_CMD_PARAMS_ERROR>(
                 "there is no available disk that can be used to create tablet.");
     }
-    return _tablet_manager->create_tablet(request, stores);
+    return _tablet_manager->create_tablet(request, stores, profile);
 }
 
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
@@ -1140,10 +1151,14 @@ void StorageEngine::create_single_replica_compaction(
 
 bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
                                           std::string* token) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
+        return false;
+    }
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (_peer_replica_infos.count(tablet_id) &&
-        _peer_replica_infos[tablet_id].replica_id !=
-                _tablet_manager->get_tablet(tablet_id)->replica_id()) {
+        _peer_replica_infos[tablet_id].replica_id != tablet->replica_id()) {
         *replica = _peer_replica_infos[tablet_id];
         *token = _token;
         return true;
@@ -1152,10 +1167,14 @@ bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* repli
 }
 
 bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
+    TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "tablet is no longer exist: tablet_id=" << tablet_id;
+        return false;
+    }
     std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
     if (_peer_replica_infos.count(tablet_id)) {
-        return _peer_replica_infos[tablet_id].replica_id !=
-               _tablet_manager->get_tablet(tablet_id)->replica_id();
+        return _peer_replica_infos[tablet_id].replica_id != tablet->replica_id();
     }
     return false;
 }

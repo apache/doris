@@ -99,24 +99,28 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
-        String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
-        if (Strings.isNullOrEmpty(namenodes)) {
-            throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
-        }
-        String[] names = namenodes.split(",");
-        for (String name : names) {
-            String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
-                    "");
-            if (Strings.isNullOrEmpty(address)) {
-                throw new DdlException(
-                        "Missing dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
+
+        String[] nameservices = dfsNameservices.split(",");
+        for (String dfsservice : nameservices) {
+            String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsservice, "");
+            if (Strings.isNullOrEmpty(namenodes)) {
+                throw new DdlException("Missing dfs.ha.namenodes." + dfsservice + " property");
             }
-        }
-        String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsNameservices,
-                "");
-        if (Strings.isNullOrEmpty(failoverProvider)) {
-            throw new DdlException(
-                    "Missing dfs.client.failover.proxy.provider." + dfsNameservices + " property");
+            String[] names = namenodes.split(",");
+            for (String name : names) {
+                String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsservice + "." + name,
+                        "");
+                if (Strings.isNullOrEmpty(address)) {
+                    throw new DdlException(
+                            "Missing dfs.namenode.rpc-address." + dfsservice + "." + name + " property");
+                }
+            }
+            String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsservice,
+                    "");
+            if (Strings.isNullOrEmpty(failoverProvider)) {
+                throw new DdlException(
+                        "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
+            }
         }
     }
 

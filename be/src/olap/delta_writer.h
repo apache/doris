@@ -98,24 +98,16 @@ public:
     Status cancel();
     Status cancel_with_status(const Status& st);
 
-    // submit current memtable to flush queue, and wait all memtables in flush queue
-    // to be flushed.
-    // This is currently for reducing mem consumption of this delta writer.
-    // If need_wait is true, it will wait for all memtable in flush queue to be flushed.
-    // Otherwise, it will just put memtables to the flush queue and return.
-    Status flush_memtable_and_wait(bool need_wait);
-
-    int64_t partition_id() const;
-
     int64_t mem_consumption(MemType mem);
-    int64_t active_memtable_mem_consumption();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
-    int64_t tablet_id() { return _tablet->tablet_id(); }
+    int64_t partition_id() const { return _req.partition_id; }
 
-    int64_t txn_id() { return _req.txn_id; }
+    int64_t tablet_id() const { return _req.tablet_id; }
+
+    int64_t txn_id() const { return _req.txn_id; }
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
@@ -125,6 +117,8 @@ public:
 
     // For UT
     DeleteBitmapPtr get_delete_bitmap() { return _delete_bitmap; }
+
+    MemTableWriter* memtable_writer() { return &_memtable_writer; }
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
