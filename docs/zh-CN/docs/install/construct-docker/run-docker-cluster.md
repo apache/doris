@@ -113,7 +113,6 @@ docker run -itd \
 -p 9030:9030 \
 -v /data/fe/doris-meta:/opt/apache-doris/fe/doris-meta \
 -v /data/fe/log:/opt/apache-doris/fe/log \
---net=host \
 apache/doris:2.0.0_alpha-fe-x86_64
 
 docker run -itd \
@@ -123,7 +122,6 @@ docker run -itd \
 -p 8040:8040 \
 -v /data/be/storage:/opt/apache-doris/be/storage \
 -v /data/be/log:/opt/apache-doris/be/log \
---net=host \
 apache/doris:2.0.0_alpha-be-x86_64
 ```
 
