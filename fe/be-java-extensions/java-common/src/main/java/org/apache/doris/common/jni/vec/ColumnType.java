@@ -17,9 +17,6 @@
 
 package org.apache.doris.common.jni.vec;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,7 +30,6 @@ import java.util.regex.Pattern;
  * If decimalv2 is deprecated, we can unify decimal32 & decimal64 & decimal128 into decimal.
  */
 public class ColumnType {
-    private static final Logger LOG = LoggerFactory.getLogger(ColumnType.class);
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
