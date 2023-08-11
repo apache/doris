@@ -67,7 +67,7 @@ suite("test_show_where", "query,external,mysql,external_docker,external_docker_m
                     "type"="jdbc",
                     "jdbc.user"="root",
                     "jdbc.password"="123456",
-                    "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/mysql_show_db?useSSL=false",
+                    "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/show_test_do_not_modify?useSSL=false",
                     "jdbc.driver_url" = "${driver_url}",
                     "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
                 """
@@ -79,7 +79,7 @@ suite("test_show_where", "query,external,mysql,external_docker,external_docker_m
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb0}'"
             qt_select "show tables from ${mysql_show_db}"
-            qt_select "show tables from internal.${mysql_show_db}"
+            qt_select "show tables from internal.${ex_db_name}"
             qt_select "show tables from ${catalog_name}.${mysql_show_db}"
 
 
@@ -90,7 +90,7 @@ suite("test_show_where", "query,external,mysql,external_docker,external_docker_m
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb1}'"
             qt_select "show tables from internal.${ex_db_name}"
-            qt_select "show tables from ${catalog_name}.${ex_db_name}"
+            qt_select "show tables from ${catalog_name}.${mysql_show_db}"
 
         }
 
