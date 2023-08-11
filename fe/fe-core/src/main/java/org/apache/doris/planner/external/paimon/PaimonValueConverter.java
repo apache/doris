@@ -126,10 +126,6 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
     // paimon is no problem,but we consistent with Doris internal table
     // Therefore, comment out this code
     public Float visit(FloatType floatType) {
-        //        if (expr instanceof FloatLiteral) {
-        //            FloatLiteral floatLiteral = (FloatLiteral) expr;
-        //            return (float) floatLiteral.getValue();
-        //        }
         return null;
     }
 
@@ -141,10 +137,9 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
         return null;
     }
 
-    public Object visit(DateType dateType) {
+    public Integer visit(DateType dateType) {
         if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            dateLiteral.getLongValue();
             long l = LocalDate.of((int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay())
                     .toEpochDay();
             return (int) l;
