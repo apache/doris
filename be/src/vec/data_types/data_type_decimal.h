@@ -250,15 +250,15 @@ public:
 
     T fractional_part(T x) const {
         if (scale == 0) {
-            return 0;
+            return T();
         }
-        if (x < T(0)) {
-            x *= T(-1);
+        if (x < T()) {
+            x *= -1;
         }
         return x % get_scale_multiplier();
     }
 
-    T max_whole_value() const { return get_scale_multiplier(max_precision() - scale) - T(1); }
+    T max_whole_value() const { return get_scale_multiplier(max_precision() - scale) - 1; }
 
     bool can_store_whole(T x) const {
         T max = max_whole_value();
@@ -413,8 +413,8 @@ ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& v
             if (overflow_flag) {
                 *overflow_flag = 1;
             }
-            return converted_value < MaxFieldType(0) ? type_limit<ToFieldType>::min()
-                                                     : type_limit<ToFieldType>::max();
+            return converted_value < MaxFieldType() ? type_limit<ToFieldType>::min()
+                                                    : type_limit<ToFieldType>::max();
         }
     } else {
         converted_value =

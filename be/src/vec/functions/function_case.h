@@ -308,7 +308,7 @@ public:
 
         // set default value
         for (int i = 0; i < rows_count; i++) {
-            result_raw_data[i] = 0;
+            result_raw_data[i] = {};
         }
 
         // some types had simd automatically, but some not.

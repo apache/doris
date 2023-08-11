@@ -49,8 +49,8 @@ struct type_limit<vectorized::Decimal32> {
 
 template <>
 struct type_limit<vectorized::Decimal64> {
-    static vectorized::Decimal64 min() { return -999999999999999999l; }
-    static vectorized::Decimal64 max() { return 999999999999999999l; }
+    static vectorized::Decimal64 min() { return int64_t(-999999999999999999ll); }
+    static vectorized::Decimal64 max() { return -min(); }
 };
 
 template <>

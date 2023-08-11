@@ -143,7 +143,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
         column.resize(arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
-            data[i] = *(int128_t*)(arg.bytes_value(i).c_str());
+            data[i] = *(T*)(arg.bytes_value(i).c_str());
         }
         return Status::OK();
     }

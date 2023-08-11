@@ -58,7 +58,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionAvgData {
-    T sum = 0;
+    T sum {};
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
@@ -145,7 +145,7 @@ public:
     }
 
     void reset(AggregateDataPtr place) const override {
-        this->data(place).sum = 0;
+        this->data(place).sum = {};
         this->data(place).count = 0;
     }
 
