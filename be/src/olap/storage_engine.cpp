@@ -1017,15 +1017,18 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
 }
 
 // TODO(zc): refactor this funciton
-Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
+Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile) {
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;
-    stores = get_stores_for_create_tablet(request.storage_medium);
+    {
+        SCOPED_TIMER(ADD_TIMER(profile, "GetStores"));
+        stores = get_stores_for_create_tablet(request.storage_medium);
+    }
     if (stores.empty()) {
         return Status::Error<CE_CMD_PARAMS_ERROR>(
                 "there is no available disk that can be used to create tablet.");
     }
-    return _tablet_manager->create_tablet(request, stores);
+    return _tablet_manager->create_tablet(request, stores, profile);
 }
 
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
