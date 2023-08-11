@@ -477,7 +477,7 @@ public class Tablet extends MetaObject implements Writable {
 
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         Map<Tag, Short> stableAllocMap = Maps.newHashMap();
-        Map<Tag, Short> stableCompleteAllocMap = Maps.newHashMap();
+        Map<Tag, Short> stableVersionCompleteAllocMap = Maps.newHashMap();
 
         short replicationNum = replicaAlloc.getTotalReplicaNum();
         int alive = 0;
@@ -517,8 +517,8 @@ public class Tablet extends MetaObject implements Writable {
                     stable++;
                     versions.add(replica.getVersionCount());
 
-                    allocNum = stableCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
-                    stableCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
+                    allocNum = stableVersionCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+                    stableVersionCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
                 }
             }
         }
@@ -582,7 +582,7 @@ public class Tablet extends MetaObject implements Writable {
 
         // 4. got enough healthy replicas, check tag
         for (Map.Entry<Tag, Short> alloc : allocMap.entrySet()) {
-            if (stableCompleteAllocMap.getOrDefault(alloc.getKey(), (short) 0) < alloc.getValue()) {
+            if (stableVersionCompleteAllocMap.getOrDefault(alloc.getKey(), (short) 0) < alloc.getValue()) {
                 if (stableAllocMap.getOrDefault(alloc.getKey(), (short) 0) >= alloc.getValue()) {
                     return Pair.of(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);
                 } else {
