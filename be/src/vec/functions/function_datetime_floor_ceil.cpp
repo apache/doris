@@ -507,13 +507,16 @@ struct TimeRound {
             part = ts2.minute() + ts2.second();
         }
         if constexpr (Impl::Unit == MINUTE) {
-            diff = ts2.daynr() * 24 * 60 + ts2.hour() * 60 + ts2.minute();
+            diff = ts2.daynr() * 24L * 60 + ts2.hour() * 60 + ts2.minute();
             part = ts2.second();
         }
         if constexpr (Impl::Unit == SECOND) {
-            diff = ts2.daynr() * 24 * 60 * 60 + ts2.hour() * 60 * 60 + ts2.minute() * 60 +
+            diff = ts2.daynr() * 24L * 60 * 60 + ts2.hour() * 60L * 60 + ts2.minute() * 60L +
                    ts2.second();
             part = 0;
+            if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
+                part = ts2.microsecond();
+            }
         }
 
         if constexpr (Impl::Type == CEIL) {
