@@ -99,6 +99,13 @@ public class MetastoreEventFactory implements EventFactory {
         for (int i = 0; i < events.size(); i++) {
             MetastoreEvent event = events.get(i);
 
+            // if the event is a rename db event, just clear indexMap
+            // to make sure the table references of these events in indexMap will not change
+            if (event instanceof AlterDatabaseEvent && ((AlterDatabaseEvent) event).isRename()) {
+                indexMap.clear();
+                continue;
+            }
+
             // Only check MetastoreTableEvent
             if (!(event instanceof MetastoreTableEvent)) {
                 continue;
