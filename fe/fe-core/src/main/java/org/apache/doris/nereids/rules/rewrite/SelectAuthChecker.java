@@ -42,7 +42,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-public class AuthChecker implements RewriteRuleFactory {
+public class SelectAuthChecker implements RewriteRuleFactory {
 
     @Override
     public List<Rule> buildRules() {
@@ -67,7 +67,7 @@ public class AuthChecker implements RewriteRuleFactory {
         getCols(filter.getConjuncts(), cols);
         // get cols from project
         getCols(project.getProjects(), cols);
-        checkAuth((CatalogRelation) relation, cols);
+        checkSelectAuth((CatalogRelation) relation, cols);
         return project;
     }
 
@@ -80,11 +80,11 @@ public class AuthChecker implements RewriteRuleFactory {
         Set<String> cols = Sets.newHashSet();
         // get cols from project
         getCols(project.getProjects(), cols);
-        checkAuth((CatalogRelation) relation, cols);
+        checkSelectAuth((CatalogRelation) relation, cols);
         return project;
     }
 
-    public static void checkAuth(CatalogRelation catalogRelation, Set<String> cols) {
+    public static void checkSelectAuth(CatalogRelation catalogRelation, Set<String> cols) {
         TableIf table = catalogRelation.getTable();
         if (table == null) {
             return;

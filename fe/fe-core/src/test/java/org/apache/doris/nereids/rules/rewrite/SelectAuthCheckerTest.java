@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Set;
 
-public class AuthCheckerTest extends TestWithFeService implements MemoPatternMatchSupported {
+public class SelectAuthCheckerTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -70,16 +70,16 @@ public class AuthCheckerTest extends TestWithFeService implements MemoPatternMat
         LogicalFilter filter = (LogicalFilter) plan;
         Set<String> cols = Sets.newHashSet();
         // get cols from filter
-        AuthChecker.getCols(filter.getConjuncts(), cols);
+        SelectAuthChecker.getCols(filter.getConjuncts(), cols);
         // get cols from project
-        AuthChecker.getCols(project.getProjects(), cols);
+        SelectAuthChecker.getCols(project.getProjects(), cols);
         return cols;
     }
 
     private Set<String> getRelationCols(LogicalProject<LogicalRelation> project) {
         Set<String> cols = Sets.newHashSet();
         // get cols from project
-        AuthChecker.getCols(project.getProjects(), cols);
+        SelectAuthChecker.getCols(project.getProjects(), cols);
         return cols;
     }
 }
