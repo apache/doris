@@ -768,7 +768,14 @@ void VDataStreamSender::_roll_pb_block() {
 }
 
 Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** holder) {
-    DCHECK(_broadcast_pb_blocks[_broadcast_pb_block_idx].available());
+    if (_broadcast_pb_block_idx >= _broadcast_pb_blocks.size()) {
+        return Status::InternalError(
+                "get_next_available_buffer meet invalid index, index={}, size={}",
+                _broadcast_pb_block_idx, _broadcast_pb_blocks.size());
+    }
+    if (!_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
+        return Status::InternalError("broadcast_pb_blocks not available");
+    }
     *holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx];
     _broadcast_pb_block_idx++;
     return Status::OK();
