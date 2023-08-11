@@ -322,7 +322,7 @@ public class Coordinator {
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
-                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+                && fragments.size() > 0;
         initQueryOptions(context);
 
         setFromUserProperty(context);
