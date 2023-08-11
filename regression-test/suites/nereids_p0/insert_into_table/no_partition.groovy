@@ -22,7 +22,7 @@ suite('nereids_insert_no_partition') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
-    sql 'set parallel_fragment_exec_instance_num=13'
+    sql 'set enable_strict_consistency_dml=true'
 
     explain {
         // TODO: test turn off pipeline when dml, remove it if pipeline sink is ok
