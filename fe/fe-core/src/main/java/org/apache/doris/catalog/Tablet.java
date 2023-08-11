@@ -510,15 +510,15 @@ public class Tablet extends MetaObject implements Writable {
                     needFurtherRepairReplica = replica;
                 }
 
-                short aliveAllocNum = stableAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
-                stableAllocMap.put(backend.getLocationTag(), (short) (aliveAllocNum + 1));
+                short allocNum = stableAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+                stableAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
 
                 if (versionCompleted) {
                     stable++;
                     versions.add(replica.getVersionCount());
 
-                    short stableAllocNum = stableCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
-                    stableCompleteAllocMap.put(backend.getLocationTag(), (short) (stableAllocNum + 1));
+                    allocNum = stableCompleteAllocMap.getOrDefault(backend.getLocationTag(), (short) 0);
+                    stableCompleteAllocMap.put(backend.getLocationTag(), (short) (allocNum + 1));
                 }
             }
         }
