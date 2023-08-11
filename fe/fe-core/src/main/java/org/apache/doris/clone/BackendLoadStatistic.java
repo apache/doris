@@ -87,11 +87,14 @@ public class BackendLoadStatistic {
     private Tag tag;
 
     public static class LoadScore {
-        public double replicaNumCoefficient = 0.5;
         public double capacityCoefficient = 0.5;
         public double score = 0.0;
 
         public static final LoadScore DUMMY = new LoadScore();
+
+        public double getReplicaNumCoefficient() {
+            return 1.0 - capacityCoefficient;
+        }
     }
 
     private Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
@@ -256,7 +259,8 @@ public class BackendLoadStatistic {
             loadScoreMap.put(medium, loadScore);
 
             LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
-                    beId, medium, loadScore.capacityCoefficient, loadScore.replicaNumCoefficient, loadScore.score);
+                    beId, medium, loadScore.capacityCoefficient, loadScore.getReplicaNumCoefficient(),
+                    loadScore.score);
         }
     }
 
@@ -275,14 +279,15 @@ public class BackendLoadStatistic {
         // Else if capacity used percent > 75%, set capacityCoefficient to 1.
         // Else, capacityCoefficient changed smoothly from 0.5 to 1 with used capacity increasing
         // Function: (2 * usedCapacityPercent - 0.5)
-        if (!Config.be_rebalancer_fuzzy_test) {
+        if (Config.backend_load_capacity_coeficient >= 0.0 && Config.backend_load_capacity_coeficient <= 1.0) {
+            loadScore.capacityCoefficient = Config.backend_load_capacity_coeficient;
+        } else if (!Config.be_rebalancer_fuzzy_test) {
             loadScore.capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
                     : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
                             : (2 * usedCapacityPercent - 0.5));
-            loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
         }
         loadScore.score = capacityProportion * loadScore.capacityCoefficient
-                + replicaNumProportion * loadScore.replicaNumCoefficient;
+                + replicaNumProportion * loadScore.getReplicaNumCoefficient();
 
         return loadScore;
     }
@@ -444,7 +449,7 @@ public class BackendLoadStatistic {
         info.add(String.valueOf(totalReplicaNumMap.getOrDefault(medium, 0L)));
         LoadScore loadScore = loadScoreMap.getOrDefault(medium, new LoadScore());
         info.add(String.valueOf(loadScore.capacityCoefficient));
-        info.add(String.valueOf(loadScore.replicaNumCoefficient));
+        info.add(String.valueOf(loadScore.getReplicaNumCoefficient()));
         info.add(String.valueOf(loadScore.score));
         info.add(clazzMap.getOrDefault(medium, Classification.INIT).name());
         return info;
