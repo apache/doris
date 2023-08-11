@@ -476,18 +476,20 @@ struct StContains {
         MutableColumnPtr res = return_type->create_column();
 
         auto shape_value = shape1->get_data_at(0);
-        GeoParseStatus status;
+        //GeoParseStatus status;
 
-        std::unique_ptr<GeoShape> lhs_shape(GeoShape::from_wkb(shape_value.data, shape_value.size, &status));
-        if (status != GEO_PARSE_OK || lhs_shape == nullptr) {
-            return Status::InvalidArgument(to_string(status));
+        std::unique_ptr<GeoShape> lhs_shape(GeoShape::from_encoded(shape_value.data, shape_value.size));
+        if (lhs_shape == nullptr) {
+            res->insert_data(nullptr, 0);
+            block.replace_by_position(result, std::move(res));
+            return Status::OK();
         }
 
         std::unique_ptr<GeoShape> rhs_shape;
         for (int row = 0; row < size; ++row) {
             auto rhs_value = shape2->get_data_at(row);
-            rhs_shape.reset(GeoShape::from_wkb(rhs_value.data, rhs_value.size, &status));
-            if (status != GEO_PARSE_OK || rhs_shape == nullptr) {
+            rhs_shape.reset(GeoShape::from_encoded(rhs_value.data, rhs_value.size));
+            if (rhs_shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1597,8 +1599,8 @@ struct StBuffer {
 
 void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StPoint>>();
-    factory.register_function<GeoFunction<StAsText<StAsWktName>>>();
-    factory.register_function<GeoFunction<StAsText<StAsTextName>>>();
+    factory.register_function<GeoFunction<StAsText<StAsWktName>,DataTypeString>>();
+    factory.register_function<GeoFunction<StAsText<StAsTextName>,DataTypeString>>();
     factory.register_function<GeoFunction<StX, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StY, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StDistanceSphere, DataTypeFloat64>>();
@@ -1619,10 +1621,10 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAreaSquareKm, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeometryFromWKB>>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeomFromWKB>>>();
-    factory.register_function<GeoFunction<StAsBinary>>();
+    factory.register_function<GeoFunction<StAsBinary,DataTypeString>>();
     factory.register_function<GeoFunction<StGeoFromGeoJson<StGeometryFromGeoJson>>>();
     factory.register_function<GeoFunction<StGeoFromGeoJson<StGeomFromGeoJson>>>();
-    factory.register_function<GeoFunction<StAsGeoJson>>();
+    factory.register_function<GeoFunction<StAsGeoJson,DataTypeString>>();
     factory.register_function<GeoFunction<StPointN>>();
     factory.register_function<GeoFunction<StStartPoint>>();
     factory.register_function<GeoFunction<StEndPoint>>();
@@ -1640,7 +1642,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StIsRing, DataTypeUInt8>>();
     factory.register_function<GeoFunction<StNumGeometries, DataTypeInt64>>();
     factory.register_function<GeoFunction<StNumPoints, DataTypeInt64>>();
-    factory.register_function<GeoFunction<StGeometryType>>();
+    factory.register_function<GeoFunction<StGeometryType,DataTypeString>>();
     factory.register_function<GeoFunction<StCentroid>>();
 }
 

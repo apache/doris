@@ -32,7 +32,13 @@ namespace vectorized {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            std::string string_temp = GeoShape::geo_tohex(std::string(geo_val.data, geo_val.size));
+            std::unique_ptr<GeoShape> shape;
+            std::string string_temp;
+            size_t data_size = geo_val.size;
+            shape.reset(GeoShape::from_encoded(geo_val.data, data_size));
+            if(shape != nullptr ){
+                string_temp = shape->as_wkt();
+            }
             if (UNLIKELY(0 != result.push_string(string_temp.c_str(), string_temp.size()))) {
                 return Status::InternalError("pack mysql buffer failed.");
             }

@@ -29,7 +29,7 @@ struct GeometryBinaryValue {
 
     GeometryBinaryValue() : ptr(nullptr), len(0) {}
     GeometryBinaryValue(const std::string& s) { from_geometry_string(s.c_str(), s.length()); }
-    GeometryBinaryValue(const char* ptr, int len) { from_geometry_string(ptr, len); }
+    GeometryBinaryValue(const char* ptr, size_t len) { from_geometry_string(ptr, len); }
 
     ~GeometryBinaryValue() { delete[] ptr; }
 
@@ -42,7 +42,7 @@ struct GeometryBinaryValue {
         this->len = len_a;
     }
 
-    Status from_geometry_string(const char* s, int len);
+    Status from_geometry_string(const char* s, size_t len);
 
     std::string to_geometry_string() const;
 };

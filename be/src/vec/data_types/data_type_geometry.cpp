@@ -29,7 +29,7 @@ std::string DataTypeGeometry::to_string(const IColumn& column, size_t row_num) c
     ColumnPtr ptr = result.first;
     row_num = result.second;
     const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    return GeoShape::geo_tohex(std::string(s.data, s.size));
+    return s.to_string();
 }
 
 void DataTypeGeometry::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
