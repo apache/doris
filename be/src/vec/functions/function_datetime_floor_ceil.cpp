@@ -489,7 +489,6 @@ struct TimeRound {
     static void time_round(const DateValueType& ts2, DateValueType& ts1, UInt8& is_null) {
         // ts2 --- > ts1
         constexpr Int32 period = 1;
-        ts1 = ts2;
         int64_t diff;
         int64_t trivial_part_ts1;
         int64_t trivial_part_ts2;
