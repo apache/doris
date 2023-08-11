@@ -344,12 +344,12 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
         if ((mem & MemType::WRITE) == MemType::WRITE) { // 3 & 2 = 2
-            for (auto mem_table_tracker : _mem_table_insert_trackers) {
+            for (const auto& mem_table_tracker : _mem_table_insert_trackers) {
                 mem_usage += mem_table_tracker->consumption();
             }
         }
         if ((mem & MemType::FLUSH) == MemType::FLUSH) { // 3 & 1 = 1
-            for (auto mem_table_tracker : _mem_table_flush_trackers) {
+            for (const auto& mem_table_tracker : _mem_table_flush_trackers) {
                 mem_usage += mem_table_tracker->consumption();
             }
         }
