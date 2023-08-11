@@ -18,6 +18,8 @@
 
 package org.apache.doris.datasource.hive.event;
 
+import com.google.common.collect.ImmutableSet;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 
@@ -30,7 +32,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.AlterPartitionMessage;
 
 import java.util.List;
-import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -80,6 +82,16 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
         }
     }
 
+    @Override
+    protected boolean willChangePartitionName() {
+        return isRename;
+    }
+
+    @Override
+    protected Set<String> getAllPartitionNames() {
+        return ImmutableSet.of(partitionNameBefore);
+    }
+
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
         return Lists.newArrayList(new AlterPartitionEvent(event, catalogName));
@@ -109,10 +121,24 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
     }
 
     @Override
-    protected boolean canBeBatched(MetastoreEvent event) {
-        return isSameTable(event)
-                    && event instanceof AlterPartitionEvent
-                    && Objects.equals(partitionBefore, ((AlterPartitionEvent) event).partitionBefore)
-                    && Objects.equals(partitionAfter, ((AlterPartitionEvent) event).partitionAfter);
+    protected boolean canBeBatched(MetastoreEvent that) {
+        if (!isSameTable(that) || !(that instanceof MetastorePartitionEvent)) {
+            return false;
+        }
+
+        MetastorePartitionEvent thatPartitionEvent = (MetastorePartitionEvent) that;
+        if (thatPartitionEvent.willChangePartitionName()) {
+            return false;
+        }
+
+        for (String partitionName : getAllPartitionNames()) {
+            if (thatPartitionEvent instanceof AddPartitionEvent) {
+                ((AddPartitionEvent) thatPartitionEvent).skipOnePartition(partitionName);
+            } else if (thatPartitionEvent instanceof DropPartitionEvent) {
+                ((DropPartitionEvent) thatPartitionEvent).skipOnePartition(partitionName);
+            }
+        }
+
+        return getAllPartitionNames().containsAll(thatPartitionEvent.getAllPartitionNames());
     }
 }

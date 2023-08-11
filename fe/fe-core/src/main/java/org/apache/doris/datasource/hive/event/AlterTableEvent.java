@@ -86,6 +86,11 @@ public class AlterTableEvent extends MetastoreTableEvent {
         return willCreateOrDropTable;
     }
 
+    @Override
+    protected boolean willChangeTableName() {
+        return isRename;
+    }
+
     private void processRecreateTable() throws DdlException {
         if (!isView) {
             return;
@@ -157,15 +162,21 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return false;
         }
 
-        // `that` event must not be a rename table event
+        // that event must be a MetastoreTableEvent event
+        // otherwise `isSameTable` will return false
+        MetastoreTableEvent thatTblEvent = (MetastoreTableEvent) that;
+
+        if (thatTblEvent.willChangeTableName()) {
+            return false;
+        }
+
+        // `thatTblEvent` event will not change the table's name
         // so if the process of this event will drop this table,
         // it can merge all the table's events before
-        if (willCreateOrDropTable) {
+        if (willCreateOrDropTable()) {
             return true;
         }
 
-        // that event must be a MetastoreTableEvent event
-        // otherwise `isSameTable` will return false
-        return !((MetastoreTableEvent) that).willCreateOrDropTable();
+        return !thatTblEvent.willCreateOrDropTable();
     }
 }

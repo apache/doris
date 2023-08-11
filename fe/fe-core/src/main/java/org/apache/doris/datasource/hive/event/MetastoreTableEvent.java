@@ -67,6 +67,11 @@ public abstract class MetastoreTableEvent extends MetastoreEvent {
      */
     protected abstract boolean willCreateOrDropTable();
 
+    /**
+     * Returns if the process of this event will rename this table.
+     */
+    protected abstract boolean willChangeTableName();
+
     public TableKey getTableKey() {
         return new TableKey(catalogName, dbName, tblName);
     }

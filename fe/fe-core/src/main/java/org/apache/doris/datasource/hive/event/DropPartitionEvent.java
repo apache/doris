@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
@@ -31,10 +32,11 @@ import org.apache.hadoop.hive.metastore.messaging.DropPartitionMessage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * MetastoreEvent for ADD_PARTITION event type
+ * MetastoreEvent for DROP_PARTITION event type
  */
 public class DropPartitionEvent extends MetastorePartitionEvent {
     private final Table hmsTbl;
@@ -62,6 +64,20 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
         }
     }
 
+    @Override
+    protected boolean willChangePartitionName() {
+        return false;
+    }
+
+    @Override
+    protected Set<String> getAllPartitionNames() {
+        return ImmutableSet.copyOf(partitionNames);
+    }
+
+    public void skipOnePartition(String partitionName) {
+        partitionNames.remove(partitionName);
+    }
+
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
         return Lists.newArrayList(
@@ -84,5 +100,27 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);
         }
+    }
+
+    @Override
+    protected boolean canBeBatched(MetastoreEvent that) {
+        if (!isSameTable(that) || !(that instanceof MetastorePartitionEvent)) {
+            return false;
+        }
+
+        MetastorePartitionEvent thatPartitionEvent = (MetastorePartitionEvent) that;
+        if (thatPartitionEvent.willChangePartitionName()) {
+            return false;
+        }
+
+        for (String partitionName : getAllPartitionNames()) {
+            if (thatPartitionEvent instanceof AddPartitionEvent) {
+                ((AddPartitionEvent) thatPartitionEvent).skipOnePartition(partitionName);
+            } else if (thatPartitionEvent instanceof DropPartitionEvent) {
+                ((DropPartitionEvent) thatPartitionEvent).skipOnePartition(partitionName);
+            }
+        }
+
+        return getAllPartitionNames().containsAll(thatPartitionEvent.getAllPartitionNames());
     }
 }

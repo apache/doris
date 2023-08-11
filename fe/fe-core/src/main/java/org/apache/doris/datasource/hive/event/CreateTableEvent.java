@@ -67,6 +67,11 @@ public class CreateTableEvent extends MetastoreTableEvent {
     }
 
     @Override
+    protected boolean willChangeTableName() {
+        return false;
+    }
+
+    @Override
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);

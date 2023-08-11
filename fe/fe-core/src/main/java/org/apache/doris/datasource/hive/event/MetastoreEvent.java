@@ -97,7 +97,6 @@ public abstract class MetastoreEvent {
     /**
      * Checks if the given event can be batched into this event. Default behavior is
      * to return false which can be overridden by a sub-class.
-     * The current version is relatively simple to process batch events, so all that need to be processed are true.
      *
      * @param event The event under consideration to be batched into this event.
      * @return false if event cannot be batched into this event; otherwise true.
