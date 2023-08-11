@@ -481,6 +481,10 @@ public:
     template <TimeUnit unit>
     bool date_add_interval(const TimeInterval& interval);
 
+    // set interval
+    template <TimeUnit unit>
+    bool date_set_interval(const TimeInterval& interval);
+
     template <TimeUnit unit>
     bool datetime_trunc(); //datetime trunc, like trunc minute = 0
 
@@ -934,6 +938,9 @@ public:
 
     template <TimeUnit unit>
     bool date_add_interval(const TimeInterval& interval);
+
+    template <TimeUnit unit>
+    bool date_set_interval(const TimeInterval& interval);
 
     template <TimeUnit unit>
     bool datetime_trunc(); //datetime trunc, like trunc minute = 0
