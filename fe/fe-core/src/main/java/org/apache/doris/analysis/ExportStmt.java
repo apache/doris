@@ -45,7 +45,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.Map;
@@ -59,7 +58,6 @@ import java.util.UUID;
 //          TO 'export_target_path'
 //          [PROPERTIES("key"="value")]
 //          BY BROKER 'broker_name' [( $broker_attrs)]
-@Slf4j
 @Getter
 public class ExportStmt extends StatementBase {
     public static final String PARALLELISM = "parallelism";

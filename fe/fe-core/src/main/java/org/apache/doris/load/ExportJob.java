@@ -54,7 +54,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.scheduler.registry.TransientTaskRegister;
@@ -94,7 +93,7 @@ public class ExportJob implements Writable {
     private static final int MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT = Config.maximum_tablets_of_outfile_in_export;
 
     public static final TransientTaskRegister register = new ExportTaskRegister(
-            Env.getCurrentEnv().getMemoryTaskManager());
+            Env.getCurrentEnv().getTransientTaskManager());
 
     @SerializedName("id")
     private long id;
@@ -192,10 +191,6 @@ public class ExportJob implements Writable {
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
     private List<ExportTaskExecutor> jobExecutorList;
-
-    private Map<ExportTaskExecutor, Long> executorToTaskId = Maps.newHashMap();
-
-    private ConcurrentHashMap<Long, JobStatus> taskIdToJobStatus = new ConcurrentHashMap<>();
 
     private ConcurrentHashMap<Long, ExportTaskExecutor> taskIdToExecutor = new ConcurrentHashMap<>();
 

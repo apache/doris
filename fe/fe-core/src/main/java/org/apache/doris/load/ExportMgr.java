@@ -181,7 +181,6 @@ public class ExportMgr extends MasterDaemon {
             job.getJobExecutorList().forEach(executor -> {
                 Long taskId = ExportJob.register.registerTask(executor);
                 executor.setTaskId(taskId);
-                job.getExecutorToTaskId().put(executor, taskId);
                 job.getTaskIdToExecutor().put(taskId, executor);
             });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);

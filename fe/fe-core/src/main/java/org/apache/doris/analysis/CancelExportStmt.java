@@ -84,9 +84,8 @@ public class CancelExportStmt extends DdlStmt {
             state = inputValue;
             ExportJobState jobState = ExportJobState.valueOf(state);
             if (jobState != ExportJobState.PENDING
-                    && jobState != ExportJobState.IN_QUEUE
                     && jobState != ExportJobState.EXPORTING) {
-                throw new AnalysisException("Only support PENDING/IN_QUEUE/EXPORTING, invalid state: " + state);
+                throw new AnalysisException("Only support PENDING/EXPORTING, invalid state: " + state);
             }
         }
     }
