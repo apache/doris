@@ -1111,6 +1111,8 @@ DECLARE_Int32(hdfs_hedged_read_thread_num);
 // Maybe overwritten by the value specified when creating catalog
 DECLARE_Int32(hdfs_hedged_read_threshold_time);
 
+DECLARE_mBool(enable_merge_on_write_correctness_check);
+
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
 
