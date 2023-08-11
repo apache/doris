@@ -180,6 +180,8 @@ public class AnalysisManager extends Daemon implements Writable {
                 }
                 TableName tableName = new TableName(analyzeDBStmt.getCtlIf().getName(), db.getFullName(),
                         table.getName());
+                // columnNames null means to add all visitable columns.
+                // Will get all the visible columns in analyzeTblStmt.check()
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeDBStmt.getAnalyzeProperties(), tableName,
                         null, db.getId(), table);
                 try {
@@ -772,6 +774,8 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         if (dropStatsStmt.dropTableRowCount()) {
             StatisticsRepository.dropExternalTableStatistics(tblId);
+            // Table cache key doesn't care about catalog id and db id, because the table id is globally unique.
+            Env.getCurrentEnv().getStatisticsCache().invalidateTableStats(-1, -1, tblId);
         }
     }
 
