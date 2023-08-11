@@ -158,7 +158,8 @@ public class PaimonValueConverter extends DataTypeDefaultVisitor<Object> {
             Calendar instance = Calendar.getInstance(TimeZone.getTimeZone("GMT"));
             instance.set((int) dateLiteral.getYear(), (int) (dateLiteral.getMonth() - 1), (int) dateLiteral.getDay(),
                     (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond());
-            return Timestamp.fromEpochMillis(instance.getTimeInMillis() / 1000 * 1000 + dateLiteral.getMicrosecond());
+            return Timestamp
+                    .fromEpochMillis(instance.getTimeInMillis() / 1000 * 1000 + dateLiteral.getMicrosecond() / 1000);
         }
         return null;
     }
