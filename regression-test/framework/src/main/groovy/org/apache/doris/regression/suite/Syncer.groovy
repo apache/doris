@@ -30,6 +30,7 @@ import org.apache.doris.regression.json.BinlogData
 import org.apache.doris.thrift.TBinlogType
 import org.apache.doris.thrift.TCommitTxnResult
 import org.apache.doris.thrift.TGetBinlogResult
+import org.apache.doris.thrift.TGetMasterTokenResult
 import org.apache.doris.thrift.TGetSnapshotResult
 import org.apache.doris.thrift.TIngestBinlogRequest
 import org.apache.doris.thrift.TIngestBinlogResult
@@ -310,6 +311,37 @@ class Syncer {
         return isCheckedOK
     }
 
+    Boolean checkGetMasterToken(TGetMasterTokenResult result) {
+        Boolean isCheckedOK = false
+
+        // step 1: check status
+        if (result != null && result.isSetStatus()) {
+            TStatus status = result.getStatus()
+            if (status.isSetStatusCode()) {
+                TStatusCode code = status.getStatusCode()
+                switch (code) {
+                    case TStatusCode.OK:
+                        isCheckedOK = result.isSetToken()
+                        break
+                    default:
+                        logger.error("Get Master token result code is: ${code}")
+                        break
+                }
+            } else {
+                logger.error("Invalid TStatus! StatusCode is unset.")
+            }
+        } else {
+            logger.error("Invalid TGetMasterTokenResult! result: ${result}")
+        }
+
+        if (isCheckedOK) {
+            context.token = result.getToken()
+            logger.info("Token is ${context.token}.")
+        }
+
+        return isCheckedOK
+    }
+
     Boolean checkSnapshotFinish() {
         String checkSQL = "SHOW BACKUP FROM " + context.db
         List<Object> row = suite.sql(checkSQL)[0]
@@ -415,9 +447,23 @@ class Syncer {
         context.closeBackendClients()
     }
 
+    Boolean getMasterToken() {
+        logger.info("Get master token.")
+        FrontendClientImpl clientImpl = context.getSourceFrontClient()
+        TGetMasterTokenResult result = SyncerUtils.getMasterToken(clientImpl, context)
+
+        return checkGetMasterToken(result)
+    }
+
     Boolean restoreSnapshot() {
         logger.info("Restore snapshot ${context.labelName}")
         FrontendClientImpl clientImpl = context.getSourceFrontClient()
+
+        // step 1: get master token
+        if (!getMasterToken()) {
+            logger.error("Get Master error!")
+            return false
+        }
 
         // step 1: recode job info
         Gson gson = new Gson()

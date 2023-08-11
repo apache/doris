@@ -112,6 +112,7 @@ class SyncerContext {
     public String labelName
     public String tableName
     public TGetSnapshotResult getSnapshotResult
+    public String token
 
     public Config config
     public String user
@@ -131,7 +132,7 @@ class SyncerContext {
     }
 
     ExtraInfo genExtraInfo() {
-        ExtraInfo info = new ExtraInfo("5ff161c3-2c08-4079-b108-26c8850b6598")
+        ExtraInfo info = new ExtraInfo(token)
         sourceBackendClients.forEach((id, client) -> {
             info.addBackendNetaddr(id, client.address.hostname, client.httpPort)
         })
