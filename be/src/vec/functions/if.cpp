@@ -191,15 +191,7 @@ public:
                            const ColumnWithTypeAndName& then_col_type_name,
                            const ColumnWithTypeAndName& else_col_type_name, size_t result,
                            size_t input_row_count) {
-        // always into this function, the nullable column have deal with by function execute_for_nullable_then_else()
-        // but now have meet a case eg: const(nullable column), the type is nullable, so result type is nullable also.
-        // but it's a const column, not can be handle by execute_for_nullable_then_else.
-        bool args_nullable =
-                then_col_type_name.type->is_nullable() || (else_col_type_name.type->is_nullable());
-        auto result_type = block.get_by_position(result).type;
-        MutableColumnPtr result_column = args_nullable
-                                                 ? result_type->create_column()
-                                                 : remove_nullable(result_type)->create_column();
+        MutableColumnPtr result_column = block.get_by_position(result).type->create_column();
         result_column->reserve(input_row_count);
 
         const IColumn& then_col = *then_col_type_name.column;
@@ -245,14 +237,7 @@ public:
                 result_column->insert_from(cond_array[i] ? then_col : else_col, i);
             }
         }
-        if (result_type->is_nullable()) {
-            auto column_null_map = ColumnUInt8::create(input_row_count, 0);
-            auto column =
-                    ColumnNullable::create(std::move(result_column), std::move(column_null_map));
-            block.replace_by_position(result, std::move(column));
-        } else {
-            block.replace_by_position(result, std::move(result_column));
-        }
+        block.replace_by_position(result, std::move(result_column));
         return Status::OK();
     }
 
@@ -411,28 +396,64 @@ public:
                                         const ColumnWithTypeAndName& arg_then,
                                         const ColumnWithTypeAndName& arg_else, size_t result,
                                         size_t input_rows_count) {
+        auto then_type_is_nullable = arg_then.type->is_nullable();
+        auto else_type_is_nullable = arg_else.type->is_nullable();
+        if (!then_type_is_nullable && !else_type_is_nullable) {
+            return false;
+        }
+
         auto* then_is_nullable = check_and_get_column<ColumnNullable>(*arg_then.column);
         auto* else_is_nullable = check_and_get_column<ColumnNullable>(*arg_else.column);
+        bool then_column_is_const_nullable = false;
+        bool else_column_is_const_nullable = false;
+        if (then_type_is_nullable == true && then_is_nullable == nullptr) {
+            //this case is a const(nullable column)
+            auto& const_column = assert_cast<const ColumnConst&>(*arg_then.column);
+            then_is_nullable =
+                    assert_cast<const ColumnNullable*>(const_column.get_data_column_ptr().get());
+            then_column_is_const_nullable = true;
+        }
 
-        if (!then_is_nullable && !else_is_nullable) {
-            return false;
+        if (else_type_is_nullable == true && else_is_nullable == nullptr) {
+            //this case is a const(nullable column)
+            auto& const_column = assert_cast<const ColumnConst&>(*arg_else.column);
+            else_is_nullable =
+                    assert_cast<const ColumnNullable*>(const_column.get_data_column_ptr().get());
+            else_column_is_const_nullable = true;
         }
 
         /** Calculate null mask of result and nested column separately.
           */
         ColumnPtr result_null_mask;
         {
-            Block temporary_block(
-                    {arg_cond,
-                     {then_is_nullable ? then_is_nullable->get_null_map_column_ptr()
-                                       : DataTypeUInt8().create_column_const_with_default_value(
-                                                 input_rows_count),
-                      std::make_shared<DataTypeUInt8>(), "then_null_map"},
-                     {else_is_nullable ? else_is_nullable->get_null_map_column_ptr()
-                                       : DataTypeUInt8().create_column_const_with_default_value(
-                                                 input_rows_count),
-                      std::make_shared<DataTypeUInt8>(), "else_null_map"},
-                     {nullptr, std::make_shared<DataTypeUInt8>(), ""}});
+            // get nullmap from column:
+            // a. nullable column ----> it's a real nullable column get_null_map_column_ptr() / fake nullable, a const nullable
+            // b. not nullable    ----> not have null map, so create const null map
+            Block temporary_block;
+            temporary_block.insert(arg_cond);
+            auto then_nested_null_map =
+                    then_type_is_nullable
+                            ? (then_column_is_const_nullable
+                                       ? DataTypeUInt8().create_column_const_with_default_value(
+                                                 input_rows_count)
+                                       : then_is_nullable->get_null_map_column_ptr())
+                            : DataTypeUInt8().create_column_const_with_default_value(
+                                      input_rows_count);
+            temporary_block.insert({then_nested_null_map, std::make_shared<DataTypeUInt8>(),
+                                    "then_column_null_map"});
+
+            auto else_nested_null_map =
+                    else_type_is_nullable
+                            ? (else_column_is_const_nullable
+                                       ? DataTypeUInt8().create_column_const_with_default_value(
+                                                 input_rows_count)
+                                       : else_is_nullable->get_null_map_column_ptr())
+                            : DataTypeUInt8().create_column_const_with_default_value(
+                                      input_rows_count);
+            temporary_block.insert({else_nested_null_map, std::make_shared<DataTypeUInt8>(),
+                                    "else_column_null_map"});
+            temporary_block.insert(
+                    {nullptr, std::make_shared<DataTypeUInt8>(), "result_column_null_map"});
 
             execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
 
@@ -495,8 +516,9 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        ColumnWithTypeAndName arg_then = block.get_by_position(arguments[1]);
-        ColumnWithTypeAndName arg_else = block.get_by_position(arguments[2]);
+        const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
+        const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
+
         /// A case for identical then and else (pointers are the same).
         if (arg_then.column.get() == arg_else.column.get()) {
             /// Just point result to them.
@@ -507,30 +529,6 @@ public:
         ColumnWithTypeAndName& cond_column = block.get_by_position(arguments[0]);
         cond_column.column = materialize_column_if_const(cond_column.column);
         const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
-
-        if (auto* then_is_const = check_and_get_column<ColumnConst>(*arg_then.column)) {
-            if (then_is_const->only_null() == false &&
-                check_and_get_column<ColumnNullable>(then_is_const->get_data_column())) {
-                auto nested_column =
-                        check_and_get_column<ColumnNullable>(then_is_const->get_data_column())
-                                ->get_nested_column_ptr();
-                arg_then.column =
-                        ColumnConst::create(std::move(nested_column), then_is_const->size());
-                arg_then.type = remove_nullable(arg_then.type);
-            }
-        }
-
-        if (auto* else_is_const = check_and_get_column<ColumnConst>(*arg_else.column)) {
-            if (else_is_const->only_null() == false &&
-                check_and_get_column<ColumnNullable>(else_is_const->get_data_column())) {
-                auto nested_column =
-                        check_and_get_column<ColumnNullable>(else_is_const->get_data_column())
-                                ->get_nested_column_ptr();
-                arg_else.column =
-                        ColumnConst::create(std::move(nested_column), else_is_const->size());
-                arg_else.type = remove_nullable(arg_else.type);
-            }
-        }
 
         Status ret = Status::OK();
         if (execute_for_null_condition(context, block, arguments, arg_cond, arg_then, arg_else,
