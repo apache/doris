@@ -1293,7 +1293,7 @@ public class PartitionCacheTest {
     }
 
     @Test
-    public void testSqlCacheKeyWithNestedViewByNereids() {
+    public void testSqlCacheKeyWithNestedViewForNereids() {
         Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSqlByNereids("SELECT * from testDb.view4");
         ArrayList<Long> selectedPartitionIds
