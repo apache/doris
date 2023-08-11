@@ -350,6 +350,15 @@ struct Decimal {
 
     operator T() const { return value; }
 
+    const Decimal<T>& operator++() {
+        value++;
+        return *this;
+    }
+    const Decimal<T>& operator--() {
+        value--;
+        return *this;
+    }
+
     const Decimal<T>& operator+=(const T& x) {
         value += x;
         return *this;

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "DIGITAL_MASKING",
     "language": "en"
 }
 ---

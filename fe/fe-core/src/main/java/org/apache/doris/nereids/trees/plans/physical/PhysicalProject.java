@@ -77,7 +77,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalProject[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "projects", projects,
                 "stats", statistics
         );

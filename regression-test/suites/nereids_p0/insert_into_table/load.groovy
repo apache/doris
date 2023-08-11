@@ -66,7 +66,7 @@ suite("load") {
             'agg_nop_t', 'agg_t', 'agg_type_cast',
             'dup_nop_t', 'dup_t', 'dup_type_cast',
             'uni_nop_t', 'uni_t', 'uni_type_cast',
-            'arr_t'
+            'arr_t', 'random_t'
     ]
 
     for (String file in files) {

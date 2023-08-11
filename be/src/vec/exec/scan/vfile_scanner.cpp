@@ -71,6 +71,7 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/function.h"
+#include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace cctz {
@@ -273,6 +274,9 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             RETURN_IF_ERROR(_pre_filter_src_block());
             // Convert src block to output block (dest block), string to dest data type and apply filters.
             RETURN_IF_ERROR(_convert_to_output_block(block));
+            // Truncate char columns or varchar columns if size is smaller than file columns
+            // or not found in the file column schema.
+            RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
             break;
         }
     } while (true);
@@ -562,6 +566,57 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     return Status::OK();
 }
 
+Status VFileScanner::_truncate_char_or_varchar_columns(Block* block) {
+    // Truncate char columns or varchar columns if size is smaller than file columns
+    // or not found in the file column schema.
+    if (!_state->query_options().truncate_char_or_varchar_columns) {
+        return Status::OK();
+    }
+    int idx = 0;
+    for (auto slot_desc : _real_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        const TypeDescriptor& type_desc = slot_desc->type();
+        if (type_desc.type != TYPE_VARCHAR && type_desc.type != TYPE_CHAR) {
+            ++idx;
+            continue;
+        }
+        auto iter = _source_file_col_name_types.find(slot_desc->col_name());
+        if (iter != _source_file_col_name_types.end()) {
+            const TypeDescriptor* file_type_desc =
+                    _source_file_col_name_types[slot_desc->col_name()];
+            if ((type_desc.len > 0) &&
+                (type_desc.len < file_type_desc->len || file_type_desc->len < 0)) {
+                _truncate_char_or_varchar_column(block, idx, type_desc.len);
+            }
+        } else {
+            _truncate_char_or_varchar_column(block, idx, type_desc.len);
+        }
+        ++idx;
+    }
+    return Status::OK();
+}
+
+// VARCHAR substring(VARCHAR str, INT pos[, INT len])
+void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int len) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    size_t num_columns_without_result = block->columns();
+    block->insert({int_type->create_column_const(block->rows(), to_field(1)), int_type,
+                   "const 1"}); // pos is 1
+    block->insert({int_type->create_column_const(block->rows(), to_field(len)), int_type,
+                   fmt::format("const {}", len)});                          // len
+    block->insert({nullptr, std::make_shared<DataTypeString>(), "result"}); // result column
+    ColumnNumbers temp_arguments(3);
+    temp_arguments[0] = idx;                            // str column
+    temp_arguments[1] = num_columns_without_result;     // pos
+    temp_arguments[2] = num_columns_without_result + 1; // len
+    size_t result_column_id = num_columns_without_result + 2;
+    SubstringUtil::substring_execute(*block, temp_arguments, result_column_id, block->rows());
+    block->replace_by_position(idx, block->get_by_position(result_column_id).column);
+    Block::erase_useless_column(block, num_columns_without_result);
+}
+
 Status VFileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
@@ -594,6 +649,7 @@ Status VFileScanner::_get_next_reader() {
                 format_type = TFileFormatType::FORMAT_PARQUET;
             }
         }
+        bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
             if (_real_tuple_desc->table_desc()->table_type() ==
@@ -662,6 +718,7 @@ Status VFileScanner::_get_next_reader() {
                         &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(parquet_reader);
             }
+            need_to_get_parsed_schema = true;
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
@@ -694,6 +751,7 @@ Status VFileScanner::_get_next_reader() {
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(orc_reader);
             }
+            need_to_get_parsed_schema = true;
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -717,8 +775,8 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            _cur_reader =
-                    AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs);
+            _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
+                                                       range);
             init_status = ((AvroJNIReader*)(_cur_reader.get()))
                                   ->init_fetch_table_reader(_colname_to_value_range);
             break;
@@ -753,6 +811,21 @@ Status VFileScanner::_get_next_reader() {
             }
             VLOG_NOTICE << fmt::format("Unknown columns:{} in file {}", fmt::to_string(col_buf),
                                        range.path);
+        }
+
+        _source_file_col_names.clear();
+        _source_file_col_types.clear();
+        _source_file_col_name_types.clear();
+        if (_state->query_options().truncate_char_or_varchar_columns && need_to_get_parsed_schema) {
+            Status status = _cur_reader->get_parsed_schema(&_source_file_col_names,
+                                                           &_source_file_col_types);
+            if (status != Status::OK() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
+                return status;
+            }
+            DCHECK(_source_file_col_names.size() == _source_file_col_types.size());
+            for (int i = 0; i < _source_file_col_names.size(); ++i) {
+                _source_file_col_name_types[_source_file_col_names[i]] = &_source_file_col_types[i];
+            }
         }
         _cur_reader_eof = false;
         break;
