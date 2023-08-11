@@ -335,7 +335,7 @@ const FlushStatistic& MemTableWriter::get_flush_token_stats() {
 }
 
 int64_t MemTableWriter::mem_consumption(MemType mem) {
-    if (_flush_token == nullptr) {
+    if (!_is_init) {
         // This method may be called before this writer is initialized.
         // So _flush_token may be null.
         return 0;
