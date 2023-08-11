@@ -111,7 +111,7 @@ Status Channel::send_current_block(bool eos) {
     }
     SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
     if (eos) {
-        RETURN_IF_ERROR(_serializer.serialize_block(_ch_cur_pb_block, 1));
+        RETURN_IF_ERROR(_serializer.serialize_block(_ch_cur_pb_block, 1, true));
     }
     RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
     ch_roll_pb_block();
@@ -202,8 +202,8 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
     }
 
     bool serialized = false;
-    RETURN_IF_ERROR(
-            _serializer.next_serialized_block(block, _ch_cur_pb_block, 1, &serialized, &rows));
+    RETURN_IF_ERROR(_serializer.next_serialized_block(block, _ch_cur_pb_block, 1, &serialized,
+                                                      &rows, true));
     if (serialized) {
         RETURN_IF_ERROR(send_current_block(false));
     }
@@ -550,7 +550,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             } else {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(
-                        _serializer.serialize_block(block, current_channel->ch_cur_pb_block()));
+                        _serializer.serialize_block(block, current_channel->ch_cur_pb_block(), 1));
                 auto status = current_channel->send_block(current_channel->ch_cur_pb_block(), eos);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
                 current_channel->ch_roll_pb_block();
