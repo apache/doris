@@ -1,0 +1,4 @@
+select bitmap_min(bitmap_from_string('')) value;
+(['None'],)
+select bitmap_min(bitmap_from_string('1,9999999999')) value;
+(['1'],)

@@ -1,0 +1,22 @@
+-- https://github.com/apache/incubator-doris/issues/4544
+drop database if exists issue_4544
+
+create database issue_4544
+use issue_4544
+DROP TABLE IF EXISTS `tbl1`
+DROP TABLE IF EXISTS `tbl3`
+
+CREATE TABLE `tbl1` (`k1` int(11) NULL COMMENT "",`k2` int(11) NULL COMMENT "") ENGINE=OLAP DUPLICATE KEY(`k1`, `k2`) COMMENT "OLAP" DISTRIBUTED BY HASH(`k1`) BUCKETS 1 PROPERTIES ("replication_num" = "1","in_memory" = "false","storage_format" = "V2")
+
+CREATE TABLE `tbl3` (`k1` varchar(32) NULL COMMENT "",`k2` int(11) NULL COMMENT "") ENGINE=OLAP DUPLICATE KEY(`k1`) COMMENT "OLAP" DISTRIBUTED BY HASH(`k1`) BUCKETS 1 PROPERTIES ("replication_num" = "1", "in_memory" = "false", "storage_format" = "V2")
+
+insert into tbl1 values(3,4);
+insert into tbl3 values("abc",4);
+
+select * from tbl1 join tbl3 on tbl1.k1 = tbl3.k1 where tbl3.k1  in ('abc');
+
+insert into tbl3 values(3,5);
+select * from tbl1 join tbl3 on tbl1.k1 = tbl3.k1 where tbl3.k1  in ('abc');
+select * from tbl1 join tbl3 on tbl1.k1 = tbl3.k1 where tbl3.k1  in (3);
+
+drop database issue_4544
