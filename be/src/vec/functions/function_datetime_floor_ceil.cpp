@@ -488,87 +488,32 @@ struct TimeRound {
     template <typename NativeType, typename DateValueType>
     static void time_round(const DateValueType& ts2, DateValueType& ts1, UInt8& is_null) {
         static_assert(Impl::Unit != WEEK);
-        // ts2 --- > ts1 , ts1 = 0
         int64_t diff;
         int64_t part;
-        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-            if constexpr (Impl::Unit == YEAR) {
-                diff = ts2.year();
-                part = ts2.to_int64() % 10000000000;
-            }
-            if constexpr (Impl::Unit == MONTH) {
-                diff = (ts2.year() - ts1.year()) * 12 + (ts2.month() - ts1.month());
-                part = ts2.to_int64() % 100000000;
-            }
-            if constexpr (Impl::Unit == DAY) {
-                diff = ts2.daynr();
-                part = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
-            }
-            if constexpr (Impl::Unit == HOUR) {
-                diff = ts2.daynr() * 24 + ts2.hour();
-                part = ts2.minute() * 60 + ts2.second();
-            }
-            if constexpr (Impl::Unit == MINUTE) {
-                diff = ts2.daynr() * 24 * 60 + ts2.hour() * 60 + ts2.minute();
-                part = ts2.second();
-            }
-            if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.daynr() * 24 * 60 * 60 + ts2.hour() * 60 * 60 + ts2.minute() * 60 +
-                       ts2.second();
-                part = 0;
-            }
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
-            if constexpr (Impl::Unit == YEAR) {
-                diff = ts2.year();
-                part = ts2.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
-            }
-            if constexpr (Impl::Unit == MONTH) {
-                diff = ts2.year() * 12 + ts2.month();
-                part = ts2.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
-            }
-            if constexpr (Impl::Unit == DAY) {
-                diff = ts2.daynr();
-                part = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
-            }
-            if constexpr (Impl::Unit == HOUR) {
-                diff = ts2.daynr() * 24 + ts2.hour();
-                part = ts2.minute() * 60 + ts2.second();
-            }
-            if constexpr (Impl::Unit == MINUTE) {
-                diff = ts2.daynr() * 24 * 60 + ts2.hour() * 60 + ts2.minute();
-                part = ts2.second();
-            }
-            if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.daynr() * 24 * 60 * 60 + ts2.hour() * 60 * 60 + ts2.minute() * 60 +
-                       ts2.second();
-                part = 0;
-            }
-        } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
-            if constexpr (Impl::Unit == YEAR) {
-                diff = ts2.year();
-                part = ts2.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
-            }
-            if constexpr (Impl::Unit == MONTH) {
-                diff = ts2.year() * 12 + ts2.month();
-                part = ts2.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
-            }
-            if constexpr (Impl::Unit == DAY) {
-                diff = ts2.daynr();
-                part = ts2.hour() * 3600 + ts2.minute() * 60 + ts2.second();
-            }
-            if constexpr (Impl::Unit == HOUR) {
-                diff = ts2.daynr() * 24 + ts2.hour();
-                part = ts2.minute() * 60 + ts2.second();
-            }
-            if constexpr (Impl::Unit == MINUTE) {
-                diff = ts2.daynr() * 24 * 60 + ts2.hour() * 60 + ts2.minute();
-                part = ts2.second();
-            }
-            if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.daynr() * 24 * 60 * 60 + ts2.hour() * 60 * 60 + ts2.minute() * 60 +
-                       ts2.second();
-                part = 0;
-            }
+        if constexpr (Impl::Unit == YEAR) {
+            diff = ts2.year();
+            part = (ts2.month() - 1) + ts2.day() + ts2.hour() + ts2.minute() + ts2.second();
+        }
+        if constexpr (Impl::Unit == MONTH) {
+            diff = ts2.year() * 12 + ts2.month() - 1;
+            part = (ts2.day() - 1) + ts2.hour() + ts2.minute() + ts2.second();
+        }
+        if constexpr (Impl::Unit == DAY) {
+            diff = ts2.daynr();
+            part = ts2.hour() + ts2.minute() + ts2.second();
+        }
+        if constexpr (Impl::Unit == HOUR) {
+            diff = ts2.daynr() * 24 + ts2.hour();
+            part = ts2.minute() + ts2.second();
+        }
+        if constexpr (Impl::Unit == MINUTE) {
+            diff = ts2.daynr() * 24 * 60 + ts2.hour() * 60 + ts2.minute();
+            part = ts2.second();
+        }
+        if constexpr (Impl::Unit == SECOND) {
+            diff = ts2.daynr() * 24 * 60 * 60 + ts2.hour() * 60 * 60 + ts2.minute() * 60 +
+                   ts2.second();
+            part = 0;
         }
 
         if constexpr (Impl::Type == CEIL) {
@@ -620,7 +565,6 @@ struct TimeRound {
         }
         auto& ts1 = (DateValueType&)(res);
         if constexpr (Impl::Unit != WEEK) {
-            ts1.from_olap_datetime(0);
             TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, ts1, is_null);
         } else {
             // Only week use the FIRST SUNDAY

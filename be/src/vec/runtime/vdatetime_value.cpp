@@ -1678,6 +1678,7 @@ bool VecDateTimeValue::date_set_interval(const TimeInterval& interval) {
                     (unit == MINUTE) || (unit == SECOND),
             "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
     if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR)) {
+        set_zero(type());
         // This may change the day information
         int64_t seconds = interval.day * 86400L + interval.hour * 3600 + interval.minute * 60 +
                           interval.second;
@@ -1702,26 +1703,14 @@ bool VecDateTimeValue::date_set_interval(const TimeInterval& interval) {
     } else if constexpr (unit == YEAR) {
         // This only change year information
         _year = interval.year;
-        if (_year > 9999) {
-            return false;
-        }
-    } else if constexpr (unit == QUARTER || unit == MONTH || unit == YEAR_MONTH) {
+        _day = 1;
+        _month = 1;
+    } else if constexpr (unit == MONTH) {
         // This will change month and year information, maybe date.
         int64_t months = 12 * interval.year + interval.month;
         _year = months / 12;
-        if (months < 0) {
-            return false;
-        }
-        if (_year > MAX_YEAR) {
-            return false;
-        }
+        _day = 1;
         _month = (months % 12) + 1;
-        if (_day > s_days_in_month[_month]) {
-            _day = s_days_in_month[_month];
-            if (_month == 2 && doris::is_leap(_year)) {
-                _day++;
-            }
-        }
     }
     return true;
 }
@@ -2934,8 +2923,8 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
             (unit == YEAR) || (unit == MONTH) || (unit == DAY) || (unit == HOUR) ||
                     (unit == MINUTE) || (unit == SECOND),
             "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
-
     if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) || (unit == DAY)) {
+        set_zero();
         // This may change the day information
         int64_t seconds = (interval.day * 86400 + interval.hour * 3600 + interval.minute * 60 +
                            interval.second);
@@ -2948,24 +2937,14 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
             this->set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, 0);
         }
     } else if constexpr (unit == YEAR) {
+        this->set_time(0, 1, 1, 0, 0, 0, 0);
         this->template set_time_unit<TimeUnit::YEAR>(interval.year);
     } else if constexpr (unit == MONTH) {
         // This will change month and year information, maybe date.
+        this->set_time(0, 1, 1, 0, 0, 0, 0);
         int64_t months = 12 * interval.year + interval.month;
         this->template set_time_unit<TimeUnit::YEAR>(months / 12);
-        if (months < 0) {
-            return false;
-        }
-        if (this->year() > MAX_YEAR) {
-            return false;
-        }
         this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
-        if (date_v2_value_.day_ > s_days_in_month[this->month()]) {
-            date_v2_value_.day_ = s_days_in_month[this->month()];
-            if (this->month() == 2 && doris::is_leap(this->year())) {
-                this->template set_time_unit<TimeUnit::DAY>(date_v2_value_.day_ + 1);
-            }
-        }
     }
     return true;
 }
