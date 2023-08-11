@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "gutil/macros.h"
+#include "gutil/strings/split.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -447,15 +448,18 @@ Status LocalFileSystem::safe_glob(const std::string& path, std::vector<FileInfo>
     if (path.find("..") != std::string::npos) {
         return Status::InvalidArgument("can not contain '..' in path");
     }
-    std::string full_path = config::user_files_secure_path + "/" + path;
-    std::vector<std::string> files;
-    RETURN_IF_ERROR(_glob(full_path, &files));
-    for (auto& file : files) {
-        FileInfo fi;
-        fi.is_file = true;
-        RETURN_IF_ERROR(canonicalize_local_file("", file, &(fi.file_name)));
-        RETURN_IF_ERROR(file_size_impl(fi.file_name, &(fi.file_size)));
-        res->push_back(std::move(fi));
+    std::vector<string> path_vec = strings::Split(path, ";", strings::SkipWhitespace());
+    for (auto p : path_vec) {
+        std::string full_path = p.starts_with("/") ? p : config::user_files_secure_path + "/" + path;
+        std::vector<std::string> files;
+        RETURN_IF_ERROR(_glob(full_path, &files));
+        for (auto& file : files) {
+            FileInfo fi;
+            fi.is_file = true;
+            RETURN_IF_ERROR(canonicalize_local_file("", file, &(fi.file_name)));
+            RETURN_IF_ERROR(file_size_impl(fi.file_name, &(fi.file_size)));
+            res->push_back(std::move(fi));
+        }
     }
     return Status::OK();
 }
