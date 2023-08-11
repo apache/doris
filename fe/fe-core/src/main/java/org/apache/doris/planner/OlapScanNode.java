@@ -1281,33 +1281,12 @@ public class OlapScanNode extends ScanNode {
         return shouldColoScan;
     }
 
-    public void getColumnDesc(List<TColumn> columnsDesc, List<String> keyColumnNames,
-                        List<TPrimitiveType> keyColumnTypes) {
-        if (selectedIndexId != -1) {
-            for (Column col : olapTable.getSchemaByIndexId(selectedIndexId, true)) {
-                TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, olapTable);
-                if (columnsDesc != null) {
-                    columnsDesc.add(tColumn);
-                }
-                if ((Util.showHiddenColumns() || (!Util.showHiddenColumns() && col.isVisible())) && col.isKey()) {
-                    if (keyColumnNames != null) {
-                        keyColumnNames.add(col.getName());
-                    }
-                    if (keyColumnTypes != null) {
-                        keyColumnTypes.add(col.getDataType().toThrift());
-                    }
-                }
-            }
-        }
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
         List<TColumn> columnsDesc = new ArrayList<TColumn>();
-        getColumnDesc(columnsDesc, keyColumnNames, keyColumnTypes);
+        olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
         List<TOlapTableIndex> indexDesc = Lists.newArrayList();
 
         // Add extra row id column

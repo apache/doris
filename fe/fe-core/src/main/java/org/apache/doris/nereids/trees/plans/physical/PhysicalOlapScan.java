@@ -45,8 +45,6 @@ import java.util.Optional;
  */
 public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapScan {
 
-    public static final String DEFERRED_MATERIALIZED_SLOTS = "deferred_materialized_slots";
-
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;
     private final ImmutableList<Long> selectedTabletIds;
