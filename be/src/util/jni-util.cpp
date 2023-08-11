@@ -374,12 +374,11 @@ Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
     return Status::OK();
 }
 
-Status JniUtil::get_jni_scanner_class(JNIEnv* env, std::string classname,
+Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
                                       jclass* jni_scanner_class) {
     // Get JNI scanner class by class name;
-    jobject loaded_class_obj =
-            env->CallObjectMethod(jni_scanner_loader_obj_, jni_scanner_loader_method_,
-                                  env->NewStringUTF(classname.c_str()));
+    jobject loaded_class_obj = env->CallObjectMethod(
+            jni_scanner_loader_obj_, jni_scanner_loader_method_, env->NewStringUTF(classname));
     RETURN_ERROR_IF_EXC(env);
     *jni_scanner_class = reinterpret_cast<jclass>(env->NewGlobalRef(loaded_class_obj));
     RETURN_ERROR_IF_EXC(env);
