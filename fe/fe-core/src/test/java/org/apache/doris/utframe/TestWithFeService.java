@@ -194,7 +194,7 @@ public abstract class TestWithFeService {
     }
 
     public LogicalPlan analyze(String sql) {
-        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));

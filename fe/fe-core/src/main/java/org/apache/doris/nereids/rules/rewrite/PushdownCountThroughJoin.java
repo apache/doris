@@ -64,7 +64,7 @@ import java.util.Set;
  *  |    aggregate: count(*) as cntStar
  *  aggregate: count(x) as cnt
  *  </pre>
- * Notice: when Count(*) exists, group by mustn't be empty.
+ * Notice: rule can't optimize condition that groupby is empty when Count(*) exists.
  */
 public class PushdownCountThroughJoin implements RewriteRuleFactory {
     @Override
