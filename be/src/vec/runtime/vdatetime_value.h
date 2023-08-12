@@ -1168,6 +1168,8 @@ public:
 
     void format_datetime(uint32_t* date_v, bool* carry_bits) const;
 
+    void set_int_val(uint64_t val) { this->int_val_ = val; }
+
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
