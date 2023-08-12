@@ -69,7 +69,7 @@ public class MetastoreEventFactoryTest {
 
     private static final Function<Long, AlterTableEvent> alterTableEventProducer = eventId
                 -> new AlterTableEvent(eventId, testCtl, randomDb(), randomTbl(),
-                randomBool(0.001D), randomBool(0.01D));
+                randomBool(0.01D), randomBool(0.01D));
 
     private static final Function<Long, InsertEvent> insertEventProducer = eventId
                 -> new InsertEvent(eventId, testCtl, randomDb(), randomTbl());
@@ -82,7 +82,7 @@ public class MetastoreEventFactoryTest {
 
     private static final Function<Long, AlterPartitionEvent> alterPartitionEventProducer = eventId
                 -> new AlterPartitionEvent(eventId, testCtl, randomDb(), randomTbl(), randomPartition(),
-                randomBool(0.001D));
+                randomBool(0.01D));
 
     private static final Function<Long, DropPartitionEvent> dropPartitionEventProducer = eventId
                 -> new DropPartitionEvent(eventId, testCtl, randomDb(), randomTbl(), randomPartitions());
@@ -93,15 +93,15 @@ public class MetastoreEventFactoryTest {
                 addPartitionEventProducer, alterPartitionEventProducer, dropPartitionEventProducer);
 
     private static String randomDb() {
-        return "db_" + random.nextInt(5);
+        return "db_" + random.nextInt(10);
     }
 
     private static String randomTbl() {
-        return "tbl_" + random.nextInt(10);
+        return "tbl_" + random.nextInt(100);
     }
 
     private static String randomPartition() {
-        return "partition_" + random.nextInt(100);
+        return "partition_" + random.nextInt(1000);
     }
 
     private static List<String> randomPartitions() {
@@ -119,6 +119,7 @@ public class MetastoreEventFactoryTest {
         return random.nextInt(1000000) <= upperBound;
     }
 
+    // define MockCatalog/MockDatabase/MockTable/MockPartition to simulate the real catalog/database/table/partition
     private static class MockCatalog {
         private String ctlName;
         private Map<String, MockDatabase> databases = Maps.newHashMap();
@@ -193,15 +194,21 @@ public class MetastoreEventFactoryTest {
 
     private static class MockTable {
         private String tblName;
+        // use this filed to mark if the table has been refreshed
+        private boolean refreshed;
         private Map<String, MockPartition> partitions = Maps.newHashMap();
 
         private MockTable(String tblName) {
             this.tblName = tblName;
         }
 
+        public void refresh() {
+            this.refreshed = true;
+        }
+
         @Override
         public int hashCode() {
-            return 31 * Objects.hash(tblName) + Arrays.hashCode(
+            return 31 * Objects.hash(tblName, refreshed) + Arrays.hashCode(
                         partitions.values().stream().sorted(Comparator.comparing(p -> p.partitionName)).toArray());
         }
 
@@ -211,6 +218,9 @@ public class MetastoreEventFactoryTest {
                 return false;
             }
             if (!Objects.equals(this.tblName, ((MockTable) other).tblName)) {
+                return false;
+            }
+            if (refreshed != ((MockTable) other).refreshed) {
                 return false;
             }
             Object[] sortedPartitions = partitions.values().stream()
@@ -229,6 +239,7 @@ public class MetastoreEventFactoryTest {
 
     private static class MockPartition {
         private String partitionName;
+        // use this filed to mark if the partition has been refreshed
         private boolean refreshed;
 
         private MockPartition(String partitionName) {
@@ -253,6 +264,7 @@ public class MetastoreEventFactoryTest {
         }
     }
 
+    // simulate the processes when handling hms events
     private void processEvent(MockCatalog ctl, MetastoreEvent event) {
         switch (event.getEventType()) {
 
@@ -294,7 +306,8 @@ public class MetastoreEventFactoryTest {
             case ALTER_TABLE:
             case INSERT:
                 if (ctl.databases.containsKey(event.getDbName())) {
-                    if (event instanceof AlterTableEvent && ((AlterTableEvent) event).isRename()) {
+                    if (event instanceof AlterTableEvent
+                                && (((AlterTableEvent) event).isRename() || ((AlterTableEvent) event).isView())) {
                         ctl.databases.get(event.getDbName()).tables.remove(event.getTblName());
                         MockTable tbl = new MockTable(((AlterTableEvent) event).getTblNameAfter());
                         ctl.databases.get(event.getDbName()).tables.put(tbl.tblName, tbl);
@@ -302,6 +315,7 @@ public class MetastoreEventFactoryTest {
                         MockTable tbl = ctl.databases.get(event.getDbName()).tables.get(event.getTblName());
                         if (tbl != null) {
                             tbl.partitions.clear();
+                            tbl.refresh();
                         }
                     }
                 }
@@ -359,18 +373,22 @@ public class MetastoreEventFactoryTest {
     }
 
     static class EventProducer {
+        // every type of event has a proportion
+        // for instance, if the `CreateDatabaseEvent`'s proportion is 1
+        // and the `AlterDatabaseEvent`'s proportion is 10
+        // the event count of `AlterDatabaseEvent` is always about 10 times as the `CreateDatabaseEvent`
         private final List<Integer> proportions;
-        private final int sumProportion;
+        private final int sumOfProportions;
 
         EventProducer(List<Integer> proportions) {
             Preconditions.checkArgument(CollectionUtils.isNotEmpty(proportions)
                         && proportions.size() == eventProducers.size());
             this.proportions = ImmutableList.copyOf(proportions);
-            this.sumProportion = proportions.stream().mapToInt(proportion -> proportion).sum();
+            this.sumOfProportions = proportions.stream().mapToInt(proportion -> proportion).sum();
         }
 
         public MetastoreEvent produceOneEvent(long eventId) {
-            return eventProducers.get(calIndex(random.nextInt(sumProportion))).apply(eventId);
+            return eventProducers.get(calIndex(random.nextInt(sumOfProportions))).apply(eventId);
         }
 
         private int calIndex(int val) {
@@ -389,37 +407,66 @@ public class MetastoreEventFactoryTest {
 
     @Test
     public void testCreateBatchEvents() {
-        List<Integer> proportions = Lists.newArrayList(
-                5, // createDatabaseEvent 1
-                1, // alterDatabaseEvent
-                5, // dropDatabaseEvent
-                100, // createTableEvent
-                1000, // alterTableEvent
-                1000, // insertEvent
-                1000, // dropTableEvent
-                10000, // addPartitionEvent
-                50000, // alterPartitionEvent
-                10000 // dropPartitionEvent
+        // for catalog initialization, so just produce CreateXXXEvent / AddXXXEvent
+        List<Integer> initProportions = Lists.newArrayList(
+                1, // CreateDatabaseEvent
+                0, // AlterDatabaseEvent
+                0, // DropDatabaseEvent
+                10, // CreateTableEvent
+                0, // AlterTableEvent
+                0, // InsertEvent
+                0, // DropTableEvent
+                100, // AddPartitionEvent
+                0, // AlterPartitionEvent
+                0 // DropPartitionEvent
         );
+
+        List<Integer> proportions = Lists.newArrayList(
+                5, // CreateDatabaseEvent
+                1, // AlterDatabaseEvent
+                5, // DropDatabaseEvent
+                100, // CreateTableEvent
+                20000, // AlterTableEvent
+                2000, // InsertEvent
+                5000, // DropTableEvent
+                10000, // AddPartitionEvent
+                50000, // AlterPartitionEvent
+                20000 // DropPartitionEvent
+        );
+        EventProducer initProducer = new EventProducer(initProportions);
         EventProducer producer = new EventProducer(proportions);
-        for (int i = 0; i < 1000; i++) {
+
+        for (int i = 0; i < 100; i++) {
+            // create a test catalog and do initialization
             MockCatalog testCatalog = new MockCatalog(testCtl);
-            MockCatalog verifyCatalog = testCatalog.copy();
+            List<MetastoreEvent> initEvents = Lists.newArrayListWithCapacity(1000);
+            for (int j = 0; j < 10000; j++) {
+                initEvents.add(initProducer.produceOneEvent(j));
+            }
+            for (MetastoreEvent event : initEvents) {
+                processEvent(testCatalog, event);
+            }
+
+            // copy the test catalog to the validate catalog
+            MockCatalog validateCatalog = testCatalog.copy();
+
             List<MetastoreEvent> events = Lists.newArrayListWithCapacity(1000);
-            for (int j = 0; j < 1000; j++) {
+            for (int j = 0; j < 5000; j++) {
                 events.add(producer.produceOneEvent(j));
             }
             List<MetastoreEvent> mergedEvents = factory.createBatchEvents(testCtl, events);
 
             for (MetastoreEvent event : events) {
-                processEvent(verifyCatalog, event);
+                processEvent(validateCatalog, event);
             }
 
             for (MetastoreEvent event : mergedEvents) {
                 processEvent(testCatalog, event);
             }
 
-            Assertions.assertEquals(testCatalog, verifyCatalog);
+            // the test catalog should be equals to the validate catalog
+            // otherwise we must have some bugs at `factory.createBatchEvents()`
+            Assertions.assertEquals(testCatalog, validateCatalog);
         }
     }
 }

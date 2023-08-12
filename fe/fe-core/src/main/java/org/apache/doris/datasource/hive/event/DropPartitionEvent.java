@@ -82,7 +82,7 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
         return ImmutableSet.copyOf(partitionNames);
     }
 
-    public void skipOnePartition(String partitionName) {
+    public void removePartition(String partitionName) {
         partitionNames.remove(partitionName);
     }
 
@@ -123,9 +123,9 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
 
         for (String partitionName : getAllPartitionNames()) {
             if (thatPartitionEvent instanceof AddPartitionEvent) {
-                ((AddPartitionEvent) thatPartitionEvent).skipOnePartition(partitionName);
+                ((AddPartitionEvent) thatPartitionEvent).removePartition(partitionName);
             } else if (thatPartitionEvent instanceof DropPartitionEvent) {
-                ((DropPartitionEvent) thatPartitionEvent).skipOnePartition(partitionName);
+                ((DropPartitionEvent) thatPartitionEvent).removePartition(partitionName);
             }
         }
 

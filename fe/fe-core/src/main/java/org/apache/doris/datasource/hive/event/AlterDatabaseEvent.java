@@ -30,6 +30,7 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterDatabaseMessage;
 
 import java.util.List;
+import java.util.Random;
 
 /**
  * MetastoreEvent for ALTER_DATABASE event type
@@ -49,7 +50,7 @@ public class AlterDatabaseEvent extends MetastoreEvent {
         this.isRename = isRename;
         this.dbBefore = null;
         this.dbAfter = null;
-        this.dbNameAfter = isRename ? (dbName + "_new") : dbName;
+        this.dbNameAfter = isRename ? (dbName + new Random().nextInt(10)) : dbName;
     }
 
     private AlterDatabaseEvent(NotificationEvent event,

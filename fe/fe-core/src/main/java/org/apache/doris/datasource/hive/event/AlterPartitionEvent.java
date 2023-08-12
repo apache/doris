@@ -31,6 +31,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.AlterPartitionMessage;
 
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -51,7 +52,7 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
                                 String partitionNameBefore, boolean isRename) {
         super(eventId, catalogName, dbName, tblName, MetastoreEventType.ALTER_PARTITION);
         this.partitionNameBefore = partitionNameBefore;
-        this.partitionNameAfter = isRename ? (partitionNameBefore + "_new") : partitionNameBefore;
+        this.partitionNameAfter = isRename ? (partitionNameBefore + new Random().nextInt(100)) : partitionNameBefore;
         this.hmsTbl = null;
         this.partitionAfter = null;
         this.partitionBefore = null;
@@ -140,9 +141,9 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
 
         for (String partitionName : getAllPartitionNames()) {
             if (thatPartitionEvent instanceof AddPartitionEvent) {
-                ((AddPartitionEvent) thatPartitionEvent).skipOnePartition(partitionName);
+                ((AddPartitionEvent) thatPartitionEvent).removePartition(partitionName);
             } else if (thatPartitionEvent instanceof DropPartitionEvent) {
-                ((DropPartitionEvent) thatPartitionEvent).skipOnePartition(partitionName);
+                ((DropPartitionEvent) thatPartitionEvent).removePartition(partitionName);
             }
         }
 

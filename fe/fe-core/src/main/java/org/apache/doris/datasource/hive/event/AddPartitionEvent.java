@@ -83,7 +83,7 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
         return ImmutableSet.copyOf(partitionNames);
     }
 
-    public void skipOnePartition(String partitionName) {
+    public void removePartition(String partitionName) {
         partitionNames.remove(partitionName);
     }
 

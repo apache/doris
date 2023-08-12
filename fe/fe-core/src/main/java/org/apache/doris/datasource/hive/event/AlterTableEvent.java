@@ -28,6 +28,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
 
 import java.util.List;
+import java.util.Random;
 
 /**
  * MetastoreEvent for ALTER_TABLE event type
@@ -51,7 +52,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
         this.isView = isView;
         this.tableBefore = null;
         this.tableAfter = null;
-        this.tblNameAfter = isRename ? (tblName + "_new") : tblName;
+        this.tblNameAfter = isRename ? (tblName + new Random().nextInt(10)) : tblName;
     }
 
     private AlterTableEvent(NotificationEvent event, String catalogName) {
@@ -169,7 +170,6 @@ public class AlterTableEvent extends MetastoreTableEvent {
         // that event must be a MetastoreTableEvent event
         // otherwise `isSameTable` will return false
         MetastoreTableEvent thatTblEvent = (MetastoreTableEvent) that;
-
         if (thatTblEvent.willChangeTableName()) {
             return false;
         }
