@@ -775,7 +775,7 @@ visible_functions = {
         [['array_pushback'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128', 'DECIMAL128'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_VARCHAR',    ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_STRING',     ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-    
+
         [['array_with_constant'], 'ARRAY_BOOLEAN', ['BIGINT', 'BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
         [['array_with_constant'], 'ARRAY_TINYINT', ['BIGINT', 'TINYINT'], 'ALWAYS_NOT_NULLABLE'],
         [['array_with_constant'], 'ARRAY_SMALLINT', ['BIGINT','SMALLINT'], 'ALWAYS_NOT_NULLABLE'],
@@ -1707,6 +1707,9 @@ visible_functions = {
         [['jsonb_extract_double'], 'DOUBLE', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_string'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_string'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+
+        [['jsonb_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+
 
         [['json_parse'], 'JSONB', ['VARCHAR'], ''],
         [['json_parse_error_to_null'], 'JSONB', ['VARCHAR'], 'ALWAYS_NULLABLE'],

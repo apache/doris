@@ -926,6 +926,70 @@ using FunctionJsonbExtractDouble = FunctionJsonbExtract<JsonbExtractDouble>;
 using FunctionJsonbExtractString = FunctionJsonbExtract<JsonbExtractString>;
 using FunctionJsonbExtractJsonb = FunctionJsonbExtract<JsonbExtractJsonb>;
 
+class FunctionJsonbValid : public IFunction {
+public:
+    static constexpr auto name = "json_valid";
+    static constexpr auto alias = "jsonb_valid";
+
+    static FunctionPtr create() { return std::make_shared<FunctionJsonbValid>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const doris::vectorized::DataTypes&) const override {
+        return make_nullable(std::make_shared<DataTypeInt32>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        {
+            const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
+
+            auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
+            const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
+            if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
+                col_from_string =
+                        check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            }
+
+            if (!col_from_string) {
+                return Status::RuntimeError("Illegal column {} should be ColumnString",
+                                            col_from.get_name());
+            }
+
+            auto col_to = ColumnVector<vectorized::Int32>::create();
+            auto& vec_to = col_to->get_data();
+            size_t size = col_from.size();
+            vec_to.resize(size);
+
+            // parser can be reused for performance
+            JsonbParser parser;
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                if (col_from.is_null_at(i)) {
+                    null_map->get_data()[i] = 1;
+                    vec_to[i] = 0;
+                    continue;
+                }
+
+                const auto& val = col_from_string->get_data_at(i);
+                if (parser.parse(val.data, val.size)) {
+                    vec_to[i] = 1;
+                } else {
+                    vec_to[i] = 0;
+                }
+            }
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
+
+            return Status::OK();
+        }
+    }
+};
 void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParse>(FunctionJsonbParse::name);
     factory.register_alias(FunctionJsonbParse::name, FunctionJsonbParse::alias);
@@ -979,6 +1043,9 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbExtractString>();
     factory.register_alias(FunctionJsonbExtractString::name, FunctionJsonbExtractString::alias);
     factory.register_function<FunctionJsonbExtractJsonb>();
+    factory.register_function<FunctionJsonbValid>();
+    factory.register_alias(FunctionJsonbValid::name, FunctionJsonbValid::alias);
+
     // factory.register_alias(FunctionJsonbExtractJsonb::name, FunctionJsonbExtractJsonb::alias);
 }
 
