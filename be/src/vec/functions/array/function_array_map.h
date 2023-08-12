@@ -182,7 +182,8 @@ private:
         return true;
     }
 
-    template <typename T, typename... Ts, std::enable_if_t<(sizeof...(Ts) > 0), int> = 0>
+    template <typename T, typename... Ts>
+        requires(sizeof...(Ts) > 0)
     static bool _execute_internal(ColumnArrayMutableData& dst, ColumnArrayExecutionDatas datas,
                                   std::vector<bool>& col_const, int start_row, int end_row) {
         return _execute_internal<T>(dst, datas, col_const, start_row, end_row) ||
