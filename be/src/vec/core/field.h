@@ -415,7 +415,8 @@ public:
     Field(Field&& rhs) { create(std::move(rhs)); }
 
     template <typename T>
-    Field(T&& rhs, std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, void*> = nullptr);
+        requires(!std::is_same_v<std::decay_t<T>, Field>)
+    Field(T&& rhs);
 
     /// Create a string inplace.
     Field(const char* data, size_t size) { create(data, size); }
@@ -466,7 +467,8 @@ public:
     }
 
     template <typename T>
-    std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, Field&> operator=(T&& rhs);
+        requires(!std::is_same_v<std::decay_t<T>, Field>)
+    Field& operator=(T&& rhs);
 
     ~Field() { destroy(); }
 
@@ -1218,13 +1220,15 @@ decltype(auto) cast_to_nearest_field_type(T&& x) {
 /// 1. float <--> int needs explicit cast
 /// 2. customized types needs explicit cast
 template <typename T>
-Field::Field(T&& rhs, std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, void*>) {
+    requires(!std::is_same_v<std::decay_t<T>, Field>)
+Field::Field(T&& rhs) {
     auto&& val = cast_to_nearest_field_type(std::forward<T>(rhs));
     create_concrete(std::forward<decltype(val)>(val));
 }
 
 template <typename T>
-std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, Field&> Field::operator=(T&& rhs) {
+    requires(!std::is_same_v<std::decay_t<T>, Field>)
+Field& Field::operator=(T&& rhs) {
     auto&& val = cast_to_nearest_field_type(std::forward<T>(rhs));
     using U = decltype(val);
     if (which != TypeToEnum<std::decay_t<U>>::value) {
