@@ -28,8 +28,9 @@ import java.util.Set;
 public abstract class MetastorePartitionEvent extends MetastoreTableEvent {
 
     // for test
-    protected MetastorePartitionEvent(long eventId, String catalogName, String dbName, String tblName) {
-        super(eventId, catalogName, dbName, tblName);
+    protected MetastorePartitionEvent(long eventId, String catalogName, String dbName,
+                                      String tblName, MetastoreEventType eventType) {
+        super(eventId, catalogName, dbName, tblName, eventType);
     }
 
     protected MetastorePartitionEvent(NotificationEvent event, String catalogName) {
@@ -49,5 +50,5 @@ public abstract class MetastorePartitionEvent extends MetastoreTableEvent {
      */
     protected abstract boolean willChangePartitionName();
 
-    protected abstract Set<String> getAllPartitionNames();
+    public abstract Set<String> getAllPartitionNames();
 }

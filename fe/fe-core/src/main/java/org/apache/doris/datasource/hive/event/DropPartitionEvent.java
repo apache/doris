@@ -42,6 +42,14 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
     private final Table hmsTbl;
     private final List<String> partitionNames;
 
+    // for test
+    public DropPartitionEvent(long eventId, String catalogName, String dbName,
+                              String tblName, List<String> partitionNames) {
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.DROP_PARTITION);
+        this.partitionNames = partitionNames;
+        this.hmsTbl = null;
+    }
+
     private DropPartitionEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
@@ -70,7 +78,7 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
     }
 
     @Override
-    protected Set<String> getAllPartitionNames() {
+    public Set<String> getAllPartitionNames() {
         return ImmutableSet.copyOf(partitionNames);
     }
 

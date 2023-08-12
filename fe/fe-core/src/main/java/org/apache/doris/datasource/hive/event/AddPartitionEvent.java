@@ -46,7 +46,7 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
     // for test
     public AddPartitionEvent(long eventId, String catalogName, String dbName,
                              String tblName, List<String> partitionNames) {
-        super(eventId, catalogName, dbName, tblName);
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.ADD_PARTITION);
         this.partitionNames = partitionNames;
         this.hmsTbl = null;
     }

@@ -31,8 +31,9 @@ import java.util.Objects;
 public abstract class MetastoreTableEvent extends MetastoreEvent {
 
     // for test
-    protected MetastoreTableEvent(long eventId, String catalogName, String dbName, String tblName) {
-        super(eventId, catalogName, dbName, tblName);
+    protected MetastoreTableEvent(long eventId, String catalogName, String dbName,
+                                  String tblName, MetastoreEventType eventType) {
+        super(eventId, catalogName, dbName, tblName, eventType);
     }
 
     protected MetastoreTableEvent(NotificationEvent event, String catalogName) {

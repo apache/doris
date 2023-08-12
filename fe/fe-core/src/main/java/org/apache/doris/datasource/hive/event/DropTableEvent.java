@@ -37,7 +37,7 @@ public class DropTableEvent extends MetastoreTableEvent {
     // for test
     public DropTableEvent(long eventId, String catalogName, String dbName,
                            String tblName) {
-        super(eventId, catalogName, dbName, tblName);
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.DROP_TABLE);
         this.tableName = tblName;
     }
 
@@ -85,7 +85,7 @@ public class DropTableEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean canBeBatched(MetastoreEvent that) {
-        if(!isSameTable(that)) {
+        if (!isSameTable(that)) {
             return false;
         }
 

@@ -41,17 +41,17 @@ public class AlterTableEvent extends MetastoreTableEvent {
     // true if this alter event was due to a rename operation
     private final boolean isRename;
     private final boolean isView;
-    private final boolean willCreateOrDropTable;
+    private final String tblNameAfter;
 
     // for test
     public AlterTableEvent(long eventId, String catalogName, String dbName,
                            String tblName, boolean isRename, boolean isView) {
-        super(eventId, catalogName, dbName, tblName);
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.ALTER_TABLE);
         this.isRename = isRename;
         this.isView = isView;
         this.tableBefore = null;
         this.tableAfter = null;
-        this.willCreateOrDropTable = isRename || isView;
+        this.tblNameAfter = isRename ? (tblName + "_new") : tblName;
     }
 
     private AlterTableEvent(NotificationEvent event, String catalogName) {
@@ -65,6 +65,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
                             .getAlterTableMessage(event.getMessage());
             tableAfter = Preconditions.checkNotNull(alterTableMessage.getTableObjAfter());
             tableBefore = Preconditions.checkNotNull(alterTableMessage.getTableObjBefore());
+            tblNameAfter = tableAfter.getTableName();
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Unable to parse the alter table message"), e);
@@ -73,7 +74,6 @@ public class AlterTableEvent extends MetastoreTableEvent {
         isRename = !tableBefore.getDbName().equalsIgnoreCase(tableAfter.getDbName())
                 || !tableBefore.getTableName().equalsIgnoreCase(tableAfter.getTableName());
         isView = tableBefore.isSetViewExpandedText() || tableBefore.isSetViewOriginalText();
-        this.willCreateOrDropTable = isRename || isView;
     }
 
     public static List<MetastoreEvent> getEvents(NotificationEvent event,
@@ -83,7 +83,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean willCreateOrDropTable() {
-        return willCreateOrDropTable;
+        return isRename || isView;
     }
 
     @Override
@@ -126,6 +126,10 @@ public class AlterTableEvent extends MetastoreTableEvent {
 
     public boolean isView() {
         return isView;
+    }
+
+    public String getTblNameAfter() {
+        return tblNameAfter;
     }
 
     /**

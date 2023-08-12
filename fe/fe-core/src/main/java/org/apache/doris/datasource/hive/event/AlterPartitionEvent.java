@@ -18,12 +18,11 @@
 
 package org.apache.doris.datasource.hive.event;
 
-import com.google.common.collect.ImmutableSet;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -49,14 +48,14 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
 
     // for test
     public AlterPartitionEvent(long eventId, String catalogName, String dbName, String tblName,
-                                String partitionNameBefore, String partitionNameAfter) {
-        super(eventId, catalogName, dbName, tblName);
+                                String partitionNameBefore, boolean isRename) {
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.ALTER_PARTITION);
         this.partitionNameBefore = partitionNameBefore;
-        this.partitionNameAfter = partitionNameAfter;
+        this.partitionNameAfter = isRename ? (partitionNameBefore + "_new") : partitionNameBefore;
         this.hmsTbl = null;
         this.partitionAfter = null;
         this.partitionBefore = null;
-        isRename = !partitionNameBefore.equalsIgnoreCase(partitionNameAfter);
+        this.isRename = isRename;
     }
 
     private AlterPartitionEvent(NotificationEvent event,
@@ -88,8 +87,16 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
     }
 
     @Override
-    protected Set<String> getAllPartitionNames() {
+    public Set<String> getAllPartitionNames() {
         return ImmutableSet.of(partitionNameBefore);
+    }
+
+    public String getPartitionNameAfter() {
+        return partitionNameAfter;
+    }
+
+    public boolean isRename() {
+        return isRename;
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,

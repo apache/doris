@@ -37,7 +37,7 @@ public class CreateTableEvent extends MetastoreTableEvent {
 
     // for test
     public CreateTableEvent(long eventId, String catalogName, String dbName, String tblName) {
-        super(eventId, catalogName, dbName, tblName);
+        super(eventId, catalogName, dbName, tblName, MetastoreEventType.CREATE_TABLE);
         this.hmsTbl = null;
     }
 
