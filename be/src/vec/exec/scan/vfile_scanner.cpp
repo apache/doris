@@ -803,6 +803,7 @@ Status VFileScanner::_get_next_reader() {
         _missing_cols.clear();
         _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
         _cur_reader->set_push_down_agg_type(_parent->get_push_down_agg_type());
+        _cur_reader->set_push_down_count(_parent->get_push_down_count());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;

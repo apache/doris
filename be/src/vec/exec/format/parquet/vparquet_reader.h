@@ -149,6 +149,8 @@ public:
         _table_col_to_file_col = map;
     }
 
+    size_t get_batch_size() { return _batch_size; }
+
 private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups;

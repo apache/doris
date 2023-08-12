@@ -132,10 +132,31 @@ Status IcebergTableReader::init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
             conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,
             not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
+
+    _batch_size = parquet_reader->get_batch_size();
+    _remaining_push_down_count = _push_down_count;
+
     return status;
 }
 
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+
+    // already get rows from be
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_push_down_count > 0) {
+
+        auto rows = std::min(_remaining_push_down_count, (int64_t)_batch_size);
+        _remaining_push_down_count -= rows;
+        for (auto& col : block->mutate_columns()) {
+            col->resize(rows);
+        }
+        *read_rows = rows;
+        if (_remaining_push_down_count == 0) {
+            *eof = true;
+        }
+
+        return Status::OK();
+    }
+
     // To support iceberg schema evolution. We change the column name in block to
     // make it match with the column name in parquet file before reading data. and
     // Set the name back to table column name before return this block.
@@ -149,6 +170,7 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
         }
         block->initialize_index_by_name();
     }
+
     auto res = _file_format_reader->get_next_block(block, read_rows, eof);
     // Set the name back to table column name before return this block.
     if (_has_schema_change) {
@@ -191,6 +213,9 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
     const std::vector<TIcebergDeleteFileDesc>& files = table_desc.delete_files;
     if (files.empty()) {
         return Status::OK();
+    } else {
+        // TODO: wuewnchi 在上面直接做返回
+        _push_down_agg_type = TPushAggOp::type::NONE;
     }
     if (delete_file_type == POSITION_DELETE) {
         RETURN_IF_ERROR(_position_delete(files));
