@@ -27,7 +27,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
@@ -50,19 +50,19 @@ public class SelectAuthCheckerTest extends TestWithFeService implements MemoPatt
 
         Plan plan = PlanChecker.from(connectContext).analyze("select id,name from student where age = 10").getPlan();
         Set<String> result = getFilterCols((LogicalProject<LogicalFilter<LogicalRelation>>) plan.child(0));
-        Assert.assertTrue(CollectionUtils.isEqualCollection(result, respect));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(result, respect));
 
         plan = PlanChecker.from(connectContext).analyze("select id+1,name from student where age = 10").getPlan();
         result = getFilterCols((LogicalProject<LogicalFilter<LogicalRelation>>) plan.child(0));
-        Assert.assertTrue(CollectionUtils.isEqualCollection(result, respect));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(result, respect));
 
         plan = PlanChecker.from(connectContext).analyze("select id,name from student where age+1 = 10").getPlan();
         result = getFilterCols((LogicalProject<LogicalFilter<LogicalRelation>>) plan.child(0));
-        Assert.assertTrue(CollectionUtils.isEqualCollection(result, respect));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(result, respect));
 
         plan = PlanChecker.from(connectContext).analyze("select id,name,age from student").getPlan();
         result = getRelationCols((LogicalProject<LogicalRelation>) plan.child(0));
-        Assert.assertTrue(CollectionUtils.isEqualCollection(result, respect));
+        Assertions.assertTrue(CollectionUtils.isEqualCollection(result, respect));
     }
 
     private Set<String> getFilterCols(LogicalProject<LogicalFilter<LogicalRelation>> project) {

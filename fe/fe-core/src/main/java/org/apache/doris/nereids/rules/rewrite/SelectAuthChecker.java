@@ -42,6 +42,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * check select col auth
+ */
 public class SelectAuthChecker implements RewriteRuleFactory {
 
     @Override
@@ -52,6 +55,9 @@ public class SelectAuthChecker implements RewriteRuleFactory {
                         .toRule(RuleType.RELATION_AUTHENTICATION));
     }
 
+    /**
+     * deal select with filter
+     */
     public static Plan dealFilter(LogicalProject<LogicalFilter<LogicalRelation>> project) {
         Plan plan = project.child(0);
         if (!(plan instanceof LogicalFilter)) {
@@ -71,6 +77,9 @@ public class SelectAuthChecker implements RewriteRuleFactory {
         return project;
     }
 
+    /**
+     * deal select with no filter
+     */
     public static LogicalProject dealRelation(
             LogicalProject<LogicalRelation> project) {
         Plan relation = project.child(0);
@@ -84,6 +93,9 @@ public class SelectAuthChecker implements RewriteRuleFactory {
         return project;
     }
 
+    /**
+     * check col select auth
+     */
     public static void checkSelectAuth(CatalogRelation catalogRelation, Set<String> cols) {
         TableIf table = catalogRelation.getTable();
         if (table == null) {
@@ -109,6 +121,9 @@ public class SelectAuthChecker implements RewriteRuleFactory {
         }
     }
 
+    /**
+     * Recursively obtaining columns in an expression
+     */
     public static void getCols(Collection<? extends Expression> expressions, Set<String> cols) {
         for (Expression expression : expressions) {
             if (expression instanceof SlotReference) {
