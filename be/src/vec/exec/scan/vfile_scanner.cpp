@@ -701,7 +701,8 @@ Status VFileScanner::_get_next_reader() {
                 std::unique_ptr<IcebergTableReader> iceberg_reader =
                         IcebergTableReader::create_unique(std::move(parquet_reader), _profile,
                                                           _state, *_params, range, _kv_cache,
-                                                          _io_ctx.get());
+                                                          _io_ctx.get(),
+                                                          _parent->get_push_down_count());
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
@@ -803,7 +804,6 @@ Status VFileScanner::_get_next_reader() {
         _missing_cols.clear();
         _cur_reader->get_columns(&_name_to_col_type, &_missing_cols);
         _cur_reader->set_push_down_agg_type(_parent->get_push_down_agg_type());
-        _cur_reader->set_push_down_count(_parent->get_push_down_count());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
             fmt::memory_buffer col_buf;

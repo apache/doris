@@ -37,10 +37,6 @@ public:
         _push_down_agg_type = push_down_agg_type;
     }
 
-    void set_push_down_count(int64_t count) {
-        _push_down_count = count;
-    }
-
     virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
 
     virtual std::unordered_map<std::string, TypeDescriptor> get_name_to_type() {
@@ -80,8 +76,6 @@ protected:
     /// Whether the underlying FileReader has filled the partition&missing columns
     bool _fill_all_columns = false;
     TPushAggOp::type _push_down_agg_type;
-    // Record the value of the aggregate function 'count' from be
-    int64_t _push_down_count = -1;
 };
 
 } // namespace doris::vectorized

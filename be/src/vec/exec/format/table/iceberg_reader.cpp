@@ -90,14 +90,16 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
                                        RuntimeProfile* profile, RuntimeState* state,
                                        const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                                       io::IOContext* io_ctx)
+                                       io::IOContext* io_ctx,
+                                       int64_t push_down_count)
         : TableFormatReader(std::move(file_format_reader)),
           _profile(profile),
           _state(state),
           _params(params),
           _range(range),
           _kv_cache(kv_cache),
-          _io_ctx(io_ctx) {
+          _io_ctx(io_ctx),
+          _remaining_push_down_count(push_down_count) {
     static const char* iceberg_profile = "IcebergProfile";
     ADD_TIMER(_profile, iceberg_profile);
     _iceberg_profile.num_delete_files =
@@ -132,9 +134,7 @@ Status IcebergTableReader::init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
             conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,
             not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
-
     _batch_size = parquet_reader->get_batch_size();
-    _remaining_push_down_count = _push_down_count;
 
     return status;
 }
@@ -204,6 +204,10 @@ Status IcebergTableReader::get_columns(
 }
 
 Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_push_down_count > 0) {
+        return Status::OK();
+    }
+
     auto& table_desc = range.table_format_params.iceberg_params;
     auto& version = table_desc.format_version;
     if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
@@ -213,10 +217,8 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
     const std::vector<TIcebergDeleteFileDesc>& files = table_desc.delete_files;
     if (files.empty()) {
         return Status::OK();
-    } else {
-        // TODO: wuewnchi 在上面直接做返回
-        _push_down_agg_type = TPushAggOp::type::NONE;
     }
+
     if (delete_file_type == POSITION_DELETE) {
         RETURN_IF_ERROR(_position_delete(files));
     }
