@@ -376,21 +376,21 @@ public class MetastoreEventFactoryTest {
         private int calIndex(int val) {
             int currentIndex = 0;
             int currentBound = proportions.get(currentIndex);
-            while (currentIndex < proportions.size() -1) {
+            while (currentIndex < proportions.size() - 1) {
                 if (val > currentBound) {
                     currentBound += proportions.get(++currentIndex);
                 } else {
                     return currentIndex;
                 }
             }
-            return proportions.size() -1;
+            return proportions.size() - 1;
         }
     }
 
     @Test
     public void testCreateBatchEvents() {
         List<Integer> proportions = Lists.newArrayList(
-                5 , // createDatabaseEvent 1
+                5, // createDatabaseEvent 1
                 1, // alterDatabaseEvent
                 5, // dropDatabaseEvent
                 100, // createTableEvent
