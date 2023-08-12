@@ -483,6 +483,14 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    doris::BRpcService stream_service(exec_env);
+    status = stream_service.start(doris::config::brpc_port + 1, doris::config::brpc_num_threads);
+    if (!status.ok()) {
+        LOG(ERROR) << "BRPC service did not start correctly, exiting";
+        doris::shutdown_logging();
+        exit(1);
+    }
+
     // 3. http service
     doris::HttpService http_service(exec_env, doris::config::webserver_port,
                                     doris::config::webserver_num_workers);

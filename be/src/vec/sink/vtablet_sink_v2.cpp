@@ -309,9 +309,9 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
             return Status::RpcError("Failed to create stream");
         }
         LOG(INFO) << "Created stream " << stream << " for backend " << node_info.id << " ("
-                  << node_info.host << ":" << node_info.brpc_port << ")";
+                  << node_info.host << ":" << node_info.brpc_port + 1 << ")";
         const auto& stub = _state->exec_env()->brpc_internal_client_cache()->get_client(
-                node_info.host, node_info.brpc_port);
+                node_info.host, node_info.brpc_port + 1);
         POpenStreamSinkRequest request;
         request.set_allocated_id(&_load_id);
         request.set_num_senders(_num_senders);
