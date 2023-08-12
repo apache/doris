@@ -155,8 +155,8 @@ public:
 
     template <typename Data, typename Func>
         requires has_mapped
-    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t hash_value, size_t row,
-                                                    Arena& pool, Func&& f) {
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t hash_value, size_t row, Arena& pool,
+                                           Func&& f) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return lazy_emplace_impl(key_holder, hash_value, data, std::forward<Func>(f));
     }
@@ -322,8 +322,8 @@ protected:
 
     template <typename Data, typename KeyHolder, typename Func>
         requires has_mapped
-    ALWAYS_INLINE Mapped& lazy_emplace_impl(KeyHolder& key_holder, size_t hash_value,
-                                                     Data& data, Func&& f) {
+    ALWAYS_INLINE Mapped& lazy_emplace_impl(KeyHolder& key_holder, size_t hash_value, Data& data,
+                                            Func&& f) {
         typename Data::LookupResult it;
         data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
 

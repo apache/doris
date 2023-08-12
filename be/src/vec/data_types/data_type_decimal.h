@@ -580,7 +580,7 @@ ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldTyp
 template <typename FromDataType, typename ToDataType>
     requires IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>
 ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType& value,
-                                                  UInt32 scale, UInt8* overflow_flag) {
+                                         UInt32 scale, UInt8* overflow_flag) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToNativeType = typename ToDataType::FieldType::NativeType;
 
