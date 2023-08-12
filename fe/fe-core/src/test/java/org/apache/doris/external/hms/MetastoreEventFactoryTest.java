@@ -69,7 +69,7 @@ public class MetastoreEventFactoryTest {
 
     private static final Function<Long, AlterTableEvent> alterTableEventProducer = eventId
                 -> new AlterTableEvent(eventId, testCtl, randomDb(), randomTbl(),
-                randomBool(0.01D), randomBool(0.01D));
+                randomBool(0.1D), randomBool(0.1D));
 
     private static final Function<Long, InsertEvent> insertEventProducer = eventId
                 -> new InsertEvent(eventId, testCtl, randomDb(), randomTbl());
@@ -82,7 +82,7 @@ public class MetastoreEventFactoryTest {
 
     private static final Function<Long, AlterPartitionEvent> alterPartitionEventProducer = eventId
                 -> new AlterPartitionEvent(eventId, testCtl, randomDb(), randomTbl(), randomPartition(),
-                randomBool(0.01D));
+                randomBool(0.1D));
 
     private static final Function<Long, DropPartitionEvent> dropPartitionEventProducer = eventId
                 -> new DropPartitionEvent(eventId, testCtl, randomDb(), randomTbl(), randomPartitions());
@@ -451,7 +451,7 @@ public class MetastoreEventFactoryTest {
             MockCatalog validateCatalog = testCatalog.copy();
 
             List<MetastoreEvent> events = Lists.newArrayListWithCapacity(1000);
-            for (int j = 0; j < 5000; j++) {
+            for (int j = 0; j < 10000; j++) {
                 events.add(producer.produceOneEvent(j));
             }
             List<MetastoreEvent> mergedEvents = factory.createBatchEvents(testCtl, events);
