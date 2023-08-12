@@ -18,6 +18,7 @@
 #include "vec/sink/vtablet_block_convertor.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
 #include <google/protobuf/stubs/common.h>
 
 #include <algorithm>
@@ -57,7 +58,7 @@ namespace stream_load {
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
         std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
-        bool& has_filtered_rows) {
+        size_t rows, bool eos, bool& has_filtered_rows) {
     DCHECK(input_block->rows() > 0);
 
     block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
@@ -65,6 +66,11 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         // Do vectorized expr here to speed up load
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
                 output_vexpr_ctxs, *input_block, block.get()));
+    }
+
+    // fill the valus for auto-increment columns
+    if (_auto_inc_col_idx.has_value()) {
+        RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows, eos));
     }
 
     int64_t filtered_rows = 0;
@@ -84,6 +90,19 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
     }
 
     return Status::OK();
+}
+
+void OlapTableBlockConvertor::init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size) {
+    _batch_size = batch_size;
+    for (size_t idx = 0; idx < _output_tuple_desc->slots().size(); idx++) {
+        if (_output_tuple_desc->slots()[idx]->is_auto_increment()) {
+            _auto_inc_col_idx = idx;
+            _auto_inc_id_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
+                    db_id, table_id, _output_tuple_desc->slots()[idx]->col_unique_id());
+            _auto_inc_id_buffer->set_batch_size_at_least(_batch_size);
+            break;
+        }
+    }
 }
 
 template <bool is_min>
@@ -429,6 +448,69 @@ void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Blo
             }
         }
     }
+}
+
+Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, size_t rows,
+                                                    bool eos) {
+    size_t idx = _auto_inc_col_idx.value();
+    SlotDescriptor* slot = _output_tuple_desc->slots()[idx];
+    DCHECK(slot->type().type == PrimitiveType::TYPE_BIGINT);
+    DCHECK(!slot->is_nullable());
+
+    size_t null_value_count = 0;
+    auto dst_column = vectorized::ColumnInt64::create();
+    vectorized::ColumnInt64::Container& dst_values = dst_column->get_data();
+
+    vectorized::ColumnPtr src_column_ptr = block->get_by_position(idx).column;
+    DCHECK(vectorized::is_column_const(*src_column_ptr) || src_column_ptr->is_nullable());
+    if (const vectorized::ColumnConst* const_column =
+                check_and_get_column<vectorized::ColumnConst>(src_column_ptr)) {
+        // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
+        // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
+        // will be `ColumnConst`
+        if (const_column->is_null_at(0)) {
+            // the input of autoinc column are all null literals
+            // fill the column with generated ids
+            null_value_count = rows;
+            std::vector<std::pair<int64_t, size_t>> res;
+            RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));
+            for (auto [start, length] : res) {
+                _auto_inc_id_allocator.insert_ids(start, length);
+            }
+
+            for (size_t i = 0; i < rows; i++) {
+                dst_values.emplace_back(_auto_inc_id_allocator.next_id());
+            }
+        } else {
+            // the input of autoinc column are all int64 literals
+            // fill the column with that literal
+            int64_t value = const_column->get_int(0);
+            dst_values.resize_fill(rows, value);
+        }
+    } else {
+        const auto& src_nullable_column =
+                assert_cast<const vectorized::ColumnNullable&>(*src_column_ptr);
+        auto src_nested_column_ptr = src_nullable_column.get_nested_column_ptr();
+        const auto& null_map_data = src_nullable_column.get_null_map_data();
+        dst_values.reserve(rows);
+        for (size_t i = 0; i < rows; i++) {
+            null_value_count += null_map_data[i];
+        }
+        std::vector<std::pair<int64_t, size_t>> res;
+        RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));
+        for (auto [start, length] : res) {
+            _auto_inc_id_allocator.insert_ids(start, length);
+        }
+
+        for (size_t i = 0; i < rows; i++) {
+            dst_values.emplace_back((null_map_data[i] != 0) ? _auto_inc_id_allocator.next_id()
+                                                            : src_nested_column_ptr->get_int(i));
+        }
+    }
+    block->get_by_position(idx).column = std::move(dst_column);
+    block->get_by_position(idx).type =
+            vectorized::DataTypeFactory::instance().create_data_type(slot->type(), false);
+    return Status::OK();
 }
 
 } // namespace stream_load

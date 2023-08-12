@@ -38,6 +38,44 @@ namespace doris {
 namespace vectorized {
 class Arena;
 
+void DataTypeNullableSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
+                                                       BufferWritable& bw,
+                                                       const FormatOptions& options) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
+    if (col_null.is_null_at(row_num)) {
+        bw.write("NULL", 4);
+        bw.commit();
+    } else {
+        nested_serde->serialize_one_cell_to_text(col_null.get_nested_column(), row_num, bw,
+                                                 options);
+    }
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                                             const FormatOptions& options) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    // TODO(Amory) make null literal configurable
+    if (rb.count() == 4 && *(rb.position()) == 'N' && *(rb.position() + 1) == 'U' &&
+        *(rb.position() + 2) == 'L' && *(rb.position() + 3) == 'L') {
+        null_column.insert_data(nullptr, 0);
+        return Status::OK();
+    }
+    auto st = nested_serde->deserialize_one_cell_from_text(null_column.get_nested_column(), rb,
+                                                           options);
+    if (!st.ok()) {
+        // fill null if fail
+        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+        return Status::OK();
+    }
+    // fill not null if succ
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
 Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                                  int end) const {
     int row_count = end - start;
@@ -129,6 +167,7 @@ Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
                                                      int row_idx, bool col_const) const {
     auto& col = static_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
+    col_const = col_const || is_column_const(nested_col);
     const auto col_index = index_check_const(row_idx, col_const);
     if (col.has_null() && col.is_null_at(col_index)) {
         if (UNLIKELY(0 != result.push_null())) {

@@ -94,6 +94,11 @@ enum TStatusCode {
 
     // Snapshot Related from 70
     SNAPSHOT_NOT_EXIST = 70,
+
+    // BE Status HTTP_ERROR
+    HTTP_ERROR = 71,
+
+    TABLET_MISSING = 72,
 }
 
 struct TStatus {

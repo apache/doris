@@ -563,6 +563,9 @@ private:
     void convert_to_partitioned() {
         SCOPED_RAW_TIMER(&_convert_timer_ns);
 
+        DCHECK(!_is_partitioned);
+        _is_partitioned = true;
+
         auto bucket_count = level0_sub_table.get_buffer_size_in_cells();
         for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; ++i) {
             level1_sub_tables[i] = std::move(Impl(bucket_count / NUM_LEVEL1_SUB_TABLES));
@@ -592,7 +595,6 @@ private:
             }
         }
 
-        _is_partitioned = true;
         level0_sub_table.clear_and_shrink();
     }
 

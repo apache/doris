@@ -62,6 +62,10 @@ public abstract class SubqueryExpr extends Expression {
         return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
     }
 
+    public Expression getSubqueryOutput(LogicalPlan queryPlan) {
+        return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
+    }
+
     @Override
     public DataType getDataType() throws UnboundException {
         throw new UnboundException("getDataType");

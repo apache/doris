@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -53,7 +54,7 @@ public class CheckAnalysisTest {
 
     @Test
     public void testCheckNotWithChildrenWithErrorType() {
-        Plan plan = new LogicalOneRowRelation(
+        Plan plan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                 ImmutableList.of(new Alias(new Not(new IntegerLiteral(2)), "not_2")));
         CheckAnalysis checkAnalysis = new CheckAnalysis();
         Assertions.assertThrows(AnalysisException.class, () ->
@@ -63,7 +64,7 @@ public class CheckAnalysisTest {
     @Test
     public void testUnbound() {
         UnboundFunction func = new UnboundFunction("now", Lists.newArrayList(new IntegerLiteral(1)));
-        Plan plan = new LogicalOneRowRelation(
+        Plan plan = new LogicalOneRowRelation(StatementScopeIdGenerator.newRelationId(),
                 ImmutableList.of(new Alias(func, "unboundFunction")));
         CheckBound checkBound = new CheckBound();
         Assertions.assertThrows(AnalysisException.class, () ->

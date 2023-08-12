@@ -24,6 +24,10 @@ import java.nio.file.Paths
 suite("test_outfile") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+
+    def outFile = "/tmp"
+    def urlHost = ""
+    def csvFiles = ""
     
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
@@ -101,9 +105,16 @@ suite("test_outfile") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/";
+        def result = sql """
+            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/";
         """
+
+        url = result[0][3]
+        urlHost = url.substring(8, url.indexOf("${outFile}"))
+        def filePrifix = url.split("${outFile}")[1]
+        csvFiles = "${outFile}${filePrifix}*.csv"
+        scpFiles ("root", urlHost, csvFiles, outFilePath)
+        
         File[] files = path.listFiles()
         assert files.length == 1
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
@@ -134,6 +145,9 @@ suite("test_outfile") {
             }
             path.delete();
         }
+
+        cmd = "rm -rf ${csvFiles}"
+        sshExec ("root", urlHost, cmd)
     }
 
     // test hll column outfile
@@ -166,14 +180,20 @@ suite("test_outfile") {
         }
 
         sql "set return_object_data_as_binary = false"
-        sql """
-            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFilePath}/" properties("success_file_name" = "SUCCESS")
+        def result = sql """
+            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFile}/"
         """
 
+        url = result[0][3]
+        urlHost = url.substring(8, url.indexOf("${outFile}"))
+        def filePrifix = url.split("${outFile}")[1]
+        csvFiles = "${outFile}${filePrifix}*.csv"
+        scpFiles ("root", urlHost, csvFiles, outFilePath)
+
         File[] files = path.listFiles()
-        assert files.length == 2 // one is outfile, the other is SUCCESS file
-        File dataFile = files[0].getName().contains("SUCCESS") ? files[1] : files[0];
-        List<String> outLines = Files.readAllLines(Paths.get(dataFile.getAbsolutePath()), StandardCharsets.UTF_8);
+        assert files.length == 1
+        File dataFile = files[0]
+        List<String> outLines = Files.readAllLines(Paths.get(dataFile.getAbsolutePath()), StandardCharsets.UTF_8)
         assertEquals(2, outLines.size())
         String[] outLine1 = outLines.get(0).split("\t")
         assertEquals(3, outLine1.size())
@@ -188,6 +208,9 @@ suite("test_outfile") {
             }
             path.delete();
         }
+
+        cmd = "rm -rf ${csvFiles}"
+        sshExec ("root", urlHost, cmd)
     }
 
     // test parallel output
@@ -212,7 +235,7 @@ suite("test_outfile") {
                     (4, "c"), (5, "睿"), (6, "多"), (7, "丝"), (8, "test"),
                     (100, "aa"), (111, "bb"), (123, "cc"), (222, "dd");"""
         sql "set enable_parallel_outfile = true;"
-        sql """select * from select_into_file into outfile "file://${outFilePath}/" properties("success_file_name" = "SUCCESS");"""
+        sql """select * from select_into_file into outfile "file://${outFile}/" properties("success_file_name" = "SUCCESS");"""
     } finally {
         try_sql("DROP TABLE IF EXISTS select_into_file")
         File path = new File(outFilePath)
@@ -222,5 +245,8 @@ suite("test_outfile") {
             }
             path.delete();
         }
+
+        cmd = "rm -rf ${csvFiles}"
+        sshExec ("root", urlHost, cmd)
     }
 }

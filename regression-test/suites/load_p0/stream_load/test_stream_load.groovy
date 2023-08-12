@@ -293,7 +293,7 @@ suite("test_stream_load", "p0") {
     "replication_allocation" = "tag.location.default: 1"
     );
     """
-    sql """ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true');"""
+
     sql """
     CREATE TABLE IF NOT EXISTS ${tableName10} (
       `k1` INT(11) NULL COMMENT "",

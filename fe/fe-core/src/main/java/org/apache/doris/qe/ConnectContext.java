@@ -21,7 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.telemetry.Telemetry;
@@ -40,6 +40,7 @@ import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -74,6 +75,11 @@ public class ConnectContext {
     // set this id before analyze
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
+
+    // set for stream load with sql
+    protected volatile TUniqueId loadId;
+    protected volatile long backendId;
+    protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId;
     protected volatile String traceId;
@@ -181,7 +187,7 @@ public class ConnectContext {
     private StatementContext statementContext;
     private Map<String, PrepareStmtContext> preparedStmtCtxs = Maps.newHashMap();
 
-    private List<Table> tables = null;
+    private List<TableIf> tables = null;
 
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
@@ -285,15 +291,19 @@ public class ConnectContext {
         this.preparedStmtCtxs.put(stmtName, ctx);
     }
 
+    public void removePrepareStmt(String stmtName) {
+        this.preparedStmtCtxs.remove(stmtName);
+    }
+
     public PrepareStmtContext getPreparedStmt(String stmtName) {
         return this.preparedStmtCtxs.get(stmtName);
     }
 
-    public List<Table> getTables() {
+    public List<TableIf> getTables() {
         return tables;
     }
 
-    public void setTables(List<Table> tables) {
+    public void setTables(List<TableIf> tables) {
         this.tables = tables;
     }
 
@@ -314,6 +324,30 @@ public class ConnectContext {
 
     public long getStmtId() {
         return stmtId;
+    }
+
+    public long getBackendId() {
+        return backendId;
+    }
+
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
+    public TUniqueId getLoadId() {
+        return loadId;
+    }
+
+    public void setLoadId(TUniqueId loadId) {
+        this.loadId = loadId;
+    }
+
+    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
+        this.streamLoadInfo = streamLoadInfo;
+    }
+
+    public LoadTaskInfo getStreamLoadInfo() {
+        return streamLoadInfo;
     }
 
     public void setStmtId(long stmtId) {
@@ -721,8 +755,11 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(long nowMs) {
+        public List<String> toRow(long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
             row.add(getMysqlChannel().getRemoteHostPortString());

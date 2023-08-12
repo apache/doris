@@ -274,7 +274,6 @@ public class AggregationNode extends PlanNode {
         msg.agg_node.setAggSortInfos(aggSortInfos);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         msg.agg_node.setIsFirstPhase(aggInfo.isFirstPhase());
-        msg.agg_node.setUseFixedLengthSerializationOpt(true);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGroupingExprs(Expr.treesToThrift(groupingExprs));
@@ -332,11 +331,6 @@ public class AggregationNode extends PlanNode {
         // we indirectly reference all grouping slots (because we write them)
         // so they're all materialized.
         aggInfo.getRefdSlots(ids);
-    }
-
-    @Override
-    public int getNumInstances() {
-        return children.get(0).getNumInstances();
     }
 
     @Override

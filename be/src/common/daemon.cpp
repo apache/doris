@@ -40,12 +40,12 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
-#include "runtime/load_channel_mgr.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group_manager.h"
@@ -276,23 +276,15 @@ void Daemon::memory_gc_thread() {
     }
 }
 
-void Daemon::load_channel_tracker_refresh_thread() {
+void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
-                   std::chrono::milliseconds(config::load_channel_memory_refresh_sleep_time_ms)) &&
+                   std::chrono::milliseconds(config::memtable_mem_tracker_refresh_interval_ms)) &&
            !k_doris_exit) {
         if (ExecEnv::GetInstance()->initialized()) {
-            doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
+            doris::ExecEnv::GetInstance()->memtable_memory_limiter()->refresh_mem_tracker();
         }
-    }
-}
-
-void Daemon::memory_tracker_profile_refresh_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(100)) &&
-           !k_doris_exit) {
-        MemTracker::refresh_all_tracker_profile();
-        MemTrackerLimiter::refresh_all_tracker_profile();
     }
 }
 
@@ -313,6 +305,9 @@ void Daemon::calculate_metrics_thread() {
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
     do {
+        if (!ExecEnv::GetInstance()->initialized()) {
+            continue;
+        }
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
@@ -361,12 +356,12 @@ void Daemon::calculate_metrics_thread() {
             DorisMetrics::instance()->all_segments_num->set_value(
                     StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)) && !k_doris_exit);
 }
 
 // clean up stale spilled files
 void Daemon::block_spill_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)) && !k_doris_exit) {
         if (ExecEnv::GetInstance()->initialized()) {
             ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
         }
@@ -464,14 +459,9 @@ void Daemon::start() {
             &_memory_gc_thread);
     CHECK(st.ok()) << st;
     st = Thread::create(
-            "Daemon", "load_channel_tracker_refresh_thread",
-            [this]() { this->load_channel_tracker_refresh_thread(); },
-            &_load_channel_tracker_refresh_thread);
-    CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "memory_tracker_profile_refresh_thread",
-            [this]() { this->memory_tracker_profile_refresh_thread(); },
-            &_memory_tracker_profile_refresh_thread);
+            "Daemon", "memtable_memory_limiter_tracker_refresh_thread",
+            [this]() { this->memtable_memory_limiter_tracker_refresh_thread(); },
+            &_memtable_memory_limiter_tracker_refresh_thread);
     CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {
@@ -498,11 +488,8 @@ void Daemon::stop() {
     if (_memory_gc_thread) {
         _memory_gc_thread->join();
     }
-    if (_load_channel_tracker_refresh_thread) {
-        _load_channel_tracker_refresh_thread->join();
-    }
-    if (_memory_tracker_profile_refresh_thread) {
-        _memory_tracker_profile_refresh_thread->join();
+    if (_memtable_memory_limiter_tracker_refresh_thread) {
+        _memtable_memory_limiter_tracker_refresh_thread->join();
     }
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();

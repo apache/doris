@@ -361,7 +361,7 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
         if (block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, block->rows());
             // Not very sure, if should contain empty block
-            COUNTER_UPDATE(_blocks_produced_counter, block->rows());
+            COUNTER_UPDATE(_blocks_produced_counter, 1);
             break;
         }
     }

@@ -42,16 +42,16 @@ class TPlanFragmentDestination;
 class TResultFileSink;
 
 namespace vectorized {
-class VResultWriter;
 class VExprContext;
 
 class VResultFileSink : public DataSink {
 public:
-    VResultFileSink(ObjectPool* pool, const RowDescriptor& row_desc, const TResultFileSink& sink,
-                    int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
+    VResultFileSink(RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
+                    const TResultFileSink& sink, int per_channel_buffer_size,
+                    bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr);
-    VResultFileSink(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-                    const TResultFileSink& sink,
+    VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
+                    const RowDescriptor& row_desc, const TResultFileSink& sink,
                     const std::vector<TPlanFragmentDestination>& destinations,
                     int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
@@ -84,7 +84,7 @@ private:
     std::unique_ptr<Block> _output_block = nullptr;
     std::shared_ptr<BufferControlBlock> _sender;
     std::unique_ptr<VDataStreamSender> _stream_sender;
-    std::shared_ptr<VResultWriter> _writer;
+    std::shared_ptr<ResultWriter> _writer;
     int _buf_size = 1024; // Allocated from _pool
     bool _is_top_sink = true;
     std::string _header;

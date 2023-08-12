@@ -31,6 +31,7 @@ public class MinioProperties extends BaseProperties {
     public static final String ACCESS_KEY = "minio.access_key";
     public static final String SECRET_KEY = "minio.secret_key";
     public static final String SESSION_TOKEN = "minio.session_token";
+    public static final String DEFAULT_REGION = "us-east-1";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY, REGION);
 
     public static CloudCredential getCredential(Map<String, String> props) {

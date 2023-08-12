@@ -24,15 +24,11 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -46,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
@@ -196,7 +193,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 subquery.getCorrelateSlots(),
                 subquery, Optional.empty(),
                 subqueryToMarkJoinSlot.get(subquery),
-                mergeScalarSubConjectAndFilterConject(
+                mergeScalarSubConjunctAndFilterConjunct(
                     subquery, subqueryCorrespondingConject,
                     conjunct, needAddSubOutputToProjects, singleSubquery), isProject,
                 childPlan, subquery.getQueryPlan());
@@ -245,7 +242,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      *      LogicalJoin(otherConjunct[k2 = c2])  ---> inSub
      *          LogicalJoin(otherConjunct[k1 > sum(c1)])  ---> scalarSub
      */
-    private Optional<Expression> mergeScalarSubConjectAndFilterConject(
+    private Optional<Expression> mergeScalarSubConjunctAndFilterConjunct(
                     SubqueryExpr subquery,
                     Map<SubqueryExpr, Expression> subqueryCorrespondingConject,
                     Optional<Expression> conjunct,
@@ -292,8 +289,20 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     .collect(ImmutableSet.toImmutableSet());
         }
 
-        public Expression replace(Expression expressions, SubqueryContext subqueryContext) {
-            return expressions.accept(this, subqueryContext);
+        public Expression replace(Expression expression, SubqueryContext subqueryContext) {
+            Expression replacedExpr = doReplace(expression, subqueryContext);
+            if (subqueryContext.onlySingleSubquery() && !isMarkJoin) {
+                // if there is only one subquery and it's not a mark join,
+                // we can merge the filter with the join conjunct to eliminate the filter node
+                // to do that, we need update the subquery's corresponding conjunct use replacedExpr
+                // see mergeScalarSubConjunctAndFilterConjunct() for more info
+                subqueryContext.updateSubqueryCorrespondingConjunct(replacedExpr);
+            }
+            return replacedExpr;
+        }
+
+        public Expression doReplace(Expression expression, SubqueryContext subqueryContext) {
+            return expression.accept(this, subqueryContext);
         }
 
         @Override
@@ -343,51 +352,15 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         }
 
         @Override
-        public Expression visitNot(Not not, SubqueryContext context) {
-            // Need to re-update scalarSubQuery unequal conditions into subqueryCorrespondingConject
-            if (not.child() instanceof BinaryOperator
-                    && (((BinaryOperator) not.child()).left().containsType(ScalarSubquery.class)
-                    || ((BinaryOperator) not.child()).right().containsType(ScalarSubquery.class))) {
-                Expression newChild = replace(not.child(), context);
-                ScalarSubquery subquery = collectScalarSubqueryForBinaryOperator((BinaryOperator) not.child());
-                context.updateSubqueryCorrespondingConjunctInNot(subquery);
-                return context.getSubqueryToMarkJoinSlotValue(subquery).isPresent() ? newChild : new Not(newChild);
-            }
-
-            return visit(not, context);
-        }
-
-        @Override
-        public Expression visitIsNull(IsNull isNull, SubqueryContext context) {
-            // Need to re-update scalarSubQuery unequal conditions into subqueryCorrespondingConject
-            if (isNull.child() instanceof BinaryOperator
-                    && (((BinaryOperator) isNull.child()).left().containsType(ScalarSubquery.class)
-                    || ((BinaryOperator) isNull.child()).right().containsType(ScalarSubquery.class))) {
-                Expression newChild = replace(isNull.child(), context);
-                ScalarSubquery subquery = collectScalarSubqueryForBinaryOperator((BinaryOperator) isNull.child());
-                context.updateSubqueryCorrespondingConjunctIsNull(subquery);
-                return context.getSubqueryToMarkJoinSlotValue(subquery).isPresent() ? newChild : new IsNull(newChild);
-            }
-
-            return visit(isNull, context);
-        }
-
-        @Override
         public Expression visitBinaryOperator(BinaryOperator binaryOperator, SubqueryContext context) {
-            boolean atLeastOneChildContainsScalarSubquery =
-                    binaryOperator.left().containsType(ScalarSubquery.class)
-                        || binaryOperator.right().containsType(ScalarSubquery.class);
-            boolean currentMarkJoin = ((binaryOperator.left().anyMatch(SubqueryExpr.class::isInstance)
-                                        || binaryOperator.right().anyMatch(SubqueryExpr.class::isInstance))
-                                      && (binaryOperator instanceof Or)) || isMarkJoin;
-            isMarkJoin = currentMarkJoin;
-            Expression left = replace(binaryOperator.left(), context);
-            isMarkJoin = currentMarkJoin;
-            Expression right = replace(binaryOperator.right(), context);
+            // update isMarkJoin flag
+            isMarkJoin =
+                    isMarkJoin || ((binaryOperator.left().anyMatch(SubqueryExpr.class::isInstance)
+                            || binaryOperator.right().anyMatch(SubqueryExpr.class::isInstance))
+                            && (binaryOperator instanceof Or));
 
-            if (atLeastOneChildContainsScalarSubquery && !(binaryOperator instanceof CompoundPredicate)) {
-                return context.replaceBinaryOperator(binaryOperator, left, right, isProject);
-            }
+            Expression left = doReplace(binaryOperator.left(), context);
+            Expression right = doReplace(binaryOperator.right(), context);
 
             return binaryOperator.withChildren(left, right);
         }
@@ -399,11 +372,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      * For inSubquery and exists: it will be directly replaced by markSlotReference
      *  e.g.
      *  logicalFilter(predicate=exists) ---> logicalFilter(predicate=$c$1)
-     * For scalarSubquery: will replace the connected ComparisonPredicate with markSlotReference
+     * For scalarSubquery: it will be replaced by markSlotReference too
      *  e.g.
-     *  logicalFilter(predicate=k1 > scalarSubquery) ---> logicalFilter(predicate=$c$1)
+     *  logicalFilter(predicate=k1 > scalarSubquery) ---> logicalFilter(predicate=k1 > $c$1)
      *
-     * subqueryCorrespondingConject: Record the conject corresponding to the subquery.
+     * subqueryCorrespondingConjunct: Record the conject corresponding to the subquery.
      * rule:
      *
      *
@@ -427,10 +400,6 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             return subqueryCorrespondingConjunct;
         }
 
-        private Optional<MarkJoinSlotReference> getSubqueryToMarkJoinSlotValue(SubqueryExpr subqueryExpr) {
-            return subqueryToMarkJoinSlot.get(subqueryExpr);
-        }
-
         private void setSubqueryToMarkJoinSlot(SubqueryExpr subquery,
                                               Optional<MarkJoinSlotReference> markJoinSlotReference) {
             subqueryToMarkJoinSlot.put(subquery, markJoinSlotReference);
@@ -445,56 +414,13 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             return subqueryToMarkJoinSlot.size() == 1;
         }
 
-        private void updateSubqueryCorrespondingConjunctInNot(SubqueryExpr subquery) {
-            if (subqueryCorrespondingConjunct.containsKey(subquery)) {
-                subqueryCorrespondingConjunct.replace(subquery,
-                    new Not(subqueryCorrespondingConjunct.get(subquery)));
-            }
+        private void updateSubqueryCorrespondingConjunct(Expression expression) {
+            Preconditions.checkState(onlySingleSubquery(),
+                    "onlySingleSubquery must be true");
+            subqueryCorrespondingConjunct
+                    .forEach((k, v) -> subqueryCorrespondingConjunct.put(k, expression));
         }
 
-        private void updateSubqueryCorrespondingConjunctIsNull(SubqueryExpr subquery) {
-            if (subqueryCorrespondingConjunct.containsKey(subquery)) {
-                subqueryCorrespondingConjunct.replace(subquery,
-                        new IsNull(subqueryCorrespondingConjunct.get(subquery)));
-            }
-        }
-
-        /**
-         * For scalarSubQuery and MarkJoin, it will be replaced by markSlotReference
-         *  e.g.
-         *  logicalFilter(predicate=k1 > scalarSub or exists)
-         *  -->
-         *  logicalFilter(predicate=$c$1 or $c$2)
-         */
-        private Expression replaceBinaryOperator(BinaryOperator binaryOperator,
-                                                Expression left,
-                                                Expression right,
-                                                boolean isProject) {
-            boolean leftContaionsScalar = binaryOperator.left().containsType(ScalarSubquery.class);
-            ScalarSubquery subquery = collectScalarSubqueryForBinaryOperator(binaryOperator);
-
-            // record the result in subqueryCorrespondingConjunct
-            Expression newLeft = leftContaionsScalar && subqueryToMarkJoinSlot.get(subquery).isPresent()
-                    ? subqueryCorrespondingConjunct.get(subquery) : left;
-            Expression newRight = !leftContaionsScalar && subqueryToMarkJoinSlot.get(subquery).isPresent()
-                    ? subqueryCorrespondingConjunct.get(subquery) : right;
-            Expression newBinary = binaryOperator.withChildren(newLeft, newRight);
-            subqueryCorrespondingConjunct.put(subquery,
-                    (isProject ? (leftContaionsScalar ? newLeft : newRight) : newBinary));
-
-            if (subqueryToMarkJoinSlot.get(subquery).isPresent() && binaryOperator instanceof ComparisonPredicate) {
-                return subqueryToMarkJoinSlot.get(subquery).get();
-            }
-            return newBinary;
-        }
     }
 
-    private static ScalarSubquery collectScalarSubqueryForBinaryOperator(BinaryOperator binaryOperator) {
-        boolean leftContaionsScalar = binaryOperator.left().containsType(ScalarSubquery.class);
-        return leftContaionsScalar
-                ? (ScalarSubquery) ((ImmutableSet) binaryOperator.left()
-                .collect(ScalarSubquery.class::isInstance)).asList().get(0)
-                : (ScalarSubquery) ((ImmutableSet) binaryOperator.right()
-                .collect(ScalarSubquery.class::isInstance)).asList().get(0);
-    }
 }

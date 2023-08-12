@@ -46,7 +46,7 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new PushdownDistinctThroughJoin())
+                .customRewrite(new PushdownDistinctThroughJoin())
                 .matches(
                         logicalAggregate(
                                 logicalJoin(
@@ -70,7 +70,7 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new PushdownDistinctThroughJoin())
+                .customRewrite(new PushdownDistinctThroughJoin())
                 .matches(
                         logicalAggregate(
                                 logicalJoin(

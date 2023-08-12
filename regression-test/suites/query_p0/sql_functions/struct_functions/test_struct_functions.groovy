@@ -17,7 +17,7 @@
 
 suite("test_struct_functions") {
     def tableName = "tbl_test_struct_functions"
-    sql """ADMIN SET FRONTEND CONFIG('enable_struct_type'='true')"""
+
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (

@@ -713,6 +713,9 @@ Status SegmentIterator::_apply_bitmap_index_except_leafnode_of_andnode(
 
 Status SegmentIterator::_apply_inverted_index_except_leafnode_of_andnode(
         ColumnPredicate* pred, roaring::Roaring* output_result) {
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return Status::OK();
+    }
     int32_t unique_id = _schema->unique_id(pred->column_id());
     RETURN_IF_ERROR(pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(), num_rows(),
                                    output_result));
@@ -765,7 +768,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         auto column_name = _schema->column(pred->column_id())->name();
         if (!_remaining_conjunct_roots.empty() &&
-            _check_column_pred_all_push_down(column_name, true) &&
+            _check_column_pred_all_push_down(column_name, true,
+                                             pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
             int32_t unique_id = _schema->unique_id(pred->column_id());
             _need_read_data_indices[unique_id] = false;
@@ -794,6 +798,7 @@ bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) 
         //    such as: where A = '' and B = ','
         //    the predicate of A and B need downgrade without index query.
         // above case can downgrade without index query
+        LOG(INFO) << "will downgrade without index to evaluate predicate, because of res: " << res;
         return true;
     }
     return false;
@@ -883,7 +888,8 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         }
 
         auto column_name = _schema->column(pred->column_id())->name();
-        if (_check_column_pred_all_push_down(column_name) &&
+        if (_check_column_pred_all_push_down(column_name, false,
+                                             pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
             _need_read_data_indices[unique_id] = false;
         }
@@ -962,6 +968,9 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
 
 Status SegmentIterator::_apply_inverted_index() {
     SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
+    if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
+        return Status::OK();
+    }
     size_t input_rows = _row_bitmap.cardinality();
     std::vector<ColumnPredicate*> remaining_predicates;
     std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
@@ -2157,12 +2166,12 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
  *                  call _check_column_pred_all_push_down will return false.
 */
 bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column_name,
-                                                       bool in_compound) {
+                                                       bool in_compound, bool is_match) {
     if (_remaining_conjunct_roots.empty()) {
         return true;
     }
 
-    if (in_compound) {
+    if (in_compound || is_match) {
         auto preds_in_remaining_vconjuct = _column_pred_in_remaining_vconjunct[column_name];
         for (auto pred_info : preds_in_remaining_vconjuct) {
             auto column_sign = _gen_predicate_result_sign(&pred_info);

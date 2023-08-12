@@ -471,6 +471,8 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime", "ProbeTime");
     _probe_side_output_timer =
             ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime", "ProbeTime");
+    _probe_process_hashtable_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProcessHashTableTime", "ProbeTime");
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
     _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");

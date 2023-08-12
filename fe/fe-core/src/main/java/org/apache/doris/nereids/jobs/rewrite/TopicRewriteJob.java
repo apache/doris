@@ -51,4 +51,5 @@ public class TopicRewriteJob implements RewriteJob {
     public boolean isOnce() {
         return true;
     }
+
 }

@@ -261,6 +261,11 @@ public class FileLoadScanNode extends FileScanNode {
                     } else {
                         if (column.isAllowNull()) {
                             expr = NullLiteral.create(column.getType());
+                        } else if (column.isAutoInc()) {
+                            // auto-increment column should be non-nullable
+                            // however, here we use `NullLiteral` to indicate that a cell should
+                            // be filled with generated value in `VOlapTableSink::_fill_auto_inc_cols()`
+                            expr = NullLiteral.create(column.getType());
                         } else {
                             throw new AnalysisException("column has no source field, column=" + column.getName());
                         }

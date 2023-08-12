@@ -35,6 +35,13 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse, Doris, SAP HANA, Trino and OceanBase.
 
+## Syntax
+
+```sql
+CREATE CATALOG <catalog_name>
+PROPERTIES ("key"="value", ...)
+```
+
 ## Parameter Description
 
 | Parameter                 | Required or Not | Default Value | Description                                                                                                              |
@@ -56,7 +63,7 @@ Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse
 
 2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 
-3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
+3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 :::
 
 :::tip
@@ -89,7 +96,14 @@ In some cases, the keywords in the database might be used as the field names. Fo
 
 1. When executing a query like `where dt = '2022-01-01'`, Doris can push down these filtering conditions to the external data source, thereby directly excluding data that does not meet the conditions at the data source level, reducing the number of unqualified Necessary data acquisition and transfer. This greatly improves query performance while also reducing the load on external data sources.
    
-2. When `enable_func_pushdown` is set to true, the function condition after where will also be pushed down to the external data source. Currently, only MySQL is supported. If you encounter a function that MySQL does not support, you can set this parameter to false.
+2. When `enable_func_pushdown` is set to true, the function condition after where will also be pushed down to the external data source. Currently, only MySQL is supported. If you encounter a function that MySQL does not support, you can set this parameter to false, at present, Doris will automatically identify some functions not supported by MySQL to filter the push-down conditions, which can be checked by explain sql.
+
+Functions that are currently not pushed down include:
+
+|    MYSQL     |
+|:------------:|
+|  DATE_TRUNC  |
+| MONEY_FORMAT |
 
 ### Line Limit
 
@@ -160,7 +174,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 | MYSQL Type                                | Doris Type     | Comment                                                                       |
 |-------------------------------------------|----------------|-------------------------------------------------------------------------------|
-| BOOLEAN                                   | BOOLEAN        |                                                                               |
+| BOOLEAN                                   | TINYINT        |                                                                               |
 | TINYINT                                   | TINYINT        |                                                                               |
 | SMALLINT                                  | SMALLINT       |                                                                               |
 | MEDIUMINT                                 | INT            |                                                                               |
@@ -545,6 +559,74 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 When Doris connects to OceanBase, it will automatically recognize that OceanBase is in MySQL or Oracle mode. Hierarchical correspondence and type mapping refer to [MySQL](#MySQL) and [Oracle](#Oracle)
 :::
 
+### View the JDBC Catalog
+
+You can query all Catalogs in the current Doris cluster through SHOW CATALOGS:
+
+```sql
+SHOW CATALOGS;
+```
+
+Query the creation statement of a Catalog through SHOW CREATE CATALOG:
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### Drop the JDBC Catalog
+
+A Catalog can be deleted via DROP CATALOG:
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### Query the JDBC Catalog
+
+1. Use SWITCH to switch the Catalog in effect for the current session:
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. Query all libraries under the current Catalog through SHOW DATABASES:
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. Use USE to switch the Database that takes effect in the current session:
+
+    ```sql
+    USE <database_name>;
+    ```
+
+   Or directly use `USE <catalog_name>.<database_name>;` to switch the Database that takes effect in the current session
+
+4. Query all tables under the current Catalog through SHOW TABLES:
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. Query the data of a table under the current Catalog through SELECT:
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
+
 ## FAQ
 
 1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, ClickHouse, SAP HANA, Trino and OceanBase?
@@ -689,3 +771,11 @@ When Doris connects to OceanBase, it will automatically recognize that OceanBase
     This happens because JDBC can't handle the datetime format 0000-00-00 00:00:00. 
     To address this, append zeroDateTimeBehavior=convertToNull to the jdbc_url when creating the Catalog, e.g., "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull". 
     In this case, JDBC will convert 0000-00-00 00:00:00 to null, and then Doris will handle the DateTime column as a nullable type, allowing for successful reading.
+
+12. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
+
+    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the lib/java_extensions directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
+
+13. `NoClassDefFoundError: net/jpountz/lz4/LZ4Factory` exception occurs when reading Clickhouse data via jdbc catalog.
+
+    You can download the [lz4-1.3.0.jar](https://repo1.maven.org/maven2/net/jpountz/lz4/lz4/1.3.0/lz4-1.3.0.jar) package and put it into the DorisFE `lib` directory and the `lib/java_extensions` directory of BE (the version before Doris 2.0 should be put into the `lib` directory of BE).

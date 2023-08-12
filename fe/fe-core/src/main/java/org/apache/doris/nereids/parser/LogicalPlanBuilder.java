@@ -30,6 +30,7 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
+import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
@@ -120,6 +121,7 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -161,6 +163,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
@@ -244,7 +247,6 @@ import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -311,7 +313,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
-        return withExplain(withOutFile(plan, ctx.outFileClause()), ctx.explain());
+        if (ctx.outFileClause() != null) {
+            plan = withOutFile(plan, ctx.outFileClause());
+        } else {
+            plan = new UnboundResultSink<>(plan);
+        }
+        return withExplain(plan, ctx.explain());
     }
 
     @Override
@@ -335,7 +342,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitUpdate(UpdateContext ctx) {
         LogicalPlan query = withCheckPolicy(new UnboundRelation(
-                RelationUtil.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
+                StatementScopeIdGenerator.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
         query = withTableAlias(query, ctx.tableAlias());
         if (ctx.fromClause() != null) {
             query = withRelations(query, ctx.fromClause().relation());
@@ -354,7 +361,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
         LogicalPlan query = withTableAlias(withCheckPolicy(
-                new UnboundRelation(RelationUtil.newRelationId(), tableName)), ctx.tableAlias());
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName)), ctx.tableAlias());
         if (ctx.USING() != null) {
             query = withRelations(query, ctx.relation());
         }
@@ -582,7 +589,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         LogicalPlan checkedRelation = withCheckPolicy(
-                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart, relationHints));
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                        tableId, partitionNames, isTempPart, relationHints));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -613,7 +621,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 String value = parseTVFPropertyItem(argument.value);
                 map.put(key, value);
             }
-            LogicalPlan relation = new UnboundTVFRelation(RelationUtil.newRelationId(),
+            LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
                     functionName, new TVFProperties(map.build()));
             return withTableAlias(relation, ctx.tableAlias());
         });
@@ -743,19 +751,58 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitLogicalBinary(LogicalBinaryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            Expression left = getExpression(ctx.left);
-            Expression right = getExpression(ctx.right);
+            // Code block copy from Spark
+            // sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/parser/AstBuilder.scala
 
-            switch (ctx.operator.getType()) {
-                case DorisParser.LOGICALAND:
-                case DorisParser.AND:
-                    return new And(left, right);
-                case DorisParser.OR:
-                    return new Or(left, right);
-                default:
-                    throw new ParseException("Unsupported logical binary type: " + ctx.operator.getText(), ctx);
+            // Collect all similar left hand contexts.
+            List<BooleanExpressionContext> contexts = Lists.newArrayList(ctx.right);
+            BooleanExpressionContext current = ctx.left;
+            while (true) {
+                if (current instanceof LogicalBinaryContext
+                        && ((LogicalBinaryContext) current).operator.getType() == ctx.operator.getType()) {
+                    contexts.add(((LogicalBinaryContext) current).right);
+                    current = ((LogicalBinaryContext) current).left;
+                } else {
+                    contexts.add(current);
+                    break;
+                }
             }
+            // Reverse the contexts to have them in the same sequence as in the SQL statement & turn them
+            // into expressions.
+            Collections.reverse(contexts);
+            List<Expression> expressions = contexts.stream().map(this::getExpression).collect(Collectors.toList());
+            // Create a balanced tree.
+            return reduceToExpressionTree(0, expressions.size() - 1, expressions, ctx);
         });
+    }
+
+    private Expression expressionCombiner(Expression left, Expression right, LogicalBinaryContext ctx) {
+        switch (ctx.operator.getType()) {
+            case DorisParser.LOGICALAND:
+            case DorisParser.AND:
+                return new And(left, right);
+            case DorisParser.OR:
+                return new Or(left, right);
+            default:
+                throw new ParseException("Unsupported logical binary type: " + ctx.operator.getText(), ctx);
+        }
+    }
+
+    private Expression reduceToExpressionTree(int low, int high,
+            List<Expression> expressions, LogicalBinaryContext ctx) {
+        switch (high - low) {
+            case 0:
+                return expressions.get(low);
+            case 1:
+                return expressionCombiner(expressions.get(low), expressions.get(high), ctx);
+            default:
+                int mid = low + (high - low) / 2;
+                return expressionCombiner(
+                        reduceToExpressionTree(low, mid, expressions, ctx),
+                        reduceToExpressionTree(mid + 1, high, expressions, ctx),
+                        ctx
+                );
+        }
     }
 
     /**
@@ -1488,7 +1535,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(selectCtx, () -> {
             // fromClause does not exists.
             List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-            return new UnboundOneRowRelation(RelationUtil.newRelationId(), projects);
+            return new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(), projects);
         });
     }
 

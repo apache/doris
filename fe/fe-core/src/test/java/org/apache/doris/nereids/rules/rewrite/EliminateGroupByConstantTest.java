@@ -31,7 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.IntegerType;
@@ -66,7 +66,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
     @Test
     void testIntegerLiteral() {
         LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(ObjectId.createGenerator().getNextId(), table))
+                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
                 .agg(ImmutableList.of(new IntegerLiteral(1), k2),
                      ImmutableList.of(k1, k2))
                 .build();
@@ -82,7 +82,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
     @Test
     void testOtherLiteral() {
         LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(ObjectId.createGenerator().getNextId(), table))
+                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
                 .agg(ImmutableList.of(
                              new StringLiteral("str"), k2),
                      ImmutableList.of(
@@ -100,7 +100,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
     @Test
     void testMixedLiteral() {
         LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(ObjectId.createGenerator().getNextId(), table))
+                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
                 .agg(ImmutableList.of(
                              new StringLiteral("str"), k2,
                              new IntegerLiteral(1),
@@ -124,7 +124,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
     @Test
     void testComplexGroupBy() {
         LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(ObjectId.createGenerator().getNextId(), table))
+                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
                 .agg(ImmutableList.of(
                              new IntegerLiteral(1),
                              new IntegerLiteral(2),
@@ -147,7 +147,7 @@ class EliminateGroupByConstantTest implements MemoPatternMatchSupported {
     @Test
     void testOutOfRange() {
         LogicalPlan aggregate = new LogicalPlanBuilder(
-                new LogicalOlapScan(ObjectId.createGenerator().getNextId(), table))
+                new LogicalOlapScan(RelationId.createGenerator().getNextId(), table))
                 .agg(ImmutableList.of(
                              new StringLiteral("str"), k2,
                              new IntegerLiteral(1),

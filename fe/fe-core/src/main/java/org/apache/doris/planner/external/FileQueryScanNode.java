@@ -102,8 +102,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
+        }
         super.init(analyzer);
         doInitialize();
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
+        }
     }
 
     /**
@@ -111,7 +117,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
      */
     @Override
     public void init() throws UserException {
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
+        }
         doInitialize();
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
+        }
     }
 
     // Init scan provider and schema related params.
@@ -194,8 +206,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     // Create scan range locations and the statistics.
     protected void doFinalize() throws UserException {
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeStartTime();
+        }
         createScanRangeLocations();
         updateRequiredSlots();
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeFinishTime();
+        }
     }
 
     private void setColumnPositionMapping()
@@ -229,7 +247,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
+        }
         List<Split> inputSplits = getSplits();
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
+        }
         this.inputSplitsNum = inputSplits.size();
         if (inputSplits.isEmpty()) {
             return;
@@ -312,6 +336,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
             scanRangeLocations.add(curLocations);
             this.totalFileSize += fileSplit.getLength();
         }
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
+        }
         LOG.debug("create #{} ScanRangeLocations cost: {} ms",
                 scanRangeLocations.size(), (System.currentTimeMillis() - start));
     }
@@ -326,15 +353,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 params.setHdfsParams(tHdfsParams);
             }
 
-            if (locationType == TFileType.FILE_BROKER && !params.isSetBrokerAddresses()) {
-                FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
-                if (broker == null) {
-                    throw new UserException("No alive broker.");
+            if (locationType == TFileType.FILE_BROKER) {
+                params.setProperties(locationProperties);
+
+                if (!params.isSetBrokerAddresses()) {
+                    FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                    if (broker == null) {
+                        throw new UserException("No alive broker.");
+                    }
+                    params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
                 }
-                params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
-        } else if (locationType == TFileType.FILE_S3 && !params.isSetProperties()) {
+        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
+                && !params.isSetProperties()) {
             params.setProperties(locationProperties);
+        }
+
+        if (!params.isSetFileType()) {
+            params.setFileType(locationType);
         }
     }
 
@@ -370,6 +406,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
         } else if (locationType == TFileType.FILE_S3
                 || locationType == TFileType.FILE_BROKER
+                || locationType == TFileType.FILE_LOCAL
                 || locationType == TFileType.FILE_NET) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
@@ -418,6 +455,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
                 return Optional.of(TFileType.FILE_LOCAL);
             } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+                return Optional.of(TFileType.FILE_BROKER);
+            } else if (location.startsWith(FeConstants.FS_PREFIX_COSN)) {
                 return Optional.of(TFileType.FILE_BROKER);
             } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
                 return Optional.of(TFileType.FILE_BROKER);

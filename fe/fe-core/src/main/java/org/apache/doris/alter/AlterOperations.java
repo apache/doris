@@ -78,10 +78,10 @@ public class AlterOperations {
         ).map(c -> ((ModifyTablePropertiesClause) c).getStoragePolicy()).findFirst().orElse("");
     }
 
-    public boolean checkCcrEnable(List<AlterClause> alterClauses) {
+    public boolean checkIsBeingSynced(List<AlterClause> alterClauses) {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause
-        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_CCR_ENABLE));
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED));
     }
 
     public boolean checkBinlogConfigChange(List<AlterClause> alterClauses) {
@@ -93,10 +93,64 @@ public class AlterOperations {
             || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
     }
 
-    public boolean isCcrEnable(List<AlterClause> alterClauses) {
+    public boolean checkCompactionPolicy(List<AlterClause> alterClauses) {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause
-        ).map(c -> ((ModifyTablePropertiesClause) c).isCcrEnable()).findFirst().orElse(false);
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY));
+    }
+
+    public String getCompactionPolicy(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c).compactionPolicy()).findFirst().orElse("");
+    }
+
+    public boolean checkTimeSeriesCompactionGoalSizeMbytes(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties()
+                    .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES));
+    }
+
+    public long getTimeSeriesCompactionGoalSizeMbytes(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c)
+        .timeSeriesCompactionGoalSizeMbytes()).findFirst().orElse((long) -1);
+    }
+
+    public boolean checkTimeSeriesCompactionFileCountThreshold(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties()
+                    .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD));
+    }
+
+    public long getTimeSeriesCompactionFileCountThreshold(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c)
+        .timeSeriesCompactionFileCountThreshold()).findFirst().orElse((long) -1);
+    }
+
+    public boolean checkTimeSeriesCompactionTimeThresholdSeconds(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties()
+                    .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
+    }
+
+    public long getTimeSeriesCompactionTimeThresholdSeconds(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c)
+        .timeSeriesCompactionTimeThresholdSeconds()).findFirst().orElse((long) -1);
+    }
+
+    public boolean isBeingSynced(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c).isBeingSynced()).findFirst().orElse(false);
     }
 
     // MODIFY_TABLE_PROPERTY is also processed by SchemaChangeHandler

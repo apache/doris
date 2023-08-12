@@ -83,7 +83,6 @@ namespace stream_load {
 
 class OlapTableBlockConvertor;
 class OlapTabletFinder;
-class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
 struct AddBatchCounter {
@@ -227,15 +226,9 @@ public:
 
     void open();
 
-    void open_partition(int64_t partition_id);
-
     Status init(RuntimeState* state);
 
     Status open_wait();
-
-    void open_partition_wait();
-
-    bool open_partition_finished() const;
 
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
@@ -353,7 +346,6 @@ protected:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
-    std::unordered_set<std::unique_ptr<OpenPartitionClosure>> _open_partition_closures;
 
     std::vector<TTabletWithPartition> _all_tablets;
     // map from tablet_id to node_id where slave replicas locate in
@@ -486,7 +478,7 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    void try_close(RuntimeState* state, Status exec_status) override;
+    Status try_close(RuntimeState* state, Status exec_status) override;
     // if true, all node channels rpc done, can start close().
     bool is_close_done() override;
     Status close(RuntimeState* state, Status close_status) override;
@@ -517,8 +509,6 @@ private:
     Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
                                       ChannelDistributionPayload& channel_to_payload,
                                       size_t num_rows, bool has_filtered_rows);
-
-    void _open_partition(const VOlapTablePartition* partition);
 
     Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
                                                          const std::shared_ptr<IndexChannel> ich,
@@ -608,8 +598,6 @@ private:
     bool _try_close = false;
     bool _prepare = false;
 
-    std::atomic<bool> _open_partition_done {false};
-
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
 
@@ -617,8 +605,6 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     RuntimeState* _state = nullptr;
-
-    std::unordered_set<int64_t> _opened_partitions;
 };
 
 } // namespace stream_load

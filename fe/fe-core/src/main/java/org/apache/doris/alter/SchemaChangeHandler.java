@@ -70,6 +70,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.ListComparator;
@@ -119,6 +120,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
+import java.util.stream.Collectors;
 
 public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
@@ -2137,13 +2139,44 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         long storagePolicyId = storagePolicyNameToId(storagePolicy);
 
-        if (isInMemory < 0 && storagePolicyId < 0) {
+        String compactionPolicy = properties.get(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
+        if (compactionPolicy != null
+                                    && !compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                                    && !compactionPolicy.equals(PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY)) {
+            throw new UserException("Table compaction policy only support for "
+                                                + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
+                                                + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+        }
+
+        Map<String, Long> timeSeriesCompactionConfig = new HashMap<>();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
+            timeSeriesCompactionConfig
+                        .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
+                        Long.parseLong(properties
+                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
+            timeSeriesCompactionConfig
+                        .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
+                        Long.parseLong(properties
+                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
+            timeSeriesCompactionConfig
+                        .put(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                        Long.parseLong(properties
+                        .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)));
+        }
+
+        if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)) {
             LOG.info("Properties already up-to-date");
             return;
         }
 
         for (Partition partition : partitions) {
-            updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory, null);
+            updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
+                                        null, compactionPolicy, timeSeriesCompactionConfig);
         }
 
         olapTable.writeLockOrDdlException();
@@ -2242,8 +2275,88 @@ public class SchemaChangeHandler extends AlterHandler {
                     batchTask.getTaskNum());
 
             // estimate timeout
-            long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
-            timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(totalTaskNum);
+            boolean ok = false;
+            try {
+                ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+            }
+
+            if (!ok || !countDownLatch.getStatus().ok()) {
+                String errMsg = "Failed to update partition[" + partitionName + "]. tablet meta.";
+                // clear tasks
+                AgentTaskQueue.removeBatchTask(batchTask, TTaskType.UPDATE_TABLET_META_INFO);
+
+                if (!countDownLatch.getStatus().ok()) {
+                    errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
+                } else {
+                    // only show at most 3 results
+                    List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
+                            .map(item -> "(backendId = " + item.getKey() + ", tabletsWithHash = "
+                                    + item.getValue() + ")")
+                            .collect(Collectors.toList());
+                    if (!subList.isEmpty()) {
+                        errMsg += " Unfinished: " + Joiner.on(", ").join(subList);
+                    }
+                }
+                errMsg += ". This operation maybe partial successfully, You should retry until success.";
+                LOG.warn(errMsg);
+                throw new DdlException(errMsg);
+            }
+        }
+    }
+
+    /**
+     * Update one specified partition's properties by partition name of table
+     * This operation may return partial successfully, with an exception to inform user to retry
+     */
+    public void updatePartitionProperties(Database db, String tableName, String partitionName, long storagePolicyId,
+                                          int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+                                          Map<String, Long> timeSeriesCompactionConfig) throws UserException {
+        // be id -> <tablet id,schemaHash>
+        Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
+        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(partitionName);
+            if (partition == null) {
+                throw new DdlException(
+                        "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
+            }
+
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        Set<Pair<Long, Integer>> tabletIdWithHash = beIdToTabletIdWithHash.computeIfAbsent(
+                                replica.getBackendId(), k -> Sets.newHashSet());
+                        tabletIdWithHash.add(Pair.of(tablet.getId(), schemaHash));
+                    }
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        int totalTaskNum = beIdToTabletIdWithHash.keySet().size();
+        MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> countDownLatch = new MarkedCountDownLatch<>(totalTaskNum);
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Map.Entry<Long, Set<Pair<Long, Integer>>> kv : beIdToTabletIdWithHash.entrySet()) {
+            countDownLatch.addMark(kv.getKey(), kv.getValue());
+            UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
+                    storagePolicyId, binlogConfig, countDownLatch, compactionPolicy, timeSeriesCompactionConfig);
+            batchTask.addTask(task);
+        }
+        if (!FeConstants.runningUnitTest) {
+            // send all tasks and wait them finished
+            AgentTaskQueue.addBatchTask(batchTask);
+            AgentTaskExecutor.submit(batchTask);
+            LOG.info("send update tablet meta task for table {}, partitions {}, number: {}", tableName, partitionName,
+                    batchTask.getTaskNum());
+
+            // estimate timeout
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(totalTaskNum);
             boolean ok = false;
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -2676,6 +2789,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
             currentIndexMeta.setMaxColUniqueId(maxColUniqueId);
+            currentIndexMeta.setIndexes(indexes);
         }
         olapTable.setIndexes(indexes);
         olapTable.rebuildFullSchema();
@@ -2798,12 +2912,11 @@ public class SchemaChangeHandler extends AlterHandler {
 
     public boolean updateBinlogConfig(Database db, OlapTable olapTable, List<AlterClause> alterClauses)
             throws DdlException, UserException {
-        // TODO(Drogon): check olapTable read binlog thread safety
         List<Partition> partitions = Lists.newArrayList();
         BinlogConfig oldBinlogConfig;
         BinlogConfig newBinlogConfig;
 
-        db.readLock();
+        olapTable.readLock();
         try {
             oldBinlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
             newBinlogConfig = new BinlogConfig(oldBinlogConfig);
@@ -2811,7 +2924,7 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         } finally {
-            db.readUnlock();
+            olapTable.readUnlock();
         }
 
         for (AlterClause alterClause : alterClauses) {
@@ -2855,6 +2968,19 @@ public class SchemaChangeHandler extends AlterHandler {
             LOG.info("table {} binlog config is same as the previous version, so nothing need to do",
                     olapTable.getName());
             return true;
+        }
+
+        // check db binlog config, if db binlog config is not same as table binlog config, throw exception
+        BinlogConfig dbBinlogConfig;
+        db.readLock();
+        try {
+            dbBinlogConfig = new BinlogConfig(db.getBinlogConfig());
+        } finally {
+            db.readUnlock();
+        }
+        boolean dbBinlogEnable = (dbBinlogConfig != null && dbBinlogConfig.isEnable());
+        if (dbBinlogEnable && !newBinlogConfig.isEnable()) {
+            throw new DdlException("db binlog is enable, but table binlog is disable");
         }
 
         LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",

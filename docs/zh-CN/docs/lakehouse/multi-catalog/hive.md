@@ -118,6 +118,7 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "s3.endpoint" = "s3.us-east-1.amazonaws.com",
+    "s3.region" = "us-east-1",
     "s3.access_key" = "ak",
     "s3.secret_key" = "sk"
     "use_path_style" = "true"
@@ -230,6 +231,12 @@ CREATE CATALOG hive PROPERTIES (
 | `map<KeyType, ValueType>` | `map<KeyType, ValueType>` | 暂不支持嵌套，KeyType 和 ValueType 需要为基础类型 |
 | `struct<col1: Type1, col2: Type2, ...>` | `struct<col1: Type1, col2: Type2, ...>` | 暂不支持嵌套，Type1, Type2, ... 需要为基础类型 |
 | other | unsupported | |
+
+## 是否按照 hive 表的 schema 来截断 char 或者 varchar 列
+
+如果变量 `truncate_char_or_varchar_columns` 开启，则当 hive 表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致时会按照 hive 表列的最大长度进行截断。
+
+该变量默认为 false。
 
 ## 使用 Ranger 进行权限校验
 

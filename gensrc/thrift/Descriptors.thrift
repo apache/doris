@@ -39,6 +39,7 @@ struct TColumn {
     15: optional i32 gram_bf_size
     16: optional string aggregation
     17: optional bool result_is_nullable
+    18: optional bool is_auto_increment = false;
 }
 
 struct TSlotDescriptor {
@@ -57,6 +58,7 @@ struct TSlotDescriptor {
   // If set to false, then such slots will be ignored during
   // materialize them.Used to optmize to read less data and less memory usage
   13: optional bool need_materialize = true
+  14: optional bool is_auto_increment = false;
 }
 
 struct TTupleDescriptor {

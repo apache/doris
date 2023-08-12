@@ -86,7 +86,8 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     public String toString() {
         return Utils.toSqlString("LogicalLimit",
                 "limit", limit,
-                "offset", offset
+                "offset", offset,
+                "phase", phase
         );
     }
 
@@ -103,7 +104,7 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalLimit that = (LogicalLimit) o;
+        LogicalLimit<?> that = (LogicalLimit<?>) o;
         return limit == that.limit && offset == that.offset && phase == that.phase;
     }
 

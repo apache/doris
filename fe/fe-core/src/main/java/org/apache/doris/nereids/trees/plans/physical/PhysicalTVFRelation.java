@@ -17,14 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -41,52 +42,73 @@ public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation
 
     private final TableValuedFunction function;
 
-    public PhysicalTVFRelation(ObjectId id, TableValuedFunction function, LogicalProperties logicalProperties) {
-        super(id, PlanType.PHYSICAL_TVF_RELATION,
-                ImmutableList.of(), Optional.empty(), logicalProperties);
+    public PhysicalTVFRelation(RelationId id, TableValuedFunction function, LogicalProperties logicalProperties) {
+        super(id, PlanType.PHYSICAL_TVF_RELATION, Optional.empty(), logicalProperties);
         this.function = Objects.requireNonNull(function, "function can not be null");
     }
 
-    public PhysicalTVFRelation(ObjectId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics) {
-        super(id, PlanType.PHYSICAL_TVF_RELATION, ImmutableList.of(), groupExpression, logicalProperties,
-                physicalProperties, statistics);
+    public PhysicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
+        super(id, PlanType.PHYSICAL_TVF_RELATION, groupExpression,
+                logicalProperties, physicalProperties, statistics);
         this.function = Objects.requireNonNull(function, "function can not be null");
     }
 
     @Override
     public PhysicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalTVFRelation(id, function, groupExpression, getLogicalProperties(),
+        return new PhysicalTVFRelation(relationId, function, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalTVFRelation(id, function, groupExpression,
+        return new PhysicalTVFRelation(relationId, function, groupExpression,
                 logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalTVFRelation(id, function, Optional.empty(),
+        return new PhysicalTVFRelation(relationId, function, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics);
     }
 
     @Override
-    public FunctionGenTable getTable() {
-        return function.getTable();
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        PhysicalTVFRelation that = (PhysicalTVFRelation) o;
+        return Objects.equals(function, that.function);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), function);
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalTVFRelation",
-                "qualified", Utils.qualifiedName(qualifier, getTable().getName()),
+                "qualified", Utils.qualifiedName(ImmutableList.of(), function.getTable().getName()),
                 "output", getOutput(),
                 "function", function.toSql()
         );
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return function.getTable().getBaseSchema()
+                .stream()
+                .map(col -> SlotReference.fromColumn(col, ImmutableList.of()))
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override

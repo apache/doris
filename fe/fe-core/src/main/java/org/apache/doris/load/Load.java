@@ -562,7 +562,7 @@ public class Load {
     /*
      * This function will do followings:
      * 1. fill the column exprs if user does not specify any column or column mapping.
-     * 2. For not specified columns, check if they have default value.
+     * 2. For not specified columns, check if they have default value or they are auto-increment columns.
      * 3. Add any shadow columns if have.
      * 4. validate hadoop functions
      * 5. init slot descs and expr map for load plan
@@ -629,7 +629,7 @@ public class Load {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
 
-        // check default value
+        // check default value and auto-increment column
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
             if (columnExprMap.containsKey(columnName)) {
@@ -638,7 +638,9 @@ public class Load {
             if (column.getDefaultValue() != null || column.isAllowNull() || isPartialUpdate) {
                 continue;
             }
-            //continue;
+            if (column.isAutoInc()) {
+                continue;
+            }
             throw new DdlException("Column has no default value. column: " + columnName);
         }
 

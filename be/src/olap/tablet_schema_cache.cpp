@@ -42,7 +42,6 @@ void TabletSchemaCache::stop() {
     while (!_is_stopped) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
-    LOG(INFO) << "xxx stopped";
 }
 
 /**
@@ -75,7 +74,6 @@ void TabletSchemaCache::_recycle() {
         }
     }
     _is_stopped = true;
-    LOG(INFO) << "xxx yyy stopped ";
 }
 
 } // namespace doris

@@ -69,6 +69,7 @@ message PTabletInfo {
     repeated string invalid_dict_cols = 3; 
     // total rows num received by DeltaWriter
     optional int64 received_rows = 4;
+    optional int64 num_rows_filtered = 5 [default = 0];
 }
 
 // open a tablet writer
@@ -92,16 +93,6 @@ message PTabletWriterOpenRequest {
 message PTabletWriterOpenResult {
     required PStatus status = 1;
 };
-
-message OpenPartitionRequest {
-    required PUniqueId id = 1;
-    required int64 index_id = 2;
-    repeated PTabletWithPartition tablets = 3;
-}
-
-message OpenPartitionResult {
-    required PStatus status = 1;
-}
 
 // add batch to tablet writer
 message PTabletWriterAddBatchRequest {
@@ -510,6 +501,7 @@ message PPublishFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
+    optional int64 merge_time = 9;
 };
 
 message PPublishFilterRequestV2 {
@@ -678,6 +670,28 @@ message PGetTabletVersionsResponse {
     repeated PVersion versions = 2;
 };
 
+message PReportStreamLoadStatusRequest {
+    optional PUniqueId load_id = 1;
+    optional PStatus status = 2;
+}
+
+message PReportStreamLoadStatusResponse {
+    optional PStatus status = 1;
+}
+
+message PGlobRequest {
+    optional string pattern = 1;
+}
+
+message PGlobResponse {
+    message PFileInfo {
+        optional string file = 1;
+        optional int64 size = 2;
+    };
+    required PStatus status = 1;
+    repeated PFileInfo files = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -689,7 +703,6 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
-    rpc open_partition(OpenPartitionRequest) returns (OpenPartitionResult);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
@@ -716,5 +729,7 @@ service PBackendService {
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
+    rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
+    rpc glob(PGlobRequest) returns (PGlobResponse);
 };
 

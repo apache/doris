@@ -208,8 +208,30 @@ public class Alter {
 
             olapTable.setStoragePolicy(currentStoragePolicy);
             needProcessOutsideTableLock = true;
-        } else if (currentAlterOps.checkCcrEnable(alterClauses)) {
-            olapTable.setCcrEnable(currentAlterOps.isCcrEnable(alterClauses));
+        } else if (currentAlterOps.checkIsBeingSynced(alterClauses)) {
+            olapTable.setIsBeingSynced(currentAlterOps.isBeingSynced(alterClauses));
+            needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.checkCompactionPolicy(alterClauses)
+                    && currentAlterOps.getCompactionPolicy(alterClauses) != olapTable.getCompactionPolicy()) {
+            olapTable.setCompactionPolicy(currentAlterOps.getCompactionPolicy(alterClauses));
+            needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.checkTimeSeriesCompactionGoalSizeMbytes(alterClauses)
+                    && currentAlterOps.getTimeSeriesCompactionGoalSizeMbytes(alterClauses)
+                                                != olapTable.getTimeSeriesCompactionGoalSizeMbytes()) {
+            olapTable.setTimeSeriesCompactionGoalSizeMbytes(currentAlterOps
+                                            .getTimeSeriesCompactionGoalSizeMbytes(alterClauses));
+            needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.checkTimeSeriesCompactionFileCountThreshold(alterClauses)
+                    && currentAlterOps.getTimeSeriesCompactionFileCountThreshold(alterClauses)
+                                                != olapTable.getTimeSeriesCompactionFileCountThreshold()) {
+            olapTable.setTimeSeriesCompactionFileCountThreshold(currentAlterOps
+                                            .getTimeSeriesCompactionFileCountThreshold(alterClauses));
+            needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.checkTimeSeriesCompactionTimeThresholdSeconds(alterClauses)
+                    && currentAlterOps.getTimeSeriesCompactionTimeThresholdSeconds(alterClauses)
+                                                != olapTable.getTimeSeriesCompactionTimeThresholdSeconds()) {
+            olapTable.setTimeSeriesCompactionTimeThresholdSeconds(currentAlterOps
+                                            .getTimeSeriesCompactionTimeThresholdSeconds(alterClauses));
             needProcessOutsideTableLock = true;
         } else if (currentAlterOps.checkBinlogConfigChange(alterClauses)) {
             if (!Config.enable_feature_binlog) {
@@ -514,7 +536,13 @@ public class Alter {
                 // currently, only in memory and storage policy property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
                         || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)
-                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_CCR_ENABLE));
+                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
+                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)
+                        || properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)
+                        || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)
+                        || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());

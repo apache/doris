@@ -32,7 +32,7 @@ public class LogicalEsScanToPhysicalEsScan extends OneImplementationRuleFactory 
     public Rule build() {
         return logicalEsScan().then(esScan ->
             new PhysicalEsScan(
-                esScan.getId(),
+                esScan.getRelationId(),
                 esScan.getTable(),
                 esScan.getQualifier(),
                 DistributionSpecAny.INSTANCE,

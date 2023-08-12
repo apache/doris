@@ -187,7 +187,7 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end) {
-    return _writer->_do_create_segment_writer(writer, true, begin, end);
+    return _writer->_create_segment_writer_for_segcompaction(writer, begin, end);
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
@@ -293,7 +293,12 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 }
 
 void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    Status status = _do_compact_segments(segments);
+    Status status = Status::OK();
+    if (_cancelled) {
+        LOG(INFO) << "segcompaction worker is cancelled, skipping segcompaction task";
+    } else {
+        status = _do_compact_segments(segments);
+    }
     if (!status.ok()) {
         int16_t errcode = status.code();
         switch (errcode) {

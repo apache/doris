@@ -29,13 +29,13 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "runtime/runtime_state.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_set.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-// Here is an empirical value.
-static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
+
 VPartitionSortNode::VPartitionSortNode(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs), _hash_table_size_counter(nullptr) {
@@ -59,9 +59,6 @@ Status VPartitionSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
                                                  _partition_expr_ctxs));
         _partition_exprs_num = _partition_expr_ctxs.size();
         _partition_columns.resize(_partition_exprs_num);
-    }
-    if (_partition_exprs_num == 0) {
-        _value_places.push_back(_pool->add(new PartitionBlocks()));
     }
 
     _has_global_limit = tnode.partition_sort_node.has_global_limit;
@@ -177,6 +174,9 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
     if (current_rows > 0) {
         child_input_rows = child_input_rows + current_rows;
         if (UNLIKELY(_partition_exprs_num == 0)) {
+            if (UNLIKELY(_value_places.empty())) {
+                _value_places.push_back(_pool->add(new PartitionBlocks()));
+            }
             //no partition key
             _value_places[0]->append_whole_block(input_block, child(0)->row_desc());
         } else {

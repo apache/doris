@@ -56,11 +56,24 @@ jobs:
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+      - name: Install protoc
+        run: |
+           sudo apt-get update
+           sudo apt-get install -y protobuf-compiler libprotobuf-dev
+           cd thirdparty/installed/bin/ && ln -s /usr/bin/protoc protoc
+      - name: Set up environment
+        run: |
+          # Install Bash if necessary
+          sudo apt-get update
+          sudo apt-get install -y bash  
+      - name: Generated Source Code
+        shell: bash
+        run: |
+           bash generated-source.sh
       - name: Analyze FE
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          sh generated-source.sh
           cd fe
-          mvn --batch-mode verify sonar:sonar -DskipTests -Dsonar.host.url=https://sonarcloud.io -Dsonar.organization=apache -Dsonar.projectKey=apache_incubator-doris -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.httpconnectionManager.ttlSeconds=120
+          mvn --batch-mode verify sonar:sonar -DskipTests -Dsonar.host.url=https://sonarcloud.io -Dsonar.organization=apache -Dsonar.projectKey=apache_incubator-doris -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.httpconnectionManager.ttlSeconds=120 -Xmx4g -XX:MaxPermSize=512m

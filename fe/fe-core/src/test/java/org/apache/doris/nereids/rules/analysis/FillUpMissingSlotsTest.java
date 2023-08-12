@@ -85,7 +85,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                 ImmutableList.of("default_cluster:test_resolve_aggregate_functions", "t1")
         );
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalFilter(
                         logicalAggregate(
                             logicalOlapScan()
@@ -99,7 +99,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias value = new Alias(new ExprId(3), a1, "value");
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -110,7 +110,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
-                .matchesFromRoot(
+                .matches(
                         logicalFilter(
                             logicalAggregate(
                                 logicalOlapScan()
@@ -129,7 +129,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
         PlanChecker.from(connectContext).analyze(sql)
                 .applyBottomUp(new ExpressionRewrite(FunctionBinder.INSTANCE))
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -152,7 +152,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -164,7 +164,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 HAVING SUM(a2) > 0";
         sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -183,7 +183,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias value = new Alias(new ExprId(3), new Sum(a2), "value");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -193,7 +193,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
 
         sql = "SELECT a1, SUM(a2) as value FROM t1 GROUP BY a1 HAVING value > 0";
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalFilter(
                             logicalAggregate(
                                 logicalOlapScan()
@@ -216,7 +216,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(pk)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -228,7 +228,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 HAVING SUM(a1 + a2) > 0";
         Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -240,7 +240,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new TinyIntLiteral((byte) 3))),
                 "sum(((a1 + a2) + 3))");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -252,7 +252,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1 FROM t1 GROUP BY a1 HAVING COUNT(*) > 0";
         Alias countStar = new Alias(new ExprId(3), new Count(), "count(*)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -280,7 +280,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA2 = new Alias(new ExprId(6), new Sum(a2), "sum(a2)");
         Alias sumB1 = new Alias(new ExprId(7), new Sum(b1), "sum(b1)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -347,7 +347,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalFilter(
                             logicalAggregate(
@@ -388,7 +388,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias sumA2 = new Alias(new ExprId(3), new Sum(a2), "sum(a2)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalSort(
                                         logicalAggregate(
@@ -400,7 +400,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, SUM(a2) FROM t1 GROUP BY a1 ORDER BY SUM(a2)";
         sumA2 = new Alias(new ExprId(3), new Sum(a2), "SUM(a2)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalSort(
                                 logicalAggregate(
                                         logicalOlapScan()
@@ -418,7 +418,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias value = new Alias(new ExprId(3), new Sum(a2), "value");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalSort(
                                 logicalAggregate(
                                         logicalOlapScan()
@@ -441,7 +441,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         );
         Alias minPK = new Alias(new ExprId(4), new Min(pk), "min(pk)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalSort(
                                         logicalAggregate(
@@ -453,7 +453,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1, SUM(a1 + a2) FROM t1 GROUP BY a1 ORDER BY SUM(a1 + a2)";
         Alias sumA1A2 = new Alias(new ExprId(3), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalSort(
                                 logicalAggregate(
                                         logicalOlapScan()
@@ -464,7 +464,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1A23 = new Alias(new ExprId(4), new Sum(new Add(new Add(a1, a2), new TinyIntLiteral((byte) 3))),
                 "sum(((a1 + a2) + 3))");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalSort(
                                         logicalAggregate(
@@ -476,7 +476,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         sql = "SELECT a1 FROM t1 GROUP BY a1 ORDER BY COUNT(*)";
         Alias countStar = new Alias(new ExprId(3), new Count(), "count(*)");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalSort(
                                         logicalAggregate(
@@ -511,7 +511,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         Alias sumA1A2 = new Alias(new ExprId(11), new Sum(new Add(a1, a2)), "SUM((a1 + a2))");
         Alias v1 = new Alias(new ExprId(12), new Count(a2), "v1");
         PlanChecker.from(connectContext).analyze(sql)
-                .matchesFromRoot(
+                .matches(
                         logicalProject(
                                 logicalSort(
                                         logicalAggregate(

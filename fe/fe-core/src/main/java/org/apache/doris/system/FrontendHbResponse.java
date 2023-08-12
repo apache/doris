@@ -19,11 +19,13 @@ package org.apache.doris.system;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.service.FeDiskInfo;
 
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Frontend heartbeat response contains Frontend's query port, rpc port and current replayed journal id.
@@ -40,13 +42,15 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private long replayedJournalId;
     private String version;
     private long feStartTime;
+    private List<FeDiskInfo> diskInfos;
 
     public FrontendHbResponse() {
         super(HeartbeatResponse.Type.FRONTEND);
     }
 
     public FrontendHbResponse(String name, int queryPort, int rpcPort,
-            long replayedJournalId, long hbTime, String version, long feStartTime) {
+            long replayedJournalId, long hbTime, String version,
+            long feStartTime, List<FeDiskInfo> diskInfos) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;
@@ -56,6 +60,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         this.hbTime = hbTime;
         this.version = version;
         this.feStartTime = feStartTime;
+        this.diskInfos = diskInfos;
     }
 
     public FrontendHbResponse(String name, String errMsg) {
@@ -87,6 +92,10 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public long getFeStartTime() {
         return feStartTime;
+    }
+
+    public List<FeDiskInfo> getDiskInfos() {
+        return diskInfos;
     }
 
     @Override

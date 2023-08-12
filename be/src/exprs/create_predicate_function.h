@@ -125,7 +125,8 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         APPLY_FOR_PRIMTYPE(M)
 #undef M
     default:
-        DCHECK(false) << "Invalid type: " << type_to_string(type);
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "predicate with type " + type_to_string(type));
     }
 
     return nullptr;
@@ -161,7 +162,9 @@ inline auto create_set(PrimitiveType type) {
 }
 
 inline auto create_set(PrimitiveType type, size_t size) {
-    if (size == 1) {
+    if (size == 0) {
+        return create_set<0>(type);
+    } else if (size == 1) {
         return create_set<1>(type);
     } else if (size == 2) {
         return create_set<2>(type);

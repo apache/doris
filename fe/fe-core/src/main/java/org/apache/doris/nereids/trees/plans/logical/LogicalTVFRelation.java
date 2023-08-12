@@ -19,10 +19,12 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -38,39 +40,62 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
 
     private final TableValuedFunction function;
 
-    public LogicalTVFRelation(ObjectId id, TableValuedFunction function) {
-        super(id, PlanType.LOGICAL_TVF_RELATION,
-                Objects.requireNonNull(function, "table valued function can not be null").getTable(),
-                ImmutableList.of());
+    public LogicalTVFRelation(RelationId id, TableValuedFunction function) {
+        super(id, PlanType.LOGICAL_TVF_RELATION);
         this.function = function;
     }
 
-    public LogicalTVFRelation(ObjectId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
+    public LogicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_TVF_RELATION,
-                Objects.requireNonNull(function, "table valued function can not be null").getTable(),
-                ImmutableList.of(), groupExpression, logicalProperties);
+        super(id, PlanType.LOGICAL_TVF_RELATION, groupExpression, logicalProperties);
         this.function = function;
     }
 
     @Override
     public LogicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTVFRelation(id, function, groupExpression, Optional.of(getLogicalProperties()));
+        return new LogicalTVFRelation(relationId, function, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalTVFRelation(id, function, groupExpression, logicalProperties);
+        return new LogicalTVFRelation(relationId, function, groupExpression, logicalProperties);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        LogicalTVFRelation that = (LogicalTVFRelation) o;
+        return Objects.equals(function, that.function);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), function);
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalTVFRelation",
-                "qualified", qualifiedName(),
                 "output", getOutput(),
                 "function", function.toSql()
         );
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return function.getTable().getBaseSchema()
+                .stream()
+                .map(col -> SlotReference.fromColumn(col, ImmutableList.of()))
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override

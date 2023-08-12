@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -29,6 +31,7 @@ import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -49,6 +52,20 @@ public class DateTrunc extends ScalarFunction
      */
     public DateTrunc(Expression arg0, Expression arg1) {
         super("date_trunc", arg0, arg1);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (getArgument(1).isConstant() == false || !(getArgument(1) instanceof VarcharLiteral)) {
+            throw new AnalysisException("the second parameter of "
+                    + getName() + " function must be a string constant: " + toSql());
+        }
+        final String constParam = ((VarcharLiteral) getArgument(1)).getStringValue().toLowerCase();
+        if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
+                .contains(constParam)) {
+            throw new AnalysisException("date_trunc function second param only support argument is"
+                    + "year|quarter|month|week|day|hour|minute|second");
+        }
     }
 
     /**

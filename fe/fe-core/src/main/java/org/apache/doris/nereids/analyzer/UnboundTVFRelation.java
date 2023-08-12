@@ -25,11 +25,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -38,20 +38,18 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** UnboundTVFRelation */
-public class UnboundTVFRelation extends LogicalLeaf implements TVFRelation, Unbound {
+public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, Unbound {
 
-    private final ObjectId id;
     private final String functionName;
     private final TVFProperties properties;
 
-    public UnboundTVFRelation(ObjectId id, String functionName, TVFProperties properties) {
+    public UnboundTVFRelation(RelationId id, String functionName, TVFProperties properties) {
         this(id, functionName, properties, Optional.empty(), Optional.empty());
     }
 
-    public UnboundTVFRelation(ObjectId id, String functionName, TVFProperties properties,
+    public UnboundTVFRelation(RelationId id, String functionName, TVFProperties properties,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_UNBOUND_TVF_RELATION, groupExpression, logicalProperties);
-        this.id = id;
+        super(id, PlanType.LOGICAL_UNBOUND_TVF_RELATION, groupExpression, logicalProperties);
         this.functionName = Objects.requireNonNull(functionName, "functionName can not be null");
         this.properties = Objects.requireNonNull(properties, "properties can not be null");
     }
@@ -62,10 +60,6 @@ public class UnboundTVFRelation extends LogicalLeaf implements TVFRelation, Unbo
 
     public TVFProperties getProperties() {
         return properties;
-    }
-
-    public ObjectId getId() {
-        return id;
     }
 
     @Override
@@ -95,14 +89,14 @@ public class UnboundTVFRelation extends LogicalLeaf implements TVFRelation, Unbo
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundTVFRelation(id, functionName, properties, groupExpression,
+        return new UnboundTVFRelation(relationId, functionName, properties, groupExpression,
                 Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundTVFRelation(id, functionName, properties, groupExpression, logicalProperties);
+        return new UnboundTVFRelation(relationId, functionName, properties, groupExpression, logicalProperties);
     }
 
     @Override
@@ -111,25 +105,5 @@ public class UnboundTVFRelation extends LogicalLeaf implements TVFRelation, Unbo
                 "functionName", functionName,
                 "arguments", properties
         );
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        if (!super.equals(o)) {
-            return false;
-        }
-        UnboundTVFRelation that = (UnboundTVFRelation) o;
-        return functionName.equals(that.functionName) && properties.equals(that.properties) && id.equals(that.id);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), functionName, properties, id);
     }
 }

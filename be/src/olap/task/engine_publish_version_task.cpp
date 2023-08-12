@@ -158,7 +158,7 @@ Status EnginePublishVersionTask::finish() {
                 TabletState tablet_state;
                 {
                     std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version();
+                    max_version = tablet->max_version_unlocked();
                     tablet_state = tablet->tablet_state();
                 }
                 if (tablet_state == TabletState::TABLET_RUNNING &&

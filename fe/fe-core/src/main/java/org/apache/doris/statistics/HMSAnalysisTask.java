@@ -22,6 +22,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.InternalQueryResult;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -104,7 +105,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         table = (HMSExternalTable) tbl;
     }
 
-    public void execute() throws Exception {
+    public void doExecute() throws Exception {
         if (isTableLevelTask) {
             getTableStats();
         } else {
@@ -190,11 +191,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
                 params.put("dataSizeFunction", getDataSizeFunction(col));
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
                 String sql = stringSubstitutor.replace(sb.toString());
-                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-                    r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-                    this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-                    this.stmtExecutor.execute();
-                }
+                executeInsertSql(sql);
             }
         } else {
             StringBuilder sb = new StringBuilder();
@@ -233,12 +230,25 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             params.put("dataSizeFunction", getDataSizeFunction(col));
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql = stringSubstitutor.replace(sb.toString());
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-                r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-                this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-                this.stmtExecutor.execute();
+            executeInsertSql(sql);
+        }
+    }
+
+    private void executeInsertSql(String sql) throws Exception {
+        long startTime = System.currentTimeMillis();
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
+            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            r.connectContext.setExecutor(stmtExecutor);
+            this.stmtExecutor.execute();
+            QueryState queryState = r.connectContext.getState();
+            if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+                LOG.warn(String.format("Failed to analyze %s.%s.%s, sql: [%s], error: [%s]",
+                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+                throw new RuntimeException(queryState.getErrorMessage());
             }
-            Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
+            LOG.debug(String.format("Analyze %s.%s.%s done. SQL: [%s]. Cost %d ms.",
+                    info.catalogName, info.dbName, info.colName, sql, (System.currentTimeMillis() - startTime)));
         }
     }
 
@@ -281,5 +291,14 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("update_time", TimeUtils.DATETIME_FORMAT.format(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(timestamp) * 1000),
                         ZoneId.systemDefault())));
+    }
+
+    @Override
+    protected void afterExecution() {
+        if (isTableLevelTask) {
+            Env.getCurrentEnv().getStatisticsCache().refreshTableStatsSync(catalog.getId(), db.getId(), tbl.getId());
+        } else {
+            Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+        }
     }
 }

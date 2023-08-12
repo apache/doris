@@ -49,6 +49,7 @@ public class DataProperty implements Writable, GsonPostProcessable {
     private String storagePolicy;
     @SerializedName(value = "isMutable")
     private boolean isMutable = true;
+    private boolean storageMediumSpecified;
 
     private DataProperty() {
         // for persist
@@ -97,12 +98,20 @@ public class DataProperty implements Writable, GsonPostProcessable {
         return storagePolicy;
     }
 
+    public boolean isStorageMediumSpecified() {
+        return storageMediumSpecified;
+    }
+
     public boolean isMutable() {
         return isMutable;
     }
 
     public void setMutable(boolean mutable) {
         isMutable = mutable;
+    }
+
+    public void setStorageMediumSpecified(boolean isSpecified) {
+        storageMediumSpecified = isSpecified;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -164,4 +173,5 @@ public class DataProperty implements Writable, GsonPostProcessable {
         // storagePolicy is a newly added field, it may be null when replaying from old version.
         this.storagePolicy = Strings.nullToEmpty(this.storagePolicy);
     }
+
 }

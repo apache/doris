@@ -97,7 +97,22 @@ This method needs to provide REST services in advance, and users need to impleme
 CREATE CATALOG iceberg PROPERTIES (
     'type'='iceberg',
     'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181'
+);
+```
+
+If the data is on HDFS and High Availability (HA) is set up, need to add HA configuration to the Catalog.
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
     'uri' = 'http://172.21.0.1:8181',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.1:8020',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.2:8020',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
@@ -126,6 +141,7 @@ If the data is stored on S3, the following parameters can be used in properties:
 "s3.access_key" = "ak"
 "s3.secret_key" = "sk"
 "s3.endpoint" = "http://endpoint-uri"
+"s3.region" = "your-region"
 "s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 

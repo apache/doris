@@ -72,6 +72,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_size, MetricU
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_size, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_max_elements, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_disposable_queue_curr_elements, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(file_cache_segment_reader_cache_size, MetricUnit::NOUNIT);
 
 LRUFileCache::LRUFileCache(const std::string& cache_base_path,
                            const FileCacheSettings& cache_settings)
@@ -104,6 +105,7 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_size);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_elements);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_elements);
+    INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_segment_reader_cache_size);
 
     LOG(INFO) << fmt::format(
             "file cache path={}, disposable queue size={} elements={}, index queue size={} "
@@ -1116,6 +1118,7 @@ void LRUFileCache::update_cache_metrics() const {
     file_cache_disposable_queue_curr_size->set_value(_disposable_queue.get_total_cache_size(l));
     file_cache_disposable_queue_max_elements->set_value(_disposable_queue.get_max_element_size());
     file_cache_disposable_queue_curr_elements->set_value(_disposable_queue.get_elements_num(l));
+    file_cache_segment_reader_cache_size->set_value(IFileCache::file_reader_cache_size());
 }
 
 } // namespace io

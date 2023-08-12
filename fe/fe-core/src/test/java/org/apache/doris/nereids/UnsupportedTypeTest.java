@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -30,8 +29,6 @@ import org.junit.jupiter.api.Test;
 public class UnsupportedTypeTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
-        Config.enable_map_type = true;
-        Config.enable_struct_type = true;
         createDatabase("test");
         connectContext.setDatabase("default_cluster:test");
         createTables(

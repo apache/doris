@@ -158,6 +158,8 @@ public:
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
 
     ParquetColumnReader::Statistics statistics();
+    void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
+    int64_t get_remaining_rows() { return _remaining_rows; }
 
 private:
     void _merge_read_ranges(std::vector<RowRange>& row_ranges);
@@ -209,6 +211,7 @@ private:
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
     const std::unordered_map<std::string, int>* _col_name_to_slot_id;
+    VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;

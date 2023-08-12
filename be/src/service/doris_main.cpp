@@ -50,6 +50,7 @@
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
+#include "common/phdr_cache.h"
 #include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -414,6 +415,11 @@ int main(int argc, char** argv) {
         }
     }
 
+    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
+    // will work only after additional call of this function.
+    // rewrites dl_iterate_phdr will cause Jemalloc to fail to run after enable profile. see #
+    // updatePHDRCache();
+
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);
@@ -428,6 +434,7 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     doris::TabletSchemaCache::create_global_schema_cache();
+    doris::vectorized::init_date_day_offset_dict();
 
     // init s3 write buffer pool
     doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();

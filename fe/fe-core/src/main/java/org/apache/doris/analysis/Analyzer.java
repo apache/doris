@@ -146,9 +146,6 @@ public class Analyzer {
     private String schemaWild;
     private String schemaTable; // table used in DESCRIBE Table
 
-    // True if the corresponding select block has a limit and/or offset clause.
-    private boolean hasLimitOffsetClause = false;
-
     // Current depth of nested analyze() calls. Used for enforcing a
     // maximum expr-tree depth. Needs to be manually maintained by the user
     // of this Analyzer with incrementCallDepth() and decrementCallDepth().
@@ -179,6 +176,8 @@ public class Analyzer {
     // The runtime filter that is expected to be used
     private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
 
+    private boolean isReAnalyze = false;
+
     public void setIsSubquery() {
         isSubquery = true;
         isFirstScopeInSubquery = true;
@@ -199,6 +198,14 @@ public class Analyzer {
 
     public boolean isWithClause() {
         return isWithClause;
+    }
+
+    public void setReAnalyze(boolean reAnalyze) {
+        isReAnalyze = reAnalyze;
+    }
+
+    public boolean isReAnalyze() {
+        return isReAnalyze;
     }
 
     public void setUDFAllowed(boolean val) {
@@ -644,6 +651,14 @@ public class Analyzer {
                 continue;
             }
             globalState.conjuncts.put(id, (Predicate) globalState.conjuncts.get(id).substitute(sMap));
+        }
+    }
+
+    public void registerTupleDescriptor(TupleDescriptor desc) {
+        tupleByAlias.put(desc.getAlias(), desc);
+        for (SlotDescriptor slot : desc.getSlots()) {
+            String key = desc.getAlias() + "." + slot.getColumn().getName();
+            slotRefMap.put(key, slot);
         }
     }
 
@@ -1808,10 +1823,6 @@ public class Analyzer {
         return hasEmptySpjResultSet;
     }
 
-    public void setHasLimitOffsetClause(boolean hasLimitOffset) {
-        this.hasLimitOffsetClause = hasLimitOffset;
-    }
-
     /**
      * Register all conjuncts in 'conjuncts' that make up the On-clause of the given
      * right-hand side of a join. Assigns each conjunct a unique id. If rhsRef is
@@ -1881,7 +1892,9 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                Expr newConjunct = conjunct.getResultValue(true);
+                // getResultValue will modify the conjunct internally
+                // we have to use a clone to keep conjunct unchanged
+                Expr newConjunct = conjunct.clone().getResultValue(true);
                 newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;
@@ -2122,7 +2135,7 @@ public class Analyzer {
         for (int i = 1; i < exprs.size(); ++i) {
             exprs.get(i).analyze(this);
             if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
-                    && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
+                    && ((StringLiteral) exprs.get(i)).canConvertToDateType(compatibleType)) {
                 // If string literal can be converted to dateV2, we use datev2 as the compatible type
                 // instead of datetimev2.
             } else if (exprs.get(i).isConstantImpl()) {
@@ -2420,7 +2433,8 @@ public class Analyzer {
         // constant conjuncts should be push down to all leaf node except agg node.
         // (see getPredicatesBoundedByGroupbysSourceExpr method)
         // so we need remove constant conjuncts when expr is not a leaf node.
-        List<Expr> unassigned = getUnassignedConjuncts(node.getTblRefIds());
+        List<Expr> unassigned = getUnassignedConjuncts(
+                node instanceof AggregationNode ? node.getTupleIds() : node.getTblRefIds());
         if (!node.getChildren().isEmpty() && !(node instanceof AggregationNode)) {
             unassigned = unassigned.stream()
                     .filter(e -> !e.isConstant()).collect(Collectors.toList());

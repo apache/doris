@@ -24,6 +24,8 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -65,7 +67,18 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
-    private int beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+    private int beNumber = 1;
+
+    public CostModelV1() {
+        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+            // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
+            beNumber = 1;
+        } else if (ConnectContext.get().getSessionVariable().getBeNumber() != -1) {
+            beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
+        } else {
+            beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+        }
+    }
 
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
         Preconditions.checkArgument(childCost instanceof CostV1 && planCost instanceof CostV1);
@@ -86,6 +99,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(statistics.getRowCount());
+    }
+
+    @Override
+    public Cost visitPhysicalDeferMaterializeOlapScan(PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan,
+            PlanContext context) {
+        return visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
     }
 
     public Cost visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
@@ -154,6 +173,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 childStatistics.getRowCount(),
                 statistics.getRowCount(),
                 childStatistics.getRowCount());
+    }
+
+    @Override
+    public Cost visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
+            PlanContext context) {
+        return visitPhysicalTopN(topN.getPhysicalTopN(), context);
     }
 
     @Override
@@ -276,8 +301,24 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         }
 
         if (context.isBroadcastJoin()) {
-            double broadcastJoinPenalty = broadCastJoinBalancePenalty(probeStats, buildStats);
-            return CostV1.of(leftRowCount * broadcastJoinPenalty + rightRowCount + outputRowCount,
+            // compared with shuffle join, bc join will be taken a penalty for both build and probe side;
+            // currently we use the following factor as the penalty factor:
+            // build side factor: totalInstanceNumber to the power of 2, standing for the additional effort for
+            //                    bigger cost for building hash table, taken on rightRowCount
+            // probe side factor: totalInstanceNumber to the power of 2, standing for the additional effort for
+            //                    bigger cost for ProbeWhenBuildSideOutput effort and ProbeWhenSearchHashTableTime
+            //                    on the output rows, taken on outputRowCount()
+            double probeSideFactor = 1.0;
+            double buildSideFactor = ConnectContext.get().getSessionVariable().getBroadcastRightTableScaleFactor();
+            int parallelInstance = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+            int totalInstanceNumber = parallelInstance * beNumber;
+            if (buildSideFactor <= 1.0) {
+                // use totalInstanceNumber to the power of 2 as the default factor value
+                buildSideFactor = Math.pow(totalInstanceNumber, 0.5);
+            }
+            // TODO: since the outputs rows may expand a lot, penalty on it will cause bc never be chosen.
+            // will refine this in next generation cost model.
+            return CostV1.of(leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
                     rightRowCount,
                     0,
                     0

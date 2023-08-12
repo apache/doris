@@ -177,7 +177,7 @@ The corresponding type of FE can be deleted by the `ALTER SYSTEM DROP FOLLOWER/O
 
 FE may fail to start bdbje and synchronize between FEs for some reasons. Phenomena include the inability to write metadata, the absence of MASTER, and so on. At this point, we need to manually restore the FE. The general principle of manual recovery of FE is to start a new MASTER through metadata in the current `meta_dir`, and then add other FEs one by one. Please follow the following steps strictly:
 
-1. First, stop all FE processes and all business access. Make sure that during metadata recovery, external access will not lead to other unexpected problems.
+1. First, **stop all FE processes and all business access**. Make sure that during metadata recovery, external access will not lead to other unexpected problems.(if not, this may cause split-brain problem)
 
 2. Identify which FE node's metadata is up-to-date:
 

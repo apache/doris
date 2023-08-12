@@ -18,97 +18,103 @@
 package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
+import org.apache.doris.common.jni.vec.TableSchema;
 
-import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
+import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
-import org.apache.paimon.data.columnar.ColumnarRow;
-import org.apache.paimon.fs.FileIO;
-import org.apache.paimon.fs.Path;
-import org.apache.paimon.hive.HiveCatalog;
-import org.apache.paimon.hive.HiveCatalogOptions;
-import org.apache.paimon.hive.mapred.PaimonInputSplit;
-import org.apache.paimon.options.CatalogOptions;
-import org.apache.paimon.options.ConfigOption;
-import org.apache.paimon.options.ConfigOptions;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
-import org.apache.paimon.table.source.TableRead;
+import org.apache.paimon.table.source.Split;
+import org.apache.paimon.types.DataType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 
 public class PaimonJniScanner extends JniScanner {
-    private static final Logger LOG = Logger.getLogger(PaimonJniScanner.class);
-
-    private final String metastoreUris;
-    private final String warehouse;
+    private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
+    private static final String PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
+    private final Map<String, String> paimonOptionParams;
     private final String dbName;
     private final String tblName;
-    private final String[] ids;
-    private final long splitAddress;
-    private final int lengthByte;
-    private PaimonInputSplit paimonInputSplit;
+    private final String paimonSplit;
+    private final String paimonPredicate;
     private Table table;
     private RecordReader<InternalRow> reader;
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
+    private List<String> paimonAllFieldNames;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
-        metastoreUris = params.get("hive.metastore.uris");
-        warehouse = params.get("warehouse");
-        splitAddress = Long.parseLong(params.get("split_byte"));
-        lengthByte = Integer.parseInt(params.get("length_byte"));
+        LOG.debug("params:{}", params);
+        paimonSplit = params.get("paimon_split");
+        paimonPredicate = params.get("paimon_predicate");
         dbName = params.get("db_name");
         tblName = params.get("table_name");
-        String[] requiredFields = params.get("required_fields").split(",");
-        String[] types = Arrays.stream(params.get("columns_types").split("#"))
-            .map(s -> s.replaceAll("\\s+", ""))
-            .toArray(String[]::new);
-        ids = params.get("columns_id").split(",");
-        ColumnType[] columnTypes = new ColumnType[types.length];
-        for (int i = 0; i < types.length; i++) {
-            columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
-        }
-        ScanPredicate[] predicates = new ScanPredicate[0];
-        if (params.containsKey("push_down_predicates")) {
-            long predicatesAddress = Long.parseLong(params.get("push_down_predicates"));
-            if (predicatesAddress != 0) {
-                predicates = ScanPredicate.parseScanPredicates(predicatesAddress, columnTypes);
-                LOG.info("MockJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
-            }
-        }
-        initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+        super.batchSize = batchSize;
+        super.fields = params.get("paimon_column_names").split(",");
+        super.predicates = new ScanPredicate[0];
+        paimonOptionParams = params.entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(PAIMON_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+
     }
 
     @Override
     public void open() throws IOException {
-        getCatalog();
-        // deserialize it into split
-        byte[] splitByte = new byte[lengthByte];
-        OffHeap.copyMemory(null, splitAddress, splitByte, OffHeap.BYTE_ARRAY_OFFSET, lengthByte);
-        ByteArrayInputStream bais = new ByteArrayInputStream(splitByte);
-        DataInputStream input = new DataInputStream(bais);
-        try {
-            paimonInputSplit.readFields(input);
-        } catch (IOException e) {
-            e.printStackTrace();
+        initTable();
+        initReader();
+        parseRequiredTypes();
+    }
+
+    private void initReader() throws IOException {
+        ReadBuilder readBuilder = table.newReadBuilder();
+        readBuilder.withProjection(getProjected());
+        readBuilder.withFilter(getPredicates());
+        reader = readBuilder.newRead().createReader(getSplit());
+    }
+
+    private int[] getProjected() {
+        return Arrays.stream(fields).mapToInt(paimonAllFieldNames::indexOf).toArray();
+    }
+
+    private List<Predicate> getPredicates() {
+        List<Predicate> predicates = PaimonScannerUtils.decodeStringToObject(paimonPredicate);
+        LOG.info("predicates:{}", predicates);
+        return predicates;
+    }
+
+    private Split getSplit() {
+        Split split = PaimonScannerUtils.decodeStringToObject(paimonSplit);
+        LOG.info("split:{}", split);
+        return split;
+    }
+
+    private void parseRequiredTypes() {
+        ColumnType[] columnTypes = new ColumnType[fields.length];
+        for (int i = 0; i < fields.length; i++) {
+            int index = paimonAllFieldNames.indexOf(fields[i]);
+            if (index == -1) {
+                throw new RuntimeException(String.format("Cannot find field %s in schema %s",
+                        fields[i], paimonAllFieldNames));
+            }
+            DataType dataType = table.rowType().getTypeAt(index);
+            columnTypes[i] = ColumnType.parseType(fields[i], PaimonTypeUtils.fromPaimonType(dataType));
         }
-        ReadBuilder readBuilder = table.newReadBuilder()
-                                    .withProjection(Arrays.stream(ids).mapToInt(Integer::parseInt).toArray());
-        TableRead read = readBuilder.newRead();
-        reader = read.createReader(paimonInputSplit.split());
+        super.types = columnTypes;
     }
 
     @Override
@@ -122,10 +128,10 @@ public class PaimonJniScanner extends JniScanner {
         try {
             RecordReader.RecordIterator<InternalRow> batch;
             while ((batch = reader.readBatch()) != null) {
-                Object record;
+                InternalRow record;
                 while ((record = batch.next()) != null) {
-                    columnValue.setOffsetRow((ColumnarRow) record);
-                    for (int i = 0; i < ids.length; i++) {
+                    columnValue.setOffsetRow(record);
+                    for (int i = 0; i < fields.length; i++) {
                         columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
                     }
@@ -140,49 +146,28 @@ public class PaimonJniScanner extends JniScanner {
         return rows;
     }
 
-    private Catalog create(CatalogContext context) throws IOException {
-        Path warehousePath = new Path(context.options().get(CatalogOptions.WAREHOUSE));
-        FileIO fileIO;
-        fileIO = FileIO.get(warehousePath, context);
-        String uri = context.options().get(CatalogOptions.URI);
-        String hiveConfDir = context.options().get(HiveCatalogOptions.HIVE_CONF_DIR);
-        String hadoopConfDir = context.options().get(HiveCatalogOptions.HADOOP_CONF_DIR);
-        HiveConf hiveConf = HiveCatalog.createHiveConf(hiveConfDir, hadoopConfDir);
-
-        // always using user-set parameters overwrite hive-site.xml parameters
-        context.options().toMap().forEach(hiveConf::set);
-        hiveConf.set(HiveConf.ConfVars.METASTOREURIS.varname, uri);
-        // set the warehouse location to the hiveConf
-        hiveConf.set(HiveConf.ConfVars.METASTOREWAREHOUSE.varname, context.options().get(CatalogOptions.WAREHOUSE));
-
-        String clientClassName = context.options().get(METASTORE_CLIENT_CLASS);
-
-        return new HiveCatalog(fileIO, hiveConf, clientClassName, context.options().toMap());
+    @Override
+    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
+        // do nothing
+        return null;
     }
 
-    private void getCatalog() {
-        paimonInputSplit = new PaimonInputSplit();
-        Options options = new Options();
-        options.set("warehouse", warehouse);
-        // Currently, only supports hive
-        options.set("metastore", "hive");
-        options.set("uri", metastoreUris);
-        CatalogContext context = CatalogContext.create(options);
+    private void initTable() {
         try {
-            Catalog catalog = create(context);
+            Catalog catalog = createCatalog();
             table = catalog.getTable(Identifier.create(dbName, tblName));
-        } catch (IOException | Catalog.TableNotExistException e) {
+            paimonAllFieldNames = PaimonScannerUtils.fieldNames(table.rowType());
+            LOG.info("paimonAllFieldNames:{}", paimonAllFieldNames);
+        } catch (Catalog.TableNotExistException e) {
             LOG.warn("failed to create paimon external catalog ", e);
             throw new RuntimeException(e);
         }
     }
 
-    private static final ConfigOption<String> METASTORE_CLIENT_CLASS =
-            ConfigOptions.key("metastore.client.class")
-            .stringType()
-            .defaultValue("org.apache.hadoop.hive.metastore.HiveMetaStoreClient")
-            .withDescription(
-                "Class name of Hive metastore client.\n"
-                    + "NOTE: This class must directly implements "
-                    + "org.apache.hadoop.hive.metastore.IMetaStoreClient.");
+    private Catalog createCatalog() {
+        Options options = new Options();
+        paimonOptionParams.entrySet().stream().forEach(kv -> options.set(kv.getKey(), kv.getValue()));
+        CatalogContext context = CatalogContext.create(options);
+        return CatalogFactory.createCatalog(context);
+    }
 }

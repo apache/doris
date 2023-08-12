@@ -171,7 +171,7 @@ public class TablePartitionValues {
         return readWriteLock.writeLock();
     }
 
-    private void cleanPartitions() {
+    public void cleanPartitions() {
         nextPartitionId = 0;
         idToPartitionItem.clear();
         partitionNameToIdMap.clear();

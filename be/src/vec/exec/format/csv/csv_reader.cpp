@@ -200,9 +200,11 @@ Status CsvReader::init_reader(bool is_load) {
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
 
-    //get array delimiter
-    _array_delimiter = _params.file_attributes.text_params.array_delimiter;
-    _text_converter->set_array_delimiter(_array_delimiter[0]);
+    _collection_delimiter = _params.file_attributes.text_params.collection_delimiter;
+    _text_converter->set_collection_delimiter(_collection_delimiter[0]);
+
+    _map_kv_delimiter = _params.file_attributes.text_params.mapkv_delimiter;
+    _text_converter->set_map_kv_delimiter(_map_kv_delimiter[0]);
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
@@ -651,8 +653,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         return Status::InvalidArgument(
                 "start offset of TFileRangeDesc must be zero in get parsered schema");
     }
-    if (_params.file_type == TFileType::FILE_STREAM ||
-        _params.file_type == TFileType::FILE_BROKER) {
+    if (_params.file_type == TFileType::FILE_BROKER) {
         return Status::InternalError(
                 "Getting parsered schema from csv file do not support stream load and broker "
                 "load.");
@@ -676,8 +677,13 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _file_description.start_offset = start_offset;
     io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
     _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
-                                                    reader_options, &_file_system, &_file_reader));
+    if (_params.file_type == TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state));
+    } else {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
+                                                        reader_options, &_file_system,
+                                                        &_file_reader));
+    }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
@@ -689,9 +695,11 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
 
-    //get array delimiter
-    _array_delimiter = _params.file_attributes.text_params.array_delimiter;
-    _text_converter->set_array_delimiter(_array_delimiter[0]);
+    _collection_delimiter = _params.file_attributes.text_params.collection_delimiter;
+    _text_converter->set_collection_delimiter(_collection_delimiter[0]);
+
+    _map_kv_delimiter = _params.file_attributes.text_params.mapkv_delimiter;
+    _text_converter->set_map_kv_delimiter(_map_kv_delimiter[0]);
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
@@ -751,6 +759,16 @@ Status CsvReader::_parse_col_types(size_t col_nums, std::vector<TypeDescriptor>*
     // 5. check _split_values.size must equal to col_nums.
     // 6. fill col_types
     return Status::OK();
+}
+
+void CsvReader::close() {
+    if (_line_reader) {
+        _line_reader->close();
+    }
+
+    if (_file_reader) {
+        _file_reader->close();
+    }
 }
 
 } // namespace doris::vectorized

@@ -63,6 +63,6 @@ public class ObjectId extends Id<ObjectId> {
 
     @Override
     public String toString() {
-        return "RelationId#" + id;
+        return "ObjectId#" + id;
     }
 }
