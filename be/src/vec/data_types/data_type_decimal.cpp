@@ -211,18 +211,6 @@ Decimal128I DataTypeDecimal<Decimal128I>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
-template <typename T>
-typename T::NativeType max_decimal_value(UInt32 precision) {
-    return type_limit<T>::max() /
-           DataTypeDecimal<T>::get_scale_multiplier((max_decimal_precision<T>() - precision));
-}
-
-template <typename T>
-typename T::NativeType min_decimal_value(UInt32 precision) {
-    return type_limit<T>::min() /
-           DataTypeDecimal<T>::get_scale_multiplier(max_decimal_precision<T>() - precision);
-}
-
 /// Explicit template instantiations.
 template class DataTypeDecimal<Decimal32>;
 template class DataTypeDecimal<Decimal64>;

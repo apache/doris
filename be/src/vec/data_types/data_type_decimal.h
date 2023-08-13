@@ -578,9 +578,15 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
 }
 
 template <typename T>
-typename T::NativeType max_decimal_value(UInt32 precision);
+typename T::NativeType max_decimal_value(UInt32 precision) {
+    return type_limit<T>::max() /
+           DataTypeDecimal<T>::get_scale_multiplier((max_decimal_precision<T>() - precision));
+}
 
 template <typename T>
-typename T::NativeType min_decimal_value(UInt32 precision);
+typename T::NativeType min_decimal_value(UInt32 precision) {
+    return type_limit<T>::min() /
+           DataTypeDecimal<T>::get_scale_multiplier(max_decimal_precision<T>() - precision);
+}
 
 } // namespace doris::vectorized
