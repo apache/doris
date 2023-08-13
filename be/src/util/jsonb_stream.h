@@ -39,11 +39,14 @@
 #include <cinttypes>
 #include <iostream>
 
+#include <algorithm>
+
 namespace doris {
 
 // lengths includes sign
 #define MAX_INT_DIGITS 11
 #define MAX_INT64_DIGITS 20
+#define MAX_INT128_DIGITS 40
 #define MAX_DOUBLE_DIGITS 23 // 1(sign)+16(significant)+1(decimal)+5(exponent)
 
 /*
@@ -126,9 +129,40 @@ public:
         size_ += len;
     }
 
+    // TODO: use more efficient impl for int128
     void write(__int128 l) {
-        // TODO
-        assert(false);
+        // snprintf automatically adds a NULL, so we need one more char
+        if (size_ + MAX_INT128_DIGITS + 1 > capacity_) {
+            realloc(MAX_INT128_DIGITS + 1);
+        }
+
+        int len = 0;
+        // output negtive sign
+        if (l < 0) {
+            *(head_ + size_) = '-';
+            size_ += 1;
+        }
+
+        uint32_t start_size = size_;
+
+        // snprintf from low digit to high digit
+        while (l != 0) {
+            // get lowest digit
+            int n = l % 10;
+            if (n < 0) {
+                n = 0 - n;
+            }
+            assert(n >= 0 && n < 10);
+            len = snprintf(head_ + size_, MAX_INT128_DIGITS, "%d", n);
+            assert(len == 1);
+            size_ += len;
+
+            // shift out lowest digit by dividing 10
+            l = l / 10;
+        }
+
+        // reverse to hight digit to low digit
+        std::reverse(head_ + start_size, head_ + size_);
     }
 
     // write the double to string

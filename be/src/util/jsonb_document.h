@@ -668,7 +668,7 @@ inline bool JsonbFloatVal::setVal(float value) {
 // A class to get an integer
 class JsonbIntVal : public JsonbValue {
 public:
-    int64_t val() const {
+    int128_t val() const {
         switch (type_) {
         case JsonbType::T_Int8:
             return ((JsonbInt8Val*)this)->val();
