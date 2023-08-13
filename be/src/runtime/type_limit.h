@@ -44,7 +44,7 @@ struct type_limit<DecimalV2Value> {
 template <>
 struct type_limit<vectorized::Decimal32> {
     static vectorized::Decimal32 min() { return -999999999; }
-    static vectorized::Decimal32 max() { return 999999999; }
+    static vectorized::Decimal32 max() { return -min(); }
 };
 
 template <>
@@ -59,10 +59,7 @@ struct type_limit<vectorized::Decimal128I> {
         return -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
                  static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
-    static vectorized::Decimal128I max() {
-        return static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-               static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
-    }
+    static vectorized::Decimal128I max() { return -min(); }
 };
 
 template <>

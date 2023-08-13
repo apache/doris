@@ -408,8 +408,8 @@ ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& v
     if (scale_to > scale_from) {
         converted_value =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
-        if (common::mul_overflow(static_cast<MaxFieldType>(value), converted_value,
-                                 converted_value)) {
+        if (common::mul_overflow(static_cast<MaxFieldType>(value).value, converted_value.value,
+                                 converted_value.value)) {
             if (overflow_flag) {
                 *overflow_flag = 1;
             }

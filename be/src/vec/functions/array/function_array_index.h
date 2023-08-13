@@ -167,7 +167,8 @@ private:
             throw Exception(
                     ErrorCode::INVALID_ARGUMENT,
                     "array_index meet invalid input, NestedColumnType={}, RightColumnType={}",
-                    typeid(NestedColumnType).name(), typeid(RightColumnType).name());
+                    demangle(typeid(NestedColumnType).name()),
+                    demangle(typeid(RightColumnType).name()));
         } else {
             // check array nested column type and get data
             const auto& nested_data =
