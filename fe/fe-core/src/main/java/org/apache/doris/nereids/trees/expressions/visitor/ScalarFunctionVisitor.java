@@ -168,6 +168,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBigint;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractLargeint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBool;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractInt;
@@ -972,6 +973,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonbExtractBigint(JsonbExtractBigint jsonbExtractBigint, C context) {
         return visitScalarFunction(jsonbExtractBigint, context);
+    }
+
+    default R visitJsonbExtractLargeint(JsonbExtractLargeint jsonbExtractLargeint, C context) {
+        return visitScalarFunction(jsonbExtractLargeint, context);
     }
 
     default R visitJsonbExtractBool(JsonbExtractBool jsonbExtractBool, C context) {
