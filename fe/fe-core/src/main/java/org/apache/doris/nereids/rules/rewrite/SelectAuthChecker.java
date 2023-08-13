@@ -130,7 +130,7 @@ public class SelectAuthChecker implements RewriteRuleFactory {
                     .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), catalog.getName(),
                             database.getFullName(), table.getName(), cols, PrivPredicate.SELECT);
         } catch (UserException e) {
-            throw new AnalysisException(e.getMessage());
+            throw new AnalysisException("Permission denied:" + e.getMessage());
         }
     }
 
