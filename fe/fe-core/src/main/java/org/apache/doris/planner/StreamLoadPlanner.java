@@ -153,9 +153,9 @@ public class StreamLoadPlanner {
                 for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
-                        if (!col.isVisible()) {
-                            throw new UserException("Partial update should not include invisible column: "
-                                + col.getName());
+                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                            throw new UserException("Partial update should not include invisible column except"
+                                    + " delete sign column: " + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
                         if (destTable.hasSequenceCol() && (taskInfo.hasSequenceCol() || (
