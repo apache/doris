@@ -67,7 +67,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("colName", String.valueOf(info.colName));
         params.put("tblName", String.valueOf(info.tblName));
         params.put("sampleExpr", getSampleExpression());
-        List<String> partitionAnalysisSQLs = new ArrayList<>();
+        List<String> sqls = new ArrayList<>();
         try {
             tbl.readLock();
             Set<String> partNames = info.colToPartitions.get(info.colName);
@@ -80,46 +80,40 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 // Avoid error when get the default partition
                 params.put("partName", "`" + partName + "`");
                 StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
-                partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
+                sqls.add(stringSubstitutor.replace(ANALYZE_PARTITION_SQL_TEMPLATE));
             }
         } finally {
             tbl.readUnlock();
         }
-        execSQLs(partitionAnalysisSQLs);
         params.remove("partId");
         params.put("type", col.getType().toString());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
-        execSQL(sql);
+        sqls.add(sql);
+        execSQLs(sqls);
     }
 
     @VisibleForTesting
-    public void execSQLs(List<String> partitionAnalysisSQLs) throws Exception {
-        for (String sql : partitionAnalysisSQLs) {
-            execSQL(sql);
-        }
-    }
-
-    @VisibleForTesting
-    public void execSQL(String sql) throws Exception {
-        if (killed) {
-            return;
-        }
+    public void execSQLs(List<String> sqls) throws Exception {
         long startTime = System.currentTimeMillis();
-        LOG.info("ANALYZE SQL : " + sql + " start at " + startTime);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
-            stmtExecutor.execute();
-            QueryState queryState = r.connectContext.getState();
-            if (queryState.getStateType().equals(MysqlStateType.ERR)) {
-                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
-                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+            for (String sql : sqls) {
+                if (killed) {
+                    return;
+                }
+                LOG.info("ANALYZE SQL : " + sql + " start at " + startTime);
+                stmtExecutor = new StmtExecutor(r.connectContext, sql);
+                r.connectContext.setExecutor(stmtExecutor);
+                stmtExecutor.execute();
+                QueryState queryState = r.connectContext.getState();
+                if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+                    throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                            info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+                }
             }
         } finally {
-            LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
+            LOG.debug("Analyze SQL: " + sqls + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
         }
     }
-
 }

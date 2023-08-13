@@ -58,6 +58,9 @@ public class Config extends ConfigBase {
      *          10h     10 hours
      *          60m     60 mins
      *          120s    120 seconds
+     *
+     * sys_log_enable_compress:
+     *      default is false. if true, will compress fe.log & fe.warn.log by gzip
      */
     @ConfField(description = {"FE 日志文件的存放路径，用于存放 fe.log。",
             "The path of the FE log file, used to store fe.log"})
@@ -93,6 +96,8 @@ public class Config extends ConfigBase {
             "The maximum survival time of the FE log file. After exceeding this time, the log file will be deleted. "
                     + "Supported formats include: 7d, 10h, 60m, 120s"})
     public static String sys_log_delete_age = "7d";
+    @ConfField(description = {"是否压缩 FE 的历史日志", "enable compression for FE log file"})
+    public static boolean sys_log_enable_compress = false;
 
     @ConfField(description = {"FE 审计日志文件的存放路径，用于存放 fe.audit.log。",
             "The path of the FE audit log file, used to store fe.audit.log"})
@@ -118,6 +123,8 @@ public class Config extends ConfigBase {
                     + "After exceeding this time, the log file will be deleted. "
                     + "Supported formats include: 7d, 10h, 60m, 120s"})
     public static String audit_log_delete_age = "30d";
+    @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
+    public static boolean audit_log_enable_compress = false;
 
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
@@ -418,7 +425,11 @@ public class Config extends ConfigBase {
                             + "eg. if you create a table with #m tablets and #n replicas for each tablet, "
                             + "the create table request will run at most "
                             + "(m * n * tablet_create_timeout_second) before timeout"})
-    public static int tablet_create_timeout_second = 1;
+    public static int tablet_create_timeout_second = 2;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"创建表的最小超时时间，单位是秒。",
+            "Minimal waiting time for creating a table, in seconds."})
+    public static int min_create_table_timeout_second = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {"创建表的最大超时时间，单位是秒。",
             "Maximal waiting time for creating a table, in seconds."})
@@ -2074,4 +2085,9 @@ public class Config extends ConfigBase {
             "Export任务允许的最大并行数",
             "The maximum parallelism allowed by Export job"})
     public static int maximum_parallelism_of_export_job = 50;
+
+    @ConfField(mutable = true, description = {
+            "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
+            "Whether to use mysql's bigint type to return Doris's largeint type"})
+    public static boolean use_mysql_bigint_for_largeint = false;
 }

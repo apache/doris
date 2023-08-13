@@ -671,6 +671,12 @@ Translated with www.DeepL.com/Translator (free version)
 
   Used to enable strong consistent reading. By default, Doris supports strong consistency within the same session, that is, changes to data within the same session are visible in real time. If you want strong consistent reads between sessions, set this variable to true. 
 
+* `truncate_char_or_varchar_columns`
+
+  Whether to truncate char or varchar columns according to the table's schema. The default is false.
+
+  Because the maximum length of the char or varchar column in the schema of the table is inconsistent with the schema in the underlying parquet or orc file. At this time, if the option is turned on, it will be truncated according to the maximum length in the schema of the table.
+
 ***
 
 #### Supplementary instructions on statement execution timeout control

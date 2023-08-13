@@ -399,4 +399,16 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PGlobResponse> glob(TNetworkAddress address,
+            InternalService.PGlobRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.glob(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to glob dir from BE {}:{}, path: {}, error: ",
+                    address.getHostname(), address.getPort(), request.getPattern());
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
 }

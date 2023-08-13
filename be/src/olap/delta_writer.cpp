@@ -223,11 +223,6 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
     return _memtable_writer.write(block, row_idxs, is_append);
 }
-
-Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
-    return _memtable_writer.flush_memtable_and_wait(need_wait);
-}
-
 Status DeltaWriter::wait_flush() {
     return _memtable_writer.wait_flush();
 }
@@ -383,14 +378,6 @@ Status DeltaWriter::cancel_with_status(const Status& st) {
 
 int64_t DeltaWriter::mem_consumption(MemType mem) {
     return _memtable_writer.mem_consumption(mem);
-}
-
-int64_t DeltaWriter::active_memtable_mem_consumption() {
-    return _memtable_writer.active_memtable_mem_consumption();
-}
-
-int64_t DeltaWriter::partition_id() const {
-    return _req.partition_id;
 }
 
 void DeltaWriter::_build_current_tablet_schema(int64_t index_id,

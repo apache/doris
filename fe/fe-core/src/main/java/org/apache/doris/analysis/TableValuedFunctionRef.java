@@ -27,6 +27,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
@@ -103,11 +104,12 @@ public class TableValuedFunctionRef extends TableRef {
             return;
         }
 
-        // check privilige for backends tvf
-        if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)) {
+        // check privilige for backends/local tvf
+        if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)
+                || funcName.equalsIgnoreCase(LocalTableValuedFunction.NAME)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
                     && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
-                                                                            PrivPredicate.OPERATOR)) {
+                    PrivPredicate.OPERATOR)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
             }
         }

@@ -1147,7 +1147,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             DCHECK(slot_ref_child >= 0);
             if (value.data != nullptr) {
-                using CppType = typename PrimitiveTypeTraits<T>::CppType;
+                using CppType = typename VecPrimitiveTypeTraits<T>::CppType;
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
                     auto val = StringRef(value.data, value.size);
@@ -1209,10 +1209,10 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                          (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
         if constexpr (IsFixed) {
             func(temp_range,
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<typename VecPrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
         } else {
             func(temp_range, to_olap_filter_type(fn_name, slot_ref_child),
-                 reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
+                 reinterpret_cast<typename VecPrimitiveTypeTraits<PrimitiveType>::CppType*>(value));
         }
     } else {
         static_assert(always_false_v<PrimitiveType>);

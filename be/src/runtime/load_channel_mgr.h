@@ -21,10 +21,12 @@
 #include <stdint.h>
 
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -70,18 +72,14 @@ private:
     Status _start_bg_worker();
 
     void _register_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
-        for (auto& tablet_channel_it : channel->get_tablets_channels()) {
-            for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
-                _memtable_memory_limiter->register_writer(writer_it.second);
-            }
+        for (auto& [_, tablet_channel] : channel->get_tablets_channels()) {
+            tablet_channel->register_memtable_memory_limiter();
         }
     }
 
     void _deregister_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
-        for (auto& tablet_channel_it : channel->get_tablets_channels()) {
-            for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
-                _memtable_memory_limiter->deregister_writer(writer_it.second);
-            }
+        for (auto& [_, tablet_channel] : channel->get_tablets_channels()) {
+            tablet_channel->deregister_memtable_memory_limiter();
         }
     }
 

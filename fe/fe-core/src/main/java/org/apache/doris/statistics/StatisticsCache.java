@@ -177,6 +177,14 @@ public class StatisticsCache {
         columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName));
     }
 
+    public void invalidateTableStats(long catalogId, long dbId, long tblId) {
+        tableStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(catalogId, dbId, tblId));
+    }
+
+    public void refreshTableStatsSync(long catalogId, long dbId, long tblId) {
+        tableStatisticsCache.synchronous().refresh(new StatisticsCacheKey(catalogId, dbId, tblId));
+    }
+
     public void refreshHistogramSync(long tblId, long idxId, String colName) {
         histogramCache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
     }
@@ -241,6 +249,9 @@ public class StatisticsCache {
         final StatisticsCacheKey k =
                 new StatisticsCacheKey(tableId, idxId, colName);
         final ColumnStatistic c = ColumnStatistic.fromResultRow(columnResults);
+        if (c == ColumnStatistic.UNKNOWN) {
+            return;
+        }
         putCache(k, c);
         TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest = new TUpdateFollowerStatsCacheRequest();
         updateFollowerStatsCacheRequest.key = GsonUtils.GSON.toJson(k);

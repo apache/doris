@@ -99,12 +99,9 @@ protected:
         // close will reset deltawriter memtable and should deregister writer before it.
         {
             std::lock_guard<SpinLock> l(_tablets_channels_lock);
-            auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
             auto tablet_channel_it = _tablets_channels.find(index_id);
             if (tablet_channel_it != _tablets_channels.end()) {
-                for (auto& writer_it : tablet_channel_it->second->get_tablet_writers()) {
-                    memtable_memory_limiter->deregister_writer(writer_it.second);
-                }
+                tablet_channel_it->second->deregister_memtable_memory_limiter();
             }
         }
 

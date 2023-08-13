@@ -452,14 +452,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 break;
             case FunctionSet.BITMAP_UNION:
                 type = Type.BITMAP;
-                if (analyzer != null && !baseType.isBitmapType()) {
+                if (!isReplay && analyzer != null && !baseType.isBitmapType()) {
                     throw new AnalysisException(
                             "BITMAP_UNION need input a bitmap column, but input " + baseType.toString());
                 }
                 break;
             case FunctionSet.HLL_UNION:
                 type = Type.HLL;
-                if (analyzer != null && !baseType.isHllType()) {
+                if (!isReplay && analyzer != null && !baseType.isHllType()) {
                     throw new AnalysisException("HLL_UNION need input a hll column, but input " + baseType.toString());
                 }
                 break;

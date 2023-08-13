@@ -38,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -106,6 +107,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String NUM_AS_STRING = "num_as_string";
     public static final String FUZZY_PARSE = "fuzzy_parse";
 
+    public static final String PARTIAL_COLUMNS = "partial_columns";
+
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
@@ -131,6 +134,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(EXEC_MEM_LIMIT_PROPERTY)
             .add(SEND_BATCH_PARALLELISM)
             .add(LOAD_TO_SINGLE_TABLET)
+            .add(PARTIAL_COLUMNS)
             .build();
 
     private final LabelName labelName;
@@ -157,8 +161,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     /**
      * RoutineLoad support json data.
      * Require Params:
-     *   1) dataFormat = "json"
-     *   2) jsonPaths = "$.XXX.xxx"
+     * 1) dataFormat = "json"
+     * 2) jsonPaths = "$.XXX.xxx"
      */
     private String format = ""; //default is csv.
     private String jsonPaths = "";
@@ -166,6 +170,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean stripOuterArray = false;
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
+
+    /**
+     * support partial columns load(Only Unique Key Columns)
+     */
+    @Getter
+    private boolean isPartialUpdate = false;
 
     private String comment = "";
 
@@ -175,7 +185,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
-    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 5 && v <= 60;
+    public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 1 && v <= 60;
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
     public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024;
     public static final Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
@@ -196,6 +206,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
                 .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
         this.mergeType = mergeType;
+        this.isPartialUpdate = this.jobProperties.getOrDefault(PARTIAL_COLUMNS, "false").equalsIgnoreCase("true");
         if (comment != null) {
             this.comment = comment;
         }
@@ -323,6 +334,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         dbName = labelName.getDbName();
         name = labelName.getLabelName();
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        if (isPartialUpdate && isMultiTable) {
+            throw new AnalysisException("Partial update is not supported in multi-table load.");
+        }
         if (isMultiTable) {
             return;
         }
@@ -338,6 +352,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (mergeType != LoadTask.MergeType.APPEND
                 && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign())) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+        }
+        if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
     }
 
@@ -409,9 +426,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
-                        precedingImportWhereStmt, importWhereStmt,
-                        partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
-                        importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
+                precedingImportWhereStmt, importWhereStmt,
+                partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+                importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
     private void checkJobProperties() throws UserException {
@@ -432,7 +449,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
         maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
-                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
+                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 1 and 60");
 
         maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
                 RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,

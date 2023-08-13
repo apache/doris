@@ -121,7 +121,7 @@ class HashMethodBase {
 public:
     using EmplaceResult = EmplaceResultImpl<Mapped>;
     using FindResult = FindResultImpl<Mapped>;
-    static constexpr bool has_mapped = !std::is_same<Mapped, void>::value;
+    static constexpr bool has_mapped = !std::is_same_v<Mapped, void>;
     using Cache = LastElementCache<Value, consecutive_keys_optimization>;
 
     static HashMethodContextPtr createContext(const HashMethodContext::Settings&) {
@@ -147,17 +147,16 @@ public:
     }
 
     template <typename Data, typename Func>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(Data& data,
-                                                                                  size_t row,
-                                                                                  Arena& pool,
-                                                                                  Func&& f) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t row, Arena& pool, Func&& f) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return lazy_emplace_impl(key_holder, data, std::forward<Func>(f));
     }
 
     template <typename Data, typename Func>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_key(
-            Data& data, size_t hash_value, size_t row, Arena& pool, Func&& f) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_key(Data& data, size_t hash_value, size_t row, Arena& pool,
+                                           Func&& f) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return lazy_emplace_impl(key_holder, hash_value, data, std::forward<Func>(f));
     }
@@ -314,16 +313,17 @@ protected:
     }
 
     template <typename Data, typename KeyHolder, typename Func>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_impl(
-            KeyHolder& key_holder, Data& data, Func&& f) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_impl(KeyHolder& key_holder, Data& data, Func&& f) {
         typename Data::LookupResult it;
         data.lazy_emplace(key_holder, it, std::forward<Func>(f));
         return *lookup_result_get_mapped(it);
     }
 
     template <typename Data, typename KeyHolder, typename Func>
-    ALWAYS_INLINE typename std::enable_if_t<has_mapped, Mapped>& lazy_emplace_impl(
-            KeyHolder& key_holder, size_t hash_value, Data& data, Func&& f) {
+        requires has_mapped
+    ALWAYS_INLINE Mapped& lazy_emplace_impl(KeyHolder& key_holder, size_t hash_value, Data& data,
+                                            Func&& f) {
         typename Data::LookupResult it;
         data.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
 

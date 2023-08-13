@@ -147,6 +147,10 @@ public class BackendServiceClient {
         return stub.reportStreamLoadStatus(request);
     }
 
+    public Future<InternalService.PGlobResponse> glob(InternalService.PGlobRequest request) {
+        return stub.glob(request);
+    }
+
     public void shutdown() {
         if (!channel.isShutdown()) {
             channel.shutdown();
