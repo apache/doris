@@ -120,7 +120,7 @@ private:
 
     void _init_profile(RuntimeProfile* profile);
 
-    bool _is_init = false;
+    std::atomic<bool> _is_init = false;
     bool _is_cancelled = false;
     bool _is_closed = false;
     Status _cancel_status;
