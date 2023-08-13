@@ -86,7 +86,8 @@ template <typename T, typename Enable = void>
 struct DefaultHash;
 
 template <typename T>
-struct DefaultHash<T, std::enable_if_t<std::is_arithmetic_v<T>>> {
+    requires std::is_arithmetic_v<T>
+struct DefaultHash<T> {
     size_t operator()(T key) const { return default_hash64<T>(key); }
 };
 
