@@ -756,7 +756,14 @@ private:
             }
         } else if constexpr (std::is_same_v<int64_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
-                res[i] = ((const JsonbIntVal*)value)->val();
+                res[i] = (int64_t)((const JsonbIntVal*)value)->val();
+            } else {
+                null_map[i] = 1;
+                res[i] = 0;
+            }
+        } else if constexpr (std::is_same_v<int128_t, typename ValueType::T>) {
+            if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64() || value->isInt128()) {
+                res[i] = (int128_t)((const JsonbIntVal*)value)->val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;

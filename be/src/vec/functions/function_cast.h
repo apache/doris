@@ -722,7 +722,7 @@ struct ConvertImplFromJsonb {
                     }
                 } else if constexpr (type_index == TypeIndex::Int8) {
                     if (value->isInt8()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = (int8_t)((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -744,7 +744,7 @@ struct ConvertImplFromJsonb {
                 } else if constexpr (type_index == TypeIndex::Int64) {
                     if (value->isInt8() || value->isInt16() || value->isInt32() ||
                         value->isInt64()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = (int64_t)((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -752,7 +752,7 @@ struct ConvertImplFromJsonb {
                 } else if constexpr (type_index == TypeIndex::Int128) {
                     if (value->isInt8() || value->isInt16() || value->isInt32() ||
                         value->isInt64() || value->isInt128()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = (int128_t)((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
