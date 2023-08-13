@@ -17,6 +17,7 @@
 
 package org.apache.doris.policy;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GrantStmt;
@@ -68,10 +69,13 @@ public class PolicyTest extends TestWithFeService {
         user.analyze(SystemInfoService.DEFAULT_CLUSTER);
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
-        List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
+        List<AccessPrivilegeWithCols> privileges = Lists
+                .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
+        grantStmt.analyze(analyzer);
         Env.getCurrentEnv().getAuth().grant(grantStmt);
         useUser("test_policy");
     }
