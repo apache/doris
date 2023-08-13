@@ -142,6 +142,10 @@ public class BackendServiceClient {
         return stub.getColumnIdsByTabletIds(request);
     }
 
+    public Future<InternalService.PGlobResponse> glob(InternalService.PGlobRequest request) {
+        return stub.glob(request);
+    }
+
     public void shutdown() {
         if (!channel.isShutdown()) {
             channel.shutdown();

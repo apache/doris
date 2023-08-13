@@ -181,6 +181,9 @@ public:
                                     PGetTabletVersionsResponse* response,
                                     google::protobuf::Closure* done) override;
 
+    void glob(google::protobuf::RpcController* controller, const PGlobRequest* request,
+              PGlobResponse* response, google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
