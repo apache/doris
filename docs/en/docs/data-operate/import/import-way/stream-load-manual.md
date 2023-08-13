@@ -137,7 +137,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 	``` dpp.norm.ALL ``` refers to the number of correct data in the import process. The correct amount of data for the import task can be queried by the ``SHOW LOAD` command.
 
-The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
+  The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
 + where
 
