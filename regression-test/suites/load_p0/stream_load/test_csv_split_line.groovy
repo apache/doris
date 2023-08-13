@@ -17,6 +17,7 @@
 
 suite("test_csv_split_line", "p0") {
     def tableName = "test_csv_split_line"
+	sql """ set enable_fallback_to_original_planner=false;"""
     sql """ create database if not exists demo;""" 
     sql """ DROP TABLE IF EXISTS ${tableName}1 """
     sql """ CREATE TABLE ${tableName}1 (
