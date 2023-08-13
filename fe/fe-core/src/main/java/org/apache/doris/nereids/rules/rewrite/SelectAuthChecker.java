@@ -37,6 +37,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
@@ -46,6 +48,7 @@ import java.util.Set;
  * check select col auth
  */
 public class SelectAuthChecker implements RewriteRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(SelectAuthChecker.class);
 
     @Override
     public List<Rule> buildRules() {
@@ -97,18 +100,28 @@ public class SelectAuthChecker implements RewriteRuleFactory {
      * check col select auth
      */
     public static void checkSelectAuth(CatalogRelation catalogRelation, Set<String> cols) {
-        TableIf table = catalogRelation.getTable();
-        if (table == null) {
+        TableIf table;
+        DatabaseIf database;
+        CatalogIf catalog;
+        try {
+            table = catalogRelation.getTable();
+            if (table == null) {
+                return;
+            }
+            database = catalogRelation.getDatabase();
+            if (database == null) {
+                return;
+            }
+            catalog = database.getCatalog();
+            if (catalog == null) {
+                return;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            LOG.warn("get schema failed:" + e.getMessage());
             return;
         }
-        DatabaseIf database = catalogRelation.getDatabase();
-        if (database == null) {
-            return;
-        }
-        CatalogIf catalog = database.getCatalog();
-        if (catalog == null) {
-            return;
-        }
+
         if (cols.size() == 0) {
             return;
         }
