@@ -71,9 +71,9 @@ class VDataStreamSender;
 
 class BlockSerializer {
 public:
-    BlockSerializer(VDataStreamSender* parent, bool is_local = false);
+    BlockSerializer(VDataStreamSender* parent, bool is_local = true);
     Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
-                                 const std::vector<int>* rows = nullptr);
+                                 bool eos, const std::vector<int>* rows = nullptr);
     Status serialize_block(PBlock* dest, int num_receivers = 1);
     Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
 
@@ -141,7 +141,7 @@ protected:
 
     template <typename Channels>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const uint64_t* channel_ids, int rows, Block* block);
+                            const uint64_t* channel_ids, int rows, Block* block, bool eos);
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
@@ -264,7 +264,7 @@ public:
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
-    virtual Status add_rows(Block* block, const std::vector<int>& row);
+    virtual Status add_rows(Block* block, const std::vector<int>& row, bool eos);
 
     virtual Status send_current_block(bool eos);
 
@@ -397,7 +397,7 @@ protected:
 template <typename Channels>
 Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channels,
                                            int num_channels, const uint64_t* __restrict channel_ids,
-                                           int rows, Block* block) {
+                                           int rows, Block* block, bool eos) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
@@ -406,8 +406,8 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
 
     Status status;
     for (int i = 0; i < num_channels; ++i) {
-        if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
-            status = channels[i]->add_rows(block, channel2rows[i]);
+        if (!channels[i]->is_receiver_eof() && (!channel2rows[i].empty() || eos)) {
+            status = channels[i]->add_rows(block, channel2rows[i], eos);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
         }
     }
@@ -479,17 +479,17 @@ public:
         return Status::OK();
     }
 
-    Status add_rows(Block* block, const std::vector<int>& rows) override {
+    Status add_rows(Block* block, const std::vector<int>& rows, bool eos) override {
         if (_fragment_instance_id.lo == -1) {
             return Status::OK();
         }
 
         bool serialized = false;
         _pblock = std::make_unique<PBlock>();
-        RETURN_IF_ERROR(
-                _serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, &rows));
+        RETURN_IF_ERROR(_serializer.next_serialized_block(block, _pblock.get(), 1, &serialized, eos,
+                                                          &rows));
         if (serialized) {
-            RETURN_IF_ERROR(send_current_block(false));
+            RETURN_IF_ERROR(send_current_block(eos));
         }
 
         return Status::OK();

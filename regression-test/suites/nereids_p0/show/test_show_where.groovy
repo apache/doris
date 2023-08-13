@@ -58,7 +58,8 @@ suite("test_show_where", "query,external,mysql,external_docker,external_docker_m
         String enabled = context.config.otherConfigs.get("enableJdbcTest")
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            
+            String mysql_show_db="show_test_do_not_modify"
+
             sql """drop catalog if exists ${catalog_name} """
 
             // if use 'com.mysql.cj.jdbc.Driver' here, it will report: ClassNotFound
@@ -66,20 +67,20 @@ suite("test_show_where", "query,external,mysql,external_docker,external_docker_m
                     "type"="jdbc",
                     "jdbc.user"="root",
                     "jdbc.password"="123456",
-                    "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+                    "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/show_test_do_not_modify?useSSL=false",
                     "jdbc.driver_url" = "${driver_url}",
                     "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
                 """
 
             sql """switch ${catalog_name}"""
-            sql """ use ${ex_db_name}"""
+            sql """ use ${mysql_show_db}"""
 
-            qt_select "show databases where schema_name= '${ex_db_name}'"
+            qt_select "show databases where schema_name= '${mysql_show_db}'"
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb0}'"
-            qt_select "show tables from ${ex_db_name}"
+            qt_select "show tables from ${mysql_show_db}"
             qt_select "show tables from internal.${ex_db_name}"
-            qt_select "show tables from ${catalog_name}.${ex_db_name}"
+            qt_select "show tables from ${catalog_name}.${mysql_show_db}"
 
 
             sql """switch internal"""
@@ -89,7 +90,7 @@ suite("test_show_where", "query,external,mysql,external_docker,external_docker_m
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb1}'"
             qt_select "show tables from internal.${ex_db_name}"
-            qt_select "show tables from ${catalog_name}.${ex_db_name}"
+            qt_select "show tables from ${catalog_name}.${mysql_show_db}"
 
         }
 
