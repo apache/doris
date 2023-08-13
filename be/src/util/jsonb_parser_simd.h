@@ -71,6 +71,8 @@
 
 namespace doris {
 
+using int128_t = __int128;
+
 /*
  * Template JsonbParserTSIMD
  */

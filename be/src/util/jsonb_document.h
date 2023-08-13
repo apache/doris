@@ -91,6 +91,8 @@ namespace doris {
 
 #define JSONB_VER 1
 
+using int128_t = __int128;
+
 // forward declaration
 class JsonbValue;
 class ObjectVal;
@@ -626,11 +628,11 @@ inline bool JsonbInt64Val::setVal(int64_t value) {
     return true;
 }
 
-typedef NumberValT<__int128_t> JsonbInt128Val;
+typedef NumberValT<int128_t> JsonbInt128Val;
 
 // override setVal for Int128Val
 template <>
-inline bool JsonbInt128Val::setVal(__int128_t value) {
+inline bool JsonbInt128Val::setVal(int128_t value) {
     if (!isInt128()) {
         return false;
     }
@@ -1137,7 +1139,7 @@ inline unsigned int JsonbValue::numPackedBytes() const {
         return sizeof(type_) + sizeof(float);
     }
     case JsonbType::T_Int128: {
-        return sizeof(type_) + sizeof(__int128_t);
+        return sizeof(type_) + sizeof(int128_t);
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
@@ -1174,7 +1176,7 @@ inline unsigned int JsonbValue::size() const {
         return sizeof(float);
     }
     case JsonbType::T_Int128: {
-        return sizeof(__int128_t);
+        return sizeof(int128_t);
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {

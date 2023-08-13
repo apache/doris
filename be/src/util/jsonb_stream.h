@@ -42,6 +42,8 @@
 
 namespace doris {
 
+using int128_t = __int128;
+
 // lengths includes sign
 #define MAX_INT_DIGITS 11
 #define MAX_INT64_DIGITS 20
@@ -129,7 +131,7 @@ public:
     }
 
     // TODO: use more efficient impl for int128
-    void write(__int128 l) {
+    void write(int128_t l) {
         // snprintf automatically adds a NULL, so we need one more char
         if (size_ + MAX_INT128_DIGITS + 1 > capacity_) {
             realloc(MAX_INT128_DIGITS + 1);
