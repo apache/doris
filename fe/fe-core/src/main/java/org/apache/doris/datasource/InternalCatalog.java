@@ -3079,8 +3079,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public long saveDb(CountingDataOutputStream dos, long checksum) throws IOException {
-        // 1 is for information_schema db, which does not need to be persisted.
-        int dbCount = idToDb.size() - 1;
+        // 2 is for information_schema db & mysql db, which does not need to be persisted.
+        int dbCount = idToDb.size() - 2;
         checksum ^= dbCount;
         dos.writeInt(dbCount);
         for (Map.Entry<Long, Database> entry : idToDb.entrySet()) {
