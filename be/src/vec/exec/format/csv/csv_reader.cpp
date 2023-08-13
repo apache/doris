@@ -613,6 +613,7 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
     _fields_splitter->split_line(line, &_split_values);
+    cout<<"1";
 }
 
 Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is_success) {
