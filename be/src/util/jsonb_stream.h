@@ -36,10 +36,9 @@
 #include <assert.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cinttypes>
 #include <iostream>
-
-#include <algorithm>
 
 namespace doris {
 
