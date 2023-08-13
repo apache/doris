@@ -17,26 +17,30 @@
 
 package org.apache.doris.nereids.types.coercion;
 
-import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.Calendar;
 
 /**
  * date like type.
  */
 public abstract class DateLikeType extends PrimitiveType {
-    private LocalDate toLocalDate(double d) {
+    private Calendar toCalendar(double d) {
         //d = (year * 10000 + month * 100 + day) * 1000000L;
         int date = (int) (d / 1000000);
         int day = date % 100;
         int month = (date / 100) % 100;
         int year = date / 10000;
-        return LocalDate.of(year, month, day);
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(Calendar.YEAR, year);
+        calendar.set(Calendar.MONTH, month);
+        calendar.set(Calendar.DAY_OF_MONTH, day);
+        return calendar;
     }
 
     @Override
     public double rangeLength(double high, double low) {
-        LocalDate to = toLocalDate(high);
-        LocalDate from = toLocalDate(low);
-        return ChronoUnit.DAYS.between(from, to);
+        Calendar to = toCalendar(high);
+        Calendar from = toCalendar(low);
+        return ChronoUnit.DAYS.between(from.toInstant(), to.toInstant());
     }
 }
