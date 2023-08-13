@@ -28,8 +28,8 @@ suite("paimon_base_types", "p2,external,paimon,external_remote,external_remote_p
             create catalog if not exists ${catalog_name} properties (
                 "type" = "paimon",
                 "paimon.catalog.type" = "filesystem",
-                "warehouse" = "hdfs:///paimon/paimon1"
-                "hadoop.username" = "${user_name}",
+                "warehouse" = "hdfs:///paimon/paimon1",
+                "hadoop.username" = "${user_name}"
             );
         """
         logger.info("catalog " + catalog_name + " created")
