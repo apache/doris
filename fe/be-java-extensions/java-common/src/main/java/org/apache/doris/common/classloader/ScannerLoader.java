@@ -52,7 +52,8 @@ public class ScannerLoader {
         File library = new File(basePath, "/lib/java_extensions/");
         // TODO: add thread pool to load each scanner
         listFiles(library).stream().filter(File::isDirectory).forEach(sd -> {
-            JniScannerClassLoader classLoader = new JniScannerClassLoader(sd.getName(), buildClassPath(sd));
+            JniScannerClassLoader classLoader = new JniScannerClassLoader(sd.getName(), buildClassPath(sd),
+                        this.getClass().getClassLoader());
             try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
                 loadJarClassFromDir(sd, classLoader);
             }

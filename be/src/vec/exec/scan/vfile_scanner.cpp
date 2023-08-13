@@ -775,8 +775,8 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            _cur_reader =
-                    AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs);
+            _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
+                                                       range);
             init_status = ((AvroJNIReader*)(_cur_reader.get()))
                                   ->init_fetch_table_reader(_colname_to_value_range);
             break;

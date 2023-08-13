@@ -451,6 +451,11 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
     CHECK(use_default_or_null_flag.size() == num_rows);
 
+    if (config::enable_merge_on_write_correctness_check) {
+        _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap,
+                                                    _mow_context->rowset_ids);
+    }
+
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,

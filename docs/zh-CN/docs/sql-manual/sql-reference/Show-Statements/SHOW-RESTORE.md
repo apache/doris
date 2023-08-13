@@ -53,7 +53,7 @@ SHOW [BRIEF] RESTORE [FROM DB_NAME]
                 DOWNLOAD：       快照完成，准备下载仓库中的快照
                 DOWNLOADING：    快照下载中
                 COMMIT：         快照下载完成，准备生效
-                COMMITING：      生效中
+                COMMITTING：      生效中
                 FINISHED：       作业成功
                 CANCELLED：      作业失败
             AllowLoad：              恢复时是否允许导入（当前不支持）
@@ -64,7 +64,7 @@ SHOW [BRIEF] RESTORE [FROM DB_NAME]
             SnapshotFinishedTime：   快照完成时间
             DownloadFinishedTime：   快照下载完成时间
             FinishedTime：           作业结束时间
-            UnfinishedTasks：        在 SNAPSHOTING、DOWNLOADING 和 COMMITING 阶段会显示还未完成的子任务id
+            UnfinishedTasks：        在 SNAPSHOTING、DOWNLOADING 和 COMMITTING 阶段会显示还未完成的子任务id
             Status：                 如果作业失败，显示失败信息
             Timeout：                作业超时时间，单位秒
 
