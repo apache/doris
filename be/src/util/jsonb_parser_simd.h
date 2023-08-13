@@ -301,15 +301,15 @@ public:
                 LOG(WARNING) << "overflow number: " << num.get_uint64();
                 return;
             }
-            int128_t val = num.is_int64() ? num.get_int64() : num.get_uint64();
+            int128_t val = num.is_int64() ? (int128_t)num.get_int64() : (int128_t)num.get_uint64();
             int size = 0;
-            if (val <= std::numeric_limits<int8_t>::max()) {
+            if (val >= std::numeric_limits<int8_t>::min() && val <= std::numeric_limits<int8_t>::max()) {
                 size = writer_.writeInt8((int8_t)val);
-            } else if (val <= std::numeric_limits<int16_t>::max()) {
+            } else if (val >= std::numeric_limits<int16_t>::min() && val <= std::numeric_limits<int16_t>::max()) {
                 size = writer_.writeInt16((int16_t)val);
-            } else if (val <= std::numeric_limits<int32_t>::max()) {
+            } else if (val >= std::numeric_limits<int32_t>::min() && val <= std::numeric_limits<int32_t>::max()) {
                 size = writer_.writeInt32((int32_t)val);
-            } else if (val <= std::numeric_limits<int64_t>::max()) {
+            } else if (val >= std::numeric_limits<int64_t>::min() && val <= std::numeric_limits<int64_t>::max()) {
                 size = writer_.writeInt64((int64_t)val);
             } else { // val <= INT64_MAX
                 size = writer_.writeInt128(val);

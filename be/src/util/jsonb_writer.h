@@ -236,6 +236,7 @@ public:
 
     uint32_t writeInt128(__int128_t v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
             os_->put((JsonbTypeUnder)JsonbType::T_Int128);
             os_->write((char*)&v, sizeof(__int128_t));
             kvState_ = WS_Value;
