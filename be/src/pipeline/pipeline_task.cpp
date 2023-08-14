@@ -102,26 +102,36 @@ void PipelineTask::_init_profile() {
     _wait_sink_timer = ADD_TIMER(_task_profile, "WaitSinkTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
     _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
-    _block_counts = ADD_COUNTER(_task_profile, "NumBlockedTimes", TUnit::UNIT);
-    _block_by_source_counts = ADD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT);
-    _block_by_sink_counts = ADD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT);
+
+    static const char* num_blocked_times = "NumBlockedTimes";
+    _block_counts = ADD_COUNTER(_task_profile, num_blocked_times, TUnit::UNIT);
+    _block_by_source_counts = ADD_CHILD_COUNTER(_task_profile, "NumBlockedBySrcTimes", TUnit::UNIT,
+                                                num_blocked_times);
+    _block_by_sink_counts = ADD_CHILD_COUNTER(_task_profile, "NumBlockedBySinkTimes", TUnit::UNIT,
+                                              num_blocked_times);
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
 
     _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
     _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
-    _try_close_timer = ADD_TIMER(_task_profile, "Task23TryCloseTime");
-    _src_pending_finish_check_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishCheckTime");
-    _src_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime");
-    _src_pending_finish_over_timer1 = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime1");
+    _try_close_timer = ADD_TIMER(_task_profile, "Task3TryCloseTime");
 
-    _dst_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task4DstPendingFinishOverTime");
-    _dst_pending_finish_check_timer =
-            ADD_TIMER(_task_profile, "Task4DstPendingFinishCheckTime");
-    _dst_pending_finish_over_timer1 = ADD_TIMER(_task_profile, "Task4DstPendingFinishOverTime1");
-    _pip_task_total_timer = ADD_TIMER(_task_profile, "Task5TotalTime");
-    _close_pipeline_timer = ADD_TIMER(_task_profile, "Task6ClosePipelineTime");
+    static const char* src_pending_finish_over_time = "Task4SrcPendingFinishOverTime";
+    _src_pending_finish_over_timer = ADD_TIMER(_task_profile, src_pending_finish_over_time);
+    _src_pending_finish_check_timer = ADD_CHILD_TIMER(
+            _task_profile, "Task4SrcPendingFinishCheckTime", src_pending_finish_over_time);
+    _src_pending_finish_over_timer1 = ADD_CHILD_TIMER(
+            _task_profile, "Task4SrcPendingFinishFirstOverTime", src_pending_finish_over_time);
+
+    static const char* dst_pending_finish_over_time = "Task5DstPendingFinishOverTime";
+    _dst_pending_finish_over_timer = ADD_TIMER(_task_profile, dst_pending_finish_over_time);
+    _dst_pending_finish_check_timer = ADD_CHILD_TIMER(
+            _task_profile, "Task4DstPendingFinishCheckTime", dst_pending_finish_over_time);
+    _dst_pending_finish_over_timer1 = ADD_CHILD_TIMER(
+            _task_profile, "Task5DstPendingFinishFirstOverTime", dst_pending_finish_over_time);
+    _pip_task_total_timer = ADD_TIMER(_task_profile, "Task6TotalTime");
+    _close_pipeline_timer = ADD_TIMER(_task_profile, "Task7ClosePipelineTime");
 }
 
 Status PipelineTask::prepare(RuntimeState* state) {

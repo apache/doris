@@ -198,9 +198,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
     _prepare_timer = ADD_TIMER(_runtime_profile, "PipCtx2PrepareTime");
     _close_timer = ADD_TIMER(_runtime_profile, "PipCtx3CloseTime");
-    Defer prepare_defer {[&]() {
-        COUNTER_UPDATE(_prepare_timer, _fragment_watcher.elapsed_time());
-    }};
+    Defer prepare_defer {
+            [&]() { COUNTER_UPDATE(_prepare_timer, _fragment_watcher.elapsed_time()); }};
 
     auto* fragment_context = this;
     OpentelemetryTracer tracer = telemetry::get_noop_tracer();

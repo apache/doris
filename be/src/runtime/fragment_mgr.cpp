@@ -315,7 +315,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
 static void empty_function(RuntimeState*, Status*) {}
 
-void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb) {
+void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
+                               const FinishCallback& cb) {
     exec_state->execute(cb);
 }
 

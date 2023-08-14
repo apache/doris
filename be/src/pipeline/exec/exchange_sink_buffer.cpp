@@ -80,7 +80,6 @@ bool ExchangeSinkBuffer::is_pending_finish() {
 
     for (auto& pair : _instance_to_package_queue_mutex) {
         std::unique_lock lock(*(pair.second));
-//        std::unique_lock<std::mutex> lock(*(pair.second));
         auto& id = pair.first;
         if (!_instance_to_sending_by_pipeline.at(id)) {
             // when pending finish, we need check whether current query is cancelled
@@ -340,10 +339,8 @@ bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
 
 void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time,
                                               int64_t* max_exec_delay_time,
-                                              int64_t* min_exec_delay_time,
-                                              int64_t* max_exec_time,
-                                              int64_t* min_exec_time,
-                                              int64_t* max_callback_time,
+                                              int64_t* min_exec_delay_time, int64_t* max_exec_time,
+                                              int64_t* min_exec_time, int64_t* max_callback_time,
                                               int64_t* min_callback_time,
                                               int64_t* max_callback_exec_time,
                                               int64_t* min_callback_exec_time) {
@@ -406,8 +403,8 @@ int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
 }
 
 void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_time,
-                                      int64_t exec_start, int64_t exec_end, int64_t callback_start_time,
-                                      int64_t callback_end_time) {
+                                      int64_t exec_start, int64_t exec_end,
+                                      int64_t callback_start_time, int64_t callback_end_time) {
     _rpc_count++;
     DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
     int64_t rpc_forward_time = receive_time - start_rpc_time;

@@ -34,9 +34,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/fragment_mgr.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

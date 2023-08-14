@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/controller.h>
+#include <bthread/mutex.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
@@ -25,7 +26,6 @@
 #include <stdint.h>
 
 #include <atomic>
-#include <bthread/mutex.h>
 #include <list>
 #include <memory>
 #include <mutex>
