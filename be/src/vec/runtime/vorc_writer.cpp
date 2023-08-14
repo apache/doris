@@ -89,8 +89,18 @@ VOrcWriterWrapper::VOrcWriterWrapper(doris::io::FileWriter* file_writer,
                                      const std::string& schema, bool output_object_data)
         : VFileWriterWrapper(output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
-          _write_options(new orc::WriterOptions()),
-          _schema_str(schema) {}
+          _schema_str(schema) {
+    _write_options.reset(new orc::WriterOptions());
+    // we set strip size = 5MB, because:
+    // The function `add(RowBatch)` of orc::Writer would not
+    // flush any pending data to the output stream
+    // until the strip data is filled.
+    // So we can not get the `_written_len` from orcOutputStream.
+    // However, we need to split file according to `_written_len`
+    // The minimum value of 'max_file_size' parameter is 5MB，
+    // So we set StripeSize = 5MB.
+    _write_options->setStripeSize(5L * 1024 * 1024); //5MB
+}
 
 Status VOrcWriterWrapper::prepare() {
     try {
