@@ -399,7 +399,8 @@ void VPartitionSortNode::_init_hash_method() {
     } else {
         bool use_fixed_key = true;
         bool has_null = false;
-        int key_byte_size = 0;
+        size_t key_byte_size = 0;
+        size_t bitmap_size = get_bitmap_size(_partition_exprs_num);
 
         _partition_key_sz.resize(_partition_exprs_num);
         for (int i = 0; i < _partition_exprs_num; ++i) {
@@ -417,16 +418,15 @@ void VPartitionSortNode::_init_hash_method() {
             key_byte_size += _partition_key_sz[i];
         }
 
-        if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size > sizeof(UInt256)) {
+        if (bitmap_size + key_byte_size > sizeof(UInt256)) {
             use_fixed_key = false;
         }
 
         if (use_fixed_key) {
             if (has_null) {
-                if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <= sizeof(UInt64)) {
+                if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
                     _partitioned_data->init(PartitionedHashMapVariants::Type::int64_keys, has_null);
-                } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                           sizeof(UInt128)) {
+                } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
                     _partitioned_data->init(PartitionedHashMapVariants::Type::int128_keys,
                                             has_null);
                 } else {
