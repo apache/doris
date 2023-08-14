@@ -41,7 +41,7 @@ public abstract class StringRegexPredicate extends ScalarFunction
             FunctionSignature.ret(BooleanType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
 
-    public StringRegexPredicate(String name, List<Expression> children) {
+    protected StringRegexPredicate(String name, List<Expression> children) {
         super(name, children);
     }
 
