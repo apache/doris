@@ -38,20 +38,6 @@ public class VariableDesc extends Expression implements LeafExpression {
         this.name = name;
     }
 
-    public VariableDesc(SetType setType, String name) {
-        //Construct system variable
-        this(true, setType, name);
-    }
-
-    public VariableDesc(String name) {
-        //Construct user variable
-        this(false, SetType.DEFAULT, name);
-    }
-
-    public boolean isSystemVariable() {
-        return isSystemVariable;
-    }
-
     public String getName() {
         return name;
     }
