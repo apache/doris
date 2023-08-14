@@ -33,18 +33,18 @@ public:
 
     using iterator = std::vector<std::unique_ptr<GeoShape>>::iterator;
 
-    const_iterator begin() const { return geometries.begin(); };
+    [[nodiscard]] const_iterator begin() const { return geometries.begin(); };
 
-    const_iterator end() const { return geometries.end(); };
+    [[nodiscard]] const_iterator end() const { return geometries.end(); };
 
     GeoCollection();
     ~GeoCollection() override;
 
-    GeoShapeType type() const override { return GEO_SHAPE_GEOMETRY_COLLECTION; }
+    [[nodiscard]] GeoShapeType type() const override { return GEO_SHAPE_GEOMETRY_COLLECTION; }
 
-    bool is_valid() const override;
+    [[nodiscard]] bool is_valid() const override;
 
-    bool is_closed() const override;
+    [[nodiscard]] bool is_closed() const override;
 
     void encode_to(std::string* buf) { GeoShape::encode_to(buf); };
 
@@ -66,18 +66,18 @@ public:
     GeoParseStatus add_one_geometry(GeoShape* shape);
 
     // Returns the number of geometries in this collection
-    std::size_t get_num_geometries() const override;
+    [[nodiscard]] std::size_t get_num_geometries() const override;
 
     // Returns the number of geometries in this collection
-    GeoShape* get_geometries_n(std::size_t n) const override;
+    [[nodiscard]] GeoShape* get_geometries_n(std::size_t n) const override;
 
-    std::string as_wkt() const override;
+    [[nodiscard]] std::string as_wkt() const override;
 
     bool contains(const GeoShape* rhs) const override;
 
     [[nodiscard]] std::size_t get_num_point() const override;
 
-    std::unique_ptr<GeoShape> boundary() const override;
+    [[nodiscard]] std::unique_ptr<GeoShape> boundary() const override;
 
     std::unique_ptr<GeoCollection> to_homogenize();
 
