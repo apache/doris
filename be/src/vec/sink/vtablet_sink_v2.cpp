@@ -217,9 +217,9 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
 
     // profile must add to state's object pool
-    _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
+    _profile = state->obj_pool()->add(new RuntimeProfile("VOlapTableSinkV2"));
     _mem_tracker =
-            std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
+            std::make_shared<MemTracker>("VOlapTableSinkV2:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
