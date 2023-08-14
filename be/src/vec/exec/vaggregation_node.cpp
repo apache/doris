@@ -338,7 +338,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
     _serialize_data_timer = ADD_TIMER(runtime_profile(), "SerializeDataTime");
     _serialize_result_timer = ADD_TIMER(runtime_profile(), "SerializeResultTime");
-    _deserialize_data_timer = ADD_TIMER(runtime_profile(), "DeserializeDataTime");
+    _deserialize_data_timer = ADD_TIMER(runtime_profile(), "DeserializeAndMergeTime");
     _hash_table_compute_timer = ADD_TIMER(runtime_profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(runtime_profile(), "HashTableEmplaceTime");
     _hash_table_iterate_timer = ADD_TIMER(runtime_profile(), "HashTableIterateTime");

@@ -768,7 +768,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         auto column_name = _schema->column(pred->column_id())->name();
         if (!_remaining_conjunct_roots.empty() &&
-            _check_column_pred_all_push_down(column_name, true) &&
+            _check_column_pred_all_push_down(column_name, true,
+                                             pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
             int32_t unique_id = _schema->unique_id(pred->column_id());
             _need_read_data_indices[unique_id] = false;
@@ -887,7 +888,8 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         }
 
         auto column_name = _schema->column(pred->column_id())->name();
-        if (_check_column_pred_all_push_down(column_name) &&
+        if (_check_column_pred_all_push_down(column_name, false,
+                                             pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
             _need_read_data_indices[unique_id] = false;
         }
@@ -2164,12 +2166,12 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
  *                  call _check_column_pred_all_push_down will return false.
 */
 bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column_name,
-                                                       bool in_compound) {
+                                                       bool in_compound, bool is_match) {
     if (_remaining_conjunct_roots.empty()) {
         return true;
     }
 
-    if (in_compound) {
+    if (in_compound || is_match) {
         auto preds_in_remaining_vconjuct = _column_pred_in_remaining_vconjunct[column_name];
         for (auto pred_info : preds_in_remaining_vconjuct) {
             auto column_sign = _gen_predicate_result_sign(&pred_info);

@@ -112,9 +112,11 @@ protected:
 };
 
 TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10000, 270068372, &request);
-    Status res = _engine->create_tablet(request);
+    Status res = _engine->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -127,11 +129,17 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {
-            10000, 270068372, 20002, 30002, load_id, tuple_desc, &(tuple_desc->slots()),
-            false, &param};
+    WriteRequest write_req;
+    write_req.tablet_id = 10000;
+    write_req.schema_hash = 270068372;
+    write_req.txn_id = 20002;
+    write_req.partition_id = 30002;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
@@ -158,15 +166,16 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     }
     std::mutex lock;
     _mgr->init(100);
+    auto memtable_writer = delta_writer->memtable_writer();
     {
         std::lock_guard<std::mutex> l(lock);
-        _mgr->register_writer(delta_writer);
+        _mgr->register_writer(memtable_writer);
     }
     _mgr->handle_memtable_flush();
-    CHECK_EQ(0, delta_writer->active_memtable_mem_consumption());
+    CHECK_EQ(0, memtable_writer->active_memtable_mem_consumption());
     {
         std::lock_guard<std::mutex> l(lock);
-        _mgr->deregister_writer(delta_writer);
+        _mgr->deregister_writer(memtable_writer);
     }
 
     res = delta_writer->close();

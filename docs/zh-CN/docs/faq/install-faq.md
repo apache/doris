@@ -313,4 +313,4 @@ Caused by: java.lang.ClassNotFoundException: org.apache.doris.udf.JniUtil
 ```
 Failed to initialize JNI: Failed to find the library libjvm.so.
 ```
-需要在系统设置 `JAVA_HOME` 环境变量，或者在 `start_be.sh` 启动脚本第一行添加 `export JAVA_HOME=your_java_home_path`，然后重新启动 BE 节点。
+需要在系统设置 `JAVA_HOME` 环境变量，或者在 be.conf 中设置 `JAVA_HOME` 变量，然后重新启动 BE 节点。

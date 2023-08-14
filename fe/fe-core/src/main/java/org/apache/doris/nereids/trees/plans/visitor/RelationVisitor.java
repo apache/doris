@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -92,6 +94,11 @@ public interface RelationVisitor<R, C> {
         return visitLogicalRelation(olapScan, context);
     }
 
+    default R visitLogicalDeferMaterializeOlapScan(
+            LogicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
+        return visitLogicalRelation(deferMaterializeOlapScan, context);
+    }
+
     default R visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, C context) {
         return visitLogicalRelation(oneRowRelation, context);
     }
@@ -126,6 +133,11 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
         return visitPhysicalRelation(olapScan, context);
+    }
+
+    default R visitPhysicalDeferMaterializeOlapScan(
+            PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan, C context) {
+        return visitPhysicalRelation(deferMaterializeOlapScan, context);
     }
 
     default R visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, C context) {

@@ -78,7 +78,7 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
 fi
 
 # add java libs
-for f in "${DORIS_HOME}/lib/java_extensions"/*.jar; do
+for f in "${DORIS_HOME}/lib/java_extensions/java-udf"/*.jar; do
     if [[ -z "${DORIS_CLASSPATH}" ]]; then
         export DORIS_CLASSPATH="${f}"
     else
@@ -308,7 +308,7 @@ if [[ -z ${JEMALLOC_CONF} ]]; then
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
-    export JEMALLOC_CONF="${JEMALLOC_CONF}"
+    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
 else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"

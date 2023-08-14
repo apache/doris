@@ -91,6 +91,7 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -557,8 +558,17 @@ public class TypeCoercionUtils {
                 break;
             }
         }
-        if (commonType.isFloatType() && (t1.isDecimalV3Type() || t2.isDecimalV3Type())) {
+        if (commonType.isFloatLikeType() && (t1.isDecimalV3Type() || t2.isDecimalV3Type())) {
             commonType = DoubleType.INSTANCE;
+        }
+
+        if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
+            // to be consitent with old planner
+            // see findCommonType() method in ArithmeticExpr.java
+            commonType = t1.isDecimalV2Type() && t2.isDecimalV2Type()
+                    || (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value)
+                    ? DecimalV2Type.SYSTEM_DEFAULT : DoubleType.INSTANCE;
         }
 
         boolean isBitArithmetic = binaryArithmetic instanceof BitAnd

@@ -19,8 +19,11 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -57,26 +60,14 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
     private final boolean singleReplicaLoad;
     private final boolean isPartialUpdate;
 
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
-            List<Column> cols, boolean singleReplicaLoad, boolean isPartialUpdate, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
-        this(database, targetTable, partitionIds, cols, singleReplicaLoad, isPartialUpdate,
-                Optional.empty(), logicalProperties, child);
-    }
-
     /**
      * Constructor
      */
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
-            List<Column> cols, boolean singleReplicaLoad, boolean isPartialUpdate,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
-        this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
-        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
-        this.cols = Utils.copyRequiredList(cols);
-        this.partitionIds = Utils.copyRequiredList(partitionIds);
-        this.singleReplicaLoad = singleReplicaLoad;
-        this.isPartialUpdate = isPartialUpdate;
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds, List<Column> cols,
+            boolean singleReplicaLoad, boolean isPartialUpdate, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(database, targetTable, partitionIds, cols, singleReplicaLoad, isPartialUpdate,
+                groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
     }
 
     /**
@@ -202,22 +193,30 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
      */
     public PhysicalProperties getRequirePhysicalProperties() {
         if (targetTable.isPartitioned()) {
-            HashDistributionInfo distributionInfo = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
-            List<Column> distributedColumns = distributionInfo.getDistributionColumns();
-            List<Integer> columnIndexes = Lists.newArrayList();
-            int idx = 0;
-            for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
-                if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
-                    columnIndexes.add(i);
-                    idx++;
-                    if (idx == distributedColumns.size()) {
-                        break;
+            DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();
+            if (distributionInfo instanceof HashDistributionInfo) {
+                HashDistributionInfo hashDistributionInfo
+                        = ((HashDistributionInfo) targetTable.getDefaultDistributionInfo());
+                List<Column> distributedColumns = hashDistributionInfo.getDistributionColumns();
+                List<Integer> columnIndexes = Lists.newArrayList();
+                int idx = 0;
+                for (int i = 0; i < targetTable.getFullSchema().size(); ++i) {
+                    if (targetTable.getFullSchema().get(i).equals(distributedColumns.get(idx))) {
+                        columnIndexes.add(i);
+                        idx++;
+                        if (idx == distributedColumns.size()) {
+                            break;
+                        }
                     }
                 }
+                return PhysicalProperties.createHash(columnIndexes.stream()
+                        .map(colIdx -> child().getOutput().get(colIdx).getExprId())
+                        .collect(Collectors.toList()), ShuffleType.NATURAL);
+            } else if (distributionInfo instanceof RandomDistributionInfo) {
+                return PhysicalProperties.ANY;
+            } else {
+                throw new AnalysisException("Unknown distributionInfo for Nereids to calculate physical properties");
             }
-            return PhysicalProperties.createHash(columnIndexes.stream()
-                    .map(colIdx -> child().getOutput().get(colIdx).getExprId())
-                    .collect(Collectors.toList()), ShuffleType.NATURAL);
         } else {
             return PhysicalProperties.GATHER;
         }

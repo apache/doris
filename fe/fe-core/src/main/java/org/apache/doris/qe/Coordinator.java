@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.PrepareStmt;
+import org.apache.doris.analysis.PrepareStmt.PreparedType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -187,6 +188,8 @@ public class Coordinator {
     // Once this is set to true, errors from remote fragments are ignored.
     private boolean returnedAllResults;
 
+    private List<RuntimeProfile> fragmentProfile;
+
     // populated in computeFragmentExecParams()
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
@@ -252,6 +255,7 @@ public class Coordinator {
     public List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
     // Runtime filter ID to the builder instance number
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
+    private ConnectContext context;
 
     private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
@@ -282,6 +286,7 @@ public class Coordinator {
 
     // Used for query/insert/test
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
+        this.context = context;
         this.isBlockQuery = planner.isBlockQuery();
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
@@ -300,7 +305,7 @@ public class Coordinator {
             }
         }
         PrepareStmt prepareStmt = analyzer == null ? null : analyzer.getPrepareStmt();
-        if (prepareStmt != null) {
+        if (prepareStmt != null && prepareStmt.getPreparedType() == PreparedType.FULL_PREPARED) {
             // Used cached or better performance
             this.descTable = prepareStmt.getDescTable();
             if (pointExec != null) {
@@ -390,6 +395,10 @@ public class Coordinator {
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
+    }
+
+    public ConnectContext getConnectContext() {
+        return context;
     }
 
     public long getJobId() {

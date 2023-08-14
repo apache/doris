@@ -50,6 +50,7 @@
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/pb_helper.h"
 #include "olap/rowset/rowset.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
@@ -354,6 +355,7 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
     request.__set_schema_hash(schema_hash);
     request.__set_preferred_snapshot_version(g_Types_constants.TPREFER_SNAPSHOT_REQ_VERSION);
     request.__set_version(_clone_req.committed_version);
+    request.__set_is_copy_binlog(true);
     // TODO: missing version composed of singleton delta.
     // if not, this place should be rewrote.
     // we make every TSnapshotRequest sent from be with __isset.missing_version = true
@@ -537,6 +539,30 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     // remove the cloned meta file
     RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(cloned_tablet_meta_file));
 
+    // remove rowset binlog metas
+    const auto& tablet_dir = tablet->tablet_path();
+    auto binlog_metas_file = fmt::format("{}/rowset_binlog_metas.pb", clone_dir);
+    bool binlog_metas_file_exists = false;
+    auto file_exists_status =
+            io::global_local_filesystem()->exists(binlog_metas_file, &binlog_metas_file_exists);
+    if (!file_exists_status.ok()) {
+        return file_exists_status;
+    }
+    bool contain_binlog = false;
+    RowsetBinlogMetasPB rowset_binlog_metas_pb;
+    if (binlog_metas_file_exists) {
+        auto binlog_meta_filesize = std::filesystem::file_size(binlog_metas_file);
+        if (binlog_meta_filesize > 0) {
+            contain_binlog = true;
+            RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));
+        }
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(binlog_metas_file));
+    }
+    if (contain_binlog) {
+        auto binlog_dir = fmt::format("{}/_binlog", tablet_dir);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(binlog_dir));
+    }
+
     // check all files in /clone and /tablet
     std::vector<io::FileInfo> clone_files;
     RETURN_IF_ERROR(io::global_local_filesystem()->list(clone_dir, true, &clone_files, &exists));
@@ -546,7 +572,6 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     }
 
     std::vector<io::FileInfo> local_files;
-    const auto& tablet_dir = tablet->tablet_path();
     RETURN_IF_ERROR(io::global_local_filesystem()->list(tablet_dir, true, &local_files, &exists));
     std::unordered_set<std::string> local_file_names;
     for (auto& file : local_files) {
@@ -575,9 +600,27 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         }
 
         auto from = fmt::format("{}/{}", clone_dir, clone_file);
-        auto to = fmt::format("{}/{}", tablet_dir, clone_file);
+        std::string to;
+        if (clone_file.ends_with(".binlog")) {
+            if (!contain_binlog) {
+                LOG(WARNING) << "clone binlog file, but not contain binlog metas. "
+                             << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
+                break;
+            }
+
+            // change clone_file suffix .binlog to .dat
+            std::string new_clone_file = clone_file;
+            new_clone_file.replace(clone_file.size() - 7, 7, ".dat");
+            to = fmt::format("{}/_binlog/{}", tablet_dir, new_clone_file);
+        } else {
+            to = fmt::format("{}/{}", tablet_dir, clone_file);
+        }
+
         RETURN_IF_ERROR(io::global_local_filesystem()->link_file(from, to));
         linked_success_files.emplace_back(std::move(to));
+    }
+    if (contain_binlog) {
+        RETURN_IF_ERROR(tablet->ingest_binlog_metas(&rowset_binlog_metas_pb));
     }
 
     // clone and compaction operation should be performed sequentially

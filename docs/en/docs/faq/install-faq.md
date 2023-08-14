@@ -309,7 +309,7 @@ If the following `Failed to initialize JNI` error occurs when starting BE after 
 ```
 Failed to initialize JNI: Failed to find the library libjvm.so.
 ```
-You need to set the `JAVA_HOME` environment variable, or add `export JAVA_HOME=your_java_home_path` in the first line of the `start_be.sh` startup script, and then restart the BE node.
+You need to set the `JAVA_HOME` environment variable, or set `JAVA_HOME` variable in be.conf and restart the BE node.
 
 ### Q17. Docker: backend fails to start
 This may be due to the CPU not supporting AVX2, check the backend logs with `docker logs -f be`.

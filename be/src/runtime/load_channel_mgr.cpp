@@ -83,7 +83,6 @@ LoadChannelMgr::~LoadChannelMgr() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
@@ -112,10 +111,8 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     }
 
     RETURN_IF_ERROR(channel->open(params));
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        _register_channel_all_writers(channel);
-    }
+    _register_channel_all_writers(channel);
+
     return Status::OK();
 }
 
@@ -161,7 +158,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
-        _memtable_memory_limiter->handle_memtable_flush();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
 
     // 3. add batch to load channel
@@ -169,6 +166,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // this case will be handled in load channel's add batch method.
     Status st = channel->add_batch(request, response);
     if (UNLIKELY(!st.ok())) {
+        _deregister_channel_all_writers(channel);
         channel->cancel();
         return st;
     }

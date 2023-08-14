@@ -147,9 +147,7 @@ public:
 
     int runtime_filter_num() const { return (int)_runtime_filter_ctxs.size(); }
 
-    TupleId input_tuple_id() const { return _input_tuple_id; }
     TupleId output_tuple_id() const { return _output_tuple_id; }
-    const TupleDescriptor* input_tuple_desc() const { return _input_tuple_desc; }
     const TupleDescriptor* output_tuple_desc() const { return _output_tuple_desc; }
 
     Status alloc_resource(RuntimeState* state) override;
@@ -242,11 +240,8 @@ protected:
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
 
-    // For load scan node, there should be both input and output tuple descriptor.
-    // For query scan node, there is only output_tuple_desc.
-    TupleId _input_tuple_id = -1;
+    // the output tuple of this scan node
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
     doris::Mutex _block_lock;

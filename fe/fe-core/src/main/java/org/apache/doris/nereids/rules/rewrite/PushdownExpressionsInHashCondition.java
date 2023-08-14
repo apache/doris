@@ -64,47 +64,54 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
         return logicalJoin()
                 .when(join -> join.getHashJoinConjuncts().stream().anyMatch(equalTo ->
                         equalTo.children().stream().anyMatch(e -> !(e instanceof Slot))))
-                .then(join -> {
-                    Set<NamedExpression> leftProjectExprs = Sets.newHashSet();
-                    Set<NamedExpression> rightProjectExprs = Sets.newHashSet();
-                    Map<Expression, NamedExpression> exprReplaceMap = Maps.newHashMap();
-                    join.getHashJoinConjuncts().forEach(conjunct -> {
-                        Preconditions.checkArgument(conjunct instanceof EqualTo);
-                        // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
-                        // doesn't swap the two sides.
-                        conjunct = JoinUtils.swapEqualToForChildrenOrder(
-                                (EqualTo) conjunct, join.left().getOutputSet());
-                        generateReplaceMapAndProjectExprs(conjunct.child(0), exprReplaceMap, leftProjectExprs);
-                        generateReplaceMapAndProjectExprs(conjunct.child(1), exprReplaceMap, rightProjectExprs);
-                    });
-
-                    // add other conjuncts used slots to project exprs
-                    Set<ExprId> leftExprIdSet = join.left().getOutputExprIdSet();
-                    join.getOtherJoinConjuncts().stream().flatMap(conjunct ->
-                            conjunct.getInputSlots().stream()
-                    ).forEach(slot -> {
-                        if (leftExprIdSet.contains(slot.getExprId())) {
-                            // belong to left child
-                            leftProjectExprs.add(slot);
-                        } else {
-                            // belong to right child
-                            rightProjectExprs.add(slot);
-                        }
-                    });
-
-                    List<Expression> newHashConjuncts = join.getHashJoinConjuncts().stream()
-                            .map(equalTo -> equalTo.withChildren(equalTo.children()
-                                    .stream().map(expr -> exprReplaceMap.get(expr).toSlot())
-                                    .collect(ImmutableList.toImmutableList())))
-                            .collect(ImmutableList.toImmutableList());
-                    return join.withHashJoinConjunctsAndChildren(
-                            newHashConjuncts,
-                            createChildProjectPlan(join.left(), join, leftProjectExprs),
-                            createChildProjectPlan(join.right(), join, rightProjectExprs));
-                }).toRule(RuleType.PUSHDOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
+                .then(PushdownExpressionsInHashCondition::pushDownHashExpression)
+                .toRule(RuleType.PUSHDOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
     }
 
-    private LogicalProject createChildProjectPlan(Plan plan, LogicalJoin join,
+    /**
+     * push down complex expression in hash condition
+     */
+    public static Plan pushDownHashExpression(LogicalJoin<? extends Plan, ? extends Plan> join) {
+        Set<NamedExpression> leftProjectExprs = Sets.newHashSet();
+        Set<NamedExpression> rightProjectExprs = Sets.newHashSet();
+        Map<Expression, NamedExpression> exprReplaceMap = Maps.newHashMap();
+        join.getHashJoinConjuncts().forEach(conjunct -> {
+            Preconditions.checkArgument(conjunct instanceof EqualTo);
+            // sometimes: t1 join t2 on t2.a + 1 = t1.a + 2, so check the situation, but actually it
+            // doesn't swap the two sides.
+            conjunct = JoinUtils.swapEqualToForChildrenOrder(
+                    (EqualTo) conjunct, join.left().getOutputSet());
+            generateReplaceMapAndProjectExprs(conjunct.child(0), exprReplaceMap, leftProjectExprs);
+            generateReplaceMapAndProjectExprs(conjunct.child(1), exprReplaceMap, rightProjectExprs);
+        });
+
+        // add other conjuncts used slots to project exprs
+        Set<ExprId> leftExprIdSet = join.left().getOutputExprIdSet();
+        join.getOtherJoinConjuncts().stream().flatMap(conjunct ->
+                conjunct.getInputSlots().stream()
+        ).forEach(slot -> {
+            if (leftExprIdSet.contains(slot.getExprId())) {
+                // belong to left child
+                leftProjectExprs.add(slot);
+            } else {
+                // belong to right child
+                rightProjectExprs.add(slot);
+            }
+        });
+
+        List<Expression> newHashConjuncts = join.getHashJoinConjuncts().stream()
+                .map(equalTo -> equalTo.withChildren(equalTo.children()
+                        .stream().map(expr -> exprReplaceMap.get(expr).toSlot())
+                        .collect(ImmutableList.toImmutableList())))
+                .collect(ImmutableList.toImmutableList());
+        return join.withHashJoinConjunctsAndChildren(
+                newHashConjuncts,
+                createChildProjectPlan(join.left(), join, leftProjectExprs),
+                createChildProjectPlan(join.right(), join, rightProjectExprs));
+
+    }
+
+    private static LogicalProject createChildProjectPlan(Plan plan, LogicalJoin join,
             Set<NamedExpression> conditionUsedExprs) {
         Set<NamedExpression> intersectionSlots = Sets.newHashSet(plan.getOutputSet());
         intersectionSlots.retainAll(join.getOutputSet());
@@ -113,7 +120,7 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
                 .collect(ImmutableList.toImmutableList()), plan);
     }
 
-    private void generateReplaceMapAndProjectExprs(Expression expr, Map<Expression, NamedExpression> replaceMap,
+    private static void generateReplaceMapAndProjectExprs(Expression expr, Map<Expression, NamedExpression> replaceMap,
             Set<NamedExpression> projects) {
         if (expr instanceof SlotReference) {
             projects.add((SlotReference) expr);

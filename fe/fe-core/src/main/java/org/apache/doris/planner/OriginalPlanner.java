@@ -51,7 +51,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.statistics.query.StatsDelta;
-import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TRuntimeFilterMode;
@@ -501,17 +500,7 @@ public class OriginalPlanner extends Planner {
         }
         for (PlanFragment fragment : fragments) {
             if (injected && fragment.getSink() instanceof ResultSink) {
-                TFetchOption fetchOption = new TFetchOption();
-                fetchOption.setFetchRowStore(olapTable.storeRowColumn());
-                fetchOption.setUseTwoPhaseFetch(true);
-                fetchOption.setNodesInfo(Env.getCurrentSystemInfo().createAliveNodesInfo());
-                // TODO for row store used seperate more faster path for wide tables
-                if (!olapTable.storeRowColumn()) {
-                    // Set column desc for each column
-                    List<TColumn> columnsDesc = new ArrayList<TColumn>();
-                    scanNode.getColumnDesc(columnsDesc, null, null);
-                    fetchOption.setColumnDesc(columnsDesc);
-                }
+                TFetchOption fetchOption = olapTable.generateTwoPhaseReadOption(scanNode.getSelectedIndexId());
                 ((ResultSink) fragment.getSink()).setFetchOption(fetchOption);
                 break;
             }

@@ -776,8 +776,6 @@ public:
         if ((UNLIKELY(UINT_MAX - input_rows_count < res_reserve_size))) {
             return Status::BufferAllocFailed("concat output is too large to allocate");
         }
-        // for each terminal zero
-        res_reserve_size += input_rows_count;
 
         res_data.resize(res_reserve_size);
 

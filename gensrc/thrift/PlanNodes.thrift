@@ -243,7 +243,8 @@ struct TEsScanRange {
 struct TFileTextScanRangeParams {
     1: optional string column_separator;
     2: optional string line_delimiter;
-    3: optional string array_delimiter;
+    3: optional string collection_delimiter;// array ,map ,struct delimiter 
+    4: optional string mapkv_delimiter;
 }
 
 struct TFileScanSlotInfo {
@@ -372,6 +373,7 @@ struct TFileScanRangeParams {
     // Map of slot to its position in table schema. Only for Hive external table.
     19: optional map<string, i32> slot_name_to_schema_pos
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
+    21: optional Types.TUniqueId load_id
 }
 
 struct TFileRangeDesc {

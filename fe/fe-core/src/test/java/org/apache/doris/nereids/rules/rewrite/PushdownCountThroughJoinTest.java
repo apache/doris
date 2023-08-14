@@ -65,4 +65,46 @@ class PushdownCountThroughJoinTest implements MemoPatternMatchSupported {
                 .printlnTree();
     }
 
+    @Test
+    void testSingleCountStar() {
+        Alias count = new Count().alias("countStar");
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .aggGroupUsingIndex(ImmutableList.of(0), ImmutableList.of(scan1.getOutput().get(0), count))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownCountThroughJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSingleCountStarEmptyGroupBy() {
+        Alias count = new Count().alias("countStar");
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(count))
+                .build();
+
+        // shouldn't rewrite.
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownCountThroughJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testBothSideCountAndCountStar() {
+        Alias leftCnt = new Count(scan1.getOutput().get(0)).alias("leftCnt");
+        Alias rightCnt = new Count(scan2.getOutput().get(0)).alias("rightCnt");
+        Alias countStar = new Count().alias("countStar");
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .aggGroupUsingIndex(ImmutableList.of(0),
+                        ImmutableList.of(scan1.getOutput().get(0), leftCnt, rightCnt, countStar))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PushdownCountThroughJoin())
+                .printlnTree();
+    }
 }

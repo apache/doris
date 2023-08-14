@@ -156,6 +156,7 @@ protected:
 };
 
 class ScalarColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(ScalarColumnReader)
 public:
     ScalarColumnReader(const std::vector<RowRange>& row_ranges,
                        const tparquet::ColumnChunk& chunk_meta, cctz::time_zone* ctz,
@@ -195,6 +196,7 @@ private:
 };
 
 class ArrayColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(ArrayColumnReader)
 public:
     ArrayColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                       io::IOContext* io_ctx)
@@ -218,6 +220,7 @@ private:
 };
 
 class MapColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(MapColumnReader)
 public:
     MapColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                     io::IOContext* io_ctx)
@@ -252,6 +255,7 @@ private:
 };
 
 class StructColumnReader : public ParquetColumnReader {
+    ENABLE_FACTORY_CREATOR(StructColumnReader)
 public:
     StructColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                        io::IOContext* io_ctx)

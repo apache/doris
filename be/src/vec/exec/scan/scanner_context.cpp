@@ -43,13 +43,11 @@
 namespace doris::vectorized {
 
 ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::VScanNode* parent,
-                               const doris::TupleDescriptor* input_tuple_desc,
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
                                int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances)
         : _state(state_),
           _parent(parent),
-          _input_tuple_desc(input_tuple_desc),
           _output_tuple_desc(output_tuple_desc),
           _process_status(Status::OK()),
           _batch_size(state_->batch_size()),
@@ -62,11 +60,13 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
     if (_scanners.empty()) {
         _is_finished = true;
     }
+    if (limit < 0) {
+        limit = -1;
+    }
 }
 
 // After init function call, should not access _parent
 Status ScannerContext::init() {
-    _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;
     // 1. Calculate max concurrency
     // TODO: now the max thread num <= config::doris_scanner_thread_pool_thread_num / 4
     // should find a more reasonable value.
@@ -151,7 +151,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
     }
 
     COUNTER_UPDATE(_newly_create_free_blocks_num, 1);
-    return vectorized::Block::create_unique(_real_tuple_desc->slots(), _batch_size,
+    return vectorized::Block::create_unique(_output_tuple_desc->slots(), _batch_size,
                                             true /*ignore invalid slots*/);
 }
 

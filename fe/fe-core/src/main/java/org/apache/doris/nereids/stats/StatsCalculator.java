@@ -57,6 +57,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -83,6 +85,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -284,6 +288,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan deferMaterializeOlapScan,
+            Void context) {
+        return computeCatalogRelation(deferMaterializeOlapScan.getLogicalOlapScan());
+    }
+
+    @Override
     public Statistics visitLogicalSchemaScan(LogicalSchemaScan schemaScan, Void context) {
         return computeCatalogRelation(schemaScan);
     }
@@ -324,6 +334,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalTopN(LogicalTopN<? extends Plan> topN, Void context) {
         return computeTopN(topN);
+    }
+
+    @Override
+    public Statistics visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, Void context) {
+        return computeTopN(topN.getLogicalTopN());
     }
 
     @Override
@@ -411,6 +426,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitPhysicalDeferMaterializeOlapScan(PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan,
+            Void context) {
+        return computeCatalogRelation(deferMaterializeOlapScan.getPhysicalOlapScan());
+    }
+
+    @Override
     public Statistics visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
         return computeCatalogRelation(schemaScan);
     }
@@ -449,6 +470,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
         return computeTopN(topN);
+    }
+
+    @Override
+    public Statistics visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
+            Void context) {
+        return computeTopN(topN.getPhysicalTopN());
     }
 
     @Override
@@ -563,13 +590,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Histogram getColumnHistogram(TableIf table, String colName) {
-        if (totalHistogramMap.get(table.getName() + colName) != null) {
-            return totalHistogramMap.get(table.getName() + colName);
-        } else if (isPlayNereidsDump) {
-            return null;
-        } else {
-            return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
-        }
+        // if (totalHistogramMap.get(table.getName() + colName) != null) {
+        //     return totalHistogramMap.get(table.getName() + colName);
+        // } else if (isPlayNereidsDump) {
+        //     return null;
+        // } else {
+        //     return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+        // }
+        return null;
     }
 
     // TODO: 1. Subtract the pruned partition
@@ -583,18 +611,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         double rowCount = catalogRelation.getTable().estimatedRowCount();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
+            boolean shouldIgnoreThisCol = shouldIgnoreCol(table, slotReference.getColumn().get());
+
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache = Config.enable_stats && FeConstants.enableInternalSchemaDb
-                    ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+                    ? shouldIgnoreThisCol
+                        ? ColumnStatistic.UNKNOWN : getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
                         .build();
             }
             if (cache.isUnKnown) {
-                if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, slotReference.getColumn().get())) {
+                if (forbidUnknownColStats && !shouldIgnoreThisCol) {
                     if (StatisticsUtil.statsTblAvailable()) {
                         throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
                                 + "It may caused by:\n"
@@ -1054,7 +1085,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return groupExpression.childStatistics(1);
     }
 
-    private boolean ignoreUnknownColStatsCheck(TableIf tableIf, Column c) {
+    private boolean shouldIgnoreCol(TableIf tableIf, Column c) {
         if (tableIf instanceof SchemaTable) {
             return true;
         }

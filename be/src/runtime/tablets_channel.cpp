@@ -31,6 +31,10 @@
 #include <thread>
 #include <utility>
 
+#ifdef DEBUG
+#include <unordered_set>
+#endif
+
 #include "common/logging.h"
 #include "exec/tablet_info.h"
 #include "olap/delta_writer.h"
@@ -64,7 +68,9 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& loa
 
 TabletsChannel::~TabletsChannel() {
     _s_tablet_writer_count -= _tablet_writers.size();
+    auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
     for (auto& it : _tablet_writers) {
+        memtable_memory_limiter->deregister_writer(it.second->memtable_writer());
         delete it.second;
     }
     delete _schema;
@@ -324,6 +330,19 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     if (index_slots == nullptr) {
         Status::InternalError("unknown index id, key={}", _key.to_string());
     }
+
+#ifdef DEBUG
+    // check: tablet ids should be unique
+    {
+        std::unordered_set<int64_t> tablet_ids;
+        for (const auto& tablet : request.tablets()) {
+            CHECK(tablet_ids.count(tablet.tablet_id()) == 0)
+                    << "found duplicate tablet id: " << tablet.tablet_id();
+            tablet_ids.insert(tablet.tablet_id());
+        }
+    }
+#endif
+
     for (auto& tablet : request.tablets()) {
         WriteRequest wrequest;
         wrequest.index_id = request.index_id();
@@ -427,26 +446,23 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                  std::function<Status(DeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
-        {
-            std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            auto tablet_writer_it = _tablet_writers.find(tablet_id);
-            if (tablet_writer_it == _tablet_writers.end()) {
-                return Status::InternalError("unknown tablet to append data, tablet={}");
-            }
-            Status st = write_func(tablet_writer_it->second);
-            if (!st.ok()) {
-                auto err_msg =
-                        fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
-                                    tablet_id, _txn_id, st.to_string());
-                LOG(WARNING) << err_msg;
-                PTabletError* error = tablet_errors->Add();
-                error->set_tablet_id(tablet_id);
-                error->set_msg(err_msg);
-                tablet_writer_it->second->cancel_with_status(st);
-                _add_broken_tablet(tablet_id);
-                // continue write to other tablet.
-                // the error will return back to sender.
-            }
+        auto tablet_writer_it = _tablet_writers.find(tablet_id);
+        if (tablet_writer_it == _tablet_writers.end()) {
+            return Status::InternalError("unknown tablet to append data, tablet={}");
+        }
+        Status st = write_func(tablet_writer_it->second);
+        if (!st.ok()) {
+            auto err_msg =
+                    fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
+                                tablet_id, _txn_id, st.to_string());
+            LOG(WARNING) << err_msg;
+            PTabletError* error = tablet_errors->Add();
+            error->set_tablet_id(tablet_id);
+            error->set_msg(err_msg);
+            tablet_writer_it->second->cancel_with_status(st);
+            _add_broken_tablet(tablet_id);
+            // continue write to other tablet.
+            // the error will return back to sender.
         }
         return Status::OK();
     };
@@ -481,4 +497,26 @@ bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
     std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
 }
+
+void TabletsChannel::register_memtable_memory_limiter() {
+    auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
+    _memtable_writers_foreach([memtable_memory_limiter](MemTableWriter* writer) {
+        memtable_memory_limiter->register_writer(writer);
+    });
+}
+
+void TabletsChannel::deregister_memtable_memory_limiter() {
+    auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
+    _memtable_writers_foreach([memtable_memory_limiter](MemTableWriter* writer) {
+        memtable_memory_limiter->deregister_writer(writer);
+    });
+}
+
+void TabletsChannel::_memtable_writers_foreach(std::function<void(MemTableWriter*)> fn) {
+    std::lock_guard<SpinLock> l(_tablet_writers_lock);
+    for (auto& [_, delta_writer] : _tablet_writers) {
+        fn(delta_writer->memtable_writer());
+    }
+}
+
 } // namespace doris

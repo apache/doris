@@ -297,8 +297,11 @@ public class StmtExecutor {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(DebugUtil.printId(context.queryId()));
-        builder.dorisVersion(
-                Version.DORIS_BUILD_VERSION_MAJOR == 0 ? Version.DORIS_BUILD_VERSION : Version.DORIS_BUILD_SHORT_HASH);
+        if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
+            builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
+        } else {
+            builder.dorisVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+        }
         builder.taskType(profileType.name());
         builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
         if (isFinished) {
@@ -868,7 +871,6 @@ public class StmtExecutor {
             planner = preparedStmtCtx.planner;
             analyzer = preparedStmtCtx.analyzer;
             prepareStmt = preparedStmtCtx.stmt;
-            Preconditions.checkState(parsedStmt.isAnalyzed());
             LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
             isExecuteStmt = true;
             if (!preparedStmtCtx.stmt.needReAnalyze()) {
@@ -900,6 +902,10 @@ public class StmtExecutor {
             prepareStmt.analyze(analyzer);
             // Need analyze inner statement
             parsedStmt = prepareStmt.getInnerStmt();
+            if (prepareStmt.getPreparedType() == PrepareStmt.PreparedType.STATEMENT) {
+                // Skip analyze, do it lazy
+                return;
+            }
         }
 
         // Convert show statement to select statement here
@@ -1404,7 +1410,6 @@ public class StmtExecutor {
                 LOG.warn("Fail to print fragment concurrency for Query.", e);
             }
         }
-
 
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {

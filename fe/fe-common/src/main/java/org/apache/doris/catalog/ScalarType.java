@@ -517,7 +517,9 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVarcharType() {
-        return DEFAULT_VARCHAR;
+        // Because ScalarType is not an immutable class, it will call setLength() sometimes.
+        // So currently don't use DEFAULT_VARCHAR, will improve it in the future.
+        return new ScalarType(PrimitiveType.VARCHAR);
     }
 
     public static ScalarType createHllType() {

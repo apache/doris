@@ -62,6 +62,32 @@ static int num_children_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.num_children ? schema.num_children : 0;
 }
 
+/**
+ * `repeated_parent_def_level` is the definition level of the first ancestor node whose repetition_type equals REPEATED.
+ * Empty array/map values are not stored in doris columns, so have to use `repeated_parent_def_level` to skip the
+ * empty or null values in ancestor node.
+ *
+ * For instance, considering an array of strings with 3 rows like the following:
+ * null, [], [a, b, c]
+ * We can store four elements in data column: null, a, b, c
+ * and the offsets column is: 1, 1, 4
+ * and the null map is: 1, 0, 0
+ * For the i-th row in array column: range from `offsets[i - 1]` until `offsets[i]` represents the elements in this row,
+ * so we can't store empty array/map values in doris data column.
+ * As a comparison, spark does not require `repeated_parent_def_level`,
+ * because the spark column stores empty array/map values , and use anther length column to indicate empty values.
+ * Please reference: https://github.com/apache/spark/blob/master/sql/core/src/main/java/org/apache/spark/sql/execution/datasources/parquet/ParquetColumnVector.java
+ *
+ * Furthermore, we can also avoid store null array/map values in doris data column.
+ * The same three rows as above, We can only store three elements in data column: a, b, c
+ * and the offsets column is: 0, 0, 3
+ * and the null map is: 1, 0, 0
+ *
+ * Inherit the repetition and definition level from parent node, if the parent node is repeated,
+ * we should set repeated_parent_def_level = definition_level, otherwise as repeated_parent_def_level.
+ * @param parent parent node
+ * @param repeated_parent_def_level the first ancestor node whose repetition_type equals REPEATED
+ */
 static void set_child_node_level(FieldSchema* parent, int16_t repeated_parent_def_level) {
     for (auto& child : parent->children) {
         child.repetition_level = parent->repetition_level;
@@ -475,7 +501,8 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     map_field->definition_level++;
 
     map_field->children.resize(1);
-    set_child_node_level(map_field, map_field->repeated_parent_def_level);
+    // map is a repeated node, we should set the `repeated_parent_def_level` of its children as `definition_level`
+    set_child_node_level(map_field, map_field->definition_level);
     auto map_kv_field = &map_field->children[0];
     // produce MAP<STRUCT<KEY, VALUE>>
     RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, map_kv_field));

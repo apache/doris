@@ -108,6 +108,12 @@ public class AnalysisJobTest extends TestWithFeService {
             public void execUpdate(String sql) throws Exception {
             }
         };
+        new MockUp<StatisticsCache>() {
+
+            @Mock
+            public void syncLoadColStats(long tableId, long idxId, String colName) {
+            }
+        };
         new Expectations() {
             {
                 stmtExecutor.execute();

@@ -38,6 +38,7 @@
 #else
 #include <gperftools/malloc_extension.h>
 #endif
+#include "common/config.h"
 #include "util/perf_counters.h"
 
 namespace doris {
@@ -111,14 +112,18 @@ public:
     static inline void je_purge_all_arena_dirty_pages() {
 #ifdef USE_JEMALLOC
         // https://github.com/jemalloc/jemalloc/issues/2470
-        // Occasional core dump during stress test, purge should be turned on after the heap corruption is resolved.
-        // try {
-        //     // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
-        //     jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
-        //               nullptr, 0);
-        // } catch (...) {
-        //     LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
-        // }
+        // If there is a core dump here, it may cover up the real stack, if stack trace indicates heap corruption
+        // (which led to invalid jemalloc metadata), like double free or use-after-free in the application.
+        // Try sanitizers such as ASAN, or build jemalloc with --enable-debug to investigate further.
+        if (config::enable_je_purge_dirty_pages) {
+            try {
+                // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
+                jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr,
+                          nullptr, nullptr, 0);
+            } catch (...) {
+                LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
+            }
+        }
 #endif
     }
 
