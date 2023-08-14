@@ -427,27 +427,21 @@ public:
         ColumnPtr result_null_mask;
         {
             // get nullmap from column:
-            // a. nullable column ----> it's a real nullable column get_null_map_column_ptr() / fake nullable, a const nullable
-            // b. not nullable    ----> not have null map, so create const null map
+            // a. get_null_map_column_ptr() : it's a real nullable column, so could get it from nullable column
+            // b. create a const_nullmap_column: it's a not nullable column or a const nullable column, contain a const value
             Block temporary_block;
             temporary_block.insert(arg_cond);
             auto then_nested_null_map =
-                    then_type_is_nullable
-                            ? (then_column_is_const_nullable
-                                       ? DataTypeUInt8().create_column_const_with_default_value(
-                                                 input_rows_count)
-                                       : then_is_nullable->get_null_map_column_ptr())
+                    (then_type_is_nullable == true && then_column_is_const_nullable == false)
+                            ? then_is_nullable->get_null_map_column_ptr()
                             : DataTypeUInt8().create_column_const_with_default_value(
                                       input_rows_count);
             temporary_block.insert({then_nested_null_map, std::make_shared<DataTypeUInt8>(),
                                     "then_column_null_map"});
 
             auto else_nested_null_map =
-                    else_type_is_nullable
-                            ? (else_column_is_const_nullable
-                                       ? DataTypeUInt8().create_column_const_with_default_value(
-                                                 input_rows_count)
-                                       : else_is_nullable->get_null_map_column_ptr())
+                    (else_type_is_nullable == true && else_column_is_const_nullable == false)
+                            ? else_is_nullable->get_null_map_column_ptr()
                             : DataTypeUInt8().create_column_const_with_default_value(
                                       input_rows_count);
             temporary_block.insert({else_nested_null_map, std::make_shared<DataTypeUInt8>(),
