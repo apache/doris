@@ -247,6 +247,9 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
+    _close_writer_timer = ADD_CHILD_TIMER(_profile, "CloseWriterTime", "CloseWaitTime");
+    _close_load_timer = ADD_CHILD_TIMER(_profile, "CloseLoadTime", "CloseWaitTime");
+    _close_stream_timer = ADD_CHILD_TIMER(_profile, "CloseStreamTime", "CloseWaitTime");
     _non_blocking_send_timer = ADD_TIMER(_profile, "NonBlockingSendTime");
     _non_blocking_send_work_timer =
             ADD_CHILD_TIMER(_profile, "NonBlockingSendWorkTime", "NonBlockingSendTime");
@@ -520,37 +523,46 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
                     delta_writer->memtable_writer());
         }
 
-        // close all delta writers
-        if (_delta_writer_for_tablet.use_count() == 1) {
-            std::for_each(std::execution::par_unseq, std::begin(*_delta_writer_for_tablet),
-                          std::end(*_delta_writer_for_tablet),
-                          [](auto&& entry) { entry.second->close(); });
-            std::for_each(std::execution::par_unseq, std::begin(*_delta_writer_for_tablet),
-                          std::end(*_delta_writer_for_tablet),
-                          [](auto&& entry) { entry.second->close_wait(); });
-        }
-        _delta_writer_for_tablet.reset();
-
-        // send CLOSE_LOAD to all streams, return ERROR if any
-        RETURN_IF_ERROR(std::transform_reduce(
-                std::execution::par_unseq, std::begin(*_node_id_for_stream),
-                std::end(*_node_id_for_stream), Status::OK(),
-                [](Status& left, Status&& right) { return left.ok() ? right : left; },
-                [this](auto&& entry) { return _close_load(entry.first); }));
-
-        while (_pending_reports.load() > 0) {
-            // TODO: use a better wait
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            LOG(INFO) << "sinkv2 close_wait, pending reports: " << _pending_reports.load();
+        {
+            SCOPED_TIMER(_close_writer_timer);
+            // close all delta writers
+            if (_delta_writer_for_tablet.use_count() == 1) {
+                std::for_each(std::execution::par_unseq, std::begin(*_delta_writer_for_tablet),
+                              std::end(*_delta_writer_for_tablet),
+                              [](auto&& entry) { entry.second->close(); });
+                std::for_each(std::execution::par_unseq, std::begin(*_delta_writer_for_tablet),
+                              std::end(*_delta_writer_for_tablet),
+                              [](auto&& entry) { entry.second->close_wait(); });
+            }
+            _delta_writer_for_tablet.reset();
         }
 
-        // close streams
-        if (_stream_pool_for_node.use_count() == 1) {
-            std::for_each(std::execution::par_unseq, std::begin(*_node_id_for_stream),
-                          std::end(*_node_id_for_stream),
-                          [](auto&& entry) { brpc::StreamClose(entry.first); });
+        {
+            SCOPED_TIMER(_close_load_timer);
+            // send CLOSE_LOAD to all streams, return ERROR if any
+            RETURN_IF_ERROR(std::transform_reduce(
+                    std::execution::par_unseq, std::begin(*_node_id_for_stream),
+                    std::end(*_node_id_for_stream), Status::OK(),
+                    [](Status& left, Status&& right) { return left.ok() ? right : left; },
+                    [this](auto&& entry) { return _close_load(entry.first); }));
+
+            while (_pending_reports.load() > 0) {
+                // TODO: use a better wait
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                LOG(INFO) << "sinkv2 close_wait, pending reports: " << _pending_reports.load();
+            }
         }
-        _stream_pool_for_node.reset();
+
+        {
+            SCOPED_TIMER(_close_stream_timer);
+            // close streams
+            if (_stream_pool_for_node.use_count() == 1) {
+                std::for_each(std::execution::par_unseq, std::begin(*_node_id_for_stream),
+                              std::end(*_node_id_for_stream),
+                              [](auto&& entry) { brpc::StreamClose(entry.first); });
+            }
+            _stream_pool_for_node.reset();
+        }
 
         std::vector<TTabletCommitInfo> tablet_commit_infos;
         for (auto& [tablet_id, backends] : _tablet_success_map) {
