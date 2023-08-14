@@ -694,7 +694,7 @@ public class DeleteHandler implements Writable {
             if (!column.isKey()) {
                 if (table.getKeysType() == KeysType.AGG_KEYS) {
                     throw new DdlException("delete predicate on value column only supports Unique table and"
-                            + "Duplicate table" + "Table[" + table.getName() + "] is Aggregate table.");
+                            + " Duplicate table, but " + "Table[" + table.getName() + "] is an Aggregate table.");
                 }
             }
 

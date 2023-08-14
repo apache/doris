@@ -52,4 +52,24 @@ suite("test_delete_on_value") {
     sql "set skip_delete_bitmap=true;"
     sql "set skip_delete_predicate=true;"
     qt_sql "select x,y,z,__DORIS_DELETE_SIGN__ from ${tableName} order by x,y,z,__DORIS_DELETE_SIGN__;"
+
+
+    def tableName2 = "test_delete_on_value2"
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """ CREATE TABLE ${tableName2} (
+            `x` BIGINT NOT NULL,
+            `y` BIGINT REPLACE_IF_NOT_NULL NULL,
+            `z` BIGINT REPLACE_IF_NOT_NULL NULL)
+            ENGINE=OLAP
+            AGGREGATE KEY(`x`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`x`) BUCKETS 4
+            PROPERTIES (
+                "replication_num" = "1"
+            );"""
+    sql """ insert into ${tableName2} values(1,1,1); """
+    test {
+        sql "delete from ${tableName2} where y=4;"
+        exception "delete predicate on value column only supports Unique table and Duplicate table, but Table[test_delete_on_value2] is an Aggregate table."
+    }
 }
