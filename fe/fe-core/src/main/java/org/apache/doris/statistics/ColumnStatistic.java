@@ -110,7 +110,6 @@ public class ColumnStatistic {
      */
     public final ColumnStatistic original;
 
-    // For display only.
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
@@ -118,6 +117,7 @@ public class ColumnStatistic {
     // assign value when do stats estimation.
     public final Histogram histogram;
 
+    @SerializedName("partitionIdToColStats")
     public final Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
 
     public final String updatedTime;

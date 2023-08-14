@@ -602,7 +602,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic setOlapPartitionInfo(TableIf tableIf, ColumnStatistic colStats) {
-        if (colStats.partitionIdToColStats == null || colStats.partitionIdToColStats.isEmpty()) {
+        if (colStats.partitionIdToColStats.isEmpty()) {
             return colStats;
         }
         if (!(tableIf instanceof OlapTable)) {
