@@ -373,7 +373,7 @@ under the License.
                         <configuration>
                             <executable>cp</executable>
                             <arguments>
-                                <argument>${palo.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
+                                <argument>${doris.home}/gensrc/thrift/PaloBrokerService.thrift</argument>
                                 <argument>${basedir}/src/main/resources/thrift/</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
