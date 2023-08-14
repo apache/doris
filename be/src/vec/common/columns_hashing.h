@@ -208,12 +208,8 @@ struct HashMethodKeysFixed
             : Base(key_columns), key_sizes(key_sizes_), keys_size(key_columns.size()) {}
 
     ALWAYS_INLINE Key get_key_holder(size_t row, Arena&) const {
-        if constexpr (has_nullable_keys_) {
-            auto bitmap = Base::create_bitmap(row);
-            return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes, bitmap);
-        } else {
-            return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes);
-        }
+        return pack_fixed<Key>(row, keys_size, Base::get_actual_columns(), key_sizes,
+                               Base::get_nullmap_columns());
     }
 
     Key pack_key_holder(Key key, Arena& pool) const { return key; }
