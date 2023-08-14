@@ -438,10 +438,11 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isArrayType() && engineName.equals("olap")) {
-                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
-                    throw new AnalysisException("Array column can't be used in unique table");
+                if (keysDesc.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new AnalysisException("Array column can't be used in aggregate table");
                 }
-                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
+                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
                     throw new AnalysisException("Array column can't support aggregation "
                             + columnDef.getAggregateType());
                 }

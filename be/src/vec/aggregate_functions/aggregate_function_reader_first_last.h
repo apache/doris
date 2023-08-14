@@ -44,12 +44,12 @@ public:
         return false;
     }
 
-    StringRef get_value() const {
+    void insert_into(IColumn& to) const {
         if constexpr (arg_is_nullable) {
             auto* col = assert_cast<const ColumnNullable*>(_ptr);
-            return assert_cast<const ColVecType&>(col->get_nested_column()).get_data_at(_offset);
+            assert_cast<ColVecType&>(to).insert_from(col->get_nested_column(), _offset);
         } else {
-            return assert_cast<const ColVecType*>(_ptr)->get_data_at(_offset);
+            assert_cast<ColVecType&>(to).insert_from(*_ptr, _offset);
         }
     }
 
@@ -71,7 +71,7 @@ protected:
 template <typename ColVecType, bool arg_is_nullable>
 struct CopiedValue : public Value<ColVecType, arg_is_nullable> {
 public:
-    StringRef get_value() const { return _copied_value; }
+    void insert_into(IColumn& to) const { assert_cast<ColVecType&>(to).insert(_copied_value); }
 
     bool is_null() const { return this->_ptr == nullptr; }
 
@@ -86,17 +86,16 @@ public:
                 this->reset();
                 return;
             } else {
-                _copied_value = assert_cast<const ColVecType&>(col->get_nested_column())
-                                        .get_data_at(row)
-                                        .to_string();
+                auto& nested_col = assert_cast<const ColVecType&>(col->get_nested_column());
+                nested_col.get(row, _copied_value);
             }
         } else {
-            _copied_value = assert_cast<const ColVecType*>(column)->get_data_at(row).to_string();
+            column->get(row, _copied_value);
         }
     }
 
 private:
-    std::string _copied_value;
+    Field _copied_value;
 };
 
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable, bool is_copy>
@@ -118,15 +117,11 @@ public:
                 col.insert_default();
             } else {
                 auto& col = assert_cast<ColumnNullable&>(to);
-                //get_value will never get null value
-                const StringRef& value = _data_value.get_value();
                 col.get_null_map_data().push_back(0);
-                assert_cast<ColVecType&>(col.get_nested_column())
-                        .insert_data(value.data, value.size);
+                _data_value.insert_into(col.get_nested_column());
             }
         } else {
-            const StringRef& value = _data_value.get_value();
-            assert_cast<ColVecType&>(to).insert_data(value.data, value.size);
+            _data_value.insert_into(to);
         }
     }
 
