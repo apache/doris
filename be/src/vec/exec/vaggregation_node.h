@@ -309,7 +309,7 @@ struct AggregationMethodKeysFixed {
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes& key_sizes) {
         // In any hash key value, column values to be read start just after the bitmap, if it exists.
-        size_t pos = has_nullable_keys ? std::tuple_size<KeysNullMap<Key>>::value : 0;
+        size_t pos = has_nullable_keys ? get_bitmap_size(key_columns.size()) : 0;
 
         for (size_t i = 0; i < key_columns.size(); ++i) {
             size_t size = key_sizes[i];
@@ -407,6 +407,8 @@ using AggregatedDataWithUInt32Key = PHHashMap<UInt32, AggregateDataPtr, HashCRC3
 using AggregatedDataWithUInt64Key = PHHashMap<UInt64, AggregateDataPtr, HashCRC32<UInt64>>;
 using AggregatedDataWithUInt128Key = PHHashMap<UInt128, AggregateDataPtr, HashCRC32<UInt128>>;
 using AggregatedDataWithUInt256Key = PHHashMap<UInt256, AggregateDataPtr, HashCRC32<UInt256>>;
+using AggregatedDataWithUInt136Key = PHHashMap<UInt136, AggregateDataPtr, HashCRC32<UInt136>>;
+
 using AggregatedDataWithUInt32KeyPhase2 =
         PHHashMap<UInt32, AggregateDataPtr, HashMixWrapper<UInt32>>;
 using AggregatedDataWithUInt64KeyPhase2 =
@@ -415,6 +417,9 @@ using AggregatedDataWithUInt128KeyPhase2 =
         PHHashMap<UInt128, AggregateDataPtr, HashMixWrapper<UInt128>>;
 using AggregatedDataWithUInt256KeyPhase2 =
         PHHashMap<UInt256, AggregateDataPtr, HashMixWrapper<UInt256>>;
+
+using AggregatedDataWithUInt136KeyPhase2 =
+        PHHashMap<UInt136, AggregateDataPtr, HashMixWrapper<UInt136>>;
 
 using AggregatedDataWithNullableUInt8Key = AggregationDataWithNullKey<AggregatedDataWithUInt8Key>;
 using AggregatedDataWithNullableUInt16Key = AggregationDataWithNullKey<AggregatedDataWithUInt16Key>;
@@ -466,12 +471,16 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, true>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, true>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt136Key, false>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt136Key, true>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, true>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, true>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, false>,
-        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>>;
+        AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, true>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, false>,
+        AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, true>>;
 
 struct AggregatedDataVariants {
     AggregatedDataVariants() = default;
@@ -500,6 +509,8 @@ struct AggregatedDataVariants {
         int256_keys,
         int256_keys_phase2,
         string_key,
+        int136_keys,
+        int136_keys_phase2,
     };
 
     Type _type = Type::EMPTY;
@@ -659,6 +670,27 @@ struct AggregatedDataVariants {
             } else {
                 _aggregated_method_variant.emplace<
                         AggregationMethodStringNoCache<AggregatedDataWithShortStringKey>>();
+            }
+            break;
+        case Type::int136_keys:
+
+            if (is_nullable) {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt136Key, true>>();
+            } else {
+                _aggregated_method_variant
+                        .emplace<AggregationMethodKeysFixed<AggregatedDataWithUInt136Key, false>>();
+            }
+
+            break;
+        case Type::int136_keys_phase2:
+
+            if (is_nullable) {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, true>>();
+            } else {
+                _aggregated_method_variant.emplace<
+                        AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, false>>();
             }
             break;
         default:
