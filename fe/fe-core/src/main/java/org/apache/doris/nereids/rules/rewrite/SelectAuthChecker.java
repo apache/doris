@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -37,12 +38,14 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * check select col auth
@@ -52,16 +55,43 @@ public class SelectAuthChecker implements RewriteRuleFactory {
 
     @Override
     public List<Rule> buildRules() {
-        return ImmutableList.of(logicalProject(logicalRelation()).then(project -> dealRelation(project))
+        return ImmutableList.of(
+                // select a from tbl;
+                logicalProject(logicalRelation()).then(project -> dealProjectRelation(project))
                         .toRule(RuleType.RELATION_AUTHENTICATION),
-                logicalProject(logicalFilter(logicalRelation())).then(project -> dealFilter(project))
-                        .toRule(RuleType.RELATION_AUTHENTICATION));
+                // select * from tbl;
+                logicalRelation().then(relation -> dealRelation(relation))
+                        .toRule(RuleType.RELATION_AUTHENTICATION),
+                // select * from tbl where a=1;
+                logicalFilter(logicalRelation()).then(filter -> dealFilterRelation(filter))
+                        .toRule(RuleType.RELATION_AUTHENTICATION),
+                // select a from tbl where a=1;
+                logicalProject(logicalFilter(logicalRelation())).then(project -> dealProjectFilterRelation(project))
+                        .toRule(RuleType.RELATION_AUTHENTICATION)
+        );
+    }
+
+    public static Plan dealFilterRelation(LogicalFilter<LogicalRelation> filter) {
+        Plan plan = filter.child(0);
+        if (!(plan instanceof CatalogRelation)) {
+            return filter;
+        }
+        checkSelectAuth((CatalogRelation) plan, null);
+        return filter;
+    }
+
+    public static Plan dealRelation(LogicalRelation relation) {
+        if (!(relation instanceof CatalogRelation)) {
+            return relation;
+        }
+        checkSelectAuth((CatalogRelation) relation, null);
+        return relation;
     }
 
     /**
      * deal select with filter
      */
-    public static Plan dealFilter(LogicalProject<LogicalFilter<LogicalRelation>> project) {
+    public static Plan dealProjectFilterRelation(LogicalProject<LogicalFilter<LogicalRelation>> project) {
         Plan plan = project.child(0);
         if (!(plan instanceof LogicalFilter)) {
             return project;
@@ -83,7 +113,7 @@ public class SelectAuthChecker implements RewriteRuleFactory {
     /**
      * deal select with no filter
      */
-    public static LogicalProject dealRelation(
+    public static LogicalProject dealProjectRelation(
             LogicalProject<LogicalRelation> project) {
         Plan relation = project.child(0);
         if (!(relation instanceof CatalogRelation)) {
@@ -122,8 +152,8 @@ public class SelectAuthChecker implements RewriteRuleFactory {
             return;
         }
 
-        if (cols.size() == 0) {
-            return;
+        if (CollectionUtils.isEmpty(cols)) {
+            cols = table.getColumns().stream().map(Column::getName).collect(Collectors.toSet());
         }
         try {
             Env.getCurrentEnv().getAccessManager()
