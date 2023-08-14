@@ -137,9 +137,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
             // subquery unnesting relay on ExpressionNormalization to extract common factor expression
             topic("Subquery unnesting",
-                    bottomUp(new PullUpProjectUnderApply()),
+                    bottomUp(new PullUpProjectUnderApply(), new MergeProjects()),
                     topDown(new PushdownFilterThroughProject()),
-                    custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                     costBased(
                             custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
                                     AggScalarSubQueryToWindowFunction::new)
