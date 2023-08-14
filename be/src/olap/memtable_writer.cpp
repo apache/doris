@@ -63,7 +63,7 @@ void MemTableWriter::_init_profile(RuntimeProfile* profile) {
     _wait_flush_timer = ADD_TIMER(_profile, "MemTableWaitFlushTime");
     _put_into_output_timer = ADD_TIMER(_profile, "MemTablePutIntoOutputTime");
     _delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapTime");
-    _close_wait_timer = ADD_TIMER(_profile, "MemTableWriterCloseWaitTime");
+    _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
     _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
     _segment_num = ADD_COUNTER(_profile, "SegmentNum", TUnit::UNIT);
