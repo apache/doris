@@ -528,7 +528,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
                             if (channel->is_local()) {
-                                status = channel->send_local_block(block);
+                                if (!cur_block.empty()) {
+                                    status = channel->send_local_block(&cur_block);
+                                }
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                 status = channel->send_block(block_holder, eos);
@@ -546,11 +548,19 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             RETURN_IF_ERROR(_serializer.next_serialized_block(
                     block, _cur_pb_block, _channels.size(), &serialized, false));
             if (serialized) {
+                auto cur_block = _serializer.get_block()->to_block();
+                if (!cur_block.empty()) {
+                    _serializer.serialize_block(&cur_block, _cur_pb_block, _channels.size());
+                } else {
+                    _cur_pb_block->Clear();
+                }
                 Status status;
                 for (auto channel : _channels) {
                     if (!channel->is_receiver_eof()) {
                         if (channel->is_local()) {
-                            status = channel->send_local_block(block);
+                            if (!cur_block.empty()) {
+                                status = channel->send_local_block(&cur_block);
+                            }
                         } else {
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                             status = channel->send_block(_cur_pb_block, false);
@@ -558,6 +568,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         HANDLE_CHANNEL_STATUS(state, channel, status);
                     }
                 }
+                cur_block.clear_column_data();
+                _serializer.get_block()->set_muatable_columns(cur_block.mutate_columns());
                 _roll_pb_block();
             }
         }
