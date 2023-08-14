@@ -56,7 +56,7 @@ excludeGroups = ""
 // this suites will not be executed
 excludeSuites = "flink_connector,nereids_tpch_q20,nereids_tpch_q21,test_bitmap_coalesce,regression_test_dynamic_table,test_cast_double_to_decimal,window_function,test_profile,test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog,test_transactional_hive"
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1"
+excludeDirectories = "regression-test/suites/dynamic_table_p0/sql,workload_manager_p1"
 
 customConf1 = "test_custom_conf_value"
 
