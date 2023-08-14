@@ -134,7 +134,6 @@ Status IcebergTableReader::init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
             conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,
             not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
-    _batch_size = parquet_reader->get_batch_size();
 
     return status;
 }
@@ -144,7 +143,7 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
     // already get rows from be
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_push_down_count > 0) {
 
-        auto rows = std::min(_remaining_push_down_count, (int64_t)_batch_size);
+        auto rows = std::min(_remaining_push_down_count, (int64_t)_state->query_options().batch_size);
         _remaining_push_down_count -= rows;
         for (auto& col : block->mutate_columns()) {
             col->resize(rows);

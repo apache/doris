@@ -156,7 +156,6 @@ private:
     bool _has_schema_change = false;
     bool _has_iceberg_schema = false;
 
-    size_t _batch_size;
     int64_t _remaining_push_down_count;
 };
 } // namespace vectorized
