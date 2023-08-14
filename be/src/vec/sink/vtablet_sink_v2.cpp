@@ -531,11 +531,12 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         }
         _delta_writer_for_tablet.reset();
 
-        for (const auto& entry : *_stream_pool_for_node) {
-            for (auto stream_id : entry.second) {
-                RETURN_IF_ERROR(_close_load(stream_id));
-            }
-        }
+        // send CLOSE_LOAD to all streams, return ERROR if any
+        RETURN_IF_ERROR(std::transform_reduce(
+                std::execution::par_unseq, std::begin(*_node_id_for_stream),
+                std::end(*_node_id_for_stream), Status::OK(),
+                [](Status& left, Status&& right) { return left.ok() ? right : left; },
+                [this](auto&& entry) { return _close_load(entry.first); }));
 
         while (_pending_reports.load() > 0) {
             // TODO: use a better wait
@@ -545,11 +546,9 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
 
         // close streams
         if (_stream_pool_for_node.use_count() == 1) {
-            for (const auto& entry : *_stream_pool_for_node) {
-                for (auto stream_id : entry.second) {
-                    brpc::StreamClose(stream_id);
-                }
-            }
+            std::for_each(std::execution::par_unseq, std::begin(*_node_id_for_stream),
+                          std::end(*_node_id_for_stream),
+                          [](auto&& entry) { brpc::StreamClose(entry.first); });
         }
         _stream_pool_for_node.reset();
 
