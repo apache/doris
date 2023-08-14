@@ -36,6 +36,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -45,8 +46,10 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Representation for group in cascades optimizer.
@@ -65,6 +68,7 @@ public class Group {
     // Map of cost lower bounds
     // Map required plan props to cost lower bound of corresponding plan
     private final Map<PhysicalProperties, Pair<Cost, GroupExpression>> lowestCostPlans = Maps.newHashMap();
+    private final Map<PhysicalProperties, Set<Pair<Cost, GroupExpression>>> lowestCostPlanTrace = Maps.newHashMap();
 
     private boolean isExplored = false;
 
@@ -194,6 +198,18 @@ public class Group {
         return -1D;
     }
 
+    public @Nullable Set<Pair<Cost, GroupExpression>> getLowestPlanTrace(PhysicalProperties physicalProperties) {
+        return lowestCostPlanTrace.getOrDefault(physicalProperties, null);
+    }
+
+    private void addPlanTrace(PhysicalProperties physicalProperties, Pair<Cost, GroupExpression> p) {
+        if (lowestCostPlanTrace.containsKey(physicalProperties)) {
+            lowestCostPlanTrace.get(physicalProperties).add(p);
+        } else {
+            lowestCostPlanTrace.put(physicalProperties, Sets.newHashSet(p));
+        }
+    }
+
     /**
      * Get the lowest cost {@link org.apache.doris.nereids.trees.plans.physical.PhysicalPlan}
      * which meeting the physical property constraints in this Group.
@@ -242,6 +258,7 @@ public class Group {
         } else {
             lowestCostPlans.put(properties, Pair.of(cost, expression));
         }
+        addPlanTrace(properties, Pair.of(cost, expression));
     }
 
     /**
@@ -255,6 +272,7 @@ public class Group {
                 lowestGroupExpr.getInputPropertiesList(oldProperty), cost);
         lowestCostPlans.remove(oldProperty);
         lowestCostPlans.put(newProperty, pair);
+        addPlanTrace(newProperty, pair);
     }
 
     /**
@@ -268,6 +286,7 @@ public class Group {
             Pair<Cost, GroupExpression> pair = entry.getValue();
             if (pair.second.equals(oldGroupExpression)) {
                 needReplaceBestExpressions.put(entry.getKey(), Pair.of(pair.first, newGroupExpression));
+                addPlanTrace(entry.getKey(), Pair.of(pair.first, newGroupExpression));
                 iterator.remove();
             }
         }
@@ -378,6 +397,14 @@ public class Group {
             }
         });
         lowestCostPlans.clear();
+
+        lowestCostPlanTrace.forEach(((properties, set) -> {
+            if (target.lowestCostPlanTrace.containsKey(properties)) {
+                target.lowestCostPlanTrace.get(properties).addAll(set);
+            } else {
+                target.lowestCostPlanTrace.put(properties, set);
+            }
+        }));
 
         // If statistics is null, use other statistics
         if (target.statistics == null) {

@@ -17,49 +17,39 @@
 
 package org.apache.doris.nereids.memo;
 
-import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
-import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.util.HyperGraphBuilder;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Sets;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-
-public class RankTest extends TPCHTestBase {
+public class RankTest extends TestWithFeService {
     @Test
-    void testRank() throws NoSuchFieldException, IllegalAccessException {
-        for (int i = 1; i < 22; i++) {
-            Field field = TPCHUtils.class.getField("Q" + i);
-            System.out.println("Q" + i);
-            Memo memo = PlanChecker.from(connectContext)
-                    .analyze(field.get(null).toString())
-                    .rewrite()
-                    .optimize()
-                    .getCascadesContext()
-                    .getMemo();
-            memo.rank(1);
+    void test() {
+        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
+        hyperGraphBuilder.init(0, 1, 2);
+        Plan plan = hyperGraphBuilder.addEdge(JoinType.INNER_JOIN, 1, 2)
+                                     .addEdge(JoinType.INNER_JOIN, 0, 1)
+                                     .buildPlan();
+        plan = new LogicalProject(plan.getOutput(), plan);
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        hyperGraphBuilder.initStats(cascadesContext);
+        PhysicalPlan bestPlan = PlanChecker.from(cascadesContext)
+                .optimize()
+                .getBestPlanTree();
+        Memo memo = cascadesContext.getMemo();
+        for (int i = 0; i < memo.getRankSize(); i++) {
+            System.out.println(memo.unrank(memo.rank(i + 1).first).shape(""));
         }
-    }
-
-    //TODO re-open this case latter. the plan for q3 is different. But we do not have time to fix this bug now.
-    @Test
-    void testUnrank() throws NoSuchFieldException, IllegalAccessException {
-        //for (int i = 1; i < 22; i++) {
-        //    Field field = TPCHUtils.class.getField("Q" + i);
-        //    System.out.println("Q" + i);
-        //    Memo memo = PlanChecker.from(connectContext)
-        //            .analyze(field.get(null).toString())
-        //            .rewrite()
-        //            .optimize()
-        //            .getCascadesContext()
-        //            .getMemo();
-        //    PhysicalPlan plan1 = memo.unrank(memo.rank(1).first);
-        //    PhysicalPlan plan2 = PlanChecker.from(connectContext)
-        //            .analyze(field.get(null).toString())
-        //            .rewrite()
-        //            .optimize()
-        //            .getBestPlanTree(PhysicalProperties.GATHER);
-        //    Assertions.assertTrue(PlanChecker.isPlanEqualWithoutID(plan1, plan2));
-        //}
+        Assertions.assertEquals(memo.getRankSize(), 3);
+        Assertions.assertEquals(bestPlan.shape(""), memo.unrank(memo.rank(1).first).shape(""));
     }
 }
