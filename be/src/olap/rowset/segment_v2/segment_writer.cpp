@@ -347,10 +347,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
-    size_t segment_pos;
+    size_t segment_start_pos;
     for (auto cid : including_cids) {
         // here we get segment column row num before append data.
-        segment_pos = _column_writers[cid]->get_next_rowid();
+        segment_start_pos = _column_writers[cid]->get_next_rowid();
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
         if (converted_result.first != Status::OK()) {
@@ -399,6 +399,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         //   5   ->   3
         // here row_pos = 2, num_rows = 4.
         size_t delta_pos = block_pos - row_pos;
+        size_t segment_pos = segment_start_pos + delta_pos;
         std::string key = _full_encode_keys(key_columns, delta_pos);
         if (have_input_seq_column) {
             _encode_seq_column(seq_column, delta_pos, &key);
@@ -431,7 +432,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             }
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
-            ++segment_pos;
             continue;
         }
         if (!st.ok() && !st.is<ALREADY_EXIST>()) {
@@ -460,7 +460,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         } else {
             _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
-        ++segment_pos;
     }
     CHECK(use_default_or_null_flag.size() == num_rows);
 
