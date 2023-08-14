@@ -281,12 +281,12 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
 }
 
 Status VOlapTableSinkV2::_init_stream_pools() {
-    for (auto& entry : _nodes_info->nodes_info()) {
-        _stream_pool_for_node->insert({entry.first, StreamPool {}});
-        StreamPool& stream_pool = _stream_pool_for_node->at(entry.first);
-        RETURN_IF_ERROR(_init_stream_pool(entry.second, stream_pool));
+    for (auto& [node_id, node_info] : _nodes_info->nodes_info()) {
+        _stream_pool_for_node->insert({node_id, StreamPool {}});
+        StreamPool& stream_pool = _stream_pool_for_node->at(node_id);
+        RETURN_IF_ERROR(_init_stream_pool(node_info, stream_pool));
         for (auto stream : stream_pool) {
-            _node_id_for_stream->insert({stream, entry.first});
+            _node_id_for_stream->insert({stream, node_id});
         }
     }
     return Status::OK();
