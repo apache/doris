@@ -422,7 +422,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 // delete the invalid newly inserted row
                 _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
                                                  segment_pos);
-                ++segment_pos;
             }
 
             if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
@@ -432,6 +431,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             }
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
+            ++segment_pos;
             continue;
         }
         if (!st.ok() && !st.is<ALREADY_EXIST>()) {
@@ -457,10 +457,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             // for this row, we need to ensure that each column is aligned
             _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
                                              segment_pos);
-            ++segment_pos;
         } else {
             _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
+        ++segment_pos;
     }
     CHECK(use_default_or_null_flag.size() == num_rows);
 
