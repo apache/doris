@@ -94,82 +94,72 @@ private:
     template <typename NestedColumnType, typename RightColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const IColumn& right_column, const UInt8* nested_null_map) {
-        if constexpr (!std::is_same_v<NestedColumnType, RightColumnType>) {
-            throw Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "array_remove meet invalid input, NestedColumnType={}, RightColumnType={}",
-                    demangle(typeid(NestedColumnType).name()),
-                    demangle(typeid(RightColumnType).name()));
+        // check array nested column type and get data
+        const auto& src_data = reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
+
+        // check target column type and get data
+        const auto& target_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
+
+        PaddedPODArray<UInt8>* dst_null_map = nullptr;
+        MutableColumnPtr array_nested_column = nullptr;
+        IColumn* dst_column;
+        if (nested_null_map) {
+            auto dst_nested_column =
+                    ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
+            array_nested_column = dst_nested_column->get_ptr();
+            dst_column = dst_nested_column->get_nested_column_ptr();
+            dst_null_map = &dst_nested_column->get_null_map_data();
+            dst_null_map->reserve(offsets.back());
         } else {
-            // check array nested column type and get data
-            const auto& src_data =
-                    reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
+            auto dst_nested_column = nested_column.clone_empty();
+            array_nested_column = dst_nested_column->get_ptr();
+            dst_column = dst_nested_column;
+        }
 
-            // check target column type and get data
-            const auto& target_data =
-                    reinterpret_cast<const RightColumnType&>(right_column).get_data();
+        auto& dst_data = reinterpret_cast<NestedColumnType&>(*dst_column).get_data();
+        dst_data.reserve(offsets.back());
 
-            PaddedPODArray<UInt8>* dst_null_map = nullptr;
-            MutableColumnPtr array_nested_column = nullptr;
-            IColumn* dst_column;
-            if (nested_null_map) {
-                auto dst_nested_column =
-                        ColumnNullable::create(nested_column.clone_empty(), ColumnUInt8::create());
-                array_nested_column = dst_nested_column->get_ptr();
-                dst_column = dst_nested_column->get_nested_column_ptr();
-                dst_null_map = &dst_nested_column->get_null_map_data();
-                dst_null_map->reserve(offsets.back());
-            } else {
-                auto dst_nested_column = nested_column.clone_empty();
-                array_nested_column = dst_nested_column->get_ptr();
-                dst_column = dst_nested_column;
+        auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
+        auto& dst_offsets = dst_offsets_column->get_data();
+        dst_offsets.reserve(offsets.size());
+
+        size_t cur = 0;
+        for (size_t row = 0; row < offsets.size(); ++row) {
+            size_t off = offsets[row - 1];
+            size_t len = offsets[row] - off;
+
+            if (len == 0) {
+                // case: array:[], target:1 ==> []
+                dst_offsets.push_back(cur);
+                continue;
             }
 
-            auto& dst_data = reinterpret_cast<NestedColumnType&>(*dst_column).get_data();
-            dst_data.reserve(offsets.back());
-
-            auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
-            auto& dst_offsets = dst_offsets_column->get_data();
-            dst_offsets.reserve(offsets.size());
-
-            size_t cur = 0;
-            for (size_t row = 0; row < offsets.size(); ++row) {
-                size_t off = offsets[row - 1];
-                size_t len = offsets[row] - off;
-
-                if (len == 0) {
-                    // case: array:[], target:1 ==> []
-                    dst_offsets.push_back(cur);
+            size_t count = 0;
+            for (size_t pos = 0; pos < len; ++pos) {
+                if (nested_null_map && nested_null_map[off + pos]) {
+                    // case: array:[Null], target:1 ==> [Null]
+                    dst_data.push_back(typename NestedColumnType::value_type());
+                    dst_null_map->push_back(1);
                     continue;
                 }
 
-                size_t count = 0;
-                for (size_t pos = 0; pos < len; ++pos) {
-                    if (nested_null_map && nested_null_map[off + pos]) {
-                        // case: array:[Null], target:1 ==> [Null]
-                        dst_data.push_back(typename NestedColumnType::value_type());
-                        dst_null_map->push_back(1);
-                        continue;
-                    }
-
-                    if (src_data[off + pos] == target_data[row]) {
-                        ++count;
-                    } else {
-                        dst_data.push_back(src_data[off + pos]);
-                        if (nested_null_map) {
-                            dst_null_map->push_back(0);
-                        }
+                if (src_data[off + pos] == target_data[row]) {
+                    ++count;
+                } else {
+                    dst_data.push_back(src_data[off + pos]);
+                    if (nested_null_map) {
+                        dst_null_map->push_back(0);
                     }
                 }
-
-                cur += len - count;
-                dst_offsets.push_back(cur);
             }
 
-            auto dst = ColumnArray::create(std::move(array_nested_column),
-                                           std::move(dst_offsets_column));
-            return dst;
+            cur += len - count;
+            dst_offsets.push_back(cur);
         }
+
+        auto dst =
+                ColumnArray::create(std::move(array_nested_column), std::move(dst_offsets_column));
+        return dst;
     }
 
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
@@ -264,53 +254,8 @@ private:
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
                                        const IColumn& nested_column, const IColumn& right_column,
                                        const UInt8* nested_null_map) {
-        if (check_column<ColumnUInt8>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnUInt8>(offsets, nested_column,
-                                                                  right_column, nested_null_map);
-        } else if (check_column<ColumnInt8>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt8>(offsets, nested_column,
-                                                                 right_column, nested_null_map);
-        } else if (check_column<ColumnInt16>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt16>(offsets, nested_column,
-                                                                  right_column, nested_null_map);
-        } else if (check_column<ColumnInt32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt32>(offsets, nested_column,
-                                                                  right_column, nested_null_map);
-        } else if (right_column.is_date_type()) {
-            return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_column,
-                                                                 right_column, nested_null_map);
-        } else if (right_column.is_datetime_type()) {
-            return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_column,
-                                                                     right_column, nested_null_map);
-        } else if (check_column<ColumnDateV2>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_column,
-                                                                   right_column, nested_null_map);
-        } else if (check_column<ColumnDateTimeV2>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDateTimeV2>(
-                    offsets, nested_column, right_column, nested_null_map);
-        } else if (check_column<ColumnInt64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt64>(offsets, nested_column,
-                                                                  right_column, nested_null_map);
-        } else if (check_column<ColumnInt128>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt128>(offsets, nested_column,
-                                                                   right_column, nested_null_map);
-        } else if (check_column<ColumnFloat32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnFloat32>(offsets, nested_column,
-                                                                    right_column, nested_null_map);
-        } else if (check_column<ColumnFloat64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnFloat64>(offsets, nested_column,
-                                                                    right_column, nested_null_map);
-        } else if (check_column<ColumnDecimal32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal32>(
-                    offsets, nested_column, right_column, nested_null_map);
-        } else if (check_column<ColumnDecimal64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal64>(
-                    offsets, nested_column, right_column, nested_null_map);
-        } else if (check_column<ColumnDecimal128I>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal128I>(
-                    offsets, nested_column, right_column, nested_null_map);
-        } else if (check_column<ColumnDecimal128>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal128>(
+        if (check_column<NestedColumnType>(right_column)) {
+            return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_column, right_column, nested_null_map);
         }
         return nullptr;

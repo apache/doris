@@ -1034,7 +1034,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL32>::from_string meet PARSE_FAILURE");
         }
-        *reinterpret_cast<int32_t*>(buf) = (int32_t)value;
+        *reinterpret_cast<int32_t*>(buf) = value;
         return Status::OK();
     }
 };
@@ -1051,7 +1051,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>::from_string meet PARSE_FAILURE");
         }
-        *reinterpret_cast<int64_t*>(buf) = (int64_t)value;
+        *reinterpret_cast<int64_t*>(buf) = value;
         return Status::OK();
     }
 };

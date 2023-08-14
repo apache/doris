@@ -642,10 +642,8 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
                 } else {
                     *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision)
-                                        : vectorized::max_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision);
+                    value = is_negative ? type_limit<DecimalV2Value>::min()
+                                        : type_limit<DecimalV2Value>::max();
                     return value;
                 }
                 DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
@@ -695,10 +693,8 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                 if (!found_dot && max_digit < (precision - scale)) {
                     // parse_overflow should only happen when the digit part reached the max
                     *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision)
-                                        : vectorized::max_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision);
+                    value = is_negative ? type_limit<vectorized::Decimal<T>>::min()
+                                        : type_limit<vectorized::Decimal<T>>::max();
                     return value;
                 }
                 // keep a rounding precision to round the decimal value
