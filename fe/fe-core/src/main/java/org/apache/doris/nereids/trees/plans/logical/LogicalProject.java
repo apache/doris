@@ -157,9 +157,8 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 && canEliminate == that.canEliminate
                 && isDistinct == that.isDistinct;
         // TODO: should add exprId for UnBoundStar and BoundStar for equality comparasion
-        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)
-                && (child().getClass() == that.child().getClass())) {
-            equal = Objects.equals(child(), that.child());
+        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)) {
+            equal = child().equals(that.child());
         }
         return equal;
     }
