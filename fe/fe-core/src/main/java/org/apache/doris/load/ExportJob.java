@@ -59,7 +59,6 @@ import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.scheduler.registry.TransientTaskRegister;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -151,6 +150,9 @@ public class ExportJob implements Writable {
     @SerializedName("progress")
     private int progress;
 
+    @SerializedName("tabletsNum")
+    private Integer tabletsNum;
+
     private TableRef tableRef;
 
     private Expr whereExpr;
@@ -186,7 +188,6 @@ public class ExportJob implements Writable {
 
     private ExportExportingTask task;
 
-    private List<TScanRangeLocations> tabletLocations = Lists.newArrayList();
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
@@ -413,18 +414,19 @@ public class ExportJob implements Writable {
         }
 
         Integer tabletsAllNum = tabletIdList.size();
+        tabletsNum = tabletsAllNum;
         Integer tabletsNumPerParallel = tabletsAllNum / this.parallelism;
         Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerParallel * this.parallelism;
 
         ArrayList<ArrayList<Long>> tabletsListPerParallel = Lists.newArrayList();
-        int outfileNum = this.parallelism;
+        Integer realParallelism = this.parallelism;
         if (tabletsAllNum < this.parallelism) {
-            outfileNum = tabletsAllNum;
+            realParallelism = tabletsAllNum;
             LOG.warn("Export Job [{}]: The number of tablets ({}) is smaller than parallelism ({}), "
                         + "set parallelism to tablets num.", id, tabletsAllNum, this.parallelism);
         }
         Integer start = 0;
-        for (int i = 0; i < outfileNum; ++i) {
+        for (int i = 0; i < realParallelism; ++i) {
             Integer tabletsNum = tabletsNumPerParallel;
             if (tabletsNumPerQueryRemainder > 0) {
                 tabletsNum = tabletsNum + 1;
