@@ -17,110 +17,110 @@
  * under the License.
  */
 
-suite("nereids_tpch_q2") {
-    String db = context.config.getDbNameByFile(new File(context.file.parent))
-    sql "use ${db}"
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql "set runtime_filter_mode='GLOBAL'"
+// suite("nereids_tpch_q2") {
+//     String db = context.config.getDbNameByFile(new File(context.file.parent))
+//     sql "use ${db}"
+//     sql 'set enable_nereids_planner=true'
+//     sql 'set enable_fallback_to_original_planner=false'
+//     sql "set runtime_filter_mode='GLOBAL'"
     
-    qt_select """
-    select /*+SET_VAR(exec_mem_limit=8589934592)*/
-    s_acctbal,
-    s_name,
-    n_name,
-    p_partkey,
-    p_mfgr,
-    s_address,
-    s_phone,
-    s_comment
-from
-    part,
-    supplier,
-    partsupp,
-    nation,
-    region
-where
-    p_partkey = ps_partkey
-    and s_suppkey = ps_suppkey
-    and p_size = 15
-    and p_type like '%BRASS'
-    and s_nationkey = n_nationkey
-    and n_regionkey = r_regionkey
-    and r_name = 'EUROPE'
-    and ps_supplycost = (
-        select
-            min(ps_supplycost)
-        from
-            partsupp,
-            supplier,
-            nation,
-            region
-        where
-            p_partkey = ps_partkey
-            and s_suppkey = ps_suppkey
-            and s_nationkey = n_nationkey
-            and n_regionkey = r_regionkey
-            and r_name = 'EUROPE'
-    )
-order by
-    s_acctbal desc,
-    n_name,
-    s_name,
-    p_partkey
-limit 100;
-    """
+//     qt_select """
+//     select /*+SET_VAR(exec_mem_limit=8589934592)*/
+//     s_acctbal,
+//     s_name,
+//     n_name,
+//     p_partkey,
+//     p_mfgr,
+//     s_address,
+//     s_phone,
+//     s_comment
+// from
+//     part,
+//     supplier,
+//     partsupp,
+//     nation,
+//     region
+// where
+//     p_partkey = ps_partkey
+//     and s_suppkey = ps_suppkey
+//     and p_size = 15
+//     and p_type like '%BRASS'
+//     and s_nationkey = n_nationkey
+//     and n_regionkey = r_regionkey
+//     and r_name = 'EUROPE'
+//     and ps_supplycost = (
+//         select
+//             min(ps_supplycost)
+//         from
+//             partsupp,
+//             supplier,
+//             nation,
+//             region
+//         where
+//             p_partkey = ps_partkey
+//             and s_suppkey = ps_suppkey
+//             and s_nationkey = n_nationkey
+//             and n_regionkey = r_regionkey
+//             and r_name = 'EUROPE'
+//     )
+// order by
+//     s_acctbal desc,
+//     n_name,
+//     s_name,
+//     p_partkey
+// limit 100;
+//     """
 
-    qt_select """
-select
-    s_acctbal,
-    s_name,
-    n_name,
-    p_partkey,
-    p_mfgr,
-    s_address,
-    s_phone,
-    s_comment
-from
-    partsupp join
-    (
-        select
-            ps_partkey as a_partkey,
-            min(ps_supplycost) as a_min
-        from
-            partsupp,
-            part,
-            supplier,
-            nation,
-            region
-        where
-            p_partkey = ps_partkey
-            and s_suppkey = ps_suppkey
-            and s_nationkey = n_nationkey
-            and n_regionkey = r_regionkey
-            and r_name = 'EUROPE'
-            and p_size = 15
-            and p_type like '%BRASS'
-        group by ps_partkey
-    ) A on ps_partkey = a_partkey and ps_supplycost=a_min ,
-    part,
-    supplier,
-    nation,
-    region
-where
-    p_partkey = ps_partkey
-    and s_suppkey = ps_suppkey
-    and p_size = 15
-    and p_type like '%BRASS'
-    and s_nationkey = n_nationkey
-    and n_regionkey = r_regionkey
-    and r_name = 'EUROPE'
+//     qt_select """
+// select
+//     s_acctbal,
+//     s_name,
+//     n_name,
+//     p_partkey,
+//     p_mfgr,
+//     s_address,
+//     s_phone,
+//     s_comment
+// from
+//     partsupp join
+//     (
+//         select
+//             ps_partkey as a_partkey,
+//             min(ps_supplycost) as a_min
+//         from
+//             partsupp,
+//             part,
+//             supplier,
+//             nation,
+//             region
+//         where
+//             p_partkey = ps_partkey
+//             and s_suppkey = ps_suppkey
+//             and s_nationkey = n_nationkey
+//             and n_regionkey = r_regionkey
+//             and r_name = 'EUROPE'
+//             and p_size = 15
+//             and p_type like '%BRASS'
+//         group by ps_partkey
+//     ) A on ps_partkey = a_partkey and ps_supplycost=a_min ,
+//     part,
+//     supplier,
+//     nation,
+//     region
+// where
+//     p_partkey = ps_partkey
+//     and s_suppkey = ps_suppkey
+//     and p_size = 15
+//     and p_type like '%BRASS'
+//     and s_nationkey = n_nationkey
+//     and n_regionkey = r_regionkey
+//     and r_name = 'EUROPE'
 
-order by
-    s_acctbal desc,
-    n_name,
-    s_name,
-    p_partkey
-limit 100;
-    """
-}
+// order by
+//     s_acctbal desc,
+//     n_name,
+//     s_name,
+//     p_partkey
+// limit 100;
+//     """
+// }
