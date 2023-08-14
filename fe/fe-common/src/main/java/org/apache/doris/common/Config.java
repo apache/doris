@@ -605,7 +605,8 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "负载均衡时，磁盘使用率最大差值。",
-            "The max diff of disk capacity used percent between BE. It is used for calculating load score of a backend."})
+            "The max diff of disk capacity used percent between BE. "
+                    + "It is used for calculating load score of a backend."})
     public static double used_capacity_percent_max_diff = 0.30;
 
     @ConfField(mutable = true, masterOnly = true, description = {
