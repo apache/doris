@@ -1015,13 +1015,14 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
 
     if (!request->has_block() && config::brpc_light_work_pool_threads == -1) {
         // under high concurrency, thread pool will have a lot of lock contention.
-        _transmit_block(controller, request, response, done, Status::OK());
+        _transmit_block(controller, request, response, done, Status::OK(), receive_time, receive_time);
         return;
     }
-
     FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
     bool ret = pool.try_offer([this, controller, request, response, done]() {
-        _transmit_block(controller, request, response, done, Status::OK());
+        int64_t start_exec_time = GetCurrentTimeNanos();
+        _transmit_block(controller, request, response, done, Status::OK(), receive_time,
+                        start_exec_time);
     });
     if (!ret) {
         offer_failed(response, done, pool);
@@ -1032,14 +1033,17 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
                                                   const PEmptyRequest* request,
                                                   PTransmitDataResult* response,
                                                   google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, response, done]() {
+    int64_t receive_time = GetCurrentTimeNanos();
+    bool ret = _heavy_work_pool.try_offer([this, controller, response, done, receive_time]() {
+        int64_t start_exec_time = GetCurrentTimeNanos();
         PTransmitDataParams* new_request = new PTransmitDataParams();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTransmitDataParams>(new_request, done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         Status st =
                 attachment_extract_request_contain_block<PTransmitDataParams>(new_request, cntl);
-        _transmit_block(controller, new_request, response, new_done, st);
+        _transmit_block(controller, new_request, response, new_done, st, receive_time,
+                        start_exec_time);
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
@@ -1050,7 +1054,9 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
                                            const PTransmitDataParams* request,
                                            PTransmitDataResult* response,
                                            google::protobuf::Closure* done,
-                                           const Status& extract_st) {
+                                           const Status& extract_st, int64_t receive_time,
+                                           int64_t start_exec_time) {
+    response->set_exec_start_time(start_exec_time);
     std::string query_id;
     TUniqueId finst_id;
     if (request->has_query_id()) {
@@ -1065,7 +1071,9 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
     Status st;
     st.to_protobuf(response->mutable_status());
     if (extract_st.ok()) {
-        st = _exec_env->vstream_mgr()->transmit_block(request, &done);
+        response->set_exec_end_time(start_exec_time);
+        st = _exec_env->vstream_mgr()->transmit_block(request, &done,
+                                                      start_exec_time - receive_time);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())
@@ -1075,6 +1083,8 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
         st = extract_st;
     }
     if (done != nullptr) {
+        int64_t exec_end_time = GetCurrentTimeNanos();
+        response->set_exec_end_time(exec_end_time);
         st.to_protobuf(response->mutable_status());
         done->Run();
     }

@@ -54,6 +54,8 @@ message PTransmitDataParams {
 message PTransmitDataResult {
     optional PStatus status = 1;
     optional int64 receive_time = 2;
+    optional int64 exec_start_time = 3;
+    optional int64 exec_end_time = 4;
 };
 
 message PTabletWithPartition {

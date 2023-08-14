@@ -44,7 +44,8 @@ VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int n
         : _recvr(parent_recvr),
           _is_cancelled(false),
           _num_remaining_senders(num_senders),
-          _received_first_batch(false) {}
+          _received_first_batch(false),
+          _wait_exec_time(0) {}
 
 VDataStreamRecvr::SenderQueue::~SenderQueue() {
     // Check pending closures, if it is not empty, should clear it here. but it should not happen.
@@ -110,12 +111,14 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
 
 void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                               int64_t packet_seq,
-                                              ::google::protobuf::Closure** done) {
+                                              ::google::protobuf::Closure** done,
+                                              int64_t wait_exec_time) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
             return;
         }
+        _wait_exec_time += wait_exec_time;
         auto iter = _packet_seq_map.find(be_number);
         if (iter != _packet_seq_map.end()) {
             if (iter->second >= packet_seq) {
@@ -275,9 +278,17 @@ void VDataStreamRecvr::SenderQueue::close() {
         std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
 
+        int64_t total_ = 0;
+        int64_t max_ = 0;
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
+            closure_pair.second.stop();
+            auto t = closure_pair.second.elapsed_time();
+            total_ += t;
+            max_ = std::max(max_, t);
         }
+        _recvr->_buffer_full_delay_total_timer->update(total_);
+        _recvr->_buffer_full_delay_max_timer->update(max_);
         _pending_closures.clear();
     }
 
@@ -334,6 +345,8 @@ VDataStreamRecvr::VDataStreamRecvr(
     _deserialize_row_batch_timer = ADD_TIMER(_profile, "DeserializeRowBatchTimer");
     _data_arrival_timer = ADD_TIMER(_profile, "DataArrivalWaitTime");
     _buffer_full_total_timer = ADD_TIMER(_profile, "SendersBlockedTotalTimer(*)");
+    _buffer_full_delay_total_timer = ADD_TIMER(_profile, "SendersBlockedToCloseTotalTimer(*)");
+    _buffer_full_delay_max_timer = ADD_TIMER(_profile, "SendersBlockedToCloseMaxTimer");
     _first_batch_wait_total_timer = ADD_TIMER(_profile, "FirstBatchArrivalWaitTime");
     _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
     _decompress_bytes = ADD_COUNTER(_profile, "DecompressBytes", TUnit::BYTES);
@@ -367,10 +380,11 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
 }
 
 void VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
-                                 int64_t packet_seq, ::google::protobuf::Closure** done) {
+                                 int64_t packet_seq, ::google::protobuf::Closure** done,
+                                 int64_t wait_exec_time) {
     SCOPED_ATTACH_TASK_WITH_ID(_query_mem_tracker, _query_id, _fragment_instance_id);
     int use_sender_id = _is_merging ? sender_id : 0;
-    _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
+    _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done, wait_exec_time);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
@@ -418,9 +432,19 @@ void VDataStreamRecvr::close() {
         return;
     }
     _is_closed = true;
+    int64_t total_wait_exec_time = 0;
+    int64_t max_wait_exec_time = 0;
     for (int i = 0; i < _sender_queues.size(); ++i) {
         _sender_queues[i]->close();
+        max_wait_exec_time = std::max(max_wait_exec_time, _sender_queues[i]->get_wait_exec_time());
+        total_wait_exec_time += _sender_queues[i]->get_wait_exec_time();
     }
+    auto* max_wait_exec_timer = ADD_TIMER(_profile, "WaitExecTimeMax");
+    auto* total_wait_exec_timer = ADD_TIMER(_profile, "WaitExecTimeTotal");
+    auto* avg_wait_exec_timer = ADD_TIMER(_profile, "WaitExecTimeAvg");
+    max_wait_exec_timer->update(max_wait_exec_time);
+    total_wait_exec_timer->update(total_wait_exec_time);
+    avg_wait_exec_timer->update(total_wait_exec_time / _sender_queues.size());
     // Remove this receiver from the DataStreamMgr that created it.
     // TODO: log error msg
     _mgr->deregister_recvr(fragment_instance_id(), dest_node_id());

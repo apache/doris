@@ -76,7 +76,7 @@ public:
                          size_t offset);
 
     void add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
-                   ::google::protobuf::Closure** done);
+                   ::google::protobuf::Closure** done, int64_t wait_exec_time);
 
     void add_block(Block* block, int sender_id, bool use_move);
 
@@ -149,6 +149,8 @@ private:
     RuntimeProfile::Counter* _deserialize_row_batch_timer;
     RuntimeProfile::Counter* _first_batch_wait_total_timer;
     RuntimeProfile::Counter* _buffer_full_total_timer;
+    RuntimeProfile::Counter* _buffer_full_delay_total_timer;
+    RuntimeProfile::Counter* _buffer_full_delay_max_timer;
     RuntimeProfile::Counter* _data_arrival_timer;
     RuntimeProfile::Counter* _decompress_timer;
     RuntimeProfile::Counter* _decompress_bytes;
@@ -186,7 +188,7 @@ public:
     virtual Status get_batch(Block* next_block, bool* eos);
 
     void add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
-                   ::google::protobuf::Closure** done);
+                   ::google::protobuf::Closure** done, int64_t wait_exec_time);
 
     virtual void add_block(Block* block, bool use_move);
 
@@ -200,6 +202,8 @@ public:
         std::unique_lock<std::mutex> l(_lock);
         return _block_queue.empty();
     }
+
+    int64_t get_wait_exec_time() const { return _wait_exec_time; }
 
 protected:
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
@@ -220,6 +224,7 @@ protected:
     std::unordered_map<int, int64_t> _packet_seq_map;
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
+    int64_t _wait_exec_time;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {

@@ -61,7 +61,8 @@ public:
 
     Status deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 
-    Status transmit_block(const PTransmitDataParams* request, ::google::protobuf::Closure** done);
+    Status transmit_block(const PTransmitDataParams* request, ::google::protobuf::Closure** done,
+                          int64_t wait_exec_time);
 
     void cancel(const TUniqueId& fragment_instance_id);
 

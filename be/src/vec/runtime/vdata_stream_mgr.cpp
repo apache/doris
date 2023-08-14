@@ -90,7 +90,7 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::find_recvr(const TUniqueId& fr
 }
 
 Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
-                                      ::google::protobuf::Closure** done) {
+                                      ::google::protobuf::Closure** done, int64_t wait_exec_time) {
     const PUniqueId& finst_id = request->finst_id();
     TUniqueId t_finst_id;
     t_finst_id.hi = finst_id.hi();
@@ -121,7 +121,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     bool eos = request->eos();
     if (request->has_block()) {
         recvr->add_block(request->block(), request->sender_id(), request->be_number(),
-                         request->packet_seq(), eos ? nullptr : done);
+                         request->packet_seq(), eos ? nullptr : done, wait_exec_time);
     }
 
     if (eos) {
