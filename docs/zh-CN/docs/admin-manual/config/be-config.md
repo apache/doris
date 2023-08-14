@@ -738,6 +738,11 @@ BaseCompaction:546859:
 * 描述: 导入线程数，用于处理NORMAL优先级任务
 * 默认值: 3
 
+#### `enable_single_replica_load`
+
+* 描述: 是否启动单副本数据导入功能
+* 默认值: false
+
 #### `load_error_log_reserve_hours`
 
 * 描述: load错误日志将在此时间后删除
