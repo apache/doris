@@ -75,11 +75,13 @@ public:
     Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
                                  bool eos, const std::vector<int>* rows = nullptr);
     Status serialize_block(PBlock* dest, int num_receivers = 1);
-    Status serialize_block(Block* src, PBlock* dest, int num_receivers = 1);
+    Status serialize_block(const Block* src, PBlock* dest, int num_receivers = 1);
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
 
     void reset_block() { _mutable_block.reset(); }
+
+    void set_is_local(bool is_local) { _is_local = is_local; }
 
 private:
     VDataStreamSender* _parent;
@@ -501,10 +503,6 @@ public:
             return send_local_block(eos);
         }
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        if (eos) {
-            _pblock = std::make_unique<PBlock>();
-            RETURN_IF_ERROR(_serializer.serialize_block(_pblock.get(), 1));
-        }
         RETURN_IF_ERROR(send_block(_pblock.release(), eos));
         return Status::OK();
     }
