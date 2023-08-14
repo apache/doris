@@ -162,8 +162,8 @@ public abstract class JdbcClient {
         try {
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            throw new JdbcClientException("Can not connect to jdbc due to error: %s, catalog name: %s", e,
-                e.getMessage(), this.catalog);
+            throw new JdbcClientException("Can not connect to jdbc due to error: %s, catalog name: %s", e.getMessage(),
+                this.catalog, e);
         }
         return conn;
     }
