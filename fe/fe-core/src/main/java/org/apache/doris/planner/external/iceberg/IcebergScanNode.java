@@ -75,7 +75,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -232,12 +231,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
-        
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() > 0) {
+            // we can create a special empty split and skip the plan process
             return Collections.singletonList(splits.get(0));
         }
-        
+
         readPartitionNum = partitionPathSet.size();
 
         return splits;

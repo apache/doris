@@ -204,6 +204,8 @@ Status IcebergTableReader::get_columns(
 }
 
 Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
+
+    // We get the count value by doris's be, so we don't need to read the delete file
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_push_down_count > 0) {
         return Status::OK();
     }
@@ -222,7 +224,11 @@ Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
     if (delete_file_type == POSITION_DELETE) {
         RETURN_IF_ERROR(_position_delete(files));
     }
+
     // todo: equality delete
+    //       If it is a count operation and it has equality delete file kind,
+    //       the push down operation of the count for this split needs to be canceled.
+
     COUNTER_UPDATE(_iceberg_profile.num_delete_files, files.size());
     return Status::OK();
 }
