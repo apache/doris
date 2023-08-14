@@ -530,7 +530,7 @@ CREATE TABLE DORIS_SINK(
   'username' = 'root',
   'password' = '',
   'sink.enable-delete' = 'false',        -- false means not to get the event type from RowKind
-  'sink.properties.columns' = 'name,age,__DORIS_DELETE_SIGN__'  -- Display the import column of the specified streamload
+  'sink.properties.columns' = 'id, name, __DORIS_DELETE_SIGN__'  -- Display the import column of the specified streamload
 );
 
 INSERT INTO KAFKA_SOURCE

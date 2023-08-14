@@ -531,7 +531,7 @@ CREATE TABLE DORIS_SINK(
   'username' = 'root',
   'password' = '',
   'sink.enable-delete' = 'false',        -- false表示不从RowKind获取事件类型
-  'sink.properties.columns' = 'name,age,__DORIS_DELETE_SIGN__'  -- 显示指定streamload的导入列
+  'sink.properties.columns' = 'id, name, __DORIS_DELETE_SIGN__'  -- 显示指定streamload的导入列
 );
 
 INSERT INTO KAFKA_SOURCE

@@ -125,7 +125,7 @@ storage_flood_stage_left_capacity_bytes 默认 1GB。
   - snapshot/: 快照目录下的快照文件。
   - trash/：回收站中的文件。
 
-  **这种操作会对 [从 BE 回收站中恢复数据](./tablet-restore-tool.md) 产生影响。**
+  **这种操作会对 [从 BE 回收站中恢复数据](../data-admin/delete-recover.md) 产生影响。**
 
   如果BE还能够启动，则可以使用`ADMIN CLEAN TRASH ON(BackendHost:BackendHeartBeatPort);`来主动清理临时文件，会清理 **所有** trash文件和过期snapshot文件，**这将影响从回收站恢复数据的操作** 。
 

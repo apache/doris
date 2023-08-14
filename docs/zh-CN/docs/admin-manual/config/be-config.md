@@ -325,6 +325,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：当使用odbc外表时，如果odbc源表的某一列类型不是HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
 * 默认值：100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* 类型: int32
+* 描述: JSONB 类型最大长度的软限，单位是字节
+* 默认值: 1048576
+
 ### 查询
 
 #### `fragment_pool_queue_size`
@@ -973,6 +979,11 @@ BaseCompaction:546859:
 * 描述：是否使用mmap分配内存
 * 默认值：false
 
+#### `memtable_mem_tracker_refresh_interval_ms`
+
+* 描述：memtable主动下刷时刷新内存统计的周期（毫秒）
+* 默认值：100
+
 #### `download_cache_buffer_size`
 
 * 类型: int64
@@ -1224,7 +1235,7 @@ BaseCompaction:546859:
 * 描述：存储引擎保留的未生效数据的最大时长
 * 默认值：1800 (s)
 
-#### `ignore_rowset_stale_unconsistent_delete`
+#### `ignore_rowset_stale_inconsistent_delete`
 
 * 类型：bool
 * 描述：用来决定当删除过期的合并过的rowset后无法构成一致的版本路径时，是否仍要删除。

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Audit log plugin",
+    "title": "Audit Log Plugin",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Audit log plugin
+# Audit Log Plugin
 
 Doris's audit log plugin was developed based on FE's plugin framework. Is an optional plugin. Users can install or uninstall this plugin at runtime.
 
@@ -34,7 +34,7 @@ This plugin can periodically import the FE audit log into the specified Doris cl
 
 ### FE Configuration
 
-FE's plugin framework is an experimental feature, which is closed by default. In the FE configuration file, add `plugin_enable = true` to enable the plugin framework.
+The audit log plug-in framework is disabled by default in Doris. You need to add `plugin_enable = true `to the FE configuration file to enable plugin framework.
 
 ### AuditLoader Configuration
 

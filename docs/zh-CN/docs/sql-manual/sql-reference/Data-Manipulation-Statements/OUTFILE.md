@@ -80,8 +80,8 @@ INTO OUTFILE "file_path"
     支持如下属性：
 
     文件相关的属性
-        column_separator: 列分隔符。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
-        line_delimiter: 行分隔符。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
+        column_separator: 列分隔符，只支持csv格式。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
+        line_delimiter: 行分隔符，只支持csv格式。<version since="1.2.0">支持多字节分隔符，如："\\x01", "abc"</version>
         max_file_size: 单个文件大小限制，如果结果超过这个值，将切割成多个文件。
         delete_existing_files: 默认为false，若指定为true,则会先删除file_path指定的目录下的所有文件，然后导出数据到该目录下。例如："file_path" = "/user/tmp", 则会删除"/user/"下所有文件及目录；"file_path" = "/user/tmp/", 则会删除"/user/tmp/"下所有文件及目录
     

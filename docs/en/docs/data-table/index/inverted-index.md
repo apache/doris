@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Inverted index",
+    "title": "Inverted Index",
     "language": "en"
 }
 ---
@@ -98,6 +98,15 @@ CREATE TABLE table_name
 table_properties;
 ```
 
+:::tip
+
+Inverted indexes have different limitations in different data models:
+- Aggregate model: Inverted indexes can only be created for the Key column.
+- Unique model: The merge on write feature needs to be enabled. After enabling it, an inverted index can be created for any column.
+- Duplicate model: An inverted index can be created for any column.
+
+:::
+
 - add an inverted index to existed table
 
 **Before version 2.0-beta:**
@@ -159,11 +168,11 @@ SELECT * FROM table_name WHERE ts > '2023-01-01 00:00:00';
 SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
 ```
 
-## Example
+## Examples
 
 This example will demostrate inverted index creation, fulltext query, normal query using a hackernews dataset with 1 million rows. The performanc comparation between using  and without inverted index will also be showed.
 
-### Create table
+### Create Table
 
 ```sql
 
@@ -200,7 +209,7 @@ PROPERTIES ("replication_num" = "1");
 ```
 
 
-### Load data
+### Load Data
 
 - load data by stream load
 
@@ -243,7 +252,7 @@ mysql> SELECT count() FROM hackernews_1m;
 
 ### Query
 
-#### Fulltext search query
+#### Fulltext Search Query
 
 - count the rows that comment contains 'OLAP' using LIKE, cost 0.18s
 ```sql
@@ -329,7 +338,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLAP OLTP';
 ```
 
 
-#### normal equal, range query
+#### Normal Equal, Range Query
 
 - range query on DateTime column
 ```sql

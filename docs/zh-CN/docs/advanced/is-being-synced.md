@@ -1,6 +1,6 @@
 ---
 {
-    "title": "is_being_synced属性",
+    "title": "IS_BEING_SYNCED 属性",
     "language": "zh-CN"
 }
 ---
