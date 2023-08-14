@@ -22,8 +22,8 @@
 #include "runtime/geometry_value.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/serde/data_type_geometry_serde.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/serde/data_type_geometry_serde.h"
 
 namespace doris::vectorized {
 class DataTypeGeometry final : public IDataType {

@@ -26,9 +26,7 @@ struct GeoCoordinate {
     double x;
     double y;
 
-    bool operator==(const GeoCoordinate& other) const {
-        return x == other.x && y == other.y;
-    }
+    bool operator==(const GeoCoordinate& other) const { return x == other.x && y == other.y; }
 };
 
 struct GeoCoordinates {
@@ -52,7 +50,9 @@ struct GeoCoordinateListCollections {
             delete item;
         }
     }
-    void add(GeoCoordinateLists* coordinatelists) { coords_list_collections.push_back(coordinatelists); }
+    void add(GeoCoordinateLists* coordinatelists) {
+        coords_list_collections.push_back(coordinatelists);
+    }
     std::vector<GeoCoordinateLists*> coords_list_collections;
 };
 

@@ -26,12 +26,12 @@
 #include "geo/machine.h"
 #include "geo/wkt_parse_type.h"
 #include "geo_tobinary_type.h"
-#include "util/GeoShape.h"
-#include "util/GeoPoint.h"
-#include "util/GeoLineString.h"
-#include "util/GeoPolygon.h"
-#include "util/GeoCollection.h"
 #include "iomanip"
+#include "util/GeoCollection.h"
+#include "util/GeoLineString.h"
+#include "util/GeoPoint.h"
+#include "util/GeoPolygon.h"
+#include "util/GeoShape.h"
 
 namespace doris {
 
@@ -81,9 +81,9 @@ bool toBinary::write(GeoShape* shape, ToBinaryContext* ctx) {
 bool toBinary::writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbPoint, ctx);
-    if(point->is_empty()){
-        GeoCoordinate c(DoubleNotANumber,DoubleNotANumber);
-        writeCoordinate(c,ctx);
+    if (point->is_empty()) {
+        GeoCoordinate c(DoubleNotANumber, DoubleNotANumber);
+        writeCoordinate(c, ctx);
     } else {
         GeoCoordinates p = point->to_coords();
         writeCoordinateList(p, false, ctx);
@@ -94,8 +94,8 @@ bool toBinary::writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx) {
 bool toBinary::writeGeoLine(GeoLineString* linestring, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbLine, ctx);
-    if(linestring->is_empty()){
-        writeInt(0,ctx);
+    if (linestring->is_empty()) {
+        writeInt(0, ctx);
     } else {
         GeoCoordinates p = linestring->to_coords();
         writeCoordinateList(p, true, ctx);
@@ -106,8 +106,8 @@ bool toBinary::writeGeoLine(GeoLineString* linestring, ToBinaryContext* ctx) {
 bool toBinary::writeGeoPolygon(doris::GeoPolygon* polygon, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbPolygon, ctx);
-    if(polygon->is_empty()){
-        writeInt(0,ctx);
+    if (polygon->is_empty()) {
+        writeInt(0, ctx);
     } else {
         writeInt(polygon->num_loops(), ctx);
         std::unique_ptr<GeoCoordinateLists> coords_list(polygon->to_coords());
@@ -118,23 +118,22 @@ bool toBinary::writeGeoPolygon(doris::GeoPolygon* polygon, ToBinaryContext* ctx)
     return true;
 }
 
-
-bool toBinary::writeGeoCollection(doris::GeoCollection* collection, int wkbtype, ToBinaryContext* ctx) {
+bool toBinary::writeGeoCollection(doris::GeoCollection* collection, int wkbtype,
+                                  ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbtype, ctx);
-    if(collection->is_empty()){
-        writeInt(0,ctx);
+    if (collection->is_empty()) {
+        writeInt(0, ctx);
     } else {
         auto ngeoms = collection->get_num_geometries();
         writeInt(static_cast<int>(ngeoms), ctx);
-        for(std::size_t i = 0; i < ngeoms; i++) {
+        for (std::size_t i = 0; i < ngeoms; i++) {
             GeoShape* shape = collection->get_geometries_n(i);
-            write(shape,ctx);
+            write(shape, ctx);
         }
     }
     return true;
 }
-
 
 void toBinary::writeByteOrder(ToBinaryContext* ctx) {
     ctx->byteOrder = getMachineByteOrder();
@@ -156,8 +155,7 @@ void toBinary::writeInt(int val, ToBinaryContext* ctx) {
     ctx->outStream->write(reinterpret_cast<char*>(ctx->buf), 4);
 }
 
-void toBinary::writeCoordinateList(const GeoCoordinates& coords, bool sized,
-                                   ToBinaryContext* ctx) {
+void toBinary::writeCoordinateList(const GeoCoordinates& coords, bool sized, ToBinaryContext* ctx) {
     std::size_t size = coords.coords.size();
 
     if (sized) {

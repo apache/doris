@@ -22,7 +22,6 @@
 namespace doris {
 
 Status GeometryBinaryValue::from_geometry_string(const char* s, size_t length) {
-
     size_t a = length;
     std::unique_ptr<GeoShape> shape(GeoShape::from_encoded(s, a));
     if (shape == nullptr) {

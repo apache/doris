@@ -18,91 +18,78 @@
 #ifndef DORIS_GEOCOLLECTION_H
 #define DORIS_GEOCOLLECTION_H
 
-#include "common/factory_creator.h"
-#include "GeoShape.h"
-#include "GeoPoint.h"
 #include "GeoLineString.h"
+#include "GeoPoint.h"
 #include "GeoPolygon.h"
+#include "GeoShape.h"
+#include "common/factory_creator.h"
 
 namespace doris {
-    class GeoCollection : public GeoShape{
+class GeoCollection : public GeoShape {
     ENABLE_FACTORY_CREATOR(GeoCollection);
 
-    public:
-        using const_iterator = std::vector<std::unique_ptr<GeoShape>>::const_iterator;
+public:
+    using const_iterator = std::vector<std::unique_ptr<GeoShape>>::const_iterator;
 
-        using iterator = std::vector<std::unique_ptr<GeoShape>>::iterator;
+    using iterator = std::vector<std::unique_ptr<GeoShape>>::iterator;
 
-        const_iterator begin() const
-        {
-            return geometries.begin();
-        };
+    const_iterator begin() const { return geometries.begin(); };
 
-        const_iterator end() const
-        {
-            return geometries.end();
-        };
+    const_iterator end() const { return geometries.end(); };
 
-        GeoCollection();
-        ~GeoCollection() override;
+    GeoCollection();
+    ~GeoCollection() override;
 
-        GeoShapeType type() const override { return GEO_SHAPE_GEOMETRY_COLLECTION; }
+    GeoShapeType type() const override { return GEO_SHAPE_GEOMETRY_COLLECTION; }
 
-        bool is_valid() const override;
+    bool is_valid() const override;
 
-        bool is_closed() const override;
+    bool is_closed() const override;
 
-        void encode_to(std::string* buf) {
-            GeoShape::encode_to(buf);
-        };
+    void encode_to(std::string* buf) { GeoShape::encode_to(buf); };
 
-
-        [[nodiscard]] int get_dimension() const override {
-            if (get_num_geometries() == 0) {
-                return -1;
-            }
-
-            int dim = get_geometries_n(0)->get_dimension();
-            for (int i = 1; i < get_num_geometries(); i++) {
-                if (dim < get_geometries_n(i)->get_dimension()) {
-                    dim = get_geometries_n(i)->get_dimension();
-                }
-            }
-
-            return dim;
+    [[nodiscard]] int get_dimension() const override {
+        if (get_num_geometries() == 0) {
+            return -1;
         }
 
-        GeoParseStatus add_one_geometry(GeoShape* shape);
+        int dim = get_geometries_n(0)->get_dimension();
+        for (int i = 1; i < get_num_geometries(); i++) {
+            if (dim < get_geometries_n(i)->get_dimension()) {
+                dim = get_geometries_n(i)->get_dimension();
+            }
+        }
 
-        // Returns the number of geometries in this collection
-        std::size_t get_num_geometries() const override;
+        return dim;
+    }
 
-        // Returns the number of geometries in this collection
-        GeoShape* get_geometries_n(std::size_t n) const override;
+    GeoParseStatus add_one_geometry(GeoShape* shape);
 
-        std::string as_wkt() const override;
+    // Returns the number of geometries in this collection
+    std::size_t get_num_geometries() const override;
 
-        bool contains(const GeoShape* rhs) const override;
+    // Returns the number of geometries in this collection
+    GeoShape* get_geometries_n(std::size_t n) const override;
 
-        [[nodiscard]] std::size_t get_num_point() const override;
+    std::string as_wkt() const override;
 
-        std::unique_ptr<GeoShape> boundary() const override;
+    bool contains(const GeoShape* rhs) const override;
 
-        std::unique_ptr<GeoCollection> to_homogenize();
+    [[nodiscard]] std::size_t get_num_point() const override;
 
-        bool add_to_s2shape_index(MutableS2ShapeIndex& S2shape_index) const override;
+    std::unique_ptr<GeoShape> boundary() const override;
 
+    std::unique_ptr<GeoCollection> to_homogenize();
 
+    bool add_to_s2shape_index(MutableS2ShapeIndex& S2shape_index) const override;
 
-    protected:
-        void encode(std::string* buf, size_t& data_size) override;
-        bool decode(const void* data, size_t size) override;
+protected:
+    void encode(std::string* buf, size_t& data_size) override;
+    bool decode(const void* data, size_t size) override;
 
-        std::vector<std::unique_ptr<GeoShape>> geometries;
-    };
+    std::vector<std::unique_ptr<GeoShape>> geometries;
+};
 
-}// namespace doris
-
-
+} // namespace doris
 
 #endif //DORIS_GEOCOLLECTION_H

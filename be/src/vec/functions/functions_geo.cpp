@@ -21,15 +21,15 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <utility>
 #include <string>
+#include <utility>
 
 #include "geo/geo_common.h"
-#include "geo/util/GeoShape.h"
-#include "geo/util/GeoPoint.h"
-#include "geo/util/GeoLineString.h"
-#include "geo/util/GeoPolygon.h"
 #include "geo/util/GeoCircle.h"
+#include "geo/util/GeoLineString.h"
+#include "geo/util/GeoPoint.h"
+#include "geo/util/GeoPolygon.h"
+#include "geo/util/GeoShape.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -475,18 +475,17 @@ struct StContains {
         const auto size = shape1->size();
         MutableColumnPtr res = return_type->create_column();
 
-        auto shape_value = shape1->get_data_at(0);
-        //GeoParseStatus status;
-
-        std::unique_ptr<GeoShape> lhs_shape(GeoShape::from_encoded(shape_value.data, shape_value.size));
-        if (lhs_shape == nullptr) {
-            res->insert_data(nullptr, 0);
-            block.replace_by_position(result, std::move(res));
-            return Status::OK();
-        }
-
+        std::unique_ptr<GeoShape> lhs_shape;
         std::unique_ptr<GeoShape> rhs_shape;
         for (int row = 0; row < size; ++row) {
+            auto shape_value = shape1->get_data_at(0);
+            lhs_shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
+            if (lhs_shape == nullptr) {
+                res->insert_data(nullptr, 0);
+                block.replace_by_position(result, std::move(res));
+                return Status::OK();
+            }
+
             auto rhs_value = shape2->get_data_at(row);
             rhs_shape.reset(GeoShape::from_encoded(rhs_value.data, rhs_value.size));
             if (rhs_shape == nullptr) {
@@ -511,7 +510,6 @@ struct StContains {
 };
 
 struct StWithin {
-
     static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = "st_within";
     static const size_t NUM_ARGS = 2;
@@ -557,7 +555,6 @@ struct StWithin {
         return Status::OK();
     }
 };
-
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
@@ -668,7 +665,7 @@ struct StGeoFromWkb {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            if(value.size==0) {
+            if (value.size == 0) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -815,17 +812,18 @@ struct StGeoFromGeoJson {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
-            if(value.size==0) {
+            if (value.size == 0) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
-            std::unique_ptr<GeoShape> shape(GeoShape::from_geojson(value.data, value.size, &status));
+            std::unique_ptr<GeoShape> shape(
+                    GeoShape::from_geojson(value.data, value.size, &status));
 
             if (status != GEO_PARSE_OK) {
                 return Status::InvalidArgument(to_string(status));
             }
 
-            if(shape == nullptr){
+            if (shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -856,8 +854,10 @@ struct StPointN {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto line_arg = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto index_arg = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto line_arg =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto index_arg =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         const auto size = line_arg->size();
 
         GeoLineString line;
@@ -873,17 +873,18 @@ struct StPointN {
             GeoPoint point;
             std::string buf;
 
-
             int index = index_arg->get_int(row);
-            if(index > 0 && index <= line.num_point()){
+            if (index > 0 && index <= line.num_point()) {
                 index--;
-            } else if(index < 0 && -index <= line.num_point()){
+            } else if (index < 0 && -index <= line.num_point()) {
                 index = line.num_point() + index + 1;
             } else {
-                return Status::InvalidArgument("The vertex index " + std::to_string(index) + " is out of bounds; input LINESTRING has " + std::to_string(line.num_point()) + " points.");
+                return Status::InvalidArgument("The vertex index " + std::to_string(index) +
+                                               " is out of bounds; input LINESTRING has " +
+                                               std::to_string(line.num_point()) + " points.");
             }
 
-            if(point.from_s2point(line.get_point(index)) != GEO_PARSE_OK){
+            if (point.from_s2point(line.get_point(index)) != GEO_PARSE_OK) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -907,7 +908,8 @@ struct StStartPoint {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto line_arg = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto line_arg =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto size = line_arg->size();
 
         GeoLineString line;
@@ -923,7 +925,7 @@ struct StStartPoint {
 
             GeoPoint point;
 
-            if(point.from_s2point(line.get_point(0)) != GEO_PARSE_OK){
+            if (point.from_s2point(line.get_point(0)) != GEO_PARSE_OK) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -947,7 +949,8 @@ struct StEndPoint {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto line_arg = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto line_arg =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto size = line_arg->size();
 
         GeoLineString line;
@@ -963,7 +966,7 @@ struct StEndPoint {
 
             GeoPoint point;
 
-            if(point.from_s2point(line.get_point(line.num_point()-1)) != GEO_PARSE_OK){
+            if (point.from_s2point(line.get_point(line.num_point() - 1)) != GEO_PARSE_OK) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1041,7 +1044,6 @@ struct StIsEmpty {
 
         return Status::OK();
     }
-
 };
 
 //ST_LENGTH
@@ -1075,7 +1077,6 @@ struct StLength {
 
         return Status::OK();
     }
-
 };
 
 //ST_ISCLOSED
@@ -1109,7 +1110,6 @@ struct StIsClosed {
 
         return Status::OK();
     }
-
 };
 
 //ST_ISCOLLECTION
@@ -1143,7 +1143,6 @@ struct StIsCollection {
 
         return Status::OK();
     }
-
 };
 
 //ST_ISRING
@@ -1177,7 +1176,6 @@ struct StIsRing {
 
         return Status::OK();
     }
-
 };
 
 //ST_NUMGEOMETRIES
@@ -1272,7 +1270,7 @@ struct StGeometryType {
                 continue;
             }
             type.clear();
-            if(shape->get_type_string(type)){
+            if (shape->get_type_string(type)) {
                 res->insert_data(type.data(), type.size());
             } else {
                 res->insert_data(nullptr, 0);
@@ -1315,7 +1313,7 @@ struct StCentroid {
             std::unique_ptr<GeoShape> shape_res = shape->get_centroid();
             //std::unique_ptr<GeoShape> shape_res = shape->boundary();
 
-            if(shape_res == nullptr){
+            if (shape_res == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1323,7 +1321,6 @@ struct StCentroid {
             buf.clear();
             shape_res->encode_to(&buf);
             res->insert_data(buf.data(), buf.size());
-
         }
         block.replace_by_position(result, std::move(res));
 
@@ -1341,8 +1338,10 @@ struct StLineLocatePoint {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto line_arg = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto point_arg = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto line_arg =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto point_arg =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         const auto size = line_arg->size();
 
         GeoLineString line;
@@ -1398,7 +1397,7 @@ struct StBoundary {
 
             std::unique_ptr<GeoShape> shape_res = shape->boundary();
 
-            if(shape_res == nullptr){
+            if (shape_res == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1423,8 +1422,10 @@ struct StClosestPoint {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto shape_arg1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto shape_arg2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto shape_arg1 =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape_arg2 =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         const auto size = shape_arg1->size();
 
         std::unique_ptr<GeoShape> shape1;
@@ -1449,7 +1450,7 @@ struct StClosestPoint {
 
             std::unique_ptr<GeoShape> res_point = shape1->find_closest_point(shape2.get());
 
-            if(res_point == nullptr){
+            if (res_point == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1457,12 +1458,10 @@ struct StClosestPoint {
             buf.clear();
             res_point->encode_to(&buf);
             res->insert_data(buf.data(), buf.size());
-
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
-
 };
 
 //ST_INTERSECTS
@@ -1475,8 +1474,10 @@ struct StIntersects {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto shape_arg1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto shape_arg2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto shape_arg1 =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape_arg2 =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         const auto size = shape_arg1->size();
 
         std::unique_ptr<GeoShape> shape1;
@@ -1502,7 +1503,6 @@ struct StIntersects {
             auto intersects_value = shape1->intersects(shape2.get());
 
             res->insert_data(const_cast<const char*>((char*)&intersects_value), 0);
-
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
@@ -1519,9 +1519,12 @@ struct StDwithin {
         auto return_type = block.get_data_type(result);
         MutableColumnPtr res = return_type->create_column();
 
-        auto shape_arg1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto shape_arg2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        auto distance = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+        auto shape_arg1 =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto shape_arg2 =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto distance =
+                block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
         const auto size = shape_arg1->size();
 
         std::unique_ptr<GeoShape> shape1;
@@ -1544,10 +1547,10 @@ struct StDwithin {
                 continue;
             }
 
-            auto dwithin_value = shape1->dwithin(shape2.get(),distance->operator[](row).get<Float64>());
+            auto dwithin_value =
+                    shape1->dwithin(shape2.get(), distance->operator[](row).get<Float64>());
 
             res->insert_data(const_cast<const char*>((char*)&dwithin_value), 0);
-
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
@@ -1563,8 +1566,10 @@ struct StBuffer {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
 
-        auto shape_input = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto buffer_radius = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto shape_input =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto buffer_radius =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         auto size = shape_input->size();
         MutableColumnPtr res = return_type->create_column();
 
@@ -1581,7 +1586,7 @@ struct StBuffer {
             std::unique_ptr<GeoShape> res_shape;
             res_shape.reset(shape->buffer(buffer_radius->operator[](row).get<Float64>()).release());
 
-            if(res_shape == nullptr){
+            if (res_shape == nullptr) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1596,11 +1601,10 @@ struct StBuffer {
     }
 };
 
-
 void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StPoint>>();
-    factory.register_function<GeoFunction<StAsText<StAsWktName>,DataTypeString>>();
-    factory.register_function<GeoFunction<StAsText<StAsTextName>,DataTypeString>>();
+    factory.register_function<GeoFunction<StAsText<StAsWktName>, DataTypeString>>();
+    factory.register_function<GeoFunction<StAsText<StAsTextName>, DataTypeString>>();
     factory.register_function<GeoFunction<StX, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StY, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StDistanceSphere, DataTypeFloat64>>();
@@ -1621,20 +1625,20 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAreaSquareKm, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeometryFromWKB>>>();
     factory.register_function<GeoFunction<StGeoFromWkb<StGeomFromWKB>>>();
-    factory.register_function<GeoFunction<StAsBinary,DataTypeString>>();
+    factory.register_function<GeoFunction<StAsBinary, DataTypeString>>();
     factory.register_function<GeoFunction<StGeoFromGeoJson<StGeometryFromGeoJson>>>();
     factory.register_function<GeoFunction<StGeoFromGeoJson<StGeomFromGeoJson>>>();
-    factory.register_function<GeoFunction<StAsGeoJson,DataTypeString>>();
+    factory.register_function<GeoFunction<StAsGeoJson, DataTypeString>>();
     factory.register_function<GeoFunction<StPointN>>();
     factory.register_function<GeoFunction<StStartPoint>>();
     factory.register_function<GeoFunction<StEndPoint>>();
-    factory.register_function<GeoFunction<StLineLocatePoint,DataTypeFloat64>>();
+    factory.register_function<GeoFunction<StLineLocatePoint, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StBoundary>>();
     factory.register_function<GeoFunction<StClosestPoint>>();
     factory.register_function<GeoFunction<StIntersects, DataTypeUInt8>>();
     factory.register_function<GeoFunction<StBuffer>>();
     factory.register_function<GeoFunction<StDwithin, DataTypeUInt8>>();
-    factory.register_function<GeoFunction<StDimension,DataTypeInt32>>();
+    factory.register_function<GeoFunction<StDimension, DataTypeInt32>>();
     factory.register_function<GeoFunction<StIsEmpty, DataTypeUInt8>>();
     factory.register_function<GeoFunction<StLength, DataTypeFloat64>>();
     factory.register_function<GeoFunction<StIsClosed, DataTypeUInt8>>();
@@ -1642,7 +1646,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StIsRing, DataTypeUInt8>>();
     factory.register_function<GeoFunction<StNumGeometries, DataTypeInt64>>();
     factory.register_function<GeoFunction<StNumPoints, DataTypeInt64>>();
-    factory.register_function<GeoFunction<StGeometryType,DataTypeString>>();
+    factory.register_function<GeoFunction<StGeometryType, DataTypeString>>();
     factory.register_function<GeoFunction<StCentroid>>();
 }
 

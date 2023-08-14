@@ -144,7 +144,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         } else if (expr instanceof JsonLiteral) {
             literalExpr = new JsonLiteral(value);
         } else if (expr instanceof GeometryLiteral) {
-            literalExpr = new GeometryLiteral(value.getBytes());
+            try {
+                literalExpr = new GeometryLiteral(value.getBytes("ISO-8859-1"));
+            } catch (UnsupportedEncodingException e) {
+                throw new RuntimeException("Fail to get geometry bytes");
+            }
         } else if (expr instanceof DateLiteral) {
             literalExpr = new DateLiteral(value, expr.getType());
         } else {

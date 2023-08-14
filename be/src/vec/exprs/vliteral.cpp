@@ -33,7 +33,6 @@
 #include "olap/olap_common.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/geometry_value.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/types.h"

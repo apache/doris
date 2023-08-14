@@ -35,37 +35,44 @@ class GeoJsonParse {
 public:
     static GeoParseStatus parse_geojson(std::string& geojson, GeoShape** shape);
 
-    static std::unique_ptr<GeoShape> read_geometry(rapidjson::Document& document ,GeoParseStatus& status);
+    static std::unique_ptr<GeoShape> read_geometry(rapidjson::Document& document,
+                                                   GeoParseStatus& status);
 
 private:
-    static std::unique_ptr<GeoPoint> read_point(rapidjson::Document& document ,GeoParseStatus& status);
+    static std::unique_ptr<GeoPoint> read_point(rapidjson::Document& document,
+                                                GeoParseStatus& status);
 
-    static std::unique_ptr<GeoLineString> read_linestring(rapidjson::Document& document ,GeoParseStatus& status);
+    static std::unique_ptr<GeoLineString> read_linestring(rapidjson::Document& document,
+                                                          GeoParseStatus& status);
 
-    static std::unique_ptr<GeoPolygon> read_polygon(rapidjson::Document& document ,GeoParseStatus& status);
+    static std::unique_ptr<GeoPolygon> read_polygon(rapidjson::Document& document,
+                                                    GeoParseStatus& status);
 
-    static std::unique_ptr<GeoMultiPoint> read_multi_point(rapidjson::Document& document ,GeoParseStatus& status);
+    static std::unique_ptr<GeoMultiPoint> read_multi_point(rapidjson::Document& document,
+                                                           GeoParseStatus& status);
 
-    static std::unique_ptr<GeoMultiLineString> read_multi_linestring(rapidjson::Document& document ,GeoParseStatus& status);
+    static std::unique_ptr<GeoMultiLineString> read_multi_linestring(rapidjson::Document& document,
+                                                                     GeoParseStatus& status);
 
-    static std::unique_ptr<GeoMultiPolygon> read_multi_polygon(rapidjson::Document& document ,GeoParseStatus& status);
+    static std::unique_ptr<GeoMultiPolygon> read_multi_polygon(rapidjson::Document& document,
+                                                               GeoParseStatus& status);
 
-    static std::unique_ptr<GeoCollection> read_geometry_collection(rapidjson::Document& document ,GeoParseStatus& status);
+    static std::unique_ptr<GeoCollection> read_geometry_collection(rapidjson::Document& document,
+                                                                   GeoParseStatus& status);
 
-    static std::unique_ptr<GeoCoordinateListCollections> read_coords_list_collections(rapidjson::Value& coords_array ,GeoParseStatus& status);
+    static std::unique_ptr<GeoCoordinateListCollections> read_coords_list_collections(
+            rapidjson::Value& coords_array, GeoParseStatus& status);
 
-    static std::unique_ptr<GeoCoordinateLists> read_coords_list(rapidjson::Value& coords_array ,GeoParseStatus& status);
+    static std::unique_ptr<GeoCoordinateLists> read_coords_list(rapidjson::Value& coords_array,
+                                                                GeoParseStatus& status);
 
-    static std::unique_ptr<GeoCoordinates> read_coordinates(rapidjson::Value& coords_array ,GeoParseStatus& status);
+    static std::unique_ptr<GeoCoordinates> read_coordinates(rapidjson::Value& coords_array,
+                                                            GeoParseStatus& status);
 
-    static std::unique_ptr<GeoCoordinate> read_coordinate(rapidjson::Value& coord_array ,GeoParseStatus& status);
-
-
+    static std::unique_ptr<GeoCoordinate> read_coordinate(rapidjson::Value& coord_array,
+                                                          GeoParseStatus& status);
 };
 
-}// namespace doris
-
-
-
+} // namespace doris
 
 #endif //DORIS_GEOJSON_PARSE_H

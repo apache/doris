@@ -28,8 +28,7 @@ AggregateFunctionPtr create_aggregate_function_geo(const std::string& name,
                                                    const DataTypes& argument_types,
                                                    const bool result_is_nullable) {
     if (argument_types.size() == 1) {
-        return creator_without_type::create<
-                AggregateFunctionGeo<AggregateFunctionGeoImplStr>>(
+        return creator_without_type::create<AggregateFunctionGeo<AggregateFunctionGeoImplStr>>(
                 argument_types, result_is_nullable);
     }
 

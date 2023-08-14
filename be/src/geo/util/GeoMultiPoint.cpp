@@ -21,69 +21,68 @@
 
 namespace doris {
 
-    GeoMultiPoint::GeoMultiPoint() = default;
-    GeoMultiPoint::~GeoMultiPoint() = default;
+GeoMultiPoint::GeoMultiPoint() = default;
+GeoMultiPoint::~GeoMultiPoint() = default;
 
-    GeoParseStatus GeoMultiPoint::from_coords(const GeoCoordinates& coord_list) {
-        for(int i = 0; i < coord_list.coords.size(); i++){
-            std::unique_ptr<doris::GeoPoint> point = GeoPoint::create_unique();
-            if(point->from_coord(coord_list.coords[i]) != GeoParseStatus::GEO_PARSE_OK){
-                return GEO_PARSE_COORD_INVALID;
-            }
-            geometries.emplace_back(point.release());
+GeoParseStatus GeoMultiPoint::from_coords(const GeoCoordinates& coord_list) {
+    for (int i = 0; i < coord_list.coords.size(); i++) {
+        std::unique_ptr<doris::GeoPoint> point = GeoPoint::create_unique();
+        if (point->from_coord(coord_list.coords[i]) != GeoParseStatus::GEO_PARSE_OK) {
+            return GEO_PARSE_COORD_INVALID;
         }
-        return GEO_PARSE_OK;
+        geometries.emplace_back(point.release());
     }
+    return GEO_PARSE_OK;
+}
 
-    std::unique_ptr<GeoCoordinates> GeoMultiPoint::to_coords() const {
-
-        std::unique_ptr<GeoCoordinates> coords(new GeoCoordinates());
-        for (std::size_t i = 0; i < get_num_point(); ++i) {
-            const GeoPoint* point = (const GeoPoint*) GeoCollection::get_geometries_n(i);
-            if(point->is_empty()) continue;
-            std::unique_ptr<GeoCoordinate> coord = point->to_coord();
-            coords->add(*coord);
-        }
-        return coords;
+std::unique_ptr<GeoCoordinates> GeoMultiPoint::to_coords() const {
+    std::unique_ptr<GeoCoordinates> coords(new GeoCoordinates());
+    for (std::size_t i = 0; i < get_num_point(); ++i) {
+        const GeoPoint* point = (const GeoPoint*)GeoCollection::get_geometries_n(i);
+        if (point->is_empty()) continue;
+        std::unique_ptr<GeoCoordinate> coord = point->to_coord();
+        coords->add(*coord);
     }
+    return coords;
+}
 
-    std::string GeoMultiPoint::as_wkt() const {
-        std::stringstream ss;
-        ss << "MULTIPOINT ";
+std::string GeoMultiPoint::as_wkt() const {
+    std::stringstream ss;
+    ss << "MULTIPOINT ";
 
-        if (is_empty()){
-            ss << "EMPTY";
-            return ss.str();
-        }
-        ss << "(";
-
-        for (int i = 0; i < get_num_point(); ++i) {
-            if (i != 0) {
-                ss << ", ";
-            }
-            const GeoPoint* point = (const GeoPoint*) GeoCollection::get_geometries_n(i);
-            if(point->is_empty()){
-                ss << "EMPTY";
-            } else {
-                GeoPoint::print_s2point(ss,*point->point());
-            }
-        }
-        ss << ")";
+    if (is_empty()) {
+        ss << "EMPTY";
         return ss.str();
     }
+    ss << "(";
 
-    GeoPoint* GeoMultiPoint::get_point_n(std::size_t n) const {
-        return (GeoPoint*)GeoCollection::get_geometries_n(n);
+    for (int i = 0; i < get_num_point(); ++i) {
+        if (i != 0) {
+            ss << ", ";
+        }
+        const GeoPoint* point = (const GeoPoint*)GeoCollection::get_geometries_n(i);
+        if (point->is_empty()) {
+            ss << "EMPTY";
+        } else {
+            GeoPoint::print_s2point(ss, *point->point());
+        }
     }
+    ss << ")";
+    return ss.str();
+}
 
-    bool GeoMultiPoint::contains(const GeoShape* shape) const {
-        return GeoCollection::contains(shape);
-    }
+GeoPoint* GeoMultiPoint::get_point_n(std::size_t n) const {
+    return (GeoPoint*)GeoCollection::get_geometries_n(n);
+}
 
-    std::unique_ptr<GeoShape> GeoMultiPoint::boundary() const {
-        std::unique_ptr<GeoMultiPoint> multipoint = GeoMultiPoint::create_unique();
-        multipoint->set_empty();
-        return multipoint;
-    }
+bool GeoMultiPoint::contains(const GeoShape* shape) const {
+    return GeoCollection::contains(shape);
+}
 
-}// namespace namespace doris
+std::unique_ptr<GeoShape> GeoMultiPoint::boundary() const {
+    std::unique_ptr<GeoMultiPoint> multipoint = GeoMultiPoint::create_unique();
+    multipoint->set_empty();
+    return multipoint;
+}
+
+} // namespace doris

@@ -168,7 +168,7 @@ public:
                 std::string string_temp;
                 size_t data_size = data_ref.size;
                 shape.reset(GeoShape::from_encoded(data_ref.data, data_size));
-                if(shape != nullptr ){
+                if (shape != nullptr) {
                     string_temp = shape->as_wkt();
                 }
                 ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));

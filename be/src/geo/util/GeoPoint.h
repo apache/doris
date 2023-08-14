@@ -18,8 +18,8 @@
 #ifndef DORIS_GEOPOINT_H
 #define DORIS_GEOPOINT_H
 
-#include "common/factory_creator.h"
 #include "GeoShape.h"
+#include "common/factory_creator.h"
 #include "geo/wkt_parse_type.h"
 
 template <typename T>
@@ -29,74 +29,70 @@ using S2Point = Vector3<double>;
 
 namespace doris {
 
-    class GeoPoint : public GeoShape {
-        ENABLE_FACTORY_CREATOR(GeoPoint);
+class GeoPoint : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoPoint);
 
-    public:
-        GeoPoint();
-        ~GeoPoint() override;
+public:
+    GeoPoint();
+    ~GeoPoint() override;
 
-        static void print_s2point(std::ostream& os, const S2Point& point);
+    static void print_s2point(std::ostream& os, const S2Point& point);
 
-        static GeoParseStatus to_s2point(double lng, double lat, S2Point* point);
-        static GeoParseStatus to_s2point(const GeoCoordinate& coord, S2Point* point);
+    static GeoParseStatus to_s2point(double lng, double lat, S2Point* point);
+    static GeoParseStatus to_s2point(const GeoCoordinate& coord, S2Point* point);
 
-        GeoParseStatus from_coord(double x, double y);
-        GeoParseStatus from_coord(const GeoCoordinate& point);
+    GeoParseStatus from_coord(double x, double y);
+    GeoParseStatus from_coord(const GeoCoordinate& point);
 
-        GeoParseStatus from_s2point(S2Point* point);
+    GeoParseStatus from_s2point(S2Point* point);
 
-        GeoCoordinates to_coords() const;
+    GeoCoordinates to_coords() const;
 
-        std::unique_ptr<GeoCoordinate> to_coord() const;
+    std::unique_ptr<GeoCoordinate> to_coord() const;
 
-        GeoShapeType type() const override { return GEO_SHAPE_POINT; }
+    GeoShapeType type() const override { return GEO_SHAPE_POINT; }
 
-        bool is_valid() const override;
+    bool is_valid() const override;
 
-        bool is_closed() const override { return !is_empty();}
+    bool is_closed() const override { return !is_empty(); }
 
-        [[nodiscard]] int get_dimension() const override { return 0; }
+    [[nodiscard]] int get_dimension() const override { return 0; }
 
-        [[nodiscard]] const S2Point* point() const { return _point.get(); }
+    [[nodiscard]] const S2Point* point() const { return _point.get(); }
 
-        [[nodiscard]] std::unique_ptr<S2Shape> get_s2shape() const;
+    [[nodiscard]] std::unique_ptr<S2Shape> get_s2shape() const;
 
-        bool contains(const GeoShape* rhs) const override;
+    bool contains(const GeoShape* rhs) const override;
 
-        static bool ComputeDistance(double x_lng, double x_lat, double y_lng, double y_lat,
-                                    double* distance);
+    static bool ComputeDistance(double x_lng, double x_lat, double y_lng, double y_lat,
+                                double* distance);
 
-        static bool ComputeAngleSphere(double x_lng, double x_lat, double y_lng, double y_lat,
-                                       double* angle);
-        static bool ComputeAngle(GeoPoint* p1, GeoPoint* p2, GeoPoint* p3, double* angle);
-        static bool ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle);
+    static bool ComputeAngleSphere(double x_lng, double x_lat, double y_lng, double y_lat,
+                                   double* angle);
+    static bool ComputeAngle(GeoPoint* p1, GeoPoint* p2, GeoPoint* p3, double* angle);
+    static bool ComputeAzimuth(GeoPoint* p1, GeoPoint* p2, double* angle);
 
-        std::string as_wkt() const override;
+    std::string as_wkt() const override;
 
-        [[nodiscard]] std::size_t get_num_point() const override {
-            return 1;
-        }
+    [[nodiscard]] std::size_t get_num_point() const override { return 1; }
 
-        std::unique_ptr<GeoShape> boundary() const override;
+    std::unique_ptr<GeoShape> boundary() const override;
 
-        bool add_to_s2shape_index(MutableS2ShapeIndex& S2shape_index) const override;
+    bool add_to_s2shape_index(MutableS2ShapeIndex& S2shape_index) const override;
 
-        //void add_to_s2point_index(S2PointIndex<int>& S2point_index, int i);
+    //void add_to_s2point_index(S2PointIndex<int>& S2point_index, int i);
 
-        double x() const;
-        double y() const;
+    double x() const;
+    double y() const;
 
-    protected:
-        void encode(std::string* buf, size_t& data_size) override;
-        bool decode(const void* data, size_t size) override;
+protected:
+    void encode(std::string* buf, size_t& data_size) override;
+    bool decode(const void* data, size_t size) override;
 
-    private:
-
-        std::unique_ptr<S2Point> _point;
-    };
+private:
+    std::unique_ptr<S2Point> _point;
+};
 
 } // namespace doris
-
 
 #endif //DORIS_GEOPOINT_H

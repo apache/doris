@@ -18,37 +18,34 @@
 #ifndef DORIS_GEOMULTIPOINT_H
 #define DORIS_GEOMULTIPOINT_H
 
-#include "common/factory_creator.h"
 #include "GeoCollection.h"
+#include "common/factory_creator.h"
 
 namespace doris {
-    class GeoMultiPoint : public GeoCollection{
+class GeoMultiPoint : public GeoCollection {
     ENABLE_FACTORY_CREATOR(GeoMultiPoint);
-    public:
 
-        GeoMultiPoint();
-        ~GeoMultiPoint() override;
+public:
+    GeoMultiPoint();
+    ~GeoMultiPoint() override;
 
-        GeoShapeType type() const override { return GEO_SHAPE_MULTI_POINT; }
+    GeoShapeType type() const override { return GEO_SHAPE_MULTI_POINT; }
 
-        [[nodiscard]] int get_dimension() const override { return 0; }
+    [[nodiscard]] int get_dimension() const override { return 0; }
 
-        GeoParseStatus from_coords(const GeoCoordinates& list);
+    GeoParseStatus from_coords(const GeoCoordinates& list);
 
-        std::unique_ptr<GeoCoordinates>  to_coords() const;
+    std::unique_ptr<GeoCoordinates> to_coords() const;
 
-        std::string as_wkt() const override;
+    std::string as_wkt() const override;
 
-        GeoPoint* get_point_n(std::size_t n) const ;
+    GeoPoint* get_point_n(std::size_t n) const;
 
-        bool contains(const GeoShape* shape) const override;
+    bool contains(const GeoShape* shape) const override;
 
-        std::unique_ptr<GeoShape> boundary() const override;
+    std::unique_ptr<GeoShape> boundary() const override;
+};
 
-    };
-
-}// namespace namespace doris
-
-
+} // namespace doris
 
 #endif //DORIS_GEOMULTIPOINT_H

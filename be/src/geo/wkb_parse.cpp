@@ -24,16 +24,16 @@
 
 #include "geo/ByteOrderDataInStream.h"
 #include "geo/ByteOrderValues.h"
-#include "util/GeoShape.h"
-#include "util/GeoPoint.h"
-#include "util/GeoLineString.h"
-#include "util/GeoPolygon.h"
-#include "util/GeoMultiPoint.h"
-#include "util/GeoMultiLineString.h"
-#include "util/GeoCollection.h"
-#include "util/GeoMultiPolygon.h"
 #include "geo/wkb_parse_ctx.h"
 #include "geo_tobinary_type.h"
+#include "util/GeoCollection.h"
+#include "util/GeoLineString.h"
+#include "util/GeoMultiLineString.h"
+#include "util/GeoMultiPoint.h"
+#include "util/GeoMultiPolygon.h"
+#include "util/GeoPoint.h"
+#include "util/GeoPolygon.h"
+#include "util/GeoShape.h"
 
 namespace doris {
 
@@ -188,12 +188,11 @@ std::unique_ptr<GeoShape> WkbParse::readGeometry(WkbParseContext* ctx) {
 }
 
 std::unique_ptr<GeoPoint> WkbParse::readPoint(WkbParseContext* ctx) {
-
     std::unique_ptr<GeoPoint> point = GeoPoint::create_unique();
 
     GeoCoordinates coords = WkbParse::readCoordinateList(1, ctx);
     //POINT EMPTY WKB representation
-    if(std::isnan(coords.coords[0].x) && std::isnan(coords.coords[0].y)){
+    if (std::isnan(coords.coords[0].x) && std::isnan(coords.coords[0].y)) {
         point->set_empty();
         return point;
     }
@@ -210,7 +209,7 @@ std::unique_ptr<GeoLineString> WkbParse::readLine(WkbParseContext* ctx) {
     uint32_t size = ctx->dis.readUnsigned();
 
     //LINESTRING EMPTY
-    if(size == 0){
+    if (size == 0) {
         linestring->set_empty();
         return linestring;
     }
@@ -229,7 +228,7 @@ std::unique_ptr<GeoPolygon> WkbParse::readPolygon(WkbParseContext* ctx) {
     uint32_t num_loops = ctx->dis.readUnsigned();
 
     //POLYGON EMPTY
-    if(num_loops == 0){
+    if (num_loops == 0) {
         polygon->set_empty();
         return polygon;
     }
@@ -249,77 +248,77 @@ std::unique_ptr<GeoPolygon> WkbParse::readPolygon(WkbParseContext* ctx) {
     }
 }
 
-std::unique_ptr<GeoMultiPoint> WkbParse::readMultiPoint(WkbParseContext *ctx) {
+std::unique_ptr<GeoMultiPoint> WkbParse::readMultiPoint(WkbParseContext* ctx) {
     std::unique_ptr<GeoMultiPoint> multi_point = GeoMultiPoint::create_unique();
     uint32_t num_points = ctx->dis.readUnsigned();
 
     //MULTIPOINT EMPTY
-    if(num_points == 0){
+    if (num_points == 0) {
         multi_point->set_empty();
         return multi_point;
     }
     minMemSize(wkbMultiPoint, num_points, ctx);
-    for(uint32_t i = 0; i < num_points; i++) {
+    for (uint32_t i = 0; i < num_points; i++) {
         auto status = multi_point->add_one_geometry(readGeometry(ctx).release());
-        if(status != GEO_PARSE_OK){
+        if (status != GEO_PARSE_OK) {
             return nullptr;
         }
     }
     return multi_point;
 }
 
-std::unique_ptr<GeoMultiLineString> WkbParse::readMultiLineString(WkbParseContext* ctx){
+std::unique_ptr<GeoMultiLineString> WkbParse::readMultiLineString(WkbParseContext* ctx) {
     std::unique_ptr<GeoMultiLineString> multi_linestring = GeoMultiLineString::create_unique();
     uint32_t num_linestring = ctx->dis.readUnsigned();
 
     //MULTILINESTRING EMPTY
-    if(num_linestring == 0){
+    if (num_linestring == 0) {
         multi_linestring->set_empty();
         return multi_linestring;
     }
     minMemSize(wkbMultiLineString, num_linestring, ctx);
-    for(uint32_t i = 0; i < num_linestring; i++) {
+    for (uint32_t i = 0; i < num_linestring; i++) {
         auto status = multi_linestring->add_one_geometry(readGeometry(ctx).release());
-        if(status != GEO_PARSE_OK){
+        if (status != GEO_PARSE_OK) {
             return nullptr;
         }
     }
     return multi_linestring;
 }
 
-std::unique_ptr<GeoMultiPolygon> WkbParse::readMultiPolygon(WkbParseContext* ctx){
+std::unique_ptr<GeoMultiPolygon> WkbParse::readMultiPolygon(WkbParseContext* ctx) {
     std::unique_ptr<GeoMultiPolygon> multi_polygon = GeoMultiPolygon::create_unique();
     uint32_t num_polygon = ctx->dis.readUnsigned();
 
     //MULTIPOLYGON EMPTY
-    if(num_polygon == 0){
+    if (num_polygon == 0) {
         multi_polygon->set_empty();
         return multi_polygon;
     }
     minMemSize(wkbMultiPolygon, num_polygon, ctx);
 
-    for(uint32_t i = 0; i < num_polygon; i++) {
+    for (uint32_t i = 0; i < num_polygon; i++) {
         auto status = multi_polygon->add_one_geometry(readGeometry(ctx).release());
-        if(status != GEO_PARSE_OK){
+        if (status != GEO_PARSE_OK) {
             return nullptr;
         }
     }
     return multi_polygon;
 }
 
-std::unique_ptr<GeoCollection> WkbParse::read_geometry_collection(WkbParseContext* ctx){
+std::unique_ptr<GeoCollection> WkbParse::read_geometry_collection(WkbParseContext* ctx) {
     std::unique_ptr<GeoCollection> collection = GeoCollection::create_unique();
     uint32_t num_geometry = ctx->dis.readUnsigned();
 
     //GEOMETRYCOLLECTION EMPTY
-    if(num_geometry == 0){
+    if (num_geometry == 0) {
         collection->set_empty();
         return collection;
     }
     minMemSize(wkbGeometryCollection, num_geometry, ctx);
-    for(uint32_t i = 0; i < num_geometry; i++) {
+    for (uint32_t i = 0; i < num_geometry; i++) {
         auto status = collection->add_one_geometry(readGeometry(ctx).release());
-        if(status != GEO_PARSE_OK){
+        if (status != GEO_PARSE_OK) {
             return nullptr;
         }
     }
@@ -343,10 +342,10 @@ GeoCoordinates WkbParse::readCoordinateList(unsigned size, WkbParseContext* ctx)
 GeoParseStatus WkbParse::minMemSize(int wkbType, uint64_t size, WkbParseContext* ctx) {
     uint64_t minSize = 0;
     constexpr uint64_t minCoordSize = 2 * sizeof(double);
-    constexpr uint64_t minPtSize = (1+4) + minCoordSize;
-    constexpr uint64_t minLineSize = (1+4+4); // empty line
-    constexpr uint64_t minLoopSize = 4; // empty loop
-    constexpr uint64_t minPolySize = (1+4+4); // empty polygon
+    constexpr uint64_t minPtSize = (1 + 4) + minCoordSize;
+    constexpr uint64_t minLineSize = (1 + 4 + 4); // empty line
+    constexpr uint64_t minLoopSize = 4;           // empty loop
+    constexpr uint64_t minPolySize = (1 + 4 + 4); // empty polygon
     constexpr uint64_t minGeomSize = minLineSize;
 
     switch (wkbType) {

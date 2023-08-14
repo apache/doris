@@ -18,43 +18,40 @@
 #ifndef DORIS_GEOCIRCLE_H
 #define DORIS_GEOCIRCLE_H
 
-#include "common/factory_creator.h"
-#include "GeoShape.h"
 #include "GeoPoint.h"
+#include "GeoShape.h"
+#include "common/factory_creator.h"
 
 class S2Cap;
 
 namespace doris {
-    class GeoCircle : public GeoShape{
+class GeoCircle : public GeoShape {
     ENABLE_FACTORY_CREATOR(GeoCircle);
 
-    public:
-        GeoCircle();
-        ~GeoCircle() override;
+public:
+    GeoCircle();
+    ~GeoCircle() override;
 
-        GeoParseStatus to_s2cap(double lng, double lat, double radius);
+    GeoParseStatus to_s2cap(double lng, double lat, double radius);
 
-        GeoShapeType type() const override { return GEO_SHAPE_CIRCLE; }
+    GeoShapeType type() const override { return GEO_SHAPE_CIRCLE; }
 
-        [[nodiscard]] int get_dimension() const override { return 2; }
+    [[nodiscard]] int get_dimension() const override { return 2; }
 
-        bool contains(const GeoShape* rhs) const override;
-        std::string as_wkt() const override;
+    bool contains(const GeoShape* rhs) const override;
+    std::string as_wkt() const override;
 
-        double get_area() const;
+    double get_area() const;
 
-        std::unique_ptr<GeoShape> boundary() const override;
+    std::unique_ptr<GeoShape> boundary() const override;
 
-    protected:
-        void encode(std::string* buf, size_t& data_size) override;
-        bool decode(const void* data, size_t size) override;
+protected:
+    void encode(std::string* buf, size_t& data_size) override;
+    bool decode(const void* data, size_t size) override;
 
-    private:
-        std::unique_ptr<S2Cap> _cap;
-
-    };
-}
-
-
+private:
+    std::unique_ptr<S2Cap> _cap;
+};
+} // namespace doris
 
 #endif //DORIS_GEOCIRCLE_H

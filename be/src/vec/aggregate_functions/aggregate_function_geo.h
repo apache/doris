@@ -21,6 +21,10 @@
 #include <memory>
 #include <string>
 
+#include "geo/util/GeoCollection.h"
+#include "geo/util/GeoMultiPoint.h"
+#include "geo/util/GeoPoint.h"
+#include "geo/util/GeoShape.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_string.h"
@@ -29,24 +33,17 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
 
-
-#include "geo/util/GeoShape.h"
-#include "geo/util/GeoPoint.h"
-#include "geo/util/GeoMultiPoint.h"
-#include "geo/util/GeoCollection.h"
-
-
 namespace doris {
 namespace vectorized {
-    class Arena;
-    class BufferReadable;
-    class BufferWritable;
-    template <typename T>
-    class ColumnDecimal;
-    template <typename T>
-    class DataTypeNumber;
-    template <typename>
-    class ColumnVector;
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename T>
+class ColumnDecimal;
+template <typename T>
+class DataTypeNumber;
+template <typename>
+class ColumnVector;
 } // namespace vectorized
 } // namespace doris
 
@@ -78,21 +75,18 @@ struct AggregateFunctionGeoData {
         std::string data;
         read_binary(data, buf);
         size_t size = data.size();
-        collection->from_encoded(data.data(),size);
+        collection->from_encoded(data.data(), size);
     }
 
-    //这里会有内存copy，需要优化
     const std::string get() const {
         std::string data;
-        //这里应该先to_homogenize
+        //should to_homogenize
         //collection->to_homogenize()->encode_to(&data);
         collection->encode_to(&data);
         return data;
     }
 
-    void reset() {
-        collection.reset(GeoCollection::create_unique().release());
-    }
+    void reset() { collection.reset(GeoCollection::create_unique().release()); }
 };
 
 struct AggregateFunctionGeoImplStr {
@@ -103,13 +97,12 @@ struct AggregateFunctionGeoImplStr {
 };
 
 template <typename Impl>
-class AggregateFunctionGeo final
-        : public IAggregateFunctionDataHelper<AggregateFunctionGeoData,
-                AggregateFunctionGeo<Impl>> {
+class AggregateFunctionGeo final : public IAggregateFunctionDataHelper<AggregateFunctionGeoData,
+                                                                       AggregateFunctionGeo<Impl>> {
 public:
     AggregateFunctionGeo(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionGeoData,
-            AggregateFunctionGeo<Impl>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<AggregateFunctionGeoData, AggregateFunctionGeo<Impl>>(
+                      argument_types_) {}
 
     String get_name() const override { return "st_collect"; }
 
@@ -143,5 +136,3 @@ public:
 };
 
 } // namespace doris::vectorized
-
-
