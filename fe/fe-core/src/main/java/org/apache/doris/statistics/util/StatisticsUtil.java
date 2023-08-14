@@ -576,6 +576,7 @@ public class StatisticsUtil {
         }
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
+        String bindBrokerName = table.getCatalog().bindBrokerName();
         List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
         HiveMetaStoreCache.HivePartitionValues partitionValues = null;
         List<HivePartition> hivePartitions = Lists.newArrayList();
@@ -617,7 +618,7 @@ public class StatisticsUtil {
         }
         // Get files for all partitions.
         List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitionsWithoutCache(
-                hivePartitions, true);
+                hivePartitions, true, bindBrokerName);
         long totalSize = 0;
         // Calculate the total file size.
         for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
