@@ -215,7 +215,8 @@ private:
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _close_writer_timer = nullptr;
-    RuntimeProfile::Counter* _close_load_timer = nullptr;
+    RuntimeProfile::Counter* _close_load_send_timer = nullptr;
+    RuntimeProfile::Counter* _close_load_wait_timer = nullptr;
     RuntimeProfile::Counter* _close_stream_timer = nullptr;
     RuntimeProfile::Counter* _non_blocking_send_timer = nullptr;
     RuntimeProfile::Counter* _non_blocking_send_work_timer = nullptr;
