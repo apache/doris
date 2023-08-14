@@ -380,15 +380,7 @@ struct Decimal {
         return *this;
     }
 
-    bool operator<(const Decimal<T>& x) const { return value < x.value; }
-
-    bool operator<=(const Decimal<T>& x) const { return value <= x.value; }
-
-    bool operator==(const Decimal<T>& x) const { return value == x.value; }
-
-    bool operator>(const Decimal<T>& x) const { return value > x.value; }
-
-    bool operator>=(const Decimal<T>& x) const { return value >= x.value; }
+    bool operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
 
     static constexpr int max_string_length() {
         constexpr auto precision =
