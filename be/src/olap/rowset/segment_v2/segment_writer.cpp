@@ -377,7 +377,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         delete_sign_column != nullptr) {
         auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
-        if (delete_sign_col.size() == num_rows) {
+        if (delete_sign_col.size() == row_pos + num_rows) {
             delete_sign_column_data = delete_sign_col.get_data().data();
         }
     }
@@ -442,7 +442,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         // if the delete sign is marked, it means that the value columns of the row
         // will not be read. So we don't need to read the missing values from the previous rows.
         // But we still need to mark the previous row on delete bitmap
-        if (delete_sign_column_data != nullptr && delete_sign_column_data[delta_pos] != 0) {
+        if (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0) {
             has_default_or_nullable = true;
             use_default_or_null_flag.emplace_back(true);
         } else {
