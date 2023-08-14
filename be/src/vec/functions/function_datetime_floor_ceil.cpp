@@ -494,7 +494,7 @@ struct TimeRound {
     static constexpr uint64_t MASK_SECOND_FLOOR =
             0b1111111111111111111111111111111111111111111100000000000000000000;
 
-    static constexpr bool use_Optimize_floor =
+    static constexpr bool USE_OPTIMIZE_FLOOR =
             Impl::Unit == DAY || Impl::Unit == HOUR || Impl::Unit == MINUTE || Impl::Unit == SECOND;
     template <typename NativeType, typename DateValueType>
     static void datetimev2_floor(const DateValueType& ts2, DateValueType& ts1) {
@@ -517,7 +517,7 @@ struct TimeRound {
     static void time_round(const DateValueType& ts2, DateValueType& ts1, UInt8& is_null) {
         static_assert(Impl::Unit != WEEK);
         if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>> &&
-                      Impl::Type == FLOOR && use_Optimize_floor) {
+                      Impl::Type == FLOOR && USE_OPTIMIZE_FLOOR) {
             datetimev2_floor<NativeType, DateValueType>(ts2, ts1);
             is_null = false;
             return;
