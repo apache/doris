@@ -100,11 +100,6 @@ constexpr bool is_int_or_bool(PrimitiveType type) {
            type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_LARGEINT;
 }
 
-constexpr bool has_variable_type(PrimitiveType type) {
-    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_OBJECT ||
-           type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
-}
-
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
 
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
@@ -289,22 +284,27 @@ struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
     using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
 };
 
-template <PrimitiveType type>
-concept HaveCppType = requires() { PrimitiveTypeTraits<type>::CppType; };
+template <typename Traits>
+concept HaveCppType = requires() { sizeof(typename Traits::CppType); };
 
-template <PrimitiveType type>
+template <PrimitiveNative type>
 struct PrimitiveTypeSizeReducer {
-    static void run(size_t& size) {
-        if constexpr (HaveCppType<type>) {
-            size = sizeof(VecPrimitiveTypeTraits<type>::CppType);
-        }
+    template <HaveCppType Traits>
+    static size_t get_size() {
+        return sizeof(typename Traits::CppType);
     }
+    template <typename Traits>
+    static size_t get_size() {
+        return 0;
+    }
+
+    static void run(size_t& size) { size = get_size<PrimitiveTypeTraits<PrimitiveType(type)>>(); }
 };
 
 inline size_t get_primitive_type_size(PrimitiveType t) {
     size_t size = 0;
-    vectorized::constexpr_loop_match<PrimitiveType, BEGIN_OF_PRIMITIVE_TYPE, END_OF_PRIMITIVE_TYPE,
-                                     PrimitiveTypeSizeReducer>::run(t, size);
+    vectorized::constexpr_loop_match<PrimitiveNative, BEGIN_OF_PRIMITIVE_TYPE,
+                                     END_OF_PRIMITIVE_TYPE, PrimitiveTypeSizeReducer>::run(t, size);
     return size;
 }
 

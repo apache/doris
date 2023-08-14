@@ -30,10 +30,8 @@ struct constexpr_loop_match {
             if (start == target) {
                 Reducer<start>::run(std::forward<TArgs>(args)...);
             } else {
-                if constexpr (start < std::numeric_limits<LoopType>::max()) {
-                    constexpr_loop_match<LoopType, start + 1, end, Reducer>::run(
-                            target, std::forward<TArgs>(args)...);
-                }
+                constexpr_loop_match<LoopType, start + 1, end, Reducer>::run(
+                        target, std::forward<TArgs>(args)...);
             }
         }
     }

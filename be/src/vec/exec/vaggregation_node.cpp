@@ -236,7 +236,7 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
             t = Type::serialized;
         }
 
-        _agg_data->init(AggregatedDataVariants::get_type(t, !_is_first_phase), is_nullable);
+        _agg_data->init(get_hash_key_type_with_phase(t, !_is_first_phase), is_nullable);
     } else {
         bool use_fixed_key = true;
         bool has_null = false;
@@ -277,7 +277,7 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
             } else {
                 t = Type::int256_keys;
             }
-            _agg_data->init(AggregatedDataVariants::get_type(t, !_is_first_phase), has_null);
+            _agg_data->init(get_hash_key_type_with_phase(t, !_is_first_phase), has_null);
         } else {
             _agg_data->init(Type::serialized);
         }
@@ -406,7 +406,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                              _align_aggregate_states) *
                                     _align_aggregate_states));
                 },
-                _agg_data->_aggregated_method_variant);
+                _agg_data->method_variant);
         if (_is_merge) {
             _executor.execute = std::bind<Status>(&AggregationNode::_merge_with_serialized_key,
                                                   this, std::placeholders::_1);
@@ -585,7 +585,7 @@ void AggregationNode::release_resource(RuntimeState* state) {
                 [&](auto&& agg_method) {
                     COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.data.size()));
                 },
-                _agg_data->_aggregated_method_variant);
+                _agg_data->method_variant);
     }
     _release_mem();
     ExecNode::release_resource(state);
@@ -827,7 +827,7 @@ bool AggregationNode::_should_expand_preagg_hash_tables() {
                 _should_expand_hash_table = current_reduction > min_reduction;
                 return _should_expand_hash_table;
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 size_t AggregationNode::_memory_usage() const {
@@ -841,7 +841,7 @@ size_t AggregationNode::_memory_usage() const {
                 }
                 usage += agg_method.data.get_buffer_size_in_bytes();
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 
     if (_agg_arena_pool) {
         usage += _agg_arena_pool->size();
@@ -882,12 +882,12 @@ Status AggregationNode::_reset_hash_table() {
                 _agg_arena_pool.reset(new Arena);
                 return Status::OK();
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 size_t AggregationNode::_get_hash_table_size() {
     return std::visit([&](auto&& agg_method) { return agg_method.data.size(); },
-                      _agg_data->_aggregated_method_variant);
+                      _agg_data->method_variant);
 }
 
 void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
@@ -968,7 +968,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
 
                 COUNTER_UPDATE(_hash_table_input_counter, num_rows);
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
@@ -1022,7 +1022,7 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                     }
                 }
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
@@ -1124,7 +1124,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                 }
                 return Status::OK();
             },
-            _agg_data->_aggregated_method_variant));
+            _agg_data->method_variant));
 
     if (!ret_flag) {
         RETURN_IF_CATCH_EXCEPTION(_emplace_into_hash_table(_places.data(), key_columns, rows));
@@ -1316,7 +1316,7 @@ Status AggregationNode::_try_spill_disk(bool eos) {
                 RETURN_IF_ERROR(_spill_hash_table(agg_method, hash_table));
                 return _reset_hash_table();
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 Status AggregationNode::_execute_with_serialized_key(Block* block) {
@@ -1461,7 +1461,7 @@ Status AggregationNode::_get_result_with_serialized_key_non_spill(RuntimeState* 
                     }
                 }
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 
     if (!mem_reuse) {
         *block = columns_with_schema;
@@ -1598,7 +1598,7 @@ Status AggregationNode::_serialize_with_serialized_key_result_non_spill(RuntimeS
                     }
                 }
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 
     if (!mem_reuse) {
         ColumnsWithTypeAndName columns_with_schema;
@@ -1641,7 +1641,7 @@ void AggregationNode::_update_memusage_with_serialized_key() {
                 _mem_usage_record.used_in_arena =
                         _agg_arena_pool->size() + _aggregate_data_container->memory_usage();
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 void AggregationNode::_close_with_serialized_key() {
@@ -1658,7 +1658,7 @@ void AggregationNode::_close_with_serialized_key() {
                     _destroy_agg_status(data.get_null_key_data());
                 }
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
     release_tracker();
 }
 

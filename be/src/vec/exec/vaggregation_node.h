@@ -51,6 +51,7 @@
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
 #include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_map_util.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
@@ -222,7 +223,7 @@ struct AggregationMethodStringNoCache {
 
 /// For the case where there is one numeric key.
 /// FieldType is UInt8/16/32/64 for any type with corresponding bit width.
-template <typename FieldType, typename TData, bool consecutive_keys_optimization = false>
+template <typename FieldType, typename TData>
 struct AggregationMethodOneNumber {
     using Data = TData;
     using Key = typename Data::key_type;
@@ -240,7 +241,7 @@ struct AggregationMethodOneNumber {
 
     /// To use one `Method` in different threads, use different `State`.
     using State = ColumnsHashing::HashMethodOneNumber<typename Data::value_type, Mapped, FieldType,
-                                                      consecutive_keys_optimization>;
+                                                      false>;
 
     static void insert_keys_into_columns(std::vector<Key>& keys, MutableColumns& key_columns,
                                          const size_t num_rows, const Sizes&) {
@@ -482,152 +483,84 @@ using AggregatedMethodVariants = std::variant<
         AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, false>,
         AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, true>>;
 
-enum class HashKeyType {
-    EMPTY = 0,
-    without_key,
-    serialized,
-    int8_key,
-    int16_key,
-    int32_key,
-    int32_key_phase2,
-    int64_key,
-    int64_key_phase2,
-    int128_key,
-    int128_key_phase2,
-    int64_keys,
-    int64_keys_phase2,
-    int128_keys,
-    int128_keys_phase2,
-    int256_keys,
-    int256_keys_phase2,
-    string_key,
-    int136_keys,
-    int136_keys_phase2,
-};
-
-struct AggregatedDataVariants {
-    AggregatedDataVariants() = default;
-    AggregatedDataVariants(const AggregatedDataVariants&) = delete;
-    AggregatedDataVariants& operator=(const AggregatedDataVariants&) = delete;
+struct AggregatedDataVariants
+        : public DataVariants<AggregatedMethodVariants, AggregationMethodSingleNullableColumn,
+                              AggregationMethodOneNumber, AggregationMethodKeysFixed,
+                              AggregationDataWithNullKey> {
     AggregatedDataWithoutKey without_key = nullptr;
-    AggregatedMethodVariants _aggregated_method_variant;
 
-    using Type = HashKeyType;
-
-    constexpr static Type get_type(Type t, bool phase2) {
-        if (!phase2) {
-            return t;
-        }
-        if (t == Type::int32_key) {
-            return Type::int32_key_phase2;
-        }
-        if (t == Type::int64_key) {
-            return Type::int64_key_phase2;
-        }
-        if (t == Type::int128_keys) {
-            return Type::int128_keys_phase2;
-        }
-        if (t == Type::int136_keys) {
-            return Type::int136_keys_phase2;
-        }
-        if (t == Type::int256_keys) {
-            return Type::int256_keys_phase2;
-        }
-        return t;
-    }
-
-    Type _type = Type::EMPTY;
-
-    template <typename T, typename TT, bool is_nullable>
-    void emplace_single() {
-        if (is_nullable) {
-            _aggregated_method_variant.emplace<AggregationMethodSingleNullableColumn<
-                    AggregationMethodOneNumber<T, AggregationDataWithNullKey<TT>>>>();
-        } else {
-            _aggregated_method_variant.emplace<AggregationMethodOneNumber<T, TT>>();
-        }
-    }
-
-    template <bool is_nullable>
+    template <bool nullable>
     void init(Type type) {
         _type = type;
         switch (_type) {
         case Type::without_key:
             break;
         case Type::serialized:
-            _aggregated_method_variant
-                    .emplace<AggregationMethodSerialized<AggregatedDataWithStringKey>>();
+            method_variant.emplace<AggregationMethodSerialized<AggregatedDataWithStringKey>>();
             break;
         case Type::int8_key:
-            emplace_single<UInt8, AggregatedDataWithUInt8Key, is_nullable>();
+            emplace_single<UInt8, AggregatedDataWithUInt8Key, nullable>();
             break;
         case Type::int16_key:
-            emplace_single<UInt16, AggregatedDataWithUInt16Key, is_nullable>();
+            emplace_single<UInt16, AggregatedDataWithUInt16Key, nullable>();
             break;
         case Type::int32_key:
-            emplace_single<UInt32, AggregatedDataWithUInt32Key, is_nullable>();
+            emplace_single<UInt32, AggregatedDataWithUInt32Key, nullable>();
             break;
         case Type::int32_key_phase2:
-            emplace_single<UInt32, AggregatedDataWithUInt32KeyPhase2, is_nullable>();
+            emplace_single<UInt32, AggregatedDataWithUInt32KeyPhase2, nullable>();
             break;
         case Type::int64_key:
-            emplace_single<UInt64, AggregatedDataWithUInt64Key, is_nullable>();
+            emplace_single<UInt64, AggregatedDataWithUInt64Key, nullable>();
             break;
         case Type::int64_key_phase2:
-            emplace_single<UInt64, AggregatedDataWithUInt64KeyPhase2, is_nullable>();
+            emplace_single<UInt64, AggregatedDataWithUInt64KeyPhase2, nullable>();
             break;
         case Type::int128_key:
-            emplace_single<UInt128, AggregatedDataWithUInt128Key, is_nullable>();
+            emplace_single<UInt128, AggregatedDataWithUInt128Key, nullable>();
             break;
         case Type::int128_key_phase2:
-            emplace_single<UInt128, AggregatedDataWithUInt128KeyPhase2, is_nullable>();
+            emplace_single<UInt128, AggregatedDataWithUInt128KeyPhase2, nullable>();
             break;
         case Type::int64_keys:
-            _aggregated_method_variant.emplace<
-                    AggregationMethodKeysFixed<AggregatedDataWithUInt64Key, is_nullable>>();
+            emplace_fixed<AggregatedDataWithUInt64Key, nullable>();
             break;
         case Type::int64_keys_phase2:
-            _aggregated_method_variant.emplace<
-                    AggregationMethodKeysFixed<AggregatedDataWithUInt64KeyPhase2, is_nullable>>();
+            emplace_fixed<AggregatedDataWithUInt64KeyPhase2, nullable>();
             break;
         case Type::int128_keys:
-            _aggregated_method_variant.emplace<
-                    AggregationMethodKeysFixed<AggregatedDataWithUInt128Key, is_nullable>>();
+            emplace_fixed<AggregatedDataWithUInt128Key, nullable>();
             break;
         case Type::int128_keys_phase2:
-            _aggregated_method_variant.emplace<
-                    AggregationMethodKeysFixed<AggregatedDataWithUInt128KeyPhase2, is_nullable>>();
+            emplace_fixed<AggregatedDataWithUInt128KeyPhase2, nullable>();
+            break;
+        case Type::int136_keys:
+            emplace_fixed<AggregatedDataWithUInt136Key, nullable>();
+            break;
+        case Type::int136_keys_phase2:
+            emplace_fixed<AggregatedDataWithUInt136KeyPhase2, nullable>();
             break;
         case Type::int256_keys:
-            _aggregated_method_variant.emplace<
-                    AggregationMethodKeysFixed<AggregatedDataWithUInt256Key, is_nullable>>();
+            emplace_fixed<AggregatedDataWithUInt256Key, nullable>();
             break;
         case Type::int256_keys_phase2:
-            _aggregated_method_variant.emplace<
-                    AggregationMethodKeysFixed<AggregatedDataWithUInt256KeyPhase2, is_nullable>>();
+            emplace_fixed<AggregatedDataWithUInt256KeyPhase2, nullable>();
             break;
         case Type::string_key:
-            if (is_nullable) {
-                _aggregated_method_variant.emplace<
+            if (nullable) {
+                method_variant.emplace<
                         AggregationMethodSingleNullableColumn<AggregationMethodStringNoCache<
                                 AggregatedDataWithNullableShortStringKey>>>();
             } else {
-                _aggregated_method_variant.emplace<
+                method_variant.emplace<
                         AggregationMethodStringNoCache<AggregatedDataWithShortStringKey>>();
             }
-            break;
-        case Type::int136_keys:
-            _aggregated_method_variant.emplace<
-                    AggregationMethodKeysFixed<AggregatedDataWithUInt136Key, is_nullable>>();
-            break;
-        case Type::int136_keys_phase2:
-            _aggregated_method_variant.emplace<
-                    AggregationMethodKeysFixed<AggregatedDataWithUInt136KeyPhase2, is_nullable>>();
             break;
         default:
             throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid key type, type={}", type);
         }
     }
+
     void init(Type type, bool is_nullable = false) {
         if (is_nullable) {
             init<true>(type);
