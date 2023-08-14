@@ -248,7 +248,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _close_writer_timer = ADD_CHILD_TIMER(_profile, "CloseWriterTime", "CloseWaitTime");
-    _close_load_timer = ADD_CHILD_TIMER(_profile, "CloseLoadTime", "CloseWaitTime");
+    _close_load_send_timer = ADD_CHILD_TIMER(_profile, "CloseLoadSendTime", "CloseWaitTime");
+    _close_load_wait_timer = ADD_CHILD_TIMER(_profile, "CloseLoadWaitTime", "CloseWaitTime");
     _close_stream_timer = ADD_CHILD_TIMER(_profile, "CloseStreamTime", "CloseWaitTime");
     _non_blocking_send_timer = ADD_TIMER(_profile, "NonBlockingSendTime");
     _non_blocking_send_work_timer =
@@ -538,14 +539,17 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         }
 
         {
-            SCOPED_TIMER(_close_load_timer);
+            SCOPED_TIMER(_close_load_send_timer);
             // send CLOSE_LOAD to all streams, return ERROR if any
             RETURN_IF_ERROR(std::transform_reduce(
                     std::execution::par_unseq, std::begin(*_node_id_for_stream),
                     std::end(*_node_id_for_stream), Status::OK(),
                     [](Status& left, Status&& right) { return left.ok() ? right : left; },
                     [this](auto&& entry) { return _close_load(entry.first); }));
+        }
 
+        {
+            SCOPED_TIMER(_close_load_wait_timer);
             while (_pending_reports.load() > 0) {
                 // TODO: use a better wait
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
