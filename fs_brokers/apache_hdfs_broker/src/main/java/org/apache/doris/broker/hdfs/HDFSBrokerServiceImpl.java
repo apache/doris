@@ -87,6 +87,30 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
     }
 
     @Override
+    public TBrokerListResponse listLocatedFiles(TBrokerListPathRequest request)
+            throws TException {
+        logger.info("received a listLocatedFiles request, request detail: " + request);
+        TBrokerListResponse response = new TBrokerListResponse();
+        try {
+            boolean recursive = request.isRecursive();
+            boolean onlyFiles = false;
+            if (request.isSetOnlyFiles()) {
+                onlyFiles = request.isOnlyFiles;
+            }
+            List<TBrokerFileStatus> fileStatuses = fileSystemManager.listLocatedFiles(request.path,
+                onlyFiles, recursive, request.properties);
+            response.setOpStatus(generateOKStatus());
+            response.setFiles(fileStatuses);
+            return response;
+        } catch (BrokerException e) {
+            logger.warn("failed to list path: " + request.path, e);
+            TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
+            response.setOpStatus(errorStatus);
+            return response;
+        }
+    }
+
+    @Override
     public TBrokerOperationStatus deletePath(TBrokerDeletePathRequest request)
             throws TException {
         logger.info("receive a delete path request, request detail: " + request);

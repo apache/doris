@@ -97,6 +97,7 @@ struct TBrokerListPathRequest {
     3: required bool isRecursive;
     4: required map<string,string> properties;
     5: optional bool fileNameOnly;
+    6: optional bool onlyFiles;
 }
 
 struct TBrokerDeletePathRequest {
@@ -184,6 +185,10 @@ service TPaloBrokerService {
     
     // return a list of files under a path
     TBrokerListResponse listPath(1: TBrokerListPathRequest request);
+
+    // return located files of a given path. A broker implementation refers to
+    // 'org.apache.doris.fs.remote.RemoteFileSystem#listLocatedFiles' in fe-core.
+    TBrokerListResponse listLocatedFiles(1: TBrokerListPathRequest request);
     
     // delete a file, if the deletion of the file fails, the status code will return an error message
     // input:

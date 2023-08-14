@@ -56,9 +56,11 @@ public class FileSystemFactory {
         }
     }
 
-    public static Pair<FileSystemType, String> getFSIdentity(String location) {
+    public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
         FileSystemType fsType;
-        if (S3Util.isObjStorage(location)) {
+        if (bindBrokerName != null) {
+            fsType = FileSystemType.BROKER;
+        } else if (S3Util.isObjStorage(location)) {
             if (S3Util.isHdfsOnOssEndpoint(location)) {
                 // if hdfs service is enabled on oss, use hdfs lib to access oss.
                 fsType = FileSystemType.DFS;
@@ -81,9 +83,13 @@ public class FileSystemFactory {
         return Pair.of(fsType, fsIdent);
     }
 
-    public static RemoteFileSystem getByType(FileSystemType type, Configuration conf) {
+    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type,Configuration conf,
+                                                       String bindBrokerName) {
         Map<String, String> properties = new HashMap<>();
         conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
+        if (bindBrokerName != null) {
+            return new BrokerFileSystem(bindBrokerName, properties);
+        }
         switch (type) {
             case S3:
                 return new S3FileSystem(properties);
