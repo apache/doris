@@ -1117,6 +1117,9 @@ public class Auth implements Writable {
                     .collect(Collectors.joining(",")));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
+            if (user == null) {
+                return;
+            }
             // ============== Password ==============
             userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
             // ============== Roles ==============
