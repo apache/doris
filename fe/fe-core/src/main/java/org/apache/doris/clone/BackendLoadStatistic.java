@@ -302,7 +302,8 @@ public class BackendLoadStatistic {
             //
             double thisBeCapacityCoefficient = getSmoothCofficient(usedCapacityPercent, 0.5,
                     Config.capacity_used_percent_high_water);
-            double allBeCapacityCoefficient = getSmoothCofficient(maxUsedPercentDiff, 0.05, 0.3);
+            double allBeCapacityCoefficient = getSmoothCofficient(maxUsedPercentDiff, 0.05,
+                    Config.used_capacity_percent_max_diff);
 
             loadScore.capacityCoefficient = Math.max(thisBeCapacityCoefficient, allBeCapacityCoefficient);
         }
@@ -313,7 +314,8 @@ public class BackendLoadStatistic {
     }
 
     // when percent change from percentLowWatermark to percentHighWatermark,
-    // the cofficient will linearly change from 0.5 to 1.0.
+    // the return cofficient will linearly change from 0.5 to 1.0.
+    // If percent >= percentHighWatermark, the cofficient will be 1.0.
     public static double getSmoothCofficient(double percent, double percentLowWatermark,
             double percentHighWatermark) {
         final double lowCofficient = 0.5;

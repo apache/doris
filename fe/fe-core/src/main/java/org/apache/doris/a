@@ -1,0 +1,19 @@
+Emphasize disk usage for calculating load score.
+
+thisBeCapacityCoefficient:
+  If this be has a high used capacity percent, we should increase its load score.
+  So we increase capacity coefficient with this be's used capacity percent.
+
+Also we emphasize the difference of disk usage between all the BEs.
+For example, if the tablets have a big difference in data size.
+Then for below two BEs, their load score maybe the same:
+BE A:  disk usage = 60%,  replica number = 2000  (it contains the big tablets)
+BE B:  disk usage = 30%,  replica number = 4000  (it contains the small tablets)
+
+But what we want is: firstly move some big tablets from A to B, after their disk usages are close,
+then move some small tablets from B to A, finally both of their disk usages and replica number
+are close.
+
+allBeCapacityCoefficient is used to achieve this, when the max difference between all BE's
+disk usages >= 30%,  we set the capacity cofficient to 1.0 and avoid the affect of replica num.
+After the disk usage difference decrease, then decrease the capacity cofficient.
