@@ -19,6 +19,7 @@ package org.apache.doris.broker.hdfs;
 
 import com.google.common.base.Stopwatch;
 import org.apache.doris.common.BrokerPerfMonitor;
+import org.apache.doris.common.HiveUtils;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
@@ -28,6 +29,8 @@ import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileSizeRequest;
 import org.apache.doris.thrift.TBrokerFileSizeResponse;
 import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TBrokerIsSplittableResponse;
+import org.apache.doris.thrift.TBrokerIsSplittableRequest;
 import org.apache.doris.thrift.TBrokerListPathRequest;
 import org.apache.doris.thrift.TBrokerListResponse;
 import org.apache.doris.thrift.TBrokerOpenReaderRequest;
@@ -80,6 +83,47 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
             return response;
         } catch (BrokerException e) {
             logger.warn("failed to list path: " + request.path, e);
+            TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
+            response.setOpStatus(errorStatus);
+            return response;
+        }
+    }
+
+    @Override
+    public TBrokerListResponse listLocatedFiles(TBrokerListPathRequest request)
+            throws TException {
+        logger.info("received a listLocatedFiles request, request detail: " + request);
+        TBrokerListResponse response = new TBrokerListResponse();
+        try {
+            boolean recursive = request.isIsRecursive();
+            boolean onlyFiles = false;
+            if (request.isSetOnlyFiles()) {
+                onlyFiles = request.isOnlyFiles();
+            }
+            List<TBrokerFileStatus> fileStatuses = fileSystemManager.listLocatedFiles(request.path,
+                onlyFiles, recursive, request.properties);
+            response.setOpStatus(generateOKStatus());
+            response.setFiles(fileStatuses);
+            return response;
+        } catch (BrokerException e) {
+            logger.warn("failed to list path: " + request.path, e);
+            TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
+            response.setOpStatus(errorStatus);
+            return response;
+        }
+    }
+
+    @Override
+    public TBrokerIsSplittableResponse isSplittable(TBrokerIsSplittableRequest request) throws TException {
+        logger.info("received a isSplittable request, request detail: " + request);
+        TBrokerIsSplittableResponse response = new TBrokerIsSplittableResponse();
+        try {
+            boolean isSplittable = HiveUtils.isSplittable(request.path, request.inputFormat, request.properties);
+            response.setOpStatus(generateOKStatus());
+            response.setSplittable(isSplittable);
+            return response;
+        } catch (BrokerException e) {
+            logger.warn("failed to get isSplitable with path: " + request.path, e);
             TBrokerOperationStatus errorStatus = e.generateFailedOperationStatus();
             response.setOpStatus(errorStatus);
             return response;
