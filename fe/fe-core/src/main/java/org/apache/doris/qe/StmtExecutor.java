@@ -25,9 +25,11 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
+import org.apache.doris.analysis.CreateOrReplaceTableAsSelectStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
+import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DeleteStmt;
@@ -563,7 +565,7 @@ public class StmtExecutor {
         }
         if (statements.size() <= originStmt.idx) {
             throw new ParseException("Nereids parse failed. Parser get " + statements.size() + " statements,"
-                            + " but we need at least " + originStmt.idx + " statements.");
+                    + " but we need at least " + originStmt.idx + " statements.");
         }
         parsedStmt = statements.get(originStmt.idx);
     }
@@ -703,6 +705,8 @@ public class StmtExecutor {
                 handleUseStmt();
             } else if (parsedStmt instanceof TransactionStmt) {
                 handleTransactionStmt();
+            } else if (parsedStmt instanceof CreateOrReplaceTableAsSelectStmt) {
+                handleCortasStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCtasStmt();
             } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
@@ -1206,7 +1210,7 @@ public class StmtExecutor {
     // the meta fields must be sent right before the first batch of data(or eos flag).
     // so if it has data(or eos is true), this method must return true.
     private boolean sendCachedValues(MysqlChannel channel, List<InternalService.PCacheValue> cacheValues,
-            Queriable selectStmt, boolean isSendFields, boolean isEos)
+                                     Queriable selectStmt, boolean isSendFields, boolean isEos)
             throws Exception {
         RowBatch batch = null;
         boolean isSend = isSendFields;
@@ -1372,7 +1376,8 @@ public class StmtExecutor {
     }
 
     private void sendResult(boolean isOutfileQuery, boolean isSendFields, Queriable queryStmt, MysqlChannel channel,
-            CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult) throws Exception {
+                            CacheAnalyzer cacheAnalyzer, InternalService.PFetchCacheResult cacheResult)
+            throws Exception {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
         //    number of rows selected. For example:
@@ -1947,10 +1952,10 @@ public class StmtExecutor {
     private void handlePrepareStmt() throws Exception {
         // register prepareStmt
         LOG.debug("add prepared statement {}, isBinaryProtocol {}",
-                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+                prepareStmt.getName(), prepareStmt.isBinaryProtocol());
         context.addPreparedStmt(prepareStmt.getName(),
                 new PrepareStmtContext(prepareStmt,
-                            context, planner, analyzer, prepareStmt.getName()));
+                        context, planner, analyzer, prepareStmt.getName()));
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
@@ -2244,6 +2249,43 @@ public class StmtExecutor {
         }
     }
 
+    private void handleCortasStmt() {
+        CreateOrReplaceTableAsSelectStmt cortasStmt = (CreateOrReplaceTableAsSelectStmt) this.parsedStmt;
+        UUID uuid = UUID.randomUUID();
+
+        Database db;
+        try {
+            db = context.getEnv().getInternalCatalog().dbExistsOrDdlException(cortasStmt.getCreateTableStmt());
+        } catch (DdlException e) {
+            LOG.warn("CORTAS create or replace table error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            return;
+        }
+        CreateTableStmt createTableStmt = cortasStmt.getCreateTableStmt();
+        boolean tableExists = context.getEnv().getInternalCatalog().tableExists(db, createTableStmt.getTableName());
+
+        TableName targetTableName = null;
+        TableName tmpTableName = null;
+        if (tableExists) {
+            targetTableName = createTableStmt.getDbTbl().cloneWithoutAnalyze();
+            createTableStmt.setTableName("tmp_table_" + uuid.toString().replace('-', '_'));
+            tmpTableName = createTableStmt.getDbTbl();
+        }
+
+        this.parsedStmt = cortasStmt.convertToCreateTableAsSelectStmt();
+        this.parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+        try {
+            execute();
+        } catch (Exception e) {
+            LOG.warn("CORTAS create or replace table error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
+
+        if (tableExists) {
+            replaceTableName(targetTableName, tmpTableName, "CORTAS create or replace table error, stmt={}");
+        }
+    }
+
     private void handleCtasRollback(TableName table) {
         if (context.getSessionVariable().isDropTableIfCtasFailed()) {
             // insert error drop table
@@ -2308,6 +2350,10 @@ public class StmtExecutor {
             return;
         }
 
+        replaceTableName(targetTableName, tmpTableName, "IOT overwrite table error, stmt={}");
+    }
+
+    private void replaceTableName(TableName targetTableName, TableName tmpTableName, String errFormatMsg) {
         // overwrite old table with tmp table
         try {
             List<AlterClause> ops = new ArrayList<>();
@@ -2318,18 +2364,17 @@ public class StmtExecutor {
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-                LOG.warn("IOT overwrite table error, stmt={}", parsedStmt.toSql());
+                LOG.warn(errFormatMsg, parsedStmt.toSql());
                 handleIotRollback(tmpTableName);
                 return;
             }
             context.getState().setOk();
         } catch (Exception e) {
             // Maybe our bug
-            LOG.warn("IOT overwrite table error, stmt={}", parsedStmt.toSql(), e);
+            LOG.warn(errFormatMsg, parsedStmt.toSql(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
             handleIotRollback(tmpTableName);
         }
-
     }
 
     private void handleOverwritePartition(InsertOverwriteTableStmt iotStmt) {

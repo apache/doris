@@ -24,6 +24,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateOrReplaceTableAsSelectStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
@@ -41,6 +42,7 @@ import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
@@ -562,6 +564,39 @@ public abstract class TestWithFeService {
     public void createTableAsSelect(String sql) throws Exception {
         CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
+    }
+
+    public void createOrReplaceTableAsSelect(String sql) throws Exception {
+        CreateOrReplaceTableAsSelectStmt cortasStmt = (CreateOrReplaceTableAsSelectStmt) parseAndAnalyzeStmt(sql);
+        CreateTableStmt createTableStmt = cortasStmt.getCreateTableStmt();
+        UUID uuid = UUID.randomUUID();
+        Env currentEnv = Env.getCurrentEnv();
+        Database db;
+        try {
+            db = currentEnv.getInternalCatalog().dbExistsOrDdlException(createTableStmt);
+        } catch (DdlException e) {
+            throw e;
+        }
+
+        boolean tableExists = currentEnv.getInternalCatalog().tableExists(db, createTableStmt.getTableName());
+
+        TableName targetTableName = null;
+        TableName tmpTableName = null;
+        if (tableExists) {
+            targetTableName = createTableStmt.getDbTbl().cloneWithoutAnalyze();
+            createTableStmt.setTableName("tmp_table_" + uuid.toString().replace('-', '_'));
+            tmpTableName = createTableStmt.getDbTbl();
+        }
+
+        CreateTableAsSelectStmt createTableAsSelectStmt = cortasStmt.convertToCreateTableAsSelectStmt();
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
+        createTableAsSelectStmt.analyze(analyzer);
+        Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
+
+        if (tableExists) {
+            String alterSql = String.format("ALTER TABLE %s REPLACE WITH TABLE %s PROPERTIES('swap' = 'false')", targetTableName.getTbl(), tmpTableName.getTbl());
+            alterTableSync(alterSql);
+        }
     }
 
     public void createTables(String... sqls) throws Exception {
