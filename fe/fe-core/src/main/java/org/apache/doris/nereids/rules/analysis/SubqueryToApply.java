@@ -99,7 +99,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         applyPlan = subqueryToApply(subqueryExprs.stream()
                                     .collect(ImmutableList.toImmutableList()), tmpPlan,
                                 context.getSubqueryToMarkJoinSlot(),
-                                context.getSubqueryCorrespondingConjunct(), ctx.cascadesContext,
+                                ctx.cascadesContext,
                                 Optional.of(conjunct), false);
                         tmpPlan = applyPlan;
                         newConjuncts.add(conjunct);
@@ -140,7 +140,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                            subqueryToApply(
                                subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
                                (LogicalPlan) project.child(),
-                               context.getSubqueryToMarkJoinSlot(), context.getSubqueryCorrespondingConjunct(),
+                               context.getSubqueryToMarkJoinSlot(),
                                ctx.cascadesContext,
                                Optional.empty(), true
                            ));
@@ -151,7 +151,6 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
     private LogicalPlan subqueryToApply(List<SubqueryExpr> subqueryExprs, LogicalPlan childPlan,
                                         Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
-                                        Map<SubqueryExpr, Expression> subqueryCorrespondingConject,
                                         CascadesContext ctx,
                                         Optional<Expression> conjunct, boolean isProject) {
         LogicalPlan tmpPlan = childPlan;
@@ -163,7 +162,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
             if (!ctx.subqueryIsAnalyzed(subqueryExpr)) {
                 tmpPlan = addApply(subqueryExpr, tmpPlan,
-                    subqueryToMarkJoinSlot, subqueryCorrespondingConject, ctx, conjunct,
+                    subqueryToMarkJoinSlot, ctx, conjunct,
                     isProject, subqueryExprs.size() == 1);
             }
         }
@@ -179,7 +178,6 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
     private LogicalPlan addApply(SubqueryExpr subquery, LogicalPlan childPlan,
                                  Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
-                                 Map<SubqueryExpr, Expression> subqueryCorrespondingConject,
                                  CascadesContext ctx, Optional<Expression> conjunct,
                                  boolean isProject, boolean singleSubquery) {
         ctx.setSubqueryExprIsAnalyzed(subquery, true);
@@ -301,7 +299,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      * For inSubquery and exists: it will be directly replaced by markSlotReference
      *  e.g.
      *  logicalFilter(predicate=exists) ---> logicalFilter(predicate=$c$1)
-     * For scalarSubquery: it will be replaced by markSlotReference too
+     * For scalarSubquery: it will be replaced by scalarSubquery's output slot
      *  e.g.
      *  logicalFilter(predicate=k1 > scalarSubquery) ---> logicalFilter(predicate=k1 > $c$1)
      *
@@ -313,20 +311,13 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     private static class SubqueryContext {
         private final Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot;
 
-        private final Map<SubqueryExpr, Expression> subqueryCorrespondingConjunct;
-
         public SubqueryContext(Set<SubqueryExpr> subqueryExprs) {
             this.subqueryToMarkJoinSlot = new LinkedHashMap<>(subqueryExprs.size());
-            this.subqueryCorrespondingConjunct = new LinkedHashMap<>(subqueryExprs.size());
             subqueryExprs.forEach(subqueryExpr -> subqueryToMarkJoinSlot.put(subqueryExpr, Optional.empty()));
         }
 
         private Map<SubqueryExpr, Optional<MarkJoinSlotReference>> getSubqueryToMarkJoinSlot() {
             return subqueryToMarkJoinSlot;
-        }
-
-        private Map<SubqueryExpr, Expression> getSubqueryCorrespondingConjunct() {
-            return subqueryCorrespondingConjunct;
         }
 
         private void setSubqueryToMarkJoinSlot(SubqueryExpr subquery,
