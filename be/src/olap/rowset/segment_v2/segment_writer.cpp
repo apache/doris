@@ -22,6 +22,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <ostream>
 #include <unordered_map>
 #include <utility>
@@ -449,7 +450,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             // partial update should not contain invisible columns
             use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-            _tablet->prepare_to_read(loc, block_pos, &_rssid_to_rid);
+            _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
         }
 
         if (st.is<ALREADY_EXIST>()) {
@@ -471,7 +472,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
-                                         has_default_or_nullable));
+                                         has_default_or_nullable, segment_start_pos));
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -529,7 +530,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
 Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                            const std::vector<bool>& use_default_or_null_flag,
-                                           bool has_default_or_nullable) {
+                                           bool has_default_or_nullable,
+                                           const size_t& segment_start_pos) {
     // create old value columns
     auto old_value_block = _tablet_schema->create_missing_columns_block();
     std::vector<uint32_t> cids_missing = _tablet_schema->get_missing_cids();
@@ -608,7 +610,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             }
             continue;
         }
-        auto pos_in_old_block = read_index[idx];
+        auto pos_in_old_block = read_index[idx + segment_start_pos];
         for (auto i = 0; i < cids_missing.size(); ++i) {
             mutable_full_columns[cids_missing[i]]->insert_from(
                     *old_value_block.get_columns_with_type_and_name()[i].column.get(),
