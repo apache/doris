@@ -27,7 +27,9 @@
 #include "common/status.h"
 #include "function_test_util.h"
 #include "geo/geo_common.h"
-#include "geo/geo_types.h"
+#include "geo/util/GeoCircle.h"
+#include "geo/util/GeoPoint.h"
+#include "geo/util/GeoShape.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 #include "vec/core/types.h"
@@ -264,7 +266,7 @@ TEST(VGeoFunctionsTest, function_geo_st_circle) {
 
         GeoCircle circle;
         std::string buf;
-        auto value = circle.init(111, 64, 10000);
+        auto value = circle.to_s2cap(111, 64, 10000);
         EXPECT_TRUE(value == GEO_PARSE_OK);
         circle.encode_to(&buf);
         DataSet data_set = {{{(double)111, (double)64, (double)10000}, buf},
@@ -374,7 +376,7 @@ TEST(VGeoFunctionsTest, function_geo_st_area_square_meters) {
         InputTypeSet input_types = {TypeIndex::String};
 
         GeoCircle circle;
-        auto cur_res = circle.init(0, 0, 1);
+        auto cur_res = circle.to_s2cap(0, 0, 1);
         EXPECT_TRUE(cur_res == GEO_PARSE_OK);
         std::string buf;
         circle.encode_to(&buf);
