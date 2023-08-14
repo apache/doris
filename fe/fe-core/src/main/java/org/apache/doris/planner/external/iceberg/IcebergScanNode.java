@@ -102,6 +102,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 case IcebergExternalCatalog.ICEBERG_REST:
                 case IcebergExternalCatalog.ICEBERG_DLF:
                 case IcebergExternalCatalog.ICEBERG_GLUE:
+                case IcebergExternalCatalog.ICEBERG_HADOOP:
                     source = new IcebergApiSource((IcebergExternalTable) table, desc, columnNameToRange);
                     break;
                 default:
