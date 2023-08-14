@@ -399,7 +399,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         //   5   ->   3
         // here row_pos = 2, num_rows = 4.
         size_t delta_pos = block_pos - row_pos;
-        std::string key = _full_encode_keys(key_columns, block_pos);
+        std::string key = _full_encode_keys(key_columns, delta_pos);
         if (have_input_seq_column) {
             _encode_seq_column(seq_column, delta_pos, &key);
         }
@@ -514,7 +514,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     _num_rows_written, row_pos, _primary_key_index_builder->num_rows());
         }
         for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
-            std::string key = _full_encode_keys(key_columns, block_pos);
+            std::string key = _full_encode_keys(key_columns, block_pos - row_pos);
             _encode_seq_column(seq_column, block_pos - row_pos, &key);
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
         }
