@@ -248,7 +248,6 @@ private:
     std::shared_ptr<NodeIdForStream> _node_id_for_stream;
     size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
-    std::shared_ptr<std::atomic<int32_t>> _flying_memtable_counter;
 
     std::atomic<int> _pending_reports {0};
 

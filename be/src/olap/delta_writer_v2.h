@@ -108,10 +108,6 @@ public:
 
     void add_stream(brpc::StreamId stream) { _streams.push_back(stream); }
 
-    void register_flying_memtable_counter(std::shared_ptr<std::atomic<int32_t>> counter) {
-        _flying_memtable_counter = counter;
-    }
-
 private:
     DeltaWriterV2(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile);
 
@@ -140,8 +136,6 @@ private:
     MonotonicStopWatch _lock_watch;
 
     std::vector<brpc::StreamId> _streams;
-
-    std::shared_ptr<std::atomic<int32_t>> _flying_memtable_counter;
 };
 
 } // namespace doris
