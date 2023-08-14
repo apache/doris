@@ -271,11 +271,13 @@ public class OriginalPlanner extends Planner {
             List<SlotDescriptor> slots = analyzer.getDescTbl()
                     .getTupleDesc(root.getPlanRoot().getOutputTupleIds().get(0))
                     .getSlots();
-            Preconditions.checkArgument(queryStmt.getResultExprs().size() == slots.size());
-            for (int i = 0; i < slots.size(); ++i) {
-                if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
-                    queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
-                            .setIsAllowNull(slots.get(i).getIsNullable());
+            // to exclude the cases that outputs contain an expression.
+            if (queryStmt.getResultExprs().size() == slots.size()) {
+                for (int i = 0; i < slots.size(); ++i) {
+                    if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
+                        queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
+                                .setIsAllowNull(slots.get(i).getIsNullable());
+                    }
                 }
             }
         }
