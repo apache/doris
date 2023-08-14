@@ -1217,6 +1217,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return (boolean) jobProperties.get(LoadStmt.STRICT_MODE);
     }
 
+    protected boolean isPartialUpdate() {
+        return (boolean) jobProperties.get(LoadStmt.PARTIAL_COLUMNS);
+    }
+
     protected String getTimeZone() {
         return (String) jobProperties.get(LoadStmt.TIMEZONE);
     }
