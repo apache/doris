@@ -81,6 +81,8 @@ public:
 
     void reset_block() { _mutable_block.reset(); }
 
+    void set_is_local(bool is_local) { _is_local = is_local; }
+
 private:
     VDataStreamSender* _parent;
     std::unique_ptr<MutableBlock> _mutable_block;

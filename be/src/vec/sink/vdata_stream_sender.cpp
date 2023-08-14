@@ -95,6 +95,8 @@ Status Channel::init(RuntimeState* state) {
                 _fragment_instance_id, _dest_node_id);
     }
 
+    _serializer.set_is_local(_is_local);
+
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
