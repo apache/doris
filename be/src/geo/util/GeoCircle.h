@@ -34,16 +34,16 @@ public:
 
     GeoParseStatus to_s2cap(double lng, double lat, double radius);
 
-    GeoShapeType type() const override { return GEO_SHAPE_CIRCLE; }
+    [[nodiscard]] GeoShapeType type() const override { return GEO_SHAPE_CIRCLE; }
 
     [[nodiscard]] int get_dimension() const override { return 2; }
 
     bool contains(const GeoShape* rhs) const override;
-    std::string as_wkt() const override;
+    [[nodiscard]] std::string as_wkt() const override;
 
-    double get_area() const;
+    [[nodiscard]] double get_area() const;
 
-    std::unique_ptr<GeoShape> boundary() const override;
+    [[nodiscard]] std::unique_ptr<GeoShape> boundary() const override;
 
 protected:
     void encode(std::string* buf, size_t& data_size) override;
