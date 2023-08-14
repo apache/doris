@@ -51,7 +51,7 @@ class Config {
     public String suitePath
     public String dataPath
     public String realDataPath
-    public String sf1DataPath
+
     public String cacheDataPath
     public String pluginPath
 
@@ -89,7 +89,7 @@ class Config {
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
-           String suitePath, String dataPath, String realDataPath, String sf1DataPath, String cacheDataPath,
+           String suitePath, String dataPath, String realDataPath, String cacheDataPath,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath) {
         this.defaultDb = defaultDb
@@ -103,7 +103,6 @@ class Config {
         this.suitePath = suitePath
         this.dataPath = dataPath
         this.realDataPath = realDataPath
-        this.sf1DataPath = sf1DataPath
         this.cacheDataPath = cacheDataPath
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
@@ -137,7 +136,6 @@ class Config {
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
-        config.sf1DataPath = cmd.getOptionValue(sf1DataOpt, config.sf1DataPath)
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
@@ -240,7 +238,6 @@ class Config {
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
-            configToString(obj.sf1DataPath),
             configToString(obj.cacheDataPath),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
@@ -320,11 +317,7 @@ class Config {
             config.realDataPath = "regression-test/realData"
             log.info("Set realDataPath to '${config.realDataPath}' because not specify.".toString())
         }
-
-        if (config.sf1DataPath == null) {
-            config.sf1DataPath = "regression-test/sf1Data"
-            log.info("Set sf1DataPath to '${config.sf1DataPath}' because not specify.".toString())
-        }
+        
 
         if (config.cacheDataPath == null) {
             config.cacheDataPath = "regression-test/cacheData"
