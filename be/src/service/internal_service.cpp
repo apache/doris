@@ -1019,7 +1019,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
         return;
     }
     FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.try_offer([this, controller, request, response, done]() {
+    bool ret = pool.try_offer([this, controller, request, response, done, receive_time]() {
         int64_t start_exec_time = GetCurrentTimeNanos();
         _transmit_block(controller, request, response, done, Status::OK(), receive_time,
                         start_exec_time);

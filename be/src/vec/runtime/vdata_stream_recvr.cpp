@@ -283,7 +283,7 @@ void VDataStreamRecvr::SenderQueue::close() {
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
             closure_pair.second.stop();
-            auto t = closure_pair.second.elapsed_time();
+            int64_t t = closure_pair.second.elapsed_time();
             total_ += t;
             max_ = std::max(max_, t);
         }
