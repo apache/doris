@@ -158,7 +158,6 @@ VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_de
     *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "VOlapTableSinkV2";
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
-    _flying_memtable_counter = std::make_shared<std::atomic<int32_t>>(0);
 }
 
 VOlapTableSinkV2::~VOlapTableSinkV2() = default;
@@ -404,13 +403,6 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     DorisMetrics::instance()->load_rows->increment(rows);
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
-    {
-        SCOPED_TIMER(_wait_mem_limit_timer);
-        while (_flying_memtable_counter->load() >= config::max_flying_memtable_per_sink) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
@@ -486,7 +478,6 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
             for (auto stream : streams) {
                 delta_writer->add_stream(stream);
             }
-            delta_writer->register_flying_memtable_counter(_flying_memtable_counter);
             _delta_writer_for_tablet->insert(
                     {tablet_id, std::unique_ptr<DeltaWriterV2>(delta_writer)});
         } else {
@@ -495,7 +486,10 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
             delta_writer = it->second.get();
         }
     }
-    ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
+    {
+        SCOPED_TIMER(_wait_mem_limit_timer);
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
+    }
     auto st = delta_writer->write(block.get(), rows.row_idxes, false);
     return st;
 }
