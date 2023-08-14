@@ -18,6 +18,7 @@
  */
 
 suite("analytic_expr_test") {
+    sql """drop table if exists test_load_03;"""
     sql """
         CREATE TABLE `test_load_03` (
           `id` varchar(10) NULL,
