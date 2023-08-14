@@ -31,7 +31,7 @@ suite("load_one_step") {
             set 'column_separator', '|'
             set 'compress_type', 'GZ'
             set 'columns', "${rows[0]}"
-            file """${context.sf1DataPath}/ssb/sf0.1/${tableName}.tbl.gz"""
+            file """${getS3Url()}/regression/ssb/sf0.1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 
