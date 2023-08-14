@@ -362,7 +362,16 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private long getCountFromSnapshot() {
-        Snapshot snapshot = icebergTable.currentSnapshot();
+        Long specifiedSnapshot;
+        try {
+            specifiedSnapshot = getSpecifiedSnapshot();
+        } catch (UserException e) {
+            return -1;
+        }
+
+        Snapshot snapshot = specifiedSnapshot == null
+                ? icebergTable.currentSnapshot() : icebergTable.snapshot(specifiedSnapshot);
+
         // empty table
         if (snapshot == null) {
             return -1;
