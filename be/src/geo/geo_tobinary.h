@@ -54,8 +54,7 @@ private:
 
     static void writeInt(int intValue, ToBinaryContext* ctx);
 
-    static void writeCoordinateList(const GeoCoordinates& coords, bool sized,
-                                    ToBinaryContext* ctx);
+    static void writeCoordinateList(const GeoCoordinates& coords, bool sized, ToBinaryContext* ctx);
 
     static void writeCoordinate(GeoCoordinate& coords, ToBinaryContext* ctx);
 };

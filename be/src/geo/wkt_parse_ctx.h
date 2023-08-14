@@ -22,7 +22,7 @@
 namespace doris {
 class GeoShape;
 class GeoCollection;
-}
+} // namespace doris
 
 typedef void* yyscan_t;
 struct WktParseContext {

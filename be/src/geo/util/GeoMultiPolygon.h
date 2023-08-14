@@ -24,33 +24,32 @@
 
 namespace doris {
 
-    class GeoMultiPolygon : public GeoCollection{
+class GeoMultiPolygon : public GeoCollection {
     ENABLE_FACTORY_CREATOR(GeoMultiPolygon);
 
-    public:
-        GeoMultiPolygon();
-        ~GeoMultiPolygon() override;
+public:
+    GeoMultiPolygon();
+    ~GeoMultiPolygon() override;
 
-        GeoShapeType type() const override { return GEO_SHAPE_MULTI_POLYGON; }
+    GeoShapeType type() const override { return GEO_SHAPE_MULTI_POLYGON; }
 
-        [[nodiscard]] int get_dimension() const override { return 2; }
+    [[nodiscard]] int get_dimension() const override { return 2; }
 
-        GeoParseStatus from_coords(const GeoCoordinateListCollections& coord_list_collections);
+    GeoParseStatus from_coords(const GeoCoordinateListCollections& coord_list_collections);
 
-        std::unique_ptr<GeoCoordinateListCollections>  to_coords() const;
+    std::unique_ptr<GeoCoordinateListCollections> to_coords() const;
 
-        // Returns the number of geometries in this collection
-        std::size_t get_num_polygon() const ;
+    // Returns the number of geometries in this collection
+    std::size_t get_num_polygon() const;
 
-        GeoPolygon*  get_polygon_n(std::size_t n) const ;
+    GeoPolygon* get_polygon_n(std::size_t n) const;
 
-        std::string as_wkt() const override;
+    std::string as_wkt() const override;
 
-        bool contains(const GeoShape* shape) const override;
+    bool contains(const GeoShape* shape) const override;
 
-        std::unique_ptr<GeoShape> boundary() const override;
-
-    };
+    std::unique_ptr<GeoShape> boundary() const override;
+};
 
 } // namespace doris
 

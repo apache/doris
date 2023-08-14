@@ -18,38 +18,37 @@
 #ifndef DORIS_GEOMULTILINESTRING_H
 #define DORIS_GEOMULTILINESTRING_H
 
-#include "common/factory_creator.h"
 #include "GeoCollection.h"
+#include "common/factory_creator.h"
 
 namespace doris {
 
-    class GeoMultiLineString : public GeoCollection{
+class GeoMultiLineString : public GeoCollection {
     ENABLE_FACTORY_CREATOR(GeoMultiLineString);
 
-    public:
-        GeoMultiLineString();
-        ~GeoMultiLineString() override;
+public:
+    GeoMultiLineString();
+    ~GeoMultiLineString() override;
 
-        GeoShapeType type() const override { return GEO_SHAPE_MULTI_LINE_STRING; }
+    GeoShapeType type() const override { return GEO_SHAPE_MULTI_LINE_STRING; }
 
-        [[nodiscard]] int get_dimension() const override { return 1; }
+    [[nodiscard]] int get_dimension() const override { return 1; }
 
-        GeoParseStatus from_coords(const GeoCoordinateLists& list);
+    GeoParseStatus from_coords(const GeoCoordinateLists& list);
 
-        std::unique_ptr<GeoCoordinateLists> to_coords() const;
+    std::unique_ptr<GeoCoordinateLists> to_coords() const;
 
-        // Returns the number of geometries in this collection
-        std::size_t get_num_line() const ;
+    // Returns the number of geometries in this collection
+    std::size_t get_num_line() const;
 
-        std::string as_wkt() const override;
+    std::string as_wkt() const override;
 
-        GeoLineString*  get_line_string_n(std::size_t n) const ;
+    GeoLineString* get_line_string_n(std::size_t n) const;
 
-        bool contains(const GeoShape* shape) const override;
+    bool contains(const GeoShape* shape) const override;
 
-        std::unique_ptr<GeoShape> boundary() const override;
-
-    };
+    std::unique_ptr<GeoShape> boundary() const override;
+};
 
 } // namespace doris
 

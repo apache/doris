@@ -18,9 +18,10 @@
 #ifndef DORIS_GEO_TOJSON_H
 #define DORIS_GEO_TOJSON_H
 
-#include <string>
-#include <rapidjson/document.h>
 #include <rapidjson/allocators.h>
+#include <rapidjson/document.h>
+
+#include <string>
 
 namespace doris {
 
@@ -58,15 +59,21 @@ private:
 
     static bool geo_collection_tojson(GeoCollection* collections, std::string& result);
 
-    static void coordinates_list_collections_tojson(const GeoCoordinateListCollections& coords_list_collections,rapidjson::Value& coords_list_array,rapidjson::Document::AllocatorType& allocator);
+    static void coordinates_list_collections_tojson(
+            const GeoCoordinateListCollections& coords_list_collections,
+            rapidjson::Value& coords_list_array, rapidjson::Document::AllocatorType& allocator);
 
-    static void coordinates_list_tojson(const GeoCoordinateLists& coords_list,rapidjson::Value& coords_list_array,rapidjson::Document::AllocatorType& allocator);
+    static void coordinates_list_tojson(const GeoCoordinateLists& coords_list,
+                                        rapidjson::Value& coords_list_array,
+                                        rapidjson::Document::AllocatorType& allocator);
 
-    static void coordinates_tojson(const GeoCoordinates& coords,rapidjson::Value& coords_array,rapidjson::Document::AllocatorType& allocator);
+    static void coordinates_tojson(const GeoCoordinates& coords, rapidjson::Value& coords_array,
+                                   rapidjson::Document::AllocatorType& allocator);
 
-    static void coordinate_tojson(const GeoCoordinate& coord,rapidjson::Value& coord_array,rapidjson::Document::AllocatorType& allocator);
+    static void coordinate_tojson(const GeoCoordinate& coord, rapidjson::Value& coord_array,
+                                  rapidjson::Document::AllocatorType& allocator);
 
-    static bool json_toString(rapidjson::Document* document,std::string& result);
+    static bool json_toString(rapidjson::Document* document, std::string& result);
 };
 
 } // namespace doris

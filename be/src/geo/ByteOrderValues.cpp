@@ -18,7 +18,6 @@
 // https://github.com/libgeos/geos/blob/main/src/io/ByteOrderValues.cpp
 // and modified by Doris
 
-
 #include "ByteOrderValues.h"
 
 #include <stdint.h>

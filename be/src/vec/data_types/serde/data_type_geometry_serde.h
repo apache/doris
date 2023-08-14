@@ -29,18 +29,18 @@
 namespace doris {
 
 namespace vectorized {
-    class Arena;
+class Arena;
 
-    class DataTypeGeometrySerDe : public DataTypeStringSerDe {
-        Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                     int row_idx, bool col_const) const override;
-        Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                     int row_idx, bool col_const) const override;
+class DataTypeGeometrySerDe : public DataTypeStringSerDe {
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
 
-    private:
-        template <bool is_binary_format>
-        Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                      int row_idx, bool col_const) const;
-    };
+private:
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
+};
 } // namespace vectorized
 } // namespace doris
