@@ -124,7 +124,7 @@ protected:
 
     template <typename Channels>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const uint64_t* channel_ids, int rows, Block* block);
+                            const uint64_t* channel_ids, int rows, Block* block, bool eos);
 
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
@@ -257,7 +257,7 @@ public:
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
-    Status add_rows(Block* block, const std::vector<int>& row);
+    Status add_rows(Block* block, const std::vector<int>& row, bool eos);
 
     virtual Status send_current_block(bool eos);
 
@@ -391,7 +391,7 @@ protected:
 template <typename Channels>
 Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channels,
                                            int num_channels, const uint64_t* __restrict channel_ids,
-                                           int rows, Block* block) {
+                                           int rows, Block* block, bool eos) {
     std::vector<int> channel2rows[num_channels];
 
     for (int i = 0; i < rows; i++) {
@@ -401,7 +401,7 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
     Status status;
     for (int i = 0; i < num_channels; ++i) {
         if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
-            status = channels[i]->add_rows(block, channel2rows[i]);
+            status = channels[i]->add_rows(block, channel2rows[i], eos);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
         }
     }

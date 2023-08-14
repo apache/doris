@@ -197,7 +197,7 @@ Status Channel::send_block(PBlock* block, bool eos) {
     return Status::OK();
 }
 
-Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
+Status Channel::add_rows(Block* block, const std::vector<int>& rows, bool eos) {
     if (_fragment_instance_id.lo == -1) {
         return Status::OK();
     }
@@ -209,29 +209,34 @@ Status Channel::add_rows(Block* block, const std::vector<int>& rows) {
 
     int row_wait_add = rows.size();
     int batch_size = _parent->state()->batch_size();
-    const int* begin = &rows[0];
 
-    while (row_wait_add > 0) {
-        int row_add = 0;
-        int max_add = batch_size - _mutable_block->rows();
-        if (row_wait_add >= max_add) {
-            row_add = max_add;
-        } else {
-            row_add = row_wait_add;
+    if (rows.size() > 0) {
+        const int* begin = &rows[0];
+
+        while (row_wait_add > 0) {
+            int row_add = 0;
+            int max_add = batch_size - _mutable_block->rows();
+            if (row_wait_add >= max_add) {
+                row_add = max_add;
+            } else {
+                row_add = row_wait_add;
+            }
+
+            {
+                SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
+                SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
+                _mutable_block->add_rows(block, begin, begin + row_add);
+            }
+
+            row_wait_add -= row_add;
+            begin += row_add;
+
+            if (row_add == max_add) {
+                RETURN_IF_ERROR(send_current_block(eos));
+            }
         }
-
-        {
-            SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-            SCOPED_TIMER(_parent->_split_block_distribute_by_channel_timer);
-            _mutable_block->add_rows(block, begin, begin + row_add);
-        }
-
-        row_wait_add -= row_add;
-        begin += row_add;
-
-        if (row_add == max_add) {
-            RETURN_IF_ERROR(send_current_block(false));
-        }
+    } else {
+        RETURN_IF_ERROR(send_current_block(eos));
     }
 
     return Status::OK();
@@ -562,15 +567,21 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                RETURN_IF_ERROR(
-                        serialize_block(block, block_holder->get_block(), _channels.size()));
+                if (!block->empty()) {
+                    RETURN_IF_ERROR(
+                            serialize_block(block, block_holder->get_block(), _channels.size()));
+                } else {
+                    block_holder->get_block()->Clear();
+                }
             }
 
             Status status;
             for (auto channel : _channels) {
                 if (!channel->is_receiver_eof()) {
                     if (channel->is_local()) {
-                        status = channel->send_local_block(block);
+                        if (!block->empty()) {
+                            status = channel->send_local_block(block);
+                        }
                     } else {
                         SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                         status = channel->send_block(block_holder, eos);
@@ -624,70 +635,73 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 
         int result_size = _partition_expr_ctxs.size();
         int result[result_size];
-        {
-            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-            RETURN_IF_ERROR(get_partition_column_result(block, result));
-        }
-
         // vectorized calculate hash
         int rows = block->rows();
         auto element_size = _channels.size();
         std::vector<uint64_t> hash_vals(rows);
         auto* __restrict hashes = hash_vals.data();
+        if (!block->empty()) {
+            {
+                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                RETURN_IF_ERROR(get_partition_column_result(block, result));
+            }
+            // TODO: after we support new shuffle hash method, should simple the code
+            if (_part_type == TPartitionType::HASH_PARTITIONED) {
+                if (!_new_shuffle_hash_method) {
+                    SCOPED_TIMER(_split_block_hash_compute_timer);
+                    // for each row, we have a siphash val
+                    std::vector<SipHash> siphashs(rows);
+                    // result[j] means column index, i means rows index
+                    for (int j = 0; j < result_size; ++j) {
+                        // complex type most not implement get_data_at() method which column_const will call
+                        unpack_if_const(block->get_by_position(result[j]).column)
+                                .first->update_hashes_with_value(siphashs);
+                    }
+                    for (int i = 0; i < rows; i++) {
+                        hashes[i] = siphashs[i].get64() % element_size;
+                    }
+                } else {
+                    SCOPED_TIMER(_split_block_hash_compute_timer);
+                    // result[j] means column index, i means rows index, here to calculate the xxhash value
+                    for (int j = 0; j < result_size; ++j) {
+                        // complex type most not implement get_data_at() method which column_const will call
+                        unpack_if_const(block->get_by_position(result[j]).column)
+                                .first->update_hashes_with_value(hashes);
+                    }
 
-        // TODO: after we support new shuffle hash method, should simple the code
-        if (_part_type == TPartitionType::HASH_PARTITIONED) {
-            if (!_new_shuffle_hash_method) {
-                SCOPED_TIMER(_split_block_hash_compute_timer);
-                // for each row, we have a siphash val
-                std::vector<SipHash> siphashs(rows);
-                // result[j] means column index, i means rows index
-                for (int j = 0; j < result_size; ++j) {
-                    // complex type most not implement get_data_at() method which column_const will call
-                    unpack_if_const(block->get_by_position(result[j]).column)
-                            .first->update_hashes_with_value(siphashs);
+                    for (int i = 0; i < rows; i++) {
+                        hashes[i] = hashes[i] % element_size;
+                    }
                 }
-                for (int i = 0; i < rows; i++) {
-                    hashes[i] = siphashs[i].get64() % element_size;
+
+                {
+                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                    Block::erase_useless_column(block, column_to_keep);
                 }
             } else {
-                SCOPED_TIMER(_split_block_hash_compute_timer);
-                // result[j] means column index, i means rows index, here to calculate the xxhash value
                 for (int j = 0; j < result_size; ++j) {
                     // complex type most not implement get_data_at() method which column_const will call
                     unpack_if_const(block->get_by_position(result[j]).column)
-                            .first->update_hashes_with_value(hashes);
+                            .first->update_crcs_with_value(
+                                    hash_vals, _partition_expr_ctxs[j]->root()->type().type);
                 }
-
+                element_size = _channel_shared_ptrs.size();
                 for (int i = 0; i < rows; i++) {
                     hashes[i] = hashes[i] % element_size;
                 }
-            }
 
-            {
-                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                Block::erase_useless_column(block, column_to_keep);
+                {
+                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                    Block::erase_useless_column(block, column_to_keep);
+                }
             }
-
-            RETURN_IF_ERROR(channel_add_rows(state, _channels, element_size, hashes, rows, block));
+        }
+        if (_part_type == TPartitionType::HASH_PARTITIONED) {
+            RETURN_IF_ERROR(channel_add_rows(state, _channels, element_size, hashes, rows, block,
+                                             _enable_pipeline_exec ? eos : false));
         } else {
-            for (int j = 0; j < result_size; ++j) {
-                // complex type most not implement get_data_at() method which column_const will call
-                unpack_if_const(block->get_by_position(result[j]).column)
-                        .first->update_crcs_with_value(
-                                hash_vals, _partition_expr_ctxs[j]->root()->type().type);
-            }
-            element_size = _channel_shared_ptrs.size();
-            for (int i = 0; i < rows; i++) {
-                hashes[i] = hashes[i] % element_size;
-            }
-
-            {
-                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                Block::erase_useless_column(block, column_to_keep);
-            }
             RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, element_size, hashes,
-                                             rows, block));
+                                             rows, block, _enable_pipeline_exec ? eos : false));
         }
     } else {
         // Range partition
