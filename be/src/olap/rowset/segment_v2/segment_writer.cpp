@@ -22,7 +22,6 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
-#include <cstddef>
 #include <ostream>
 #include <unordered_map>
 #include <utility>
