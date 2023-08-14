@@ -762,6 +762,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return ClusterNamespace.getNameFromFullName(fullQualifiedName).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME);
     }
 
+    public boolean isMysqlDb() {
+        return ClusterNamespace.getNameFromFullName(fullQualifiedName).equalsIgnoreCase(MysqlDb.DATABASE_NAME);
+    }
+
     public synchronized void addEncryptKey(EncryptKey encryptKey, boolean ifNotExists) throws UserException {
         if (addEncryptKeyImpl(encryptKey, false, ifNotExists)) {
             Env.getCurrentEnv().getEditLog().logAddEncryptKey(encryptKey);

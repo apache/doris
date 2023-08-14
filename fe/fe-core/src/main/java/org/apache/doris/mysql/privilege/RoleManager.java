@@ -23,6 +23,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -189,13 +190,21 @@ public class RoleManager implements Writable {
         if (roles.containsKey(userDefaultRoleName)) {
             return roles.get(userDefaultRoleName);
         }
-        // grant read privs to database information_schema
+        // grant read privs to database information_schema & mysql
         TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
             tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
+
+        tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
+        try {
+            tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        } catch (AnalysisException e) {
+            LOG.warn("should not happen", e);
+        }
+
         // grant read privs of default workload group
         WorkloadGroupPattern workloadGroupPattern = new WorkloadGroupPattern(WorkloadGroupMgr.DEFAULT_GROUP_NAME);
         try {
