@@ -1,0 +1,23 @@
+-- SELECT
+--   cast(v:repo.name as string),
+--   total_stars,
+--   round(clickhouse_stars / total_stars, 2) AS ratio
+-- FROM
+-- (
+--     SELECT
+--         cast(v:repo.name as string),
+--         count(distinct cast(v:actor.login as string)) AS total_stars
+--     FROM github_events
+--     WHERE (cast(v:type as string) = 'WatchEvent') AND (cast(v:repo.name as string) NOT IN ('ClickHouse/ClickHouse', 'yandex/ClickHouse'))
+--     GROUP BY cast(v:repo.name as string)
+--     HAVING total_stars >= 100
+-- ) t1
+-- JOIN
+-- (
+--     SELECT
+--         count(distinct cast(v:actor.login as string)) AS clickhouse_stars
+--     FROM github_events
+--     WHERE (cast(v:type as string) = 'WatchEvent') AND (cast(v:repo.name as string) IN ('ClickHouse/ClickHouse', 'yandex/ClickHouse'))
+-- ) t2
+-- ORDER BY ratio DESC
+-- LIMIT 50

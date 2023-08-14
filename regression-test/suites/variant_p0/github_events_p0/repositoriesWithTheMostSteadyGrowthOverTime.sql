@@ -1,0 +1,20 @@
+-- SELECT
+--     cast(v:repo.name as string),
+--     max(stars) AS daily_stars,
+--     sum(stars) AS total_stars,
+--     sum(stars) / max(stars) AS rate
+-- FROM
+-- (
+--     SELECT
+--         cast(v:repo.name as string),
+--         to_date(cast(v:created_at as datetime)) AS day,
+--         count() AS stars
+--     FROM github_events
+--     WHERE cast(v:type as string) = 'WatchEvent'
+--     GROUP BY
+--         cast(v:repo.name as string),
+--         day
+-- ) t
+-- GROUP BY cast(v:repo.name as string)
+-- ORDER BY rate DESC
+-- LIMIT 50

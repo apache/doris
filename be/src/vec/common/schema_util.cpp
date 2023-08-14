@@ -44,6 +44,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -194,8 +195,9 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     argnum.emplace_back(1);
     size_t result_column = tmp_block.columns();
     tmp_block.insert({nullptr, type, arg.name});
+    auto fn_ctx = FunctionContext::create_context(nullptr, {}, {});
     RETURN_IF_ERROR(
-            function->execute(nullptr, tmp_block, argnum, result_column, arg.column->size()));
+            function->execute(fn_ctx.get(), tmp_block, argnum, result_column, arg.column->size()));
     *result = std::move(tmp_block.get_by_position(result_column).column);
     // Variant column is a really special case, src type is nullable but dst variant type is none nullable,
     // but we still need to wrap nullmap into variant root column to prevent from nullable info lost.
@@ -242,7 +244,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_default_value("[]");
         return;
     }
-    if (WhichDataType(*data_type).is_string()) {
+    if (WhichDataType(*data_type).is_string() || WhichDataType(*data_type).is_json()) {
         return;
     }
     if (WhichDataType(*data_type).is_simple()) {
