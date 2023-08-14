@@ -35,6 +35,7 @@
 #include <sys/types.h>
 
 #include <algorithm>
+#include <execution>
 #include <iterator>
 #include <mutex>
 #include <string>
@@ -521,12 +522,12 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
 
         // close all delta writers
         if (_delta_writer_for_tablet.use_count() == 1) {
-            for (const auto& entry : *_delta_writer_for_tablet) {
-                entry.second->close();
-            }
-            for (const auto& entry : *_delta_writer_for_tablet) {
-                entry.second->close_wait();
-            }
+            std::for_each(std::execution::par_unseq, std::begin(*_delta_writer_for_tablet),
+                          std::end(*_delta_writer_for_tablet),
+                          [](auto&& entry) { entry.second->close(); });
+            std::for_each(std::execution::par_unseq, std::begin(*_delta_writer_for_tablet),
+                          std::end(*_delta_writer_for_tablet),
+                          [](auto&& entry) { entry.second->close_wait(); });
         }
         _delta_writer_for_tablet.reset();
 
