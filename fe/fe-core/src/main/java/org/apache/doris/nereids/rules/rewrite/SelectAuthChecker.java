@@ -71,6 +71,9 @@ public class SelectAuthChecker implements RewriteRuleFactory {
         );
     }
 
+    /**
+     * select * from tbl where a=1;
+     */
     public static Plan dealFilterRelation(LogicalFilter<LogicalRelation> filter) {
         Plan plan = filter.child(0);
         if (!(plan instanceof CatalogRelation)) {
@@ -80,6 +83,9 @@ public class SelectAuthChecker implements RewriteRuleFactory {
         return filter;
     }
 
+    /**
+     * select * from tbl;
+     */
     public static Plan dealRelation(LogicalRelation relation) {
         if (!(relation instanceof CatalogRelation)) {
             return relation;
