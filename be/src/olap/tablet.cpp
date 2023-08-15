@@ -1479,6 +1479,129 @@ void Tablet::get_compaction_status(std::string* json_result) {
     *json_result = std::string(strbuf.GetString());
 }
 
+// for printing debug info only
+void Tablet::get_compaction_status_without_lock(std::string* json_result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    rapidjson::Document path_arr;
+    path_arr.SetArray();
+
+    std::vector<RowsetSharedPtr> rowsets;
+    std::vector<RowsetSharedPtr> stale_rowsets;
+    std::vector<bool> delete_flags;
+
+    rowsets.reserve(_rs_version_map.size());
+    for (auto& it : _rs_version_map) {
+        rowsets.push_back(it.second);
+    }
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+
+    stale_rowsets.reserve(_stale_rs_version_map.size());
+    for (auto& it : _stale_rs_version_map) {
+        stale_rowsets.push_back(it.second);
+    }
+    std::sort(stale_rowsets.begin(), stale_rowsets.end(), Rowset::comparator);
+
+    delete_flags.reserve(rowsets.size());
+    for (auto& rs : rowsets) {
+        delete_flags.push_back(rs->rowset_meta()->has_delete_predicate());
+    }
+    // get snapshot version path json_doc
+    _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
+
+    rapidjson::Value cumulative_policy_type;
+    std::string policy_type_str = "cumulative compaction policy not initializied";
+    if (_cumulative_compaction_policy != nullptr) {
+        policy_type_str = _cumulative_compaction_policy->name();
+    }
+    cumulative_policy_type.SetString(policy_type_str.c_str(), policy_type_str.length(),
+                                     root.GetAllocator());
+    root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());
+    root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
+    rapidjson::Value cumu_value;
+    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
+    cumu_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
+    rapidjson::Value base_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_millis.load());
+    base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last base failure time", base_value, root.GetAllocator());
+    rapidjson::Value full_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_failure_millis.load());
+    base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last full failure time", full_value, root.GetAllocator());
+    rapidjson::Value cumu_success_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
+    cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
+    rapidjson::Value base_success_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
+    base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last base success time", base_success_value, root.GetAllocator());
+    rapidjson::Value full_success_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
+    full_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last full success time", full_success_value, root.GetAllocator());
+
+    // print all rowsets' version as an array
+    rapidjson::Document versions_arr;
+    rapidjson::Document missing_versions_arr;
+    versions_arr.SetArray();
+    missing_versions_arr.SetArray();
+    int64_t last_version = -1;
+    for (int i = 0; i < rowsets.size(); ++i) {
+        const Version& ver = rowsets[i]->version();
+        if (ver.first != last_version + 1) {
+            rapidjson::Value miss_value;
+            miss_value.SetString(
+                    strings::Substitute("[$0-$1]", last_version + 1, ver.first - 1).c_str(),
+                    missing_versions_arr.GetAllocator());
+            missing_versions_arr.PushBack(miss_value, missing_versions_arr.GetAllocator());
+        }
+        rapidjson::Value value;
+        std::string disk_size = PrettyPrinter::print(
+                static_cast<uint64_t>(rowsets[i]->rowset_meta()->total_disk_size()), TUnit::BYTES);
+        std::string version_str = strings::Substitute(
+                "[$0-$1] $2 $3 $4 $5 $6", ver.first, ver.second, rowsets[i]->num_segments(),
+                (delete_flags[i] ? "DELETE" : "DATA"),
+                SegmentsOverlapPB_Name(rowsets[i]->rowset_meta()->segments_overlap()),
+                rowsets[i]->rowset_id().to_string(), disk_size);
+        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
+        versions_arr.PushBack(value, versions_arr.GetAllocator());
+        last_version = ver.second;
+    }
+    root.AddMember("rowsets", versions_arr, root.GetAllocator());
+    root.AddMember("missing_rowsets", missing_versions_arr, root.GetAllocator());
+
+    // print all stale rowsets' version as an array
+    rapidjson::Document stale_versions_arr;
+    stale_versions_arr.SetArray();
+    for (int i = 0; i < stale_rowsets.size(); ++i) {
+        const Version& ver = stale_rowsets[i]->version();
+        rapidjson::Value value;
+        std::string disk_size = PrettyPrinter::print(
+                static_cast<uint64_t>(stale_rowsets[i]->rowset_meta()->total_disk_size()),
+                TUnit::BYTES);
+        std::string version_str = strings::Substitute(
+                "[$0-$1] $2 $3 $4", ver.first, ver.second, stale_rowsets[i]->num_segments(),
+                stale_rowsets[i]->rowset_id().to_string(), disk_size);
+        value.SetString(version_str.c_str(), version_str.length(),
+                        stale_versions_arr.GetAllocator());
+        stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
+    }
+    root.AddMember("stale_rowsets", stale_versions_arr, root.GetAllocator());
+
+    // add stale version rowsets
+    root.AddMember("stale version path", path_arr, root.GetAllocator());
+
+    // to json string
+    rapidjson::StringBuffer strbuf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
+    root.Accept(writer);
+    *json_result = std::string(strbuf.GetString());
+}
+
 bool Tablet::do_tablet_meta_checkpoint() {
     std::lock_guard<std::shared_mutex> store_lock(_meta_store_lock);
     if (_newly_created_rowset_num == 0) {
@@ -3237,7 +3360,7 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     if (config::enable_merge_on_write_correctness_check) {
         // check if all the rowset has ROWSET_SENTINEL_MARK
         RETURN_IF_ERROR(_check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
-                                                         cur_rowset_ids));
+                                                         cur_rowset_ids, true));
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
     for (auto iter = delete_bitmap->delete_bitmap.begin();
@@ -3341,7 +3464,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
         // only do correctness check if the rowset has at least one row written
         // check if all the rowset has ROWSET_SENTINEL_MARK
         RETURN_IF_ERROR(_check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, txn_id,
-                                                         cur_rowset_ids));
+                                                         cur_rowset_ids, false));
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
 
@@ -3699,7 +3822,8 @@ void Tablet::_remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bit
 
 Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                                 int64_t txn_id,
-                                                const RowsetIdUnorderedSet& rowset_ids) {
+                                                const RowsetIdUnorderedSet& rowset_ids,
+                                                bool with_meta_lock) {
     RowsetIdUnorderedSet missing_ids;
     for (const auto& rowsetid : rowset_ids) {
         if (!delete_bitmap->delete_bitmap.contains(
@@ -3713,7 +3837,11 @@ Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, i
                      << "][max_version: " << max_version
                      << "] check delete bitmap correctness failed!";
         std::string rowset_status_string;
-        get_compaction_status(&rowset_status_string);
+        if (with_meta_lock) {
+            get_compaction_status_without_lock(&rowset_status_string);
+        } else {
+            get_compaction_status(&rowset_status_string);
+        }
         LOG(WARNING) << rowset_status_string;
         LOG(WARNING) << "can't find sentinel mark in the following rowsets:";
         for (const auto& rowsetid : missing_ids) {
