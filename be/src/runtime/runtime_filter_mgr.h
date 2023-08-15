@@ -26,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -139,18 +140,18 @@ public:
     UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
-        int64_t create_time;
+        int64_t merge_time;
         int producer_size;
         TRuntimeFilterDesc runtime_filter_desc;
         std::vector<doris::TRuntimeFilterTargetParams> target_info;
         std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
         IRuntimeFilter* filter;
-        std::unordered_set<std::string> arrive_id; // fragment_instance_id ?
+        std::unordered_set<UniqueId> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
     };
 
 public:
-    RuntimeFilterCntlVal* get_filter(int id) { return _filter_map[std::to_string(id)].get(); }
+    RuntimeFilterCntlVal* get_filter(int id) { return _filter_map[id].first.get(); }
 
 private:
     Status _init_with_desc(const TRuntimeFilterDesc* runtime_filter_desc,
@@ -166,14 +167,13 @@ private:
     UniqueId _query_id;
     UniqueId _fragment_instance_id;
     // protect _filter_map
-    std::mutex _filter_map_mutex;
+    std::shared_mutex _filter_map_mutex;
     std::shared_ptr<MemTracker> _mem_tracker;
-    // TODO: convert filter id to i32
-    // filter-id -> val
-    std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;
+    using CntlValwithLock =
+            std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<SpinLock>>;
+    std::map<int, CntlValwithLock> _filter_map;
     RuntimeState* _state;
     bool _opt_remote_rf = true;
-    int64_t _merge_timer = 0;
 };
 
 // RuntimeFilterMergeController has a map query-id -> entity

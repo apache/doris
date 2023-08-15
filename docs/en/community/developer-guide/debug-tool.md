@@ -220,21 +220,39 @@ The output of this command is the same as the output and view mode of heap profi
 
 ##### JEMALLOC
 
-###### 1. runtime heap dump by http
-Add `,prof:true,lg_prof_sample:10` to `JEMALLOC_CONF` in `start_be.sh` and restart BE, then use the jemalloc heap dump http interface to generate a heap dump file on the corresponding BE machine.
-
-The directory where the heap dump file is located can be configured through the ``jeprofile_dir`` variable in ``be.conf``, and the default is ``${DORIS_HOME}/log``
+###### 1. realtime heap dump
+Change `prof:false` of `JEMALLOC_CONF` in `be.conf` to `prof:true` and restart BE, then use the jemalloc heap dump http interface to generate a heap dump file on the corresponding BE machine.
 
 ```shell
 curl http://be_host:be_webport/jeheap/dump
 ```
 
-`prof`: After opening, jemalloc will generate a heap dump file according to the current memory usage. There is a small amount of performance loss in heap profile sampling, which can be turned off during performance testing.
-`lg_prof_sample`: heap profile sampling interval, the default value is 19, that is, the default sampling interval is 512K (2^19 B), which will result in only 10% of the memory recorded by the heap profile, `lg_prof_sample:10` can reduce the sampling interval to 1K (2^10 B), more frequent sampling will make the heap profile close to real memory, but this will bring greater performance loss.
+The directory where the heap dump file is located can be configured through the ``jeprofile_dir`` variable in ``be.conf``, and the default is ``${DORIS_HOME}/log``
 
-For detailed parameter description, refer to https://linux.die.net/man/3/jemalloc.
+The default sampling interval is 512K, usually only 10% of memory is recorded by heap dump, and the impact on performance is usually less than 10%. You can modify `lg_prof_sample` of `JEMALLOC_CONF` in `be.conf`, and the default is `19` (2^19 B = 512K), reducing `lg_prof_sample` can sample more frequently to make the heap profile close to the real memory, but this will bring greater performance loss.
 
-##### 2. jemalloc heap dump profiling
+If you are doing profiling, keep `prof:false` to avoid the performance penalty of heap dump.
+
+###### 2. regular heap dump
+Also change `prof:false` of `JEMALLOC_CONF` in `be.conf` to `prof:true`, and modify `JEMALLOC_PROF_PRFIX` in `be.conf` to any value and restart BE.
+
+The directory where the heap dump file is located is `${DORIS_HOME}/log` by default, and the file name prefix is `JEMALLOC_PROF_PRFIX`.
+
+1. Dump when accumulatively applying for a certain value of memory:
+
+    The default memory accumulatively applies for 4GB to generate a dump. You can modify the `lg_prof_interval` of `JEMALLOC_CONF` in `be.conf` to adjust the dump interval. The default value is `32` (2^32 B = 4GB).
+2. Dump every time the memory reaches a new high:
+
+    Change `prof_gdump` of `JEMALLOC_CONF` in `be.conf` to `true` and restart BE.
+3. Dump when the program exits, and detect memory leaks:
+
+    Change `prof_leak` and `prof_final` of `JEMALLOC_CONF` in `be.conf` to `true` and restart BE.
+4. Dump memory cumulative value (growth), not real-time value:
+
+    Change `prof_accum` of `JEMALLOC_CONF` in `be.conf` to `true` and restart BE.
+    Use `jeprof --alloc_space` to display heap dump accumulation.
+
+##### 3. jemalloc heap dump profiling
 
 1. A single heap dump file generates plain text analysis results
     ```shell
@@ -263,19 +281,6 @@ For detailed parameter description, refer to https://linux.die.net/man/3/jemallo
     ```shell
     jeprof --pdf lib/doris_be --base=heap_dump_file_1 heap_dump_file_2 > result.pdf
     ```
-
-###### 3. heap dump by JEMALLOC_CONF
-Periodic heap dump can also be done by changing the `JEMALLOC_CONF` variable in `start_be.sh` and restarting BE
-
-1. Dump every 1MB:
-
-    Two new variable settings `prof:true,lg_prof_interval:20` have been added to the `JEMALLOC_CONF` variable, where `prof:true` is to enable profiling, and `lg_prof_interval:20` means that a dump is generated every 1MB (2^20)
-2. Dump each time a new high is reached:
-
-    Two new variable settings `prof:true,prof_gdump:true` have been added to the `JEMALLOC_CONF` variable, where `prof:true` is to enable profiling, and `prof_gdump:true` means to generate a dump when the memory usage reaches a new high
-3. Memory leak dump when the program exits:
-
-    Added three new variable settings `prof_leak: true, lg_prof_sample: 0, prof_final: true` in the `JEMALLOC_CONF` variable.
 
 #### LSAN
 

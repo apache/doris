@@ -38,6 +38,7 @@
 int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     doris::thread_context()->thread_mem_tracker_mgr->init();
+    doris::CacheManager::create_global_instance();
     doris::TabletSchemaCache::create_global_schema_cache();
     doris::StoragePageCache::create_global_cache(1 << 30, 10, 0);
     doris::SegmentLoader::create_global_instance(1000);

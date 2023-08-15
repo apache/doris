@@ -27,9 +27,6 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.Statistics;
-
-import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,17 +38,6 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
 
     public Command(PlanType type, Plan... children) {
         super(type, children);
-    }
-
-    public Command(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
-        super(type, optLogicalProperties, children);
-    }
-
-    public Command(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> optLogicalProperties,
-            @Nullable Statistics statistics,
-            Plan... children) {
-        super(type, groupExpression, optLogicalProperties, statistics, children);
     }
 
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
@@ -99,6 +85,12 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        throw new RuntimeException("Command do not implement withGroupExprLogicalPropChildren");
+    }
+
+    @Override
     public boolean canBind() {
         throw new RuntimeException("Command do not implement canResolve");
     }
@@ -116,10 +108,5 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new RuntimeException("Command do not implement withGroupExpression");
-    }
-
-    @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        throw new RuntimeException("Command do not implement withLogicalProperties");
     }
 }

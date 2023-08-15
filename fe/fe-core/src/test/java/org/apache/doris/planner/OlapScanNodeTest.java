@@ -69,7 +69,8 @@ public class OlapScanNodeTest {
                 partitions,
                 columns,
                 filterMap,
-                3);
+                3,
+                true);
 
         Collection<Long> ids = partitionPruner.prune();
         Assert.assertEquals(ids.size(), 1);
@@ -112,7 +113,8 @@ public class OlapScanNodeTest {
                 partitions,
                 columns,
                 filterMap,
-                3);
+                3,
+                true);
 
         Collection<Long> ids = partitionPruner.prune();
         Assert.assertEquals(ids.size(), 3);

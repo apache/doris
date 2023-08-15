@@ -27,7 +27,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -54,12 +53,14 @@ public class ShowTableStatsStmt extends ShowStmt {
     private final TableName tableName;
 
     private final PartitionNames partitionNames;
+    private final boolean cached;
 
     private TableIf table;
 
-    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames) {
+    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
+        this.cached = cached;
     }
 
     public TableName getTableName() {
@@ -76,8 +77,6 @@ public class ShowTableStatsStmt extends ShowStmt {
                 throw new AnalysisException("Only one partition name could be specified");
             }
         }
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
             ErrorReport.reportAnalysisException("Catalog: {} not exists", tableName.getCtl());
@@ -135,5 +134,9 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(StatisticsUtil.getReadableTime(tableStatistic.lastAnalyzeTimeInMs));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
+    }
+
+    public boolean isCached() {
+        return cached;
     }
 }

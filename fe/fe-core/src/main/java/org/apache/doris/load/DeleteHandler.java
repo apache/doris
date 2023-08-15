@@ -801,7 +801,7 @@ public class DeleteHandler implements Writable {
                 String columnName = slotRef.getColumnName();
                 StringBuilder sb = new StringBuilder();
                 sb.append(columnName).append(" ").append(binaryPredicate.getOp().name()).append(" \"")
-                        .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
+                        .append(binaryPredicate.getChild(1).getStringValue()).append("\"");
                 deleteConditions.add(sb.toString());
             } else if (condition instanceof IsNullPredicate) {
                 IsNullPredicate isNullPredicate = (IsNullPredicate) condition;

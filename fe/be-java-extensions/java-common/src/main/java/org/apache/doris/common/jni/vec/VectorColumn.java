@@ -21,6 +21,7 @@ package org.apache.doris.common.jni.vec;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.utils.TypeNativeBytes;
 import org.apache.doris.common.jni.vec.ColumnType.Type;
+import org.apache.doris.common.jni.vec.NativeColumnValue.NativeValue;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -550,6 +551,38 @@ public class VectorColumn {
         }
     }
 
+    public void appendNativeValue(NativeColumnValue o) {
+        ColumnType.Type typeValue = columnType.getType();
+        if (o == null || o.isNull()) {
+            appendNull(typeValue);
+            return;
+        }
+        NativeValue nativeValue = o.getNativeValue(typeValue);
+        if (nativeValue == null) {
+            // can't get native value, fall back to materialized value
+            appendValue((ColumnValue) o);
+            return;
+        }
+        if (nativeValue.length == -1) {
+            // java origin types
+            long typeSize = typeValue.size;
+            reserve(appendIndex + 1);
+            OffHeap.copyMemory(nativeValue.baseObject, nativeValue.offset,
+                    null, data + typeSize * appendIndex, typeSize);
+            appendIndex++;
+        } else {
+            int byteLength = nativeValue.length;
+            VectorColumn bytesColumn = childColumns[0];
+            int startOffset = bytesColumn.appendIndex;
+            bytesColumn.reserve(startOffset + byteLength);
+            OffHeap.copyMemory(nativeValue.baseObject, nativeValue.offset,
+                    null, bytesColumn.data + startOffset, byteLength);
+            bytesColumn.appendIndex += byteLength;
+            OffHeap.putInt(null, offsets + 4L * appendIndex, startOffset + byteLength);
+            appendIndex++;
+        }
+    }
+
     public void appendValue(ColumnValue o) {
         ColumnType.Type typeValue = columnType.getType();
         if (o == null || o.isNull()) {
@@ -598,7 +631,7 @@ public class VectorColumn {
             case VARCHAR:
             case STRING:
                 if (o.canGetStringAsBytes()) {
-                    appendBytesAndOffset(o.getBytes());
+                    appendBytesAndOffset(o.getStringAsBytes());
                 } else {
                     appendStringAndOffset(o.getString());
                 }

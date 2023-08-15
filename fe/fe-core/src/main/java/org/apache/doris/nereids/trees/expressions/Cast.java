@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -35,6 +36,11 @@ public class Cast extends Expression implements UnaryExpression {
     private final DataType targetType;
 
     public Cast(Expression child, DataType targetType) {
+        super(ImmutableList.of(child));
+        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
+    }
+
+    private Cast(List<Expression> child, DataType targetType) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
     }
@@ -56,6 +62,8 @@ public class Cast extends Expression implements UnaryExpression {
             return true;
         } else if (!childDataType.isDateLikeType() && targetType.isDateLikeType()) {
             return true;
+        } else if (!childDataType.isTimeLikeType() && targetType.isTimeLikeType()) {
+            return true;
         } else {
             return child().nullable();
         }
@@ -64,7 +72,7 @@ public class Cast extends Expression implements UnaryExpression {
     @Override
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cast(children.get(0), getDataType());
+        return new Cast(children, getDataType());
     }
 
     @Override

@@ -54,7 +54,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             ImmutableSet.of("access_key", "secret_key", "session_token", "region");
 
     private static final ImmutableSet<String> OPTIONAL_KEYS =
-            ImmutableSet.of(S3Properties.SESSION_TOKEN, PropertyConverter.USE_PATH_STYLE, S3Properties.REGION);
+            ImmutableSet.of(S3Properties.SESSION_TOKEN, PropertyConverter.USE_PATH_STYLE, S3Properties.REGION,
+                    PATH_PARTITION_KEYS);
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.<String>builder()
             .add(S3_URI)
@@ -66,8 +67,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     private final S3URI s3uri;
     private final boolean forceVirtualHosted;
-    private String virtualBucket;
-    private String virtualKey;
+    private String virtualBucket = "";
 
     public S3TableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> tvfParams = getValidParams(params);
@@ -76,8 +76,12 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         final String endpoint = forceVirtualHosted
                 ? getEndpointAndSetVirtualBucket(params)
                 : s3uri.getBucketScheme();
+        if (!tvfParams.containsKey(S3Properties.REGION)) {
+            String region = S3Properties.getRegionOfEndpoint(endpoint);
+            tvfParams.put(S3Properties.REGION, region);
+        }
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,
-                tvfParams.getOrDefault(S3Properties.REGION, S3Properties.getRegionOfEndpoint(endpoint)),
+                tvfParams.get(S3Properties.REGION),
                 tvfParams.get(S3Properties.ACCESS_KEY),
                 tvfParams.get(S3Properties.SECRET_KEY));
         if (tvfParams.containsKey(S3Properties.SESSION_TOKEN)) {
@@ -89,8 +93,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         locationProperties = S3Properties.credentialToMap(credential);
         String usePathStyle = tvfParams.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false");
         locationProperties.put(PropertyConverter.USE_PATH_STYLE, usePathStyle);
-        locationProperties.put(S3Properties.VIRTUAL_BUCKET, virtualBucket);
-        locationProperties.put(S3Properties.VIRTUAL_KEY, getVirtualKey());
 
         parseProperties(tvfParams);
         if (FeConstants.runningUnitTest) {
@@ -118,11 +120,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             throw new AnalysisException("Missing required property: " + S3_URI);
         }
         return S3Properties.requiredS3TVFProperties(validParams);
-    }
-
-    private String getVirtualKey() {
-        virtualKey = s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
-        return virtualKey;
     }
 
     private String getEndpointAndSetVirtualBucket(Map<String, String> params) throws AnalysisException {
@@ -171,7 +168,8 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     public String getFilePath() {
         // must be "s3://..."
         if (forceVirtualHosted) {
-            return NAME + S3URI.SCHEME_DELIM + virtualBucket + S3URI.PATH_DELIM + virtualKey;
+            return NAME + S3URI.SCHEME_DELIM + virtualBucket + S3URI.PATH_DELIM
+                    + s3uri.getBucket() + S3URI.PATH_DELIM + s3uri.getKey();
         }
         return NAME + S3URI.SCHEME_DELIM + s3uri.getKey();
     }

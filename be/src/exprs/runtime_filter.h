@@ -78,28 +78,6 @@ enum class RuntimeFilterType {
     BITMAP_FILTER = 4
 };
 
-inline std::string to_string(RuntimeFilterType type) {
-    switch (type) {
-    case RuntimeFilterType::IN_FILTER: {
-        return std::string("in");
-    }
-    case RuntimeFilterType::BLOOM_FILTER: {
-        return std::string("bloomfilter");
-    }
-    case RuntimeFilterType::MINMAX_FILTER: {
-        return std::string("minmax");
-    }
-    case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-        return std::string("in_or_bloomfilter");
-    }
-    case RuntimeFilterType::BITMAP_FILTER: {
-        return std::string("bitmapfilter");
-    }
-    default:
-        return std::string("UNKNOWN");
-    }
-}
-
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
@@ -221,10 +199,8 @@ public:
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
-    Status get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs);
-
-    Status get_prepared_exprs(std::vector<doris::vectorized::VExprSPtr>* push_exprs,
-                              const RowDescriptor& desc, RuntimeState* state);
+    Status get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr>& probe_ctxs,
+                              std::vector<vectorized::VExprSPtr>& push_exprs, bool is_late_arrival);
 
     bool is_broadcast_join() const { return _is_broadcast_join; }
 
@@ -309,6 +285,28 @@ public:
 
     int filter_id() const { return _filter_id; }
 
+    static std::string to_string(RuntimeFilterType type) {
+        switch (type) {
+        case RuntimeFilterType::IN_FILTER: {
+            return std::string("in");
+        }
+        case RuntimeFilterType::BLOOM_FILTER: {
+            return std::string("bloomfilter");
+        }
+        case RuntimeFilterType::MINMAX_FILTER: {
+            return std::string("minmax");
+        }
+        case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
+            return std::string("in_or_bloomfilter");
+        }
+        case RuntimeFilterType::BITMAP_FILTER: {
+            return std::string("bitmapfilter");
+        }
+        default:
+            return std::string("UNKNOWN");
+        }
+    }
+
 protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
@@ -370,8 +368,8 @@ protected:
     // expr index
     int _expr_order;
     // used for await or signal
-    doris::Mutex _inner_mutex;
-    doris::ConditionVariable _inner_cv;
+    Mutex _inner_mutex;
+    ConditionVariable _inner_cv;
 
     bool _is_push_down = false;
 
@@ -379,13 +377,11 @@ protected:
     // this filter won't filter any data
     bool _always_true;
 
-    doris::vectorized::VExprContextSPtr _vprobe_ctx;
+    TExpr _probe_expr;
 
     // Indicate whether runtime filter expr has been ignored
     bool _is_ignored;
     std::string _ignored_msg;
-
-    std::vector<doris::vectorized::VExprSPtr> _push_down_vexprs;
 
     struct RPCContext;
 
@@ -466,7 +462,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
     } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
-        auto origin_value = reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data);
+        auto origin_value = reinterpret_cast<const vectorized::VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);
@@ -481,8 +477,8 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
         }
     } else if constexpr (T == TYPE_DATEV2) {
-        auto origin_value = reinterpret_cast<
-                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
+        auto origin_value =
+                reinterpret_cast<const vectorized::DateV2Value<vectorized::DateV2ValueType>*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);
@@ -491,9 +487,9 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
     } else if constexpr (T == TYPE_DATETIMEV2) {
-        auto origin_value = reinterpret_cast<
-                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
-                data);
+        auto origin_value =
+                reinterpret_cast<const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*>(
+                        data);
         TDateLiteral date_literal;
         char convert_buffer[30];
         origin_value->to_string(convert_buffer);

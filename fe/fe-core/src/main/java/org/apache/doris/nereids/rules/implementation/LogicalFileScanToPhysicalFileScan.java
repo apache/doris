@@ -32,7 +32,7 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
     public Rule build() {
         return logicalFileScan().then(fileScan ->
             new PhysicalFileScan(
-                    fileScan.getId(),
+                    fileScan.getRelationId(),
                     fileScan.getTable(),
                     fileScan.getQualifier(),
                     DistributionSpecAny.INSTANCE,

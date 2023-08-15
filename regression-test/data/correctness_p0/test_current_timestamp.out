@@ -42,3 +42,12 @@
 -- !stream_load_json6 --
 2
 
+-- !insert_sql --
+1
+
+-- !insert_sql --
+1
+
+-- !select_sql --
+2
+

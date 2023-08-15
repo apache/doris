@@ -195,4 +195,48 @@ suite("cast") {
     }
 
     qt_sql_test_DecimalV3_mode """select cast(1 as DECIMALV3(1, 0)) % 2.1;""";
+
+    // test cast to time
+    qt_tinyint """select cast(k1 as time) ct from test order by ct;"""
+    qt_smallint """select cast(k2 as time) ct from test order by ct;"""
+    qt_int """select cast(k3 as time) ct from test order by ct;"""
+    qt_bigint """select cast(k4 as time) ct from test order by ct;"""
+    qt_largeint """select cast(k13 as time) ct from test order by ct;"""
+    qt_float """select cast(k9 as time) ct from test order by ct;"""
+    qt_double """select cast(k8 as time) ct from test order by ct;"""
+    qt_char """select cast(k6 as time) ct from test order by ct;"""
+    qt_varchar """select cast(k7 as time) ct from test order by ct;"""
+    qt_string """select cast(k12 as time) ct from test order by ct;"""
+
+    qt_tinyint """select cast(cast(1 as tinyint) as time)"""
+    qt_smallint """select cast(cast(1 as smallint) as time)"""
+    qt_int """select cast(cast(1 as int) as time)"""
+    qt_bigint """select cast(cast(1 as bigint) as time)"""
+    qt_largeint """select cast(cast(1 as largeint) as time)"""
+    qt_float """select cast(cast(0 as float) as time)"""
+    qt_double """select cast(cast(0 as double) as time)"""
+    qt_char """select cast(cast("1" as char(1)) as time)"""
+    qt_varchar """select cast(cast("1" as varchar(1)) as time)"""
+    qt_string """select cast(cast("1" as string) as time)"""
+
+    // boolean
+    test {
+        sql """select cast(k0 as time) ct from test order by ct;"""
+        exception "cannot cast"
+    }
+    // decimal
+    test {
+        sql """select cast(k5 as time) ct from test order by ct;"""
+        exception "cannot cast"
+    }
+    // date
+    test {
+        sql """select cast(k10 as time) ct from test order by ct;"""
+        exception "cannot cast"
+    }
+    // datetime
+    test {
+        sql """select cast(k11 as time) ct from test order by ct;"""
+        exception "cannot cast"
+    }
 }

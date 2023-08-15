@@ -32,7 +32,6 @@ bool ExchangeSourceOperator::can_read() {
 }
 
 bool ExchangeSourceOperator::is_pending_finish() const {
-    // TODO HappenLee
     return false;
 }
 } // namespace doris::pipeline

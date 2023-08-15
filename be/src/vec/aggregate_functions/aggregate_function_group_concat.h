@@ -73,7 +73,7 @@ struct AggregateFunctionGroupConcatData {
         }
     }
 
-    std::string get() const { return data; }
+    const std::string& get() const { return data; }
 
     void write(BufferWritable& buf) const {
         write_binary(data, buf);
@@ -146,7 +146,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        std::string result = this->data(place).get();
+        const std::string& result = this->data(place).get();
         assert_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
     }
 };

@@ -38,7 +38,6 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/sink/vmysql_result_writer.h"
-#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class QueryStatistics;

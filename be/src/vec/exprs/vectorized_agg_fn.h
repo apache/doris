@@ -108,7 +108,7 @@ private:
 
     AggFnEvaluator(const TExprNode& desc);
 
-    Status _calc_argment_columns(Block* block);
+    Status _calc_argument_columns(Block* block);
 
     DataTypes _argument_types_with_sort;
     DataTypes _real_argument_types;

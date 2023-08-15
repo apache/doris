@@ -42,7 +42,12 @@ namespace vectorized {
 class Arena;
 
 class DataTypeDate64SerDe : public DataTypeNumberSerDe<Int64> {
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_bytemap,
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override;
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
@@ -56,6 +61,14 @@ private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const) const;
+};
+
+class DataTypeDateTimeSerDe : public DataTypeDate64SerDe {
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override;
 };
 } // namespace vectorized
 } // namespace doris

@@ -17,13 +17,17 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -32,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
@@ -74,15 +77,17 @@ public class DeriveStatsJobTest {
         long tableId1 = 0;
 
         List<String> qualifier = ImmutableList.of("test", "t");
-        slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
+        slot1 = new SlotReference(new ExprId(1), "c1", IntegerType.INSTANCE, true, qualifier,
+                    new Column("e", PrimitiveType.INT));
         new Expectations() {{
                 ConnectContext.get();
                 result = context;
             }};
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        return new LogicalOlapScan(RelationUtil.newRelationId(), table1, Collections.emptyList()).withLogicalProperties(
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
+        return (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
+                Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))), ImmutableList.of());
     }
 
     private LogicalAggregate constructAgg(Plan child) {

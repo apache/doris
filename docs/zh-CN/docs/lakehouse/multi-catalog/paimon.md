@@ -30,31 +30,76 @@ under the License.
 <version since="dev">
 </version>
 
-## 使用限制
+## 使用须知
 
-1. 目前只支持简单字段类型。
-2. 目前仅支持 Hive Metastore 类型的 Catalog。所以使用方式和 Hive Catalog 基本一致。后续版本将支持其他类型的 Catalog。
+1. 数据放在hdfs时，需要将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。优先读取 conf 目录下的 hadoop 配置文件，再读取环境变量 `HADOOP_CONF_DIR` 的相关配置文件。
+2. 当前适配的paimon版本为0.4.0
 
 ## 创建 Catalog
 
-### 基于Paimon API创建Catalog
+Paimon Catalog 当前支持两种类型的Metastore创建Catalog:
+* filesystem（默认），同时存储元数据和数据在filesystem。
+* hive metastore，它还将元数据存储在Hive metastore中。用户可以直接从Hive访问这些表。
 
-使用Paimon API访问元数据的方式，目前只支持Hive服务作为Paimon的Catalog。
+### 基于FileSystem创建Catalog
 
-- Hive Metastore 作为元数据服务
+#### HDFS
+```sql
+CREATE CATALOG `paimon_hdfs` PROPERTIES (
+    "type" = "paimon",
+    "warehouse" = "hdfs://HDFS8000871/user/paimon",
+    "dfs.nameservices"="HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871"="nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username"="hadoop"
+);
+
+```
+
+#### S3
 
 ```sql
-CREATE CATALOG `paimon` PROPERTIES (
+CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
-    "hive.metastore.uris" = "thrift://172.16.65.15:7004",
-    "dfs.ha.namenodes.HDFS1006531" = "nn2,nn1",
-    "dfs.namenode.rpc-address.HDFS1006531.nn2" = "172.16.65.115:4007",
-    "dfs.namenode.rpc-address.HDFS1006531.nn1" = "172.16.65.15:4007",
-    "dfs.nameservices" = "HDFS1006531",
-    "hadoop.username" = "hadoop",
-    "warehouse" = "hdfs://HDFS1006531/data/paimon",
-    "dfs.client.failover.proxy.provider.HDFS1006531" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+    "warehouse" = "s3://paimon-1308700295.cos.ap-beijing.myqcloud.com/paimoncos",
+    "s3.endpoint"="cos.ap-beijing.myqcloud.com",
+    "s3.access_key"="ak",
+    "s3.secret_key"="sk"
 );
+
+```
+
+#### OSS
+
+```sql
+CREATE CATALOG `paimon_oss` PROPERTIES (
+    "type" = "paimon",
+    "warehouse" = "oss://paimon-zd/paimonoss",
+    "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
+    "oss.access_key"="ak",
+    "oss.secret_key"="sk"
+);
+
+```
+
+### 基于Hive Metastore创建Catalog
+
+```sql
+CREATE CATALOG `paimon_hms` PROPERTIES (
+    "type" = "paimon",
+    "paimon.catalog.type"="hms",
+    "warehouse" = "hdfs://HDFS8000871/user/zhangdong/paimon2",
+    "hive.metastore.uris" = "thrift://172.21.0.44:7004",
+    "dfs.nameservices'='HDFS8000871",
+    "dfs.ha.namenodes.HDFS8000871'='nn1,nn2",
+    "dfs.namenode.rpc-address.HDFS8000871.nn1"="172.21.0.1:4007",
+    "dfs.namenode.rpc-address.HDFS8000871.nn2"="172.21.0.2:4007",
+    "dfs.client.failover.proxy.provider.HDFS8000871"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider",
+    "hadoop.username"="hadoop"
+);
+
 ```
 
 ## 列类型映射

@@ -29,10 +29,10 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "runtime/descriptors.h"
+#include "runtime/result_writer.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/runtime/vparquet_writer.h"
-#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class BufferControlBlock;
@@ -47,7 +47,7 @@ struct ResultFileOptions;
 namespace doris::vectorized {
 
 // write result to file
-class VFileResultWriter final : public VResultWriter {
+class VFileResultWriter final : public ResultWriter {
 public:
     VFileResultWriter(const ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,

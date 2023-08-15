@@ -125,9 +125,10 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
     }
 
     @Override
-    public LogicalUnion withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter,
-                Optional.empty(), logicalProperties, children);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, groupExpression,
+                logicalProperties, children);
     }
 
     @Override

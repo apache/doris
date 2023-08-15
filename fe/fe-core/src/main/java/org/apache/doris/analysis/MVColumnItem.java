@@ -179,10 +179,6 @@ public class MVColumnItem {
                 throw new DdlException("base column's type is null, column=" + result.getName());
             }
             result.setIsKey(isKey);
-            // If the mv column type is inconsistent with the base column type, the daily
-            // test will core.
-            // So, I comment this line firstly.
-            // result.setType(type);
         } else {
             if (type == null) {
                 throw new DdlException("MVColumnItem type is null");

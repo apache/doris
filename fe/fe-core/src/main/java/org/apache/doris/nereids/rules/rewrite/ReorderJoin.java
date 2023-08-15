@@ -87,7 +87,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 Plan plan = joinToMultiJoin(filter, planToHintType);
                 Preconditions.checkState(plan instanceof MultiJoin);
                 MultiJoin multiJoin = (MultiJoin) plan;
-                ctx.statementContext.setMaxNArayInnerJoin(multiJoin.children().size());
+                ctx.statementContext.setMaxNAryInnerJoin(multiJoin.children().size());
                 Plan after = multiJoinToJoin(multiJoin, planToHintType);
                 return after;
             }).toRule(RuleType.REORDER_JOIN);

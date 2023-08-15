@@ -169,7 +169,7 @@ public interface DatabaseIf<T extends TableIf> {
         T table = getTableOrMetaException(tableName);
         if (!tableTypes.contains(table.getType())) {
             throw new MetaNotFoundException(
-                    "Tye type of " + tableName + " doesn't match, expected data tables=" + tableTypes);
+                    "Type of " + tableName + " doesn't match, expected data tables=" + tableTypes);
         }
         return table;
     }
@@ -193,7 +193,7 @@ public interface DatabaseIf<T extends TableIf> {
         T table = getTableOrMetaException(tableId);
         if (!tableTypes.contains(table.getType())) {
             throw new MetaNotFoundException(
-                    "Tye type of " + tableId + " doesn't match, expected data tables=" + tableTypes);
+                    "Type of " + tableId + " doesn't match, expected data tables=" + tableTypes);
         }
         return table;
     }
@@ -235,4 +235,8 @@ public interface DatabaseIf<T extends TableIf> {
     void dropTable(String tableName);
 
     CatalogIf getCatalog();
+
+    default long getLastUpdateTime() {
+        return -1L;
+    }
 }

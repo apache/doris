@@ -117,8 +117,9 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UsingJoin(joinType, child(0), child(1), otherJoinConjuncts,
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new UsingJoin(joinType, children.get(0), children.get(1), otherJoinConjuncts,
                 hashJoinConjuncts, groupExpression, logicalProperties, hint, markJoinSlotReference);
     }
 

@@ -39,6 +39,7 @@ enum class CompactionActionType {
 const std::string PARAM_COMPACTION_TYPE = "compact_type";
 const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
+const std::string PARAM_COMPACTION_FULL = "full";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.

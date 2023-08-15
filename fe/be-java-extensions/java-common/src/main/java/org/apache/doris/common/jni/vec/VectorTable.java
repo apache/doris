@@ -68,6 +68,11 @@ public class VectorTable {
         this.isRestoreTable = true;
     }
 
+    public void appendNativeData(int fieldId, NativeColumnValue o) {
+        assert (!isRestoreTable);
+        columns[fieldId].appendNativeValue(o);
+    }
+
     public void appendData(int fieldId, ColumnValue o) {
         assert (!isRestoreTable);
         columns[fieldId].appendValue(o);

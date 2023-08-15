@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/fs_utils.h"
 #include "io/fs/path.h"
 
 namespace doris {
@@ -75,9 +76,14 @@ public:
     // And derived classes should implement all xxx_impl methods.
     Status create_file(const Path& file, FileWriterPtr* writer);
     Status open_file(const Path& file, FileReaderSPtr* reader) {
-        return open_file(file, FileReaderOptions::DEFAULT, reader);
+        FileDescription fd;
+        fd.path = file.native();
+        return open_file(fd, FileReaderOptions::DEFAULT, reader);
     }
-    Status open_file(const Path& file, const FileReaderOptions& reader_options,
+    Status open_file(const FileDescription& fd, FileReaderSPtr* reader) {
+        return open_file(fd, FileReaderOptions::DEFAULT, reader);
+    }
+    Status open_file(const FileDescription& fd, const FileReaderOptions& reader_options,
                      FileReaderSPtr* reader);
     Status create_directory(const Path& dir, bool failed_if_exists = false);
     Status delete_file(const Path& file);
@@ -112,7 +118,8 @@ protected:
     virtual Status create_file_impl(const Path& file, FileWriterPtr* writer) = 0;
 
     /// open file and return a FileReader
-    virtual Status open_file_impl(const Path& file, const FileReaderOptions& reader_options,
+    virtual Status open_file_impl(const FileDescription& fd, const Path& abs_file,
+                                  const FileReaderOptions& reader_options,
                                   FileReaderSPtr* reader) = 0;
 
     /// create directory recursively

@@ -31,7 +31,7 @@ under the License.
 
 In order to improve the like query performance, the NGram BloomFilter index was implemented.
 
-## Create Column With NGram BloomFilter Index
+## Create Column with NGram BloomFilter Index
 
 During create table：
 
@@ -74,7 +74,7 @@ Add NGram BloomFilter Index for old column:
 alter table example_db.table3 add index idx_ngrambf(username) using NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="512")comment 'username ngram_bf index' 
 ```
 
-## **Some notes about Doris NGram BloomFilter**
+## **Some Notes about Doris NGram BloomFilter**
 
 1. NGram BloomFilter only support CHAR/VARCHAR/String column.
 2. NGram BloomFilter index and BloomFilter index should be exclusive on same column

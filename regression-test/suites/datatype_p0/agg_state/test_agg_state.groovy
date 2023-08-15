@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_agg_state") {
+    sql "set global enable_agg_state=true"
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """
             create table d_table(

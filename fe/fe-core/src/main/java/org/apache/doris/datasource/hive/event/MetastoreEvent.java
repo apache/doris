@@ -57,6 +57,17 @@ public abstract class MetastoreEvent {
 
     protected final String catalogName;
 
+    // for test
+    protected MetastoreEvent(long eventId, String catalogName, String dbName, String tblName) {
+        this.eventId = eventId;
+        this.catalogName = catalogName;
+        this.dbName = dbName;
+        this.tblName = tblName;
+        this.eventType = null;
+        this.metastoreNotificationEvent = null;
+        this.event = null;
+    }
+
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
         this.dbName = event.getDbName();

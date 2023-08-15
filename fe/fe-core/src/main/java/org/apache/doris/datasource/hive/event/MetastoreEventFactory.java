@@ -21,12 +21,17 @@ package org.apache.doris.datasource.hive.event;
 import org.apache.doris.datasource.HMSExternalCatalog;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Factory class to create various MetastoreEvents.
@@ -36,7 +41,7 @@ public class MetastoreEventFactory implements EventFactory {
 
     @Override
     public List<MetastoreEvent> transferNotificationEventToMetastoreEvents(NotificationEvent event,
-            String catalogName) {
+                                                                           String catalogName) {
         Preconditions.checkNotNull(event.getEventType());
         MetastoreEventType metastoreEventType = MetastoreEventType.from(event.getEventType());
         switch (metastoreEventType) {
@@ -68,19 +73,80 @@ public class MetastoreEventFactory implements EventFactory {
 
     List<MetastoreEvent> getMetastoreEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
         List<MetastoreEvent> metastoreEvents = Lists.newArrayList();
+        String catalogName = hmsExternalCatalog.getName();
         for (NotificationEvent event : events) {
-            metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, hmsExternalCatalog.getName()));
+            metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, catalogName));
         }
-        return createBatchEvents(metastoreEvents);
+        return createBatchEvents(catalogName, metastoreEvents);
     }
 
     /**
-     * Create batch event tasks according to HivePartitionName to facilitate subsequent parallel processing.
-     * For ADD_PARTITION and DROP_PARTITION, we directly override any events before that partition.
-     * For a partition, it is meaningless to process any events before the drop partition.
-     */
-    List<MetastoreEvent> createBatchEvents(List<MetastoreEvent> events) {
-        // now do nothing
-        return events;
+     * Merge events to reduce the cost time on event processing, currently mainly handles MetastoreTableEvent
+     * because merge MetastoreTableEvent is simple and cost-effective.
+     * For example, consider there are some events as following:
+     *
+     *    event1: alter table db1.t1 add partition p1;
+     *    event2: alter table db1.t1 drop partition p2;
+     *    event3: alter table db1.t2 add partition p3;
+     *    event4: alter table db2.t3 rename to t4;
+     *    event5: drop table db1.t1;
+     *
+     * Only `event3 event4 event5` will be reserved and other events will be skipped.
+     * */
+    public List<MetastoreEvent> createBatchEvents(String catalogName, List<MetastoreEvent> events) {
+        List<MetastoreEvent> eventsCopy = Lists.newArrayList(events);
+        Map<MetastoreTableEvent.TableKey, List<Integer>> indexMap = Maps.newLinkedHashMap();
+        for (int i = 0; i < events.size(); i++) {
+            MetastoreEvent event = events.get(i);
+
+            // if the event is a rename event, just clear indexMap
+            // to make sure the table references of these events in indexMap will not change
+            if (event instanceof AlterDatabaseEvent && ((AlterDatabaseEvent) event).isRename()) {
+                indexMap.clear();
+                continue;
+            }
+
+            // Only check MetastoreTableEvent
+            if (!(event instanceof MetastoreTableEvent)) {
+                continue;
+            }
+
+            // Divide events into multi groups to reduce check count
+            MetastoreTableEvent.TableKey groupKey = ((MetastoreTableEvent) event).getTableKey();
+            if (!indexMap.containsKey(groupKey)) {
+                List<Integer> indexList = Lists.newLinkedList();
+                indexList.add(i);
+                indexMap.put(groupKey, indexList);
+                continue;
+            }
+
+            List<Integer> indexList = indexMap.get(groupKey);
+            for (int j = 0; j < indexList.size(); j++) {
+                int candidateIndex = indexList.get(j);
+                if (candidateIndex == -1) {
+                    continue;
+                }
+                if (event.canBeBatched(events.get(candidateIndex))) {
+                    eventsCopy.set(candidateIndex, null);
+                    indexList.set(j, -1);
+                }
+            }
+            indexList = indexList.stream().filter(index -> index != -1)
+                        .collect(Collectors.toList());
+            indexList.add(i);
+            indexMap.put(groupKey, indexList);
+
+            // if the event is a rename event, just clear indexMap
+            // to make sure the table references of these events in indexMap will not change
+            if (event instanceof AlterTableEvent && ((AlterTableEvent) event).isRename()) {
+                indexMap.clear();
+            }
+        }
+
+        List<MetastoreEvent> filteredEvents = eventsCopy.stream().filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        LOG.info("Event size on catalog [{}] before merge is [{}], after merge is [{}]",
+                    catalogName, events.size(), filteredEvents.size());
+        return ImmutableList.copyOf(filteredEvents);
     }
 }

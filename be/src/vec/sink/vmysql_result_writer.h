@@ -24,11 +24,11 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/result_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "util/runtime_profile.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class BufferControlBlock;
@@ -38,7 +38,7 @@ namespace vectorized {
 class Block;
 
 template <bool is_binary_format = false>
-class VMysqlResultWriter final : public VResultWriter {
+class VMysqlResultWriter final : public ResultWriter {
 public:
     using ResultList = std::vector<std::unique_ptr<TFetchDataResult>>;
 

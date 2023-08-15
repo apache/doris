@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -51,6 +52,8 @@ public class DropStatsStmt extends DdlStmt {
 
     private final TableName tableName;
     private Set<String> columnNames;
+    // Flag to drop external table row count in table_statistics.
+    private boolean dropTableRowCount;
 
     private long tblId;
 
@@ -58,6 +61,7 @@ public class DropStatsStmt extends DdlStmt {
         this.dropExpired = dropExpired;
         this.tableName = null;
         this.columnNames = null;
+        this.dropTableRowCount = false;
     }
 
     public DropStatsStmt(TableName tableName,
@@ -65,6 +69,11 @@ public class DropStatsStmt extends DdlStmt {
         this.tableName = tableName;
         if (columnNames != null) {
             this.columnNames = new HashSet<>(columnNames);
+            this.dropTableRowCount = false;
+        } else {
+            // columnNames == null means drop all columns, in this case,
+            // external table need to drop the table row count as well.
+            dropTableRowCount = true;
         }
         dropExpired = false;
     }
@@ -81,6 +90,10 @@ public class DropStatsStmt extends DdlStmt {
         }
         tableName.analyze(analyzer);
         String catalogName = tableName.getCtl();
+        if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalogName)) {
+            // Internal table doesn't need to drop table row count.
+            dropTableRowCount = false;
+        }
         String dbName = tableName.getDb();
         String tblName = tableName.getTbl();
         CatalogIf catalog = analyzer.getEnv().getCatalogMgr()
@@ -113,6 +126,10 @@ public class DropStatsStmt extends DdlStmt {
 
     public Set<String> getColumnNames() {
         return columnNames;
+    }
+
+    public boolean dropTableRowCount() {
+        return dropTableRowCount;
     }
 
     @Override

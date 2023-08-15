@@ -25,6 +25,9 @@
 
 namespace doris {
 
+namespace vectorized {
+class Block;
+}
 class RuntimeState;
 
 // abstract class of the result writer
@@ -41,6 +44,10 @@ public:
     virtual int64_t get_written_rows() const { return _written_rows; }
 
     virtual bool output_object_data() const { return _output_object_data; }
+
+    virtual Status append_block(vectorized::Block& block) = 0;
+
+    virtual bool can_sink() { return true; }
 
     void set_output_object_data(bool output_object_data) {
         _output_object_data = output_object_data;

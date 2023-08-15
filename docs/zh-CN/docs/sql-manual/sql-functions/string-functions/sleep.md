@@ -1,6 +1,6 @@
 ---
 {
-    "title": "sleep",
+    "title": "SLEEP",
     "language": "zh-CN"
 }
 ---

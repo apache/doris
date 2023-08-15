@@ -74,4 +74,24 @@ suite("test_cast") {
         sql "select * from ${tbl} where case when k0 = 101 then 'true' else 1 end"
         result([[101]])
     }
+
+    test {
+        sql "select cast(false as datetime);"
+        result([[null]])
+    }
+
+    test {
+        sql "select cast(true as datetime);"
+        result([[null]])
+    }
+
+    test {
+        sql "select cast(false as date);"
+        result([[null]])
+    }
+
+    test {
+        sql "select cast(true as date);"
+        result([[null]])
+    }
 }

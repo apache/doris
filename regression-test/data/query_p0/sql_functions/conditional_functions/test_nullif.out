@@ -570,3 +570,7 @@ null	12	1	true
 -- !if_nullif28 --
 2020-02-09
 
+-- !if_nullif29 --
+1	1
+2	2
+

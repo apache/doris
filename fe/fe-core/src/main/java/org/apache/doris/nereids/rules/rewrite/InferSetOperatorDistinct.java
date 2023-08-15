@@ -50,13 +50,19 @@ public class InferSetOperatorDistinct extends OneRewriteRuleFactory {
                     }
 
                     List<Plan> newChildren = setOperation.children().stream()
-                            .map(child -> new LogicalAggregate<>(ImmutableList.copyOf(child.getOutput()), child))
+                            .map(child -> isAgg(child) ? child
+                                    : new LogicalAggregate<>(ImmutableList.copyOf(child.getOutput()), true, child))
                             .collect(ImmutableList.toImmutableList());
                     if (newChildren.equals(setOperation.children())) {
                         return null;
                     }
                     return setOperation.withChildren(newChildren);
                 }).toRule(RuleType.INFER_SET_OPERATOR_DISTINCT);
+    }
+
+    private boolean isAgg(Plan plan) {
+        return plan instanceof LogicalAggregate || (plan instanceof LogicalProject && plan.child(
+                0) instanceof LogicalAggregate);
     }
 
     // if children exist NLJ, we can't infer distinct

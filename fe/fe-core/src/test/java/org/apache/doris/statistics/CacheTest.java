@@ -44,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -101,11 +102,15 @@ public class CacheTest extends TestWithFeService {
                 colNames.add("col_id");
                 colNames.add("min");
                 colNames.add("max");
+                colNames.add("part_id");
+                colNames.add("update_time");
                 List<PrimitiveType> primitiveTypes = new ArrayList<>();
                 primitiveTypes.add(PrimitiveType.BIGINT);
                 primitiveTypes.add(PrimitiveType.BIGINT);
                 primitiveTypes.add(PrimitiveType.BIGINT);
                 primitiveTypes.add(PrimitiveType.BIGINT);
+                primitiveTypes.add(PrimitiveType.VARCHAR);
+                primitiveTypes.add(PrimitiveType.VARCHAR);
                 primitiveTypes.add(PrimitiveType.VARCHAR);
                 primitiveTypes.add(PrimitiveType.VARCHAR);
                 primitiveTypes.add(PrimitiveType.VARCHAR);
@@ -125,6 +130,8 @@ public class CacheTest extends TestWithFeService {
                 values.add("8");
                 values.add("9");
                 values.add("10");
+                values.add(null);
+                values.add(new Date().toString());
                 ResultRow resultRow = new ResultRow(colNames, primitiveTypes, values);
                 return Arrays.asList(resultRow);
             }
@@ -282,7 +289,9 @@ public class CacheTest extends TestWithFeService {
                 result = table;
 
                 table.getColumnStatistic("col");
-                result = new ColumnStatistic(1, 2, null, 3, 4, 5, 6, 7, 8, null, null, false, null);
+                result = new ColumnStatistic(1, 2,
+                        null, 3, 4, 5, 6, 7, 8,
+                        null, null, false, null, new Date().toString(), null);
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();

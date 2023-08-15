@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -56,7 +55,7 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             // Discard this project, because it is useless.
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, c);
                             Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, b);
-                            return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()),
+                            return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
                                     newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT),
 
@@ -74,7 +73,7 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                             // Discard this project, because it is useless.
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, b);
                             Plan newTopJoin = bottomJoin.withChildrenNoContext(newBottomJoin, c);
-                            return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()),
+                            return CBOUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()),
                                     newTopJoin);
                         }).toRule(RuleType.LOGICAL_JOIN_LOGICAL_SEMI_JOIN_TRANSPOSE_PROJECT)
         );

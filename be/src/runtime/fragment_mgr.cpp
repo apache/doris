@@ -138,7 +138,7 @@ public:
     }
 
     // Update status of this fragment execute
-    Status update_status(Status status) {
+    Status update_status(const Status& status) {
         std::lock_guard<std::mutex> l(_status_lock);
         if (!status.ok() && _exec_status.ok()) {
             _exec_status = status;
@@ -183,6 +183,11 @@ private:
     int _backend_num;
     TNetworkAddress _coord_addr;
 
+    // This context is shared by all fragments of this host in a query.
+    // _query_ctx should be the last one to be destructed, because _executor's
+    // destruct method will call close and it will depend on query context,
+    // for example runtime profile.
+    std::shared_ptr<QueryContext> _query_ctx;
     PlanFragmentExecutor _executor;
     vectorized::VecDateTimeValue _start_time;
 
@@ -195,9 +200,6 @@ private:
 
     int _timeout_second;
     std::atomic<bool> _cancelled {false};
-
-    // This context is shared by all fragments of this host in a query
-    std::shared_ptr<QueryContext> _query_ctx;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
@@ -213,12 +215,12 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
         : _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
+          _query_ctx(std::move(query_ctx)),
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3, std::placeholders::_4)),
           _set_rsc_info(false),
           _timeout_second(-1),
-          _query_ctx(std::move(query_ctx)),
           _report_status_cb_impl(report_status_cb_impl) {
     _start_time = vectorized::VecDateTimeValue::local_time();
     _coord_addr = _query_ctx->coord_addr;
@@ -264,7 +266,8 @@ Status FragmentExecState::execute() {
                       strings::Substitute("Got error while opening fragment $0, query id: $1",
                                           print_id(_fragment_instance_id), print_id(_query_id)));
         if (!st.ok()) {
-            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "PlanFragmentExecutor open failed");
+            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                   fmt::format("PlanFragmentExecutor open failed, reason: {}", st.to_string()));
         }
         _executor.close();
     }
@@ -285,7 +288,7 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _query_ctx->exec_env()->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+            stream_load_ctx->pipe->cancel(msg);
         }
 #endif
         _cancelled = true;
@@ -348,6 +351,10 @@ FragmentMgr::~FragmentMgr() {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.clear();
         _query_ctx_map.clear();
+        for (auto& pipeline : _pipeline_map) {
+            pipeline.second->close_sink();
+        }
+        _pipeline_map.clear();
     }
 }
 
@@ -494,7 +501,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             coord->reportExecStatus(res, params);
         }
 
-        rpc_status = Status(res.status);
+        rpc_status = Status(Status::create(res.status));
     } catch (TException& e) {
         std::stringstream msg;
         msg << "ReportExecStatus() to " << req.coord_addr << " failed:\n" << e.what();
@@ -672,6 +679,12 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         query_ctx->query_id = query_id;
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
                                               &(query_ctx->desc_tbl)));
+
+        // set file scan range params
+        if (params.__isset.file_scan_params) {
+            query_ctx->file_scan_range_params_map = params.file_scan_params;
+        }
+
         query_ctx->coord_addr = params.coord;
         LOG(INFO) << "query_id: " << UniqueId(query_ctx->query_id.hi, query_ctx->query_id.lo)
                   << " coord_addr " << query_ctx->coord_addr

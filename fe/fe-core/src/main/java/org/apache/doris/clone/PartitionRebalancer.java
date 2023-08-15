@@ -151,7 +151,7 @@ public class PartitionRebalancer extends Rebalancer {
                     System.currentTimeMillis());
             tabletCtx.setTag(clusterStat.getTag());
             // Balance task's priority is always LOW
-            tabletCtx.setOrigPriority(TabletSchedCtx.Priority.LOW);
+            tabletCtx.setPriority(TabletSchedCtx.Priority.LOW);
             alternativeTablets.add(tabletCtx);
             // Pair<Move, ToDeleteReplicaId>, ToDeleteReplicaId should be -1L before scheduled successfully
             movesInProgress.get().put(pickedTabletId,
@@ -251,7 +251,7 @@ public class PartitionRebalancer extends Rebalancer {
             if (slot.takeBalanceSlot(srcReplica.getPathHash()) != -1) {
                 tabletCtx.setSrc(srcReplica);
             } else {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED,
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
                         "no slot for src replica " + srcReplica + ", pathHash " + srcReplica.getPathHash());
             }
 
@@ -269,7 +269,7 @@ public class PartitionRebalancer extends Rebalancer {
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toSet());
             long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath);
             if (pathHash == -1) {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED,
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
                         "paths has no available balance slot: " + availPath);
             } else {
                 tabletCtx.setDest(beStat.getBeId(), pathHash);

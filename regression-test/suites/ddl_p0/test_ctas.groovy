@@ -50,7 +50,8 @@ suite("test_ctas") {
     ) as select * from test_ctas;
     """
 
-        qt_select """SHOW CREATE TABLE `test_ctas1`"""
+        def res = sql """SHOW CREATE TABLE `test_ctas1`"""
+        assertTrue(res.size() != 0)
 
         qt_select """select count(*) from test_ctas1"""
 
@@ -63,7 +64,8 @@ suite("test_ctas") {
     ) as select test_varchar, lpad(test_text,10,'0') as test_text, test_datetime, test_default_timestamp from test_ctas;
     """
 
-        qt_select """SHOW CREATE TABLE `test_ctas2`"""
+        res = sql """SHOW CREATE TABLE `test_ctas2`"""
+        assertTrue(res.size() != 0)
 
         qt_select """select count(*) from test_ctas2"""
 

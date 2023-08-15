@@ -241,6 +241,8 @@ struct TypeDescriptor {
 
     bool is_variant_type() const { return type == TYPE_VARIANT; }
 
+    bool is_json_type() const { return type == TYPE_JSONB; }
+
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);
         if (precision <= MAX_DECIMAL4_PRECISION) {

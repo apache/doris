@@ -65,21 +65,35 @@ MutableColumnPtr ColumnNullable::get_shrinked_column() {
                                   get_null_map_column_ptr());
 }
 
-void ColumnNullable::update_xxHash_with_value(size_t n, uint64_t& hash) const {
-    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (real_null_data[n] != 0) {
-        hash = HashUtil::xxHash64NullWithSeed(hash);
+void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                              const uint8_t* __restrict null_data) const {
+    if (!has_null()) {
+        nested_column->update_xxHash_with_value(start, end, hash, nullptr);
     } else {
-        nested_column->update_xxHash_with_value(n, hash);
+        auto* __restrict real_null_data =
+                assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+        for (int i = start; i < end; ++i) {
+            if (real_null_data[i] != 0) {
+                hash = HashUtil::xxHash64NullWithSeed(hash);
+            }
+        }
+        nested_column->update_xxHash_with_value(start, end, hash, real_null_data);
     }
 }
 
-void ColumnNullable::update_crc_with_value(size_t n, uint64_t& crc) const {
-    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (real_null_data[n] != 0) {
-        crc = HashUtil::zlib_crc_hash_null(crc);
+void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                           const uint8_t* __restrict null_data) const {
+    if (!has_null()) {
+        nested_column->update_crc_with_value(start, end, hash, nullptr);
     } else {
-        nested_column->update_xxHash_with_value(n, crc);
+        auto* __restrict real_null_data =
+                assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+        for (int i = start; i < end; ++i) {
+            if (real_null_data[i] != 0) {
+                hash = HashUtil::zlib_crc_hash_null(hash);
+            }
+        }
+        nested_column->update_crc_with_value(start, end, hash, real_null_data);
     }
 }
 
@@ -564,12 +578,10 @@ ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {
     return ColumnNullable::create(replicated_data, replicated_null_map);
 }
 
-void ColumnNullable::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                               size_t begin, int count_sz) const {
+void ColumnNullable::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
     auto& res = reinterpret_cast<ColumnNullable&>(column);
-    get_nested_column().replicate(counts, target_size, res.get_nested_column(), begin, count_sz);
-    get_null_map_column().replicate(counts, target_size, res.get_null_map_column(), begin,
-                                    count_sz);
+    get_nested_column().replicate(counts, target_size, res.get_nested_column());
+    get_null_map_column().replicate(counts, target_size, res.get_null_map_column());
 }
 
 template <bool negative>

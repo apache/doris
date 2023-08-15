@@ -60,8 +60,11 @@ public:
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
     /// register_function_context(). This should only be called by VExprs.
     FunctionContext* fn_context(int i) {
-        DCHECK_GE(i, 0);
-        DCHECK_LT(i, _fn_contexts.size());
+        if (i < 0 || i >= _fn_contexts.size()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "fn_context index invalid, index={}, _fn_contexts.size()={}", i,
+                            _fn_contexts.size());
+        }
         return _fn_contexts[i].get();
     }
 
@@ -142,7 +145,6 @@ private:
     // Close method is called in vexpr context dector, not need call expicility
     void close();
 
-private:
     friend class VExpr;
 
     /// The expr tree this context is for.

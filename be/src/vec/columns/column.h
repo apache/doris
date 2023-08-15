@@ -386,7 +386,9 @@ public:
         LOG(FATAL) << get_name() << " update_hashes_with_value xxhash not supported";
     }
 
-    virtual void update_xxHash_with_value(size_t n, uint64_t& hash) const {
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                          const uint8_t* __restrict null_data) const {
         LOG(FATAL) << get_name() << " update_hash_with_value xxhash not supported";
     }
 
@@ -398,7 +400,9 @@ public:
         LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
     }
 
-    virtual void update_crc_with_value(size_t n, uint64_t& hash) const {
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                       const uint8_t* __restrict null_data) const {
         LOG(FATAL) << get_name() << " update_crc_with_value not supported";
     }
 
@@ -484,8 +488,7 @@ public:
       * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
       * If `count_sz` is -1, `begin` must be 0.
       */
-    virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                           size_t begin = 0, int count_sz = -1) const {
+    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
         LOG(FATAL) << "not support";
     }
 

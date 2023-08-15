@@ -39,6 +39,17 @@ public:
     DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elemSerDeSPtrs)
             : elemSerDeSPtrs(_elemSerDeSPtrs) {}
 
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support serialize struct column to buffer";
+    }
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override {
+        LOG(FATAL) << "Not support deserialize from buffer to struct";
+        return Status::NotSupported("Not support deserialize from buffer to struct");
+    }
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
         LOG(FATAL) << "Not support write struct column to pb";
@@ -51,7 +62,7 @@ public:
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,

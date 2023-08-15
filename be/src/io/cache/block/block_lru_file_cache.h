@@ -221,6 +221,7 @@ private:
     UIntGauge* file_cache_disposable_queue_curr_size = nullptr;
     UIntGauge* file_cache_disposable_queue_max_elements = nullptr;
     UIntGauge* file_cache_disposable_queue_curr_elements = nullptr;
+    UIntGauge* file_cache_segment_reader_cache_size = nullptr;
 };
 
 } // namespace io

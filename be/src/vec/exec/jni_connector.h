@@ -257,6 +257,7 @@ private:
     size_t _has_read = 0;
 
     bool _closed = false;
+    bool _scanner_initialized = false;
     jclass _jni_scanner_cls;
     jobject _jni_scanner_obj;
     jmethodID _jni_scanner_open;
@@ -352,7 +353,7 @@ private:
     template <PrimitiveType primitive_type>
     void _parse_value_range(const ColumnValueRange<primitive_type>& col_val_range,
                             const std::string& column_name) {
-        using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+        using CppType = typename VecPrimitiveTypeTraits<primitive_type>::CppType;
 
         if (col_val_range.is_fixed_value_range()) {
             ScanPredicate<CppType> in_predicate(column_name);

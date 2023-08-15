@@ -132,6 +132,12 @@ run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
+start=$(date +%s)
+run_sql "analyze database ${DB} with sync;"
+end=$(date +%s)
+totalTime=$((end - start))
+echo "analyze database ${DB} with sync total time: ${totalTime} s"
+echo '============================================'
 
 sum=0
 for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do

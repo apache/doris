@@ -23,10 +23,10 @@ import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.load.ExportJob;
@@ -132,7 +132,7 @@ public class SessionVariablesTest extends TestWithFeService {
             matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                     CaseSensibility.VARIABLES.getCaseSensibility());
         }
-        int num = sessionVar.getVariableNumByExperimentalType(ExperimentalType.EXPERIMENTAL);
+        int num = sessionVar.getVariableNumByVariableAnnotation(VariableAnnotation.EXPERIMENTAL);
         List<List<String>> result = VariableMgr.dump(showStmt.getType(), sessionVar, matcher);
         Assert.assertEquals(num, result.size());
     }

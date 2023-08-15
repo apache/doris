@@ -60,7 +60,7 @@ public class MaxComputeColumnValue implements ColumnValue {
 
     @Override
     public boolean canGetStringAsBytes() {
-        return false;
+        return true;
     }
 
     @Override
@@ -150,6 +150,14 @@ public class MaxComputeColumnValue implements ColumnValue {
         VarCharVector varcharCol = (VarCharVector) column;
         String v = varcharCol.getObject(idx++).toString();
         return v == null ? new String(new byte[0]) : v;
+    }
+
+    @Override
+    public byte[] getStringAsBytes() {
+        skippedIfNull();
+        VarCharVector varcharCol = (VarCharVector) column;
+        byte[] v = varcharCol.getObject(idx++).getBytes();
+        return v == null ? new byte[0] : v;
     }
 
     @Override

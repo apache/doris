@@ -37,6 +37,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_meta_cache.h"
+#include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
@@ -55,6 +56,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -118,6 +120,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
+    TimezoneUtils::load_timezone_names();
+
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
             .set_max_threads(config::send_batch_thread_pool_thread_num)
@@ -165,6 +169,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+    _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -181,6 +186,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     _init_mem_env();
 
+    RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
@@ -226,6 +232,8 @@ Status ExecEnv::_init_mem_env() {
     }
 
     // 3. init storage page cache
+    CacheManager::create_global_instance();
+
     int64_t storage_cache_limit =
             ParseUtil::parse_mem_spec(config::storage_page_cache_limit, MemInfo::mem_limit(),
                                       MemInfo::physical_mem(), &is_percent);
@@ -285,6 +293,8 @@ Status ExecEnv::_init_mem_env() {
 
     SchemaCache::create_global_instance(config::schema_cache_capacity);
 
+    LookupConnectionCache::create_global_instance(config::lookup_connection_cache_bytes_limit);
+
     // use memory limit
     int64_t inverted_index_cache_limit =
             ParseUtil::parse_mem_spec(config::inverted_index_searcher_cache_limit,
@@ -306,7 +316,7 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
-    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 10);
+    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
@@ -400,6 +410,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_master_info);
 
     _new_load_stream_mgr.reset();
+    _memtable_memory_limiter.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
@@ -410,6 +421,7 @@ void ExecEnv::_destroy() {
     _experimental_mem_tracker.reset();
     _page_no_cache_mem_tracker.reset();
     _brpc_iobuf_block_memory_tracker.reset();
+    InvertedIndexSearcherCache::reset_global_instance();
 
     _is_init = false;
 }

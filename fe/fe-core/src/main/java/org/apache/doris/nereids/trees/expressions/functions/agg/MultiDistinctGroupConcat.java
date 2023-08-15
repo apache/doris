@@ -36,7 +36,7 @@ import java.util.List;
 
 /** MultiDistinctGroupConcat */
 public class MultiDistinctGroupConcat extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, MultiDistinction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),

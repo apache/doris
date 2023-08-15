@@ -182,8 +182,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
     VLOG_CRITICAL << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
 
-    _plan->try_do_aggregate_serde_improve();
-
     for (int i = 0; i < scan_nodes.size(); ++i) {
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
         ExecNode* node = scan_nodes[i];
@@ -363,7 +361,7 @@ Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block*
         if (block->rows() > 0) {
             COUNTER_UPDATE(_rows_produced_counter, block->rows());
             // Not very sure, if should contain empty block
-            COUNTER_UPDATE(_blocks_produced_counter, block->rows());
+            COUNTER_UPDATE(_blocks_produced_counter, 1);
             break;
         }
     }
@@ -498,7 +496,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     DCHECK(_prepared);
     _cancel_reason = reason;
     _cancel_msg = msg;
-    _runtime_state->set_is_cancelled(true);
+    _runtime_state->set_is_cancelled(true, msg);
     // To notify wait_for_start()
     _runtime_state->get_query_ctx()->set_ready_to_execute(true);
 

@@ -24,11 +24,14 @@
 namespace doris {
 namespace taskgroup {
 static void empty_function() {}
-ScanTask::ScanTask() : ScanTask(empty_function, nullptr, 1) {}
+ScanTask::ScanTask() : ScanTask(empty_function, nullptr, nullptr, 1) {}
 
 ScanTask::ScanTask(WorkFunction scan_func, vectorized::ScannerContext* scanner_context,
-                   int priority)
-        : scan_func(std::move(scan_func)), scanner_context(scanner_context), priority(priority) {}
+                   TGSTEntityPtr scan_entity, int priority)
+        : scan_func(std::move(scan_func)),
+          scanner_context(scanner_context),
+          scan_entity(scan_entity),
+          priority(priority) {}
 
 ScanTaskQueue::ScanTaskQueue() : _queue(config::doris_scanner_thread_pool_queue_size) {}
 
@@ -98,7 +101,7 @@ bool ScanTaskTaskGroupQueue::push_back(ScanTask scan_task) {
 }
 
 void ScanTaskTaskGroupQueue::update_statistics(ScanTask scan_task, int64_t time_spent) {
-    auto* entity = scan_task.scanner_context->get_task_group()->local_scan_task_entity();
+    auto* entity = scan_task.scan_entity;
     std::unique_lock<std::mutex> lock(_rs_mutex);
     auto find_entity = _group_entities.find(entity);
     bool is_in_queue = find_entity != _group_entities.end();

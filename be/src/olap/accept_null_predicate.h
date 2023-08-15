@@ -148,7 +148,9 @@ public:
 
     bool evaluate_and(const BloomFilter* bf) const override { return _nested->evaluate_and(bf); }
 
-    bool can_do_bloom_filter() const override { return _nested->can_do_bloom_filter(); }
+    bool can_do_bloom_filter(bool ngram) const override {
+        return _nested->can_do_bloom_filter(ngram);
+    }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
                       bool* flags) const override {

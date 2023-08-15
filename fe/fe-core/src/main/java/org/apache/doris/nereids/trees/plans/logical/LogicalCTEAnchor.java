@@ -40,21 +40,19 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
 
     private final CTEId cteId;
 
-    public LogicalCTEAnchor(LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, CTEId cteId) {
-        this(Optional.empty(), Optional.empty(), leftChild, rightChild, cteId);
+    public LogicalCTEAnchor(CTEId cteId, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        this(cteId, Optional.empty(), Optional.empty(), leftChild, rightChild);
     }
 
-    public LogicalCTEAnchor(Optional<GroupExpression> groupExpression,
-                            Optional<LogicalProperties> logicalProperties,
-                            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, CTEId cteId) {
+    public LogicalCTEAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_CTE_ANCHOR, groupExpression, logicalProperties, leftChild, rightChild);
         this.cteId = cteId;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new LogicalCTEAnchor<>(groupExpression, Optional.of(getLogicalProperties()),
-                children.get(0), children.get(1), cteId);
+        return new LogicalCTEAnchor<>(cteId, children.get(0), children.get(1));
     }
 
     @Override
@@ -69,12 +67,13 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTEAnchor<>(groupExpression, Optional.of(getLogicalProperties()), left(), right(), cteId);
+        return new LogicalCTEAnchor<>(cteId, groupExpression, Optional.of(getLogicalProperties()), left(), right());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTEAnchor<>(groupExpression, logicalProperties, left(), right(), cteId);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalCTEAnchor<>(cteId, groupExpression, logicalProperties, children.get(0), children.get(1));
     }
 
     @Override

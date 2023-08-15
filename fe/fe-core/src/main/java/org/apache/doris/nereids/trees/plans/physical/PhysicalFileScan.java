@@ -23,34 +23,32 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 /**
  * Physical file scan for external catalog.
  */
-public class PhysicalFileScan extends PhysicalRelation {
+public class PhysicalFileScan extends PhysicalCatalogRelation {
 
-    private final ExternalTable table;
     private final DistributionSpec distributionSpec;
     private final Set<Expression> conjuncts;
 
     /**
      * Constructor for PhysicalFileScan.
      */
-    public PhysicalFileScan(ObjectId id, ExternalTable table, List<String> qualifier,
-                            DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-                            LogicalProperties logicalProperties, Set<Expression> conjuncts) {
-        super(id, PlanType.PHYSICAL_FILE_SCAN, qualifier, groupExpression, logicalProperties);
-        this.table = table;
+    public PhysicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+            DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, Set<Expression> conjuncts) {
+        super(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, groupExpression, logicalProperties);
         this.distributionSpec = distributionSpec;
         this.conjuncts = conjuncts;
     }
@@ -58,13 +56,12 @@ public class PhysicalFileScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalFileScan.
      */
-    public PhysicalFileScan(ObjectId id, ExternalTable table, List<String> qualifier,
-                            DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-                            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-                            Statistics statistics, Set<Expression> conjuncts) {
-        super(id, PlanType.PHYSICAL_FILE_SCAN, qualifier, groupExpression, logicalProperties,
+    public PhysicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+            DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            Statistics statistics, Set<Expression> conjuncts) {
+        super(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, groupExpression, logicalProperties,
                 physicalProperties, statistics);
-        this.table = table;
         this.distributionSpec = distributionSpec;
         this.conjuncts = conjuncts;
     }
@@ -79,49 +76,33 @@ public class PhysicalFileScan extends PhysicalRelation {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
-            return false;
-        }
-        PhysicalFileScan that = ((PhysicalFileScan) o);
-        return Objects.equals(table, that.table);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id, table);
-    }
-
-    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalFileScan(this, context);
     }
 
     @Override
     public PhysicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalFileScan(id, table, qualifier, distributionSpec,
+        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
             groupExpression, getLogicalProperties(), conjuncts);
     }
 
     @Override
-    public PhysicalFileScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalFileScan(id, table, qualifier, distributionSpec,
-            groupExpression, logicalProperties.get(), conjuncts);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
+                groupExpression, logicalProperties.get(), conjuncts);
     }
 
     @Override
     public ExternalTable getTable() {
-        return table;
+        return (ExternalTable) table;
     }
 
     @Override
     public PhysicalFileScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        Statistics statistics) {
-        return new PhysicalFileScan(id, table, qualifier, distributionSpec, groupExpression, getLogicalProperties(),
-            physicalProperties, statistics, conjuncts);
+        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, conjuncts);
     }
 
     public Set<Expression> getConjuncts() {

@@ -88,6 +88,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     private int skipLines = 0;
     private boolean enableProfile = false;
 
+    private byte enclose = 0;
+
+    private byte escape = 0;
+
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
         this.id = id;
@@ -145,6 +149,24 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     public Separator getLineDelimiter() {
         return lineDelimiter;
+    }
+
+    @Override
+    public byte getEnclose() {
+        return enclose;
+    }
+
+    public void setEnclose(byte enclose) {
+        this.enclose = enclose;
+    }
+
+    @Override
+    public byte getEscape() {
+        return escape;
+    }
+
+    public void setEscape(byte escape) {
+        this.escape = escape;
     }
 
     @Override
@@ -286,6 +308,22 @@ public class StreamLoadTask implements LoadTaskInfo {
         return streamLoadTask;
     }
 
+    public void setMultiTableBaseTaskInfo(LoadTaskInfo task) {
+        this.mergeType = task.getMergeType();
+        this.columnSeparator = task.getColumnSeparator();
+        this.whereExpr = task.getWhereExpr();
+        this.partitions = task.getPartitions();
+        this.deleteCondition = task.getDeleteCondition();
+        this.lineDelimiter = task.getLineDelimiter();
+        this.strictMode = task.isStrictMode();
+        this.timezone = task.getTimezone();
+        this.formatType = task.getFormatType();
+        this.stripOuterArray = task.isStripOuterArray();
+        this.jsonRoot = task.getJsonRoot();
+        this.sendBatchParallelism = task.getSendBatchParallelism();
+        this.loadToSingleTablet = task.isLoadToSingleTablet();
+    }
+
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
         if (request.isSetColumns()) {
             setColumnToColumnExpr(request.getColumns());
@@ -298,6 +336,12 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetLineDelimiter()) {
             setLineDelimiter(request.getLineDelimiter());
+        }
+        if (request.isSetEnclose()) {
+            setEnclose(request.getEnclose());
+        }
+        if (request.isSetEscape()) {
+            setEscape(request.getEscape());
         }
         if (request.isSetHeaderType()) {
             headerType = request.getHeaderType();

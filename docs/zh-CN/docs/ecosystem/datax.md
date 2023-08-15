@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DataX doriswriter",
+    "title": "DataX Doriswriter",
     "language": "zh-CN"
 }
 ---

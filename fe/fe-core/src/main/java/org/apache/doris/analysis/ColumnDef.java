@@ -29,12 +29,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -87,6 +89,12 @@ public class ColumnDef {
             this.defaultValueExprDef = new DefaultValueExprDef(exprName);
         }
 
+        public DefaultValue(boolean isSet, String value, String exprName, Long precision) {
+            this.isSet = isSet;
+            this.value = value;
+            this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
+        }
+
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
@@ -103,14 +111,60 @@ public class ColumnDef {
         // default "value", "[]" means empty array
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
 
+        public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
+            if (precision > ScalarType.MAX_DATETIMEV2_SCALE || precision < 0) {
+                throw new IllegalArgumentException("column's default value current_timestamp"
+                            + " precision must be between 0 and 6");
+            }
+            if (precision == 0) {
+                return new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
+            }
+            String value = CURRENT_TIMESTAMP + "(" + precision + ")";
+            String exprName = NOW;
+            return new DefaultValue(true, value, exprName, precision);
+        }
+
         public boolean isCurrentTimeStamp() {
             return "CURRENT_TIMESTAMP".equals(value) && NOW.equals(defaultValueExprDef.getExprName());
         }
 
+        public boolean isCurrentTimeStampWithPrecision() {
+            return defaultValueExprDef != null && value.startsWith(CURRENT_TIMESTAMP + "(")
+                    && NOW.equals(defaultValueExprDef.getExprName());
+        }
+
+        public long getCurrentTimeStampPrecision() {
+            if (isCurrentTimeStampWithPrecision()) {
+                return Long.parseLong(value.substring(CURRENT_TIMESTAMP.length() + 1, value.length() - 1));
+            }
+            return 0;
+        }
+
         public String getValue() {
-            return isCurrentTimeStamp()
-                    ? LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ')
-                    : value;
+            if (isCurrentTimeStamp()) {
+                return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
+            } else if (isCurrentTimeStampWithPrecision()) {
+                long precision = getCurrentTimeStampPrecision();
+                String format = "yyyy-MM-dd HH:mm:ss";
+                if (precision == 0) {
+                    return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
+                } else if (precision == 1) {
+                    format = "yyyy-MM-dd HH:mm:ss.S";
+                } else if (precision == 2) {
+                    format = "yyyy-MM-dd HH:mm:ss.SS";
+                } else if (precision == 3) {
+                    format = "yyyy-MM-dd HH:mm:ss.SSS";
+                } else if (precision == 4) {
+                    format = "yyyy-MM-dd HH:mm:ss.SSSS";
+                } else if (precision == 5) {
+                    format = "yyyy-MM-dd HH:mm:ss.SSSSS";
+                } else if (precision == 6) {
+                    format = "yyyy-MM-dd HH:mm:ss.SSSSSS";
+                }
+                return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
+                        .format(DateTimeFormatter.ofPattern(format));
+            }
+            return value;
         }
     }
 
@@ -180,8 +234,9 @@ public class ColumnDef {
                 "sequence column hidden column", false);
     }
 
-    public static ColumnDef newRowStoreColumnDef() {
-        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false, null, false, false,
+    public static ColumnDef newRowStoreColumnDef(AggregateType aggregateType) {
+        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false,
+                aggregateType, false, false,
                 new ColumnDef.DefaultValue(true, ""), "doris row store hidden column", false);
     }
 
@@ -261,11 +316,14 @@ public class ColumnDef {
         if (typeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) typeDef.getType();
             if (targetType.getPrimitiveType().isStringType() && !targetType.isLengthSet()) {
-                if (targetType.getPrimitiveType() != PrimitiveType.STRING) {
-                    targetType.setLength(1);
-                } else {
+                if (targetType.getPrimitiveType() == PrimitiveType.VARCHAR) {
+                    // always set varchar length MAX_VARCHAR_LENGTH
+                    targetType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
+                } else if (targetType.getPrimitiveType() == PrimitiveType.STRING) {
                     // always set text length MAX_STRING_LENGTH
                     targetType.setLength(ScalarType.MAX_STRING_LENGTH);
+                } else {
+                    targetType.setLength(1);
                 }
             }
         }
@@ -302,6 +360,11 @@ public class ColumnDef {
                     && !aggregateType.checkCompatibility(type.getPrimitiveType())) {
                 throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
                         toString(), type.toSql()));
+            }
+            if (aggregateType == AggregateType.GENERIC_AGGREGATION) {
+                if (!SessionVariable.enableAggState()) {
+                    throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
+                }
             }
         }
 
@@ -449,6 +512,17 @@ public class ColumnDef {
                     new DateLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
+                        if (defaultValueExprDef.getPrecision() != null) {
+                            Long defaultValuePrecision = defaultValueExprDef.getPrecision();
+                            String typeStr = scalarType.toString();
+                            int typePrecision =
+                                    Integer.parseInt(typeStr.substring(typeStr.indexOf("(") + 1, typeStr.indexOf(")")));
+                            if (defaultValuePrecision > typePrecision) {
+                                typeStr = typeStr.replace("V2", "");
+                                throw new AnalysisException("default value precision: " + defaultValue
+                                        + " can not be greater than type precision: " + typeStr);
+                            }
+                        }
                         break;
                     } else {
                         throw new AnalysisException("date literal [" + defaultValue + "] is invalid");

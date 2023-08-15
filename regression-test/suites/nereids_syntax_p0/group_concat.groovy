@@ -21,14 +21,14 @@ suite("group_concat") {
 
 
     test {
-        sql """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT')*/
+        sql """select
                  group_concat(cast(number as string), ',' order by number)
                from numbers('number'='10')"""
         result([["0,1,2,3,4,5,6,7,8,9"]])
     }
 
     test {
-        sql """select /*+SET_VAR(disable_nereids_rules='ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT')*/
+        sql """select
                  group_concat(cast(number as string), ',' order by number)
                from numbers('number'='10')"""
         result([["0,1,2,3,4,5,6,7,8,9"]])

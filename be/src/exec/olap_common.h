@@ -79,7 +79,7 @@ std::string cast_to_string(T value, int scale) {
 template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
-    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+    using CppType = typename VecPrimitiveTypeTraits<primitive_type>::CppType;
     using IteratorType = typename std::set<CppType>::iterator;
 
     ColumnValueRange();
@@ -207,7 +207,7 @@ public:
             }
 
             if (null_pred.condition_values.size() != 0) {
-                filters.push_back(null_pred);
+                filters.push_back(std::move(null_pred));
                 return;
             }
 
@@ -221,7 +221,7 @@ public:
             }
 
             if (low.condition_values.size() != 0) {
-                filters.push_back(low);
+                filters.push_back(std::move(low));
             }
 
             TCondition high;
@@ -234,7 +234,7 @@ public:
             }
 
             if (high.condition_values.size() != 0) {
-                filters.push_back(high);
+                filters.push_back(std::move(high));
             }
         } else {
             // 3. convert to is null and is not null filter condition
@@ -247,7 +247,7 @@ public:
             }
 
             if (null_pred.condition_values.size() != 0) {
-                filters.push_back(null_pred);
+                filters.push_back(std::move(null_pred));
             }
         }
     }
@@ -264,7 +264,7 @@ public:
         }
 
         if (condition.condition_values.size() != 0) {
-            filters.push_back(condition);
+            filters.push_back(std::move(condition));
         }
     }
 
@@ -288,7 +288,7 @@ public:
             condition.condition_values.push_back(
                     cast_to_string<primitive_type, CppType>(value.second, _scale));
             if (condition.condition_values.size() != 0) {
-                filters.push_back(condition);
+                filters.push_back(std::move(condition));
             }
         }
     }
@@ -318,7 +318,7 @@ public:
             condition.condition_values.push_back(
                     cast_to_string<primitive_type, CppType>(value.second, _scale));
             if (condition.condition_values.size() != 0) {
-                filters.push_back(condition);
+                filters.push_back(std::move(condition));
             }
         }
     }
@@ -1094,7 +1094,7 @@ bool ColumnValueRange<primitive_type>::has_intersection(ColumnValueRange<primiti
 template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value, bool* eos) {
-    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+    using CppType = typename VecPrimitiveTypeTraits<primitive_type>::CppType;
     using ConstIterator = typename std::set<CppType>::const_iterator;
 
     // 1. clear ScanKey if some column range is empty

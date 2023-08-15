@@ -41,7 +41,8 @@ import java.util.stream.Collectors;
 
 /** TableValuedFunction */
 public abstract class TableValuedFunction extends BoundFunction implements UnaryExpression, CustomSignature {
-    protected final Supplier<TableValuedFunctionIf> catalogFunctionCache = Suppliers.memoize(() -> toCatalogFunction());
+
+    protected final Supplier<TableValuedFunctionIf> catalogFunctionCache = Suppliers.memoize(this::toCatalogFunction);
     protected final Supplier<FunctionGenTable> tableCache = Suppliers.memoize(() -> {
         try {
             return catalogFunctionCache.get().getTable();

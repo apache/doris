@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -29,7 +30,7 @@ import com.google.common.collect.ImmutableList;
  * <p>
  * TODO: refactor group merge strategy to support the feature above
  */
-public class LogicalSubQueryAliasToLogicalProject extends OneAnalysisRuleFactory {
+public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(

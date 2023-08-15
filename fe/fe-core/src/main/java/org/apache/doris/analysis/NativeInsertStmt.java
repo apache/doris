@@ -42,13 +42,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.JdbcExternalCatalog;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
-import org.apache.doris.planner.JdbcTableSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
@@ -330,7 +330,7 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false);
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false, false);
         }
     }
 
@@ -371,6 +371,10 @@ public class NativeInsertStmt extends InsertStmt {
                     targetPartitionIds.add(part.getId());
                 }
             }
+            if (isPartialUpdate && olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
+                    && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
+                partialUpdateCols.add(Column.SEQUENCE_COL);
+            }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
             olapTuple = descTable.createTupleDescriptor();
@@ -383,6 +387,7 @@ public class NativeInsertStmt extends InsertStmt {
                 slotDesc.setType(col.getType());
                 slotDesc.setColumn(col);
                 slotDesc.setIsNullable(col.isAllowNull());
+                slotDesc.setAutoInc(col.isAutoInc());
             }
         } else if (targetTable instanceof MysqlTable || targetTable instanceof OdbcTable
                 || targetTable instanceof JdbcTable) {
@@ -524,7 +529,7 @@ public class NativeInsertStmt extends InsertStmt {
                 final List<Expr> resultExprs = queryStmt.getResultExprs();
                 Preconditions.checkState(resultExprs.isEmpty(), "result exprs should be empty.");
                 for (int i = 0; i < rowSize; i++) {
-                    resultExprs.add(new IntLiteral(1));
+                    resultExprs.add(new StringLiteral(SelectStmt.DEFAULT_VALUE));
                     final DefaultValueExpr defaultValueExpr = new DefaultValueExpr();
                     valueList.getFirstRow().add(defaultValueExpr);
                     colLabels.add(defaultValueExpr.toColumnLabel());
@@ -540,11 +545,15 @@ public class NativeInsertStmt extends InsertStmt {
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
-        realTargetColumnNames = targetColumns.stream().map(column -> column.getName()).collect(Collectors.toList());
+        realTargetColumnNames = targetColumns.stream().map(Column::getName).collect(Collectors.toList());
         Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (int i = 0; i < queryStmt.getResultExprs().size(); i++) {
-            slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
-                    .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+            Expr expr = queryStmt.getResultExprs().get(i);
+            if (!(expr instanceof StringLiteral && ((StringLiteral) expr).getValue()
+                    .equals(SelectStmt.DEFAULT_VALUE))) {
+                slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
+                        .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+            }
         }
 
         for (Column column : targetTable.getBaseSchema()) {
@@ -840,7 +849,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
-            ((OlapTableSink) dataSink).complete();
+            ((OlapTableSink) dataSink).complete(analyzer);
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), transactionId);
@@ -904,6 +913,11 @@ public class NativeInsertStmt extends InsertStmt {
         dataSink = null;
         dataPartition = null;
         targetColumns.clear();
+    }
+
+    protected void resetPrepare() {
+        label = null;
+        isTransactionBegin = false;
     }
 
     @Override

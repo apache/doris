@@ -45,7 +45,7 @@ public class FragmentProcessor extends PlanPostProcessor {
         return join;
     }
 
-    public PhysicalRelation visitPhysicalScan(PhysicalRelation scan, CascadesContext ctx) {
+    public PhysicalRelation visitPhysicalRelation(PhysicalRelation scan, CascadesContext ctx) {
         scan.setMutableState(AbstractPlan.FRAGMENT_ID, frId);
         return scan;
     }

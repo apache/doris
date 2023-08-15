@@ -216,9 +216,11 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalApply<>(Optional.empty(), logicalProperties,
-                correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects, left(), right());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new LogicalApply<>(groupExpression, logicalProperties, correlationSlot, subqueryExpr, correlationFilter,
+                markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects, children.get(0),
+                children.get(1));
     }
 }

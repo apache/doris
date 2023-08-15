@@ -21,7 +21,7 @@ import lombok.Getter;
 
 /**
  * System scheduler event job
- * They will start when scheduler starts
+ * They will start when scheduler starts,don't use this job in other place,it just for system inner scheduler
  */
 public enum SystemJob {
 

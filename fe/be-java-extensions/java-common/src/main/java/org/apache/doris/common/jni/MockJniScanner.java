@@ -21,7 +21,6 @@ package org.apache.doris.common.jni;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 import org.apache.doris.common.jni.vec.ScanPredicate;
-import org.apache.doris.common.jni.vec.TableSchema;
 
 import org.apache.log4j.Logger;
 
@@ -112,6 +111,11 @@ public class MockJniScanner extends JniScanner {
         }
 
         @Override
+        public byte[] getStringAsBytes() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public LocalDate getDate() {
             return LocalDate.now();
         }
@@ -195,10 +199,5 @@ public class MockJniScanner extends JniScanner {
         }
         readRows += rows;
         return rows;
-    }
-
-    @Override
-    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        return null;
     }
 }

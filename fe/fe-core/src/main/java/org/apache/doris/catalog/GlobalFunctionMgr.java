@@ -22,6 +22,8 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,6 +36,7 @@ import java.util.concurrent.ConcurrentMap;
  * Provides management of global functions such as add, drop and other operations
  */
 public class GlobalFunctionMgr extends MetaObject {
+    private static final Logger LOG = LogManager.getLogger(GlobalFunctionMgr.class);
 
     // user define function
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
@@ -62,6 +65,11 @@ public class GlobalFunctionMgr extends MetaObject {
         function.checkWritable();
         if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddGlobalFunction(function);
+            try {
+                FunctionUtil.translateToNereids(null, function);
+            } catch (Exception e) {
+                LOG.warn("Nereids add function failed", e);
+            }
         }
     }
 
@@ -70,6 +78,7 @@ public class GlobalFunctionMgr extends MetaObject {
         try {
             function.setGlobal(true);
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            FunctionUtil.translateToNereids(null, function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -78,12 +87,14 @@ public class GlobalFunctionMgr extends MetaObject {
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropGlobalFunction(function);
+            FunctionUtil.dropFromNereids(null, function);
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
             FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            FunctionUtil.dropFromNereids(null, functionSearchDesc);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

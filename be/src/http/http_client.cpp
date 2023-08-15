@@ -24,6 +24,7 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "http/http_status.h"
 #include "util/stack_util.h"
 
 namespace doris {
@@ -229,7 +230,14 @@ Status HttpClient::execute_with_retry(int retry_times, int sleep_time,
         HttpClient client;
         status = callback(&client);
         if (status.ok()) {
-            return status;
+            auto http_status = static_cast<HttpStatus>(client.get_http_status());
+            if (http_status == 200) {
+                return status;
+            } else {
+                auto error_msg = fmt::format("http status code is not 200, status={}", http_status);
+                LOG(WARNING) << error_msg;
+                return Status::HttpError(error_msg);
+            }
         }
         sleep(sleep_time);
     }

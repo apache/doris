@@ -31,4 +31,60 @@ suite('test_cast') {
         sql "select cast(${datetime} as int), cast(${datetime} as bigint), cast(${datetime} as float), cast(${datetime} as double)"
         result([[869930357, 20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
     }
+
+    def tbl = "test_cast"
+
+    sql """ DROP TABLE IF EXISTS ${tbl}"""
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tbl} (
+            `k0` int
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS 5 properties("replication_num" = "1")
+        """
+    sql """ INSERT INTO ${tbl} VALUES (101);"""
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then 1 else 0 end"
+        result([[101]])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then 12 else 0 end"
+        result([[101]])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then -12 else 0 end"
+        result([[101]])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then 0 else 1 end"
+        result([])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 != 101 then 0 else 1 end"
+        result([[101]])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then '1' else 0 end"
+        result([[101]])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then '12' else 0 end"
+        result([])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then 'false' else 0 end"
+        result([])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then 'true' else 1 end"
+        result([[101]])
+    }
 }

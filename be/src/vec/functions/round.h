@@ -160,9 +160,8 @@ public:
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
-                size_t target_scale = int_exp10(-out_scale);
                 while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, target_scale);
+                    Op::compute(p_in, scale, p_out, int_exp10(-out_scale));
                     ++p_in;
                     ++p_out;
                 }

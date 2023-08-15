@@ -39,12 +39,15 @@ public class BatchDropInfo implements Writable {
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "tableName")
+    private String tableName; // not used in equals and hashCode
     @SerializedName(value = "indexIdSet")
     private Set<Long> indexIdSet;
 
-    public BatchDropInfo(long dbId, long tableId, Set<Long> indexIdSet) {
+    public BatchDropInfo(long dbId, long tableId, String tableName, Set<Long> indexIdSet) {
         this.dbId = dbId;
         this.tableId = tableId;
+        this.tableName = tableName;
         this.indexIdSet = indexIdSet;
     }
 
@@ -87,4 +90,11 @@ public class BatchDropInfo implements Writable {
         return tableId;
     }
 
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
 }

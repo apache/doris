@@ -307,7 +307,7 @@ public class ExportMgr extends MasterDaemon {
                     exportJobInfos.add(composeExportJobInfo(job));
                 }
 
-                if (++counter >= resultNum) {
+                if (++counter >= resultNum && orderByPairs == null) {
                     break;
                 }
             }
@@ -327,8 +327,12 @@ public class ExportMgr extends MasterDaemon {
         Collections.sort(exportJobInfos, comparator);
 
         List<List<String>> results = Lists.newArrayList();
+        int counter = 0;
         for (List<Comparable> list : exportJobInfos) {
             results.add(list.stream().map(e -> e.toString()).collect(Collectors.toList()));
+            if (++counter >= resultNum) {
+                break;
+            }
         }
 
         return results;

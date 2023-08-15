@@ -135,8 +135,6 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
         }
         case FieldType::OLAP_FIELD_TYPE_MAP: {
             // map reader now has 3 sub readers for key, value, offsets(scalar), null(scala)
-            std::unique_ptr<ColumnReader> map_reader(
-                    new ColumnReader(opts, meta, num_rows, file_reader));
             std::unique_ptr<ColumnReader> key_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
                                                  meta.children_columns(0).num_rows(), file_reader,
@@ -155,6 +153,11 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
                                                      meta.children_columns(3).num_rows(),
                                                      file_reader, &null_reader));
             }
+
+            // The num rows of the map reader equals to the num rows of the length reader.
+            num_rows = meta.children_columns(2).num_rows();
+            std::unique_ptr<ColumnReader> map_reader(
+                    new ColumnReader(opts, meta, num_rows, file_reader));
             map_reader->_sub_readers.resize(meta.children_columns_size());
 
             map_reader->_sub_readers[0] = std::move(key_reader);
@@ -233,7 +236,7 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 
 Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
                                                  OlapReaderStatistics* stats,
-                                                 InvertedIndexIterator** iterator) {
+                                                 std::unique_ptr<InvertedIndexIterator>* iterator) {
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
     if (_inverted_index) {
         RETURN_IF_ERROR(_inverted_index->new_iterator(stats, iterator));
@@ -505,16 +508,16 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
 
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
-            _inverted_index.reset(new FullTextIndexReader(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta));
+            _inverted_index = FullTextIndexReader::create_shared(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta);
             return Status::OK();
         } else {
-            _inverted_index.reset(new StringTypeInvertedIndexReader(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta));
+            _inverted_index = StringTypeInvertedIndexReader::create_shared(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta);
         }
     } else if (is_numeric_type(type)) {
-        _inverted_index.reset(
-                new BkdIndexReader(_file_reader->fs(), _file_reader->path().native(), index_meta));
+        _inverted_index = BkdIndexReader::create_shared(_file_reader->fs(),
+                                                        _file_reader->path().native(), index_meta);
     } else {
         _inverted_index.reset();
     }
@@ -1213,7 +1216,8 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(
 
 Status FileColumnIterator::get_row_ranges_by_bloom_filter(
         const AndBlockColumnPredicate* col_predicates, RowRanges* row_ranges) {
-    if (col_predicates->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
+    if ((col_predicates->can_do_bloom_filter(false) && _reader->has_bloom_filter_index(false)) ||
+        (col_predicates->can_do_bloom_filter(true) && _reader->has_bloom_filter_index(true))) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(col_predicates, row_ranges));
     }
     return Status::OK();

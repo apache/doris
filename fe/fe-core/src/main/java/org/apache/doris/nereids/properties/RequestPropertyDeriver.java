@@ -29,14 +29,18 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
@@ -97,7 +101,26 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
-        addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
+                && !ConnectContext.get().getSessionVariable().enableStrictConsistencyDml) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalDeferMaterializeResultSink(
+            PhysicalDeferMaterializeResultSink<? extends Plan> sink,
+            PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 
@@ -219,6 +242,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         return null;
     }
 
+    @Override
+    public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        return null;
+    }
+
     private List<PhysicalProperties> createHashRequestAccordingToParent(
             Plan plan, DistributionSpecHash distributionRequestFromParent, PlanContext context) {
         List<PhysicalProperties> requiredPropertyList =
@@ -229,7 +258,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         for (int i = 0; i < setOperationOutputs.size(); i++) {
             int offset = distributionRequestFromParent.getExprIdToEquivalenceSet()
                     .getOrDefault(setOperationOutputs.get(i).getExprId(), -1);
-            if (offset > 0) {
+            if (offset >= 0) {
                 outputOffsets[offset] = i;
             }
         }

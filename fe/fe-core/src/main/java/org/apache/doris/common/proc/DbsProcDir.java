@@ -43,7 +43,7 @@ public class DbsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("DbName").add("TableNum").add("Size").add("Quota")
             .add("LastConsistencyCheckTime").add("ReplicaCount").add("ReplicaQuota")
-            .add("TransactionQuota")
+            .add("TransactionQuota").add("LastUpdateTime")
             .build();
 
     private Env env;
@@ -122,7 +122,7 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(replicaCount);
                 dbInfo.add(replicaQuota);
                 dbInfo.add(transactionQuota);
-
+                dbInfo.add(TimeUtils.longToTimeString(db.getLastUpdateTime()));
             } finally {
                 db.readUnlock();
             }

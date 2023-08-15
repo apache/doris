@@ -68,10 +68,15 @@ uint16_t RowSource::data() const {
 Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
     if (_buffer->allocated_bytes() + row_sources.size() * sizeof(UInt16) >
         config::vertical_compaction_max_row_source_memory_mb * 1024 * 1024) {
-        // serialize current buffer
-        RETURN_IF_ERROR(_create_buffer_file());
-        RETURN_IF_ERROR(_serialize());
-        _reset_buffer();
+        if (_buffer->allocated_bytes() - _buffer->size() * sizeof(UInt16) <
+            row_sources.size() * sizeof(UInt16)) {
+            VLOG_NOTICE << "RowSourceBuffer is too large, serialize and reset buffer: "
+                        << _buffer->allocated_bytes() << ", total size: " << _total_size;
+            // serialize current buffer
+            RETURN_IF_ERROR(_create_buffer_file());
+            RETURN_IF_ERROR(_serialize());
+            _reset_buffer();
+        }
     }
     for (const auto& source : row_sources) {
         _buffer->insert_value(source.data());
@@ -114,6 +119,12 @@ void RowSourcesBuffer::set_agg_flag(uint64_t index, bool agg) {
     RowSource ori(_buffer->get_data()[index]);
     ori.set_agg_flag(agg);
     _buffer->get_data()[index] = ori.data();
+}
+
+bool RowSourcesBuffer::get_agg_flag(uint64_t index) {
+    DCHECK(index < _buffer->size());
+    RowSource ori(_buffer->get_data()[index]);
+    return ori.agg_flag();
 }
 
 size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
@@ -167,8 +178,9 @@ Status RowSourcesBuffer::_create_buffer_file() {
     LOG(INFO) << "Vertical compaction row sources buffer path: " << file_path;
     _fd = mkstemp(file_path.data());
     if (_fd < 0) {
-        LOG(WARNING) << "failed to create tmp file, file_path=" << file_path;
-        return Status::InternalError("failed to create tmp file");
+        LOG(WARNING) << "failed to create tmp file, file_path=" << file_path
+                     << ", err: " << strerror(errno);
+        return Status::InternalError("failed to create tmp file ");
     }
     // file will be released after fd is close
     unlink(file_path.data());
@@ -228,7 +240,7 @@ Status RowSourcesBuffer::_deserialize() {
 
 // ----------  vertical merge iterator context ----------//
 Status VerticalMergeIteratorContext::block_reset(const std::shared_ptr<Block>& block) {
-    if (!*block) {
+    if (!block->columns()) {
         const Schema& schema = _iter->schema();
         const auto& column_ids = schema.column_ids();
         for (size_t i = 0; i < schema.num_column_ids(); ++i) {
@@ -356,6 +368,13 @@ Status VerticalMergeIteratorContext::_load_next_block() {
         if (!st.ok()) {
             _valid = false;
             if (st.is<END_OF_FILE>()) {
+                // When reading to the end of the segment file, clearing the block did not release the memory.
+                // Directly releasing the block to free up memory.
+                _block.reset();
+                // When reading through segment file for columns that are dictionary encoded,
+                // the column iterator in the segment iterator will hold the dictionary.
+                // Release the segment iterator to free up the dictionary.
+                _iter.reset();
                 return Status::OK();
             } else {
                 return st;
@@ -601,7 +620,9 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {
 Status VerticalMaskMergeIterator::check_all_iter_finished() {
     for (auto iter : _origin_iter_ctx) {
         if (iter->inited()) {
-            RETURN_IF_ERROR(iter->advance());
+            if (iter->valid()) {
+                RETURN_IF_ERROR(iter->advance());
+            }
             DCHECK(!iter->valid());
         }
     }
@@ -629,6 +650,9 @@ Status VerticalMaskMergeIterator::next_row(vectorized::IteratorRowRef* ref) {
         // Except first row, we call advance first and than get cur row
         ctx->set_cur_row_ref(ref);
         ref->is_same = row_source.agg_flag();
+        if (ref->is_same) {
+            _filtered_rows++;
+        }
 
         ctx->set_is_first_row(false);
         _row_sources_buf->advance();
@@ -637,6 +661,9 @@ Status VerticalMaskMergeIterator::next_row(vectorized::IteratorRowRef* ref) {
     RETURN_IF_ERROR(ctx->advance());
     ctx->set_cur_row_ref(ref);
     ref->is_same = row_source.agg_flag();
+    if (ref->is_same) {
+        _filtered_rows++;
+    }
 
     _row_sources_buf->advance();
     return Status::OK();
@@ -670,6 +697,7 @@ Status VerticalMaskMergeIterator::unique_key_next_row(vectorized::IteratorRowRef
             ctx->set_cur_row_ref(ref);
             return Status::OK();
         }
+        _filtered_rows++;
         st = _row_sources_buf->has_remaining();
     }
 

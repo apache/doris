@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJso
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayDoubleOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayInt;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayIntOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayJson;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayJsonOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayString;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeJsonArrayStringOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNumbers;
@@ -53,7 +55,9 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(ExplodeJsonArrayDouble.class, "explode_json_array_double"),
             tableGenerating(ExplodeJsonArrayDoubleOuter.class, "explode_json_array_double_outer"),
             tableGenerating(ExplodeJsonArrayString.class, "explode_json_array_string"),
-            tableGenerating(ExplodeJsonArrayStringOuter.class, "explode_json_array_string_outer")
+            tableGenerating(ExplodeJsonArrayStringOuter.class, "explode_json_array_string_outer"),
+            tableGenerating(ExplodeJsonArrayJson.class, "explode_json_array_json"),
+            tableGenerating(ExplodeJsonArrayJsonOuter.class, "explode_json_array_json_outer")
     );
 
     public static final BuiltinTableGeneratingFunctions INSTANCE = new BuiltinTableGeneratingFunctions();

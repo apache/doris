@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -45,22 +46,18 @@ public class PhysicalCTEAnchor<
     private final CTEId cteId;
 
     public PhysicalCTEAnchor(CTEId cteId, LogicalProperties logicalProperties,
-                             LEFT_CHILD_TYPE leftChild,
-                             RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(cteId, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     public PhysicalCTEAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
-                             LogicalProperties logicalProperties,
-                             LEFT_CHILD_TYPE leftChild,
-                             RIGHT_CHILD_TYPE rightChild) {
+            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(cteId, groupExpression, logicalProperties, null, null, leftChild, rightChild);
     }
 
     public PhysicalCTEAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
-                             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-                             Statistics statistics, LEFT_CHILD_TYPE leftChild,
-                             RIGHT_CHILD_TYPE rightChild) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            Statistics statistics, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_CTE_ANCHOR, groupExpression, logicalProperties, physicalProperties, statistics,
                 leftChild, rightChild);
         this.cteId = cteId;
@@ -80,18 +77,16 @@ public class PhysicalCTEAnchor<
         if (this == o) {
             return true;
         }
-
-        if (!super.equals(o)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
-
-        PhysicalCTEAnchor that = (PhysicalCTEAnchor) o;
-        return Objects.equals(cteId, that.cteId);
+        PhysicalCTEAnchor<?, ?> that = (PhysicalCTEAnchor<?, ?>) o;
+        return cteId.equals(that.cteId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), cteId);
+        return Objects.hash(cteId);
     }
 
     @Override
@@ -108,7 +103,7 @@ public class PhysicalCTEAnchor<
     public PhysicalCTEAnchor<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-            statistics, children.get(0), children.get(1));
+                statistics, children.get(0), children.get(1));
     }
 
     @Override
@@ -117,20 +112,34 @@ public class PhysicalCTEAnchor<
     }
 
     @Override
-    public PhysicalCTEAnchor<Plan, Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalCTEAnchor<>(cteId,
-                Optional.empty(), logicalProperties.get(), child(0), child(1));
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
+        return new PhysicalCTEAnchor<>(cteId, groupExpression, logicalProperties.get(), children.get(0),
+                children.get(1));
     }
 
     @Override
     public PhysicalCTEAnchor<Plan, Plan> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                                                                        Statistics statistics) {
+            Statistics statistics) {
         return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-            statistics, child(0), child(1));
+                statistics, child(0), child(1));
     }
 
     @Override
     public String shapeInfo() {
-        return Utils.toSqlString("CteAnchor[cteId=", cteId, "]");
+        return Utils.toSqlString("PhysicalCteAnchor",
+                "cteId", cteId);
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return right().getOutput();
+    }
+
+    @Override
+    public PhysicalCTEAnchor<Plan, Plan> resetLogicalProperties() {
+        return new PhysicalCTEAnchor<>(cteId, groupExpression, null, physicalProperties,
+                statistics, child(0), child(1));
     }
 }

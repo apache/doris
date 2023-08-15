@@ -70,10 +70,9 @@ Status FileCache::download_cache_to_local(const Path& cache_file, const Path& ca
                                 remote_file_reader->path().native(), offset + count_bytes_read,
                                 need_req_size));
             if (bytes_read != need_req_size) {
-                LOG(ERROR) << "read remote file failed: " << remote_file_reader->path().native()
-                           << ", bytes read: " << bytes_read
-                           << " vs need read size: " << need_req_size;
-                return Status::Error<OS_ERROR>();
+                return Status::Error<OS_ERROR>(
+                        "read remote file failed: {}, bytes read: {} vs need read size: {}",
+                        remote_file_reader->path().native(), bytes_read, need_req_size);
             }
             count_bytes_read += bytes_read;
             RETURN_NOT_OK_STATUS_WITH_WARN(

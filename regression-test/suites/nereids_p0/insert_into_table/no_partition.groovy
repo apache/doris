@@ -22,7 +22,18 @@ suite('nereids_insert_no_partition') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
-    sql 'set parallel_fragment_exec_instance_num=13'
+    sql 'set enable_strict_consistency_dml=true'
+
+    explain {
+        // TODO: test turn off pipeline when dml, remove it if pipeline sink is ok
+        sql '''
+            insert into uni_light_sc_mow_not_null_nop_t with t as(
+            select * except(kaint) from src where id is not null)
+            select * from t left semi join t t2 on t.id = t2.id;
+        '''
+
+        notContains("MultiCastDataSinks")
+    }
 
     sql '''insert into agg_nop_t
             select * except(kaint) from src'''

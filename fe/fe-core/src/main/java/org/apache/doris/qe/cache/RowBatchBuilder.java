@@ -55,6 +55,10 @@ public class RowBatchBuilder {
         return rowSize;
     }
 
+    public int getDataSize() {
+        return dataSize;
+    }
+
     public RowBatchBuilder(CacheAnalyzer.CacheMode model) {
         cacheMode = model;
         keyIndex = 0;
@@ -97,6 +101,14 @@ public class RowBatchBuilder {
             dataSize += bytes.length;
             rowList.add(bytes);
         }
+    }
+
+    public void clear() {
+        rowList = Lists.newArrayList();
+        cachePartMap = new HashMap<>();
+        batchSize = 0;
+        rowSize = 0;
+        dataSize = 0;
     }
 
     public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(

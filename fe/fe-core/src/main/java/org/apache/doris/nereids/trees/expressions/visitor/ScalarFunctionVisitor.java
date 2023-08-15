@@ -316,6 +316,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
@@ -341,6 +342,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 
 /** ScalarFunctionVisitor. */
 public interface ScalarFunctionVisitor<R, C> {
@@ -1543,6 +1546,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(toMonday, context);
     }
 
+    default R visitTokenize(Tokenize tokenize, C context) {
+        return visitScalarFunction(tokenize, context);
+    }
+
     default R visitToQuantileState(ToQuantileState toQuantileState, C context) {
         return visitScalarFunction(toQuantileState, context);
     }
@@ -1637,5 +1644,13 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStateCombinator(StateCombinator combinator, C context) {
         return visitScalarFunction(combinator, context);
+    }
+
+    default R visitJavaUdf(JavaUdf javaUdf, C context) {
+        return visitScalarFunction(javaUdf, context);
+    }
+
+    default R visitAliasUdf(AliasUdf aliasUdf, C context) {
+        return visitScalarFunction(aliasUdf, context);
     }
 }

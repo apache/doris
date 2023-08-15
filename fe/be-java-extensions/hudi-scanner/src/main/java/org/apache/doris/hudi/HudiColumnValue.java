@@ -18,51 +18,56 @@
 package org.apache.doris.hudi;
 
 
+import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.common.jni.vec.NativeColumnValue;
 
-import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
-import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
-import org.apache.hadoop.hive.serde2.objectinspector.primitive.DateObjectInspector;
-import org.apache.hadoop.hive.serde2.objectinspector.primitive.HiveDecimalObjectInspector;
-import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampObjectInspector;
-import org.apache.hadoop.io.BytesWritable;
-import org.apache.hadoop.io.LongWritable;
-import org.apache.hadoop.io.Text;
+import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 
-public class HudiColumnValue implements ColumnValue {
-    public enum TimeUnit {
-        MILLIS, MICROS
+public class HudiColumnValue implements ColumnValue, NativeColumnValue {
+    private boolean isUnsafe;
+    private InternalRow internalRow;
+    private int ordinal;
+    private int precision;
+    private int scale;
+
+    HudiColumnValue() {
     }
 
-    private final Object fieldData;
-    private final ObjectInspector fieldInspector;
-    private final TimeUnit timeUnit;
-
-    HudiColumnValue(ObjectInspector fieldInspector, Object fieldData) {
-        this(fieldInspector, fieldData, TimeUnit.MICROS);
+    HudiColumnValue(InternalRow internalRow, int ordinal, int precision, int scale) {
+        this.isUnsafe = internalRow instanceof UnsafeRow;
+        this.internalRow = internalRow;
+        this.ordinal = ordinal;
+        this.precision = precision;
+        this.scale = scale;
     }
 
-    HudiColumnValue(ObjectInspector fieldInspector, Object fieldData, int timePrecision) {
-        this(fieldInspector, fieldData, timePrecision == 3 ? TimeUnit.MILLIS : TimeUnit.MICROS);
+    public void reset(InternalRow internalRow, int ordinal, int precision, int scale) {
+        this.isUnsafe = internalRow instanceof UnsafeRow;
+        this.internalRow = internalRow;
+        this.ordinal = ordinal;
+        this.precision = precision;
+        this.scale = scale;
     }
 
-    HudiColumnValue(ObjectInspector fieldInspector, Object fieldData, TimeUnit timeUnit) {
-        this.fieldInspector = fieldInspector;
-        this.fieldData = fieldData;
-        this.timeUnit = timeUnit;
+    public void reset(int ordinal, int precision, int scale) {
+        this.ordinal = ordinal;
+        this.precision = precision;
+        this.scale = scale;
     }
 
-    private Object inspectObject() {
-        return ((PrimitiveObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData);
+    public void reset(InternalRow internalRow) {
+        this.isUnsafe = internalRow instanceof UnsafeRow;
+        this.internalRow = internalRow;
     }
 
     @Override
@@ -72,96 +77,89 @@ public class HudiColumnValue implements ColumnValue {
 
     @Override
     public boolean isNull() {
-        return false;
+        return internalRow.isNullAt(ordinal);
     }
 
     @Override
     public boolean getBoolean() {
-        return (boolean) inspectObject();
+        return internalRow.getBoolean(ordinal);
     }
 
     @Override
     public byte getByte() {
-        return 0;
+        return internalRow.getByte(ordinal);
     }
 
     @Override
     public short getShort() {
-        return (short) inspectObject();
+        return internalRow.getShort(ordinal);
     }
 
     @Override
     public int getInt() {
-        return (int) inspectObject();
+        return internalRow.getInt(ordinal);
     }
 
     @Override
     public float getFloat() {
-        return (float) inspectObject();
+        return internalRow.getFloat(ordinal);
     }
 
     @Override
     public long getLong() {
-        return (long) inspectObject();
+        return internalRow.getLong(ordinal);
     }
 
     @Override
     public double getDouble() {
-        return (double) inspectObject();
+        return internalRow.getDouble(ordinal);
     }
 
     @Override
     public BigInteger getBigInteger() {
-        throw new UnsupportedOperationException("Hudi type does not support largeint");
+        throw new UnsupportedOperationException("Hoodie type does not support largeint");
     }
 
     @Override
     public BigDecimal getDecimal() {
-        return ((HiveDecimalObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData).bigDecimalValue();
+        return internalRow.getDecimal(ordinal, precision, scale).toJavaBigDecimal();
     }
 
     @Override
     public String getString() {
-        return inspectObject().toString();
+        return internalRow.getUTF8String(ordinal).toString();
+    }
+
+    @Override
+    public byte[] getStringAsBytes() {
+        return internalRow.getUTF8String(ordinal).getBytes();
     }
 
     @Override
     public LocalDate getDate() {
-        return ((DateObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData).toLocalDate();
+        return LocalDate.ofEpochDay(internalRow.getInt(ordinal));
     }
 
     @Override
     public LocalDateTime getDateTime() {
-        if (fieldData instanceof LongWritable) {
-            long datetime = ((LongWritable) fieldData).get();
-            long seconds;
-            long nanoseconds;
-            if (timeUnit == TimeUnit.MILLIS) {
-                seconds = datetime / 1000;
-                nanoseconds = (datetime % 1000) * 1000000;
-            } else {
-                seconds = datetime / 1000000;
-                nanoseconds = (datetime % 1000000) * 1000;
-            }
-            return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanoseconds), ZoneId.systemDefault());
+        long datetime = internalRow.getLong(ordinal);
+        long seconds;
+        long nanoseconds;
+        if (precision == 3) {
+            seconds = datetime / 1000;
+            nanoseconds = (datetime % 1000) * 1000000;
+        } else if (precision == 6) {
+            seconds = datetime / 1000000;
+            nanoseconds = (datetime % 1000000) * 1000;
         } else {
-            return ((TimestampObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData).toLocalDateTime();
+            throw new RuntimeException("Hoodie timestamp only support milliseconds and microseconds");
         }
+        return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanoseconds), ZoneId.systemDefault());
     }
 
     @Override
     public byte[] getBytes() {
-        // Get bytes directly if fieldData is BytesWritable or Text to avoid decoding&encoding
-        if (fieldData instanceof BytesWritable) {
-            return ((BytesWritable) fieldData).getBytes();
-        }
-        if (fieldData instanceof Text) {
-            return ((Text) fieldData).getBytes();
-        }
-        if (fieldData instanceof String) {
-            return ((String) fieldData).getBytes(StandardCharsets.UTF_8);
-        }
-        return (byte[]) inspectObject();
+        return internalRow.getBinary(ordinal);
     }
 
     @Override
@@ -179,4 +177,23 @@ public class HudiColumnValue implements ColumnValue {
 
     }
 
+    @Override
+    public NativeValue getNativeValue(ColumnType.Type type) {
+        if (isUnsafe) {
+            UnsafeRow unsafeRow = (UnsafeRow) internalRow;
+            switch (type) {
+                case CHAR:
+                case VARCHAR:
+                case BINARY:
+                case STRING:
+                    long offsetAndSize = unsafeRow.getLong(ordinal);
+                    int offset = (int) (offsetAndSize >> 32);
+                    int size = (int) offsetAndSize;
+                    return new NativeValue(unsafeRow.getBaseObject(), offset, size);
+                default:
+                    return null;
+            }
+        }
+        return null;
+    }
 }

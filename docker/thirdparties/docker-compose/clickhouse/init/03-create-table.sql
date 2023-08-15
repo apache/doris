@@ -113,4 +113,13 @@ CREATE TABLE doris_test.arr
     `arr27` Array(Datetime64)
 )
 ENGINE = MergeTree
-ORDER BY id
+ORDER BY id;
+
+set allow_experimental_object_type = 1;
+CREATE TABLE doris_test.json
+(
+    `id` String,
+    `o` JSON
+)
+ENGINE = MergeTree
+ORDER BY id;

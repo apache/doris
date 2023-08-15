@@ -111,6 +111,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public void setWhereClause(Expr whereClause) {
         this.whereClause = whereClause;
+        if (this.whereClause != null) {
+            this.whereClause.setDisableTableName(true);
+        }
     }
 
     public Expr getWhereClause() {
@@ -135,6 +138,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public List<Index> getIndexes() {
         return indexes != null ? indexes : Lists.newArrayList();
+    }
+
+    public void setIndexes(List<Index> newIndexes) {
+        this.indexes = newIndexes;
     }
 
     public List<Column> getSchema() {
@@ -309,7 +316,8 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 try {
                     stmt.analyze(analyzer);
                 } catch (Exception e) {
-                    LOG.warn("CreateMaterializedViewStmt analyze failed, reason=" + e.getMessage());
+                    LOG.warn("CreateMaterializedViewStmt analyze failed, reason=", e);
+                    return;
                 }
             }
 
@@ -320,7 +328,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
                 setColumnsDefineExpr(columnNameToDefineExpr);
             } catch (Exception e) {
-                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=" + e.getMessage());
+                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
             }
 
         } catch (Exception e) {

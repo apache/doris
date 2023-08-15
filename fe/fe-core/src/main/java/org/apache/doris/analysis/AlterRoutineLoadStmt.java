@@ -17,7 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
@@ -59,6 +62,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
             .add(CreateRoutineLoadStmt.NUM_AS_STRING)
             .add(CreateRoutineLoadStmt.FUZZY_PARSE)
+            .add(CreateRoutineLoadStmt.PARTIAL_COLUMNS)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .build();
@@ -66,6 +70,8 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     private final LabelName labelName;
     private final Map<String, String> jobProperties;
     private final Map<String, String> dataSourceMapProperties;
+
+    private boolean isPartialUpdate;
 
     // save analyzed job properties.
     // analyzed data source properties are saved in dataSourceProperties.
@@ -76,6 +82,8 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         this.labelName = labelName;
         this.jobProperties = jobProperties != null ? jobProperties : Maps.newHashMap();
         this.dataSourceMapProperties = dataSourceProperties != null ? dataSourceProperties : Maps.newHashMap();
+        this.isPartialUpdate = this.jobProperties.getOrDefault(CreateRoutineLoadStmt.PARTIAL_COLUMNS, "false")
+                .equalsIgnoreCase("true");
     }
 
     public String getDbName() {
@@ -111,9 +119,26 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         checkJobProperties();
         // check data source properties
         checkDataSourceProperties();
+        checkPartialUpdate();
 
         if (analyzedJobProperties.isEmpty() && MapUtils.isEmpty(dataSourceMapProperties)) {
             throw new AnalysisException("No properties are specified");
+        }
+    }
+
+    private void checkPartialUpdate() throws UserException {
+        if (!isPartialUpdate) {
+            return;
+        }
+        RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
+                .getJob(getDbName(), getLabel());
+        if (job.isMultiTable()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is not supported in multi-table load.");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(job.getDbFullName());
+        Table table = db.getTableOrAnalysisException(job.getTableName());
+        if (isPartialUpdate && !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+            throw new AnalysisException("load by PARTIAL_COLUMNS is only supported in unique table MoW");
         }
     }
 
@@ -146,7 +171,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
             long maxBatchIntervalS = Util.getLongPropertyOrDefault(
                     jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY),
                     -1, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_PRED,
-                    CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
+                    CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 1 and 60");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY,
                     String.valueOf(maxBatchIntervalS));
         }
@@ -202,6 +227,10 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         if (jobProperties.containsKey(CreateRoutineLoadStmt.FUZZY_PARSE)) {
             boolean fuzzyParse = Boolean.parseBoolean(jobProperties.get(CreateRoutineLoadStmt.FUZZY_PARSE));
             analyzedJobProperties.put(CreateRoutineLoadStmt.FUZZY_PARSE, String.valueOf(fuzzyParse));
+        }
+        if (jobProperties.containsKey(CreateRoutineLoadStmt.PARTIAL_COLUMNS)) {
+            analyzedJobProperties.put(CreateRoutineLoadStmt.PARTIAL_COLUMNS,
+                    String.valueOf(isPartialUpdate));
         }
     }
 

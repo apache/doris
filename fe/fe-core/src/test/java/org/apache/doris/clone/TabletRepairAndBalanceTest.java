@@ -255,6 +255,7 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createStr));
 
         // nodes of zone2 not enough, create will fail
+        // it will fail because of we check tag location during the analysis process, so we check AnalysisException
         String createStr2 = "create table test.tbl1\n"
                 + "(k1 date, k2 int)\n"
                 + "partition by range(k1)\n"
@@ -268,7 +269,7 @@ public class TabletRepairAndBalanceTest {
                 + "(\n"
                 + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\"\n"
                 + ")";
-        ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createStr2));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> createTable(createStr2));
 
         // normal, create success
         String createStr3 = "create table test.tbl1\n"
@@ -291,7 +292,7 @@ public class TabletRepairAndBalanceTest {
         // alter table's replica allocation failed, tag not enough
         String alterStr = "alter table test.tbl1"
                 + " set (\"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\");";
-        ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alterStr));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alterStr));
         ReplicaAllocation tblReplicaAlloc = tbl.getDefaultReplicaAllocation();
         Assert.assertEquals(3, tblReplicaAlloc.getTotalReplicaNum());
         Assert.assertEquals(Short.valueOf((short) 2), tblReplicaAlloc.getReplicaNumByTag(tag1));
@@ -417,17 +418,17 @@ public class TabletRepairAndBalanceTest {
         //      p1: zone1:1, zone2:2
         //      p2,p2: zone1:2, zone2:1
 
-        // change tbl1's default replica allocation to zone1:4, which is allowed
-        String alterStr3 = "alter table test.tbl1 set ('default.replication_allocation' = 'tag.location.zone1:4')";
+        // change tbl1's default replica allocation to zone1:3, which is allowed
+        String alterStr3 = "alter table test.tbl1 set ('default.replication_allocation' = 'tag.location.zone1:3')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr3));
 
         // change tbl1's p1's replica allocation to zone1:4, which is forbidden
         String alterStr4 = "alter table test.tbl1 modify partition p1"
                 + " set ('replication_allocation' = 'tag.location.zone1:4')";
-        ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alterStr4));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alterStr4));
 
-        // change col_tbl1's default replica allocation to zone2:4, which is allowed
-        String alterStr5 = "alter table test.col_tbl1 set ('default.replication_allocation' = 'tag.location.zone2:4')";
+        // change col_tbl1's default replica allocation to zone2:2, which is allowed
+        String alterStr5 = "alter table test.col_tbl1 set ('default.replication_allocation' = 'tag.location.zone2:2')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr5));
 
         // Drop all tables

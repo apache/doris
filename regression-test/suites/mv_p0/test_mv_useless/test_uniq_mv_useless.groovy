@@ -39,16 +39,6 @@ suite ("test_uniq_mv_useless") {
     sql "insert into ${testTable} select 3,3,3;"
 
     test {
-        sql "create materialized view k1 as select k1 from ${testTable};"
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "create materialized view k1_k2 as select k1,k2 from ${testTable};"
-        exception "errCode = 2,"
-    }
-
-    test {
         sql "create materialized view k1_k2_u12 as select k1,k2 from ${testTable} group by k1,k2;"
         exception "errCode = 2,"
     }

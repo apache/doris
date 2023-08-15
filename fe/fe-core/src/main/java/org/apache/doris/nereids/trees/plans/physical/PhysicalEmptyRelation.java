@@ -20,11 +20,11 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -41,19 +41,21 @@ import java.util.Optional;
  * e.g.
  * select * from tbl limit 0
  */
-public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation {
+public class PhysicalEmptyRelation extends PhysicalRelation implements EmptyRelation {
 
     private final List<? extends NamedExpression> projects;
 
-    public PhysicalEmptyRelation(List<? extends NamedExpression> projects, LogicalProperties logicalProperties) {
-        this(projects, Optional.empty(), logicalProperties, null, null);
+    public PhysicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
+            LogicalProperties logicalProperties) {
+        this(relationId, projects, Optional.empty(), logicalProperties, null, null);
     }
 
-    public PhysicalEmptyRelation(List<? extends NamedExpression> projects, Optional<GroupExpression> groupExpression,
+    public PhysicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
+            Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics) {
-        super(PlanType.PHYSICAL_EMPTY_RELATION, groupExpression, logicalProperties, physicalProperties,
-                statistics);
+        super(relationId, PlanType.PHYSICAL_EMPTY_RELATION, groupExpression,
+                logicalProperties, physicalProperties, statistics);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
@@ -63,19 +65,15 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     }
 
     @Override
-    public List<? extends Expression> getExpressions() {
-        return ImmutableList.of();
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalEmptyRelation(projects, groupExpression,
+        return new PhysicalEmptyRelation(relationId, projects, groupExpression,
                 logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalEmptyRelation(projects, Optional.empty(),
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalEmptyRelation(relationId, projects, groupExpression,
                 logicalProperties.get(), physicalProperties, statistics);
     }
 
@@ -94,26 +92,6 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        if (!super.equals(o)) {
-            return false;
-        }
-        PhysicalEmptyRelation that = (PhysicalEmptyRelation) o;
-        return Objects.equals(projects, that.projects);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(projects);
-    }
-
-    @Override
     public List<? extends NamedExpression> getProjects() {
         return projects;
     }
@@ -121,7 +99,7 @@ public class PhysicalEmptyRelation extends PhysicalLeaf implements EmptyRelation
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalEmptyRelation(projects, Optional.empty(),
+        return new PhysicalEmptyRelation(relationId, projects, Optional.empty(),
                 logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 }

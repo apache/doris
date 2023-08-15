@@ -49,10 +49,7 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
 public:
     Pipeline() = delete;
     explicit Pipeline(PipelineId pipeline_id, std::weak_ptr<PipelineFragmentContext> context)
-            : _complete_dependency(0),
-              _pipeline_id(pipeline_id),
-              _context(context),
-              _can_steal(true) {
+            : _complete_dependency(0), _pipeline_id(pipeline_id), _context(context) {
         _init_profile();
     }
 
@@ -84,8 +81,6 @@ public:
 
     RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
 
-    void disable_task_steal() { _can_steal = false; }
-
 private:
     void _init_profile();
     std::atomic<uint32_t> _complete_dependency;
@@ -98,7 +93,6 @@ private:
 
     PipelineId _pipeline_id;
     std::weak_ptr<PipelineFragmentContext> _context;
-    bool _can_steal;
     int _previous_schedule_id = -1;
 
     std::unique_ptr<RuntimeProfile> _pipeline_profile;

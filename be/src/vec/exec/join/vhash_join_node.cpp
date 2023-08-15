@@ -120,6 +120,8 @@ struct ProcessHashTableBuild {
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
             COUNTER_SET(_join_node->_hash_table_memory_usage, bucket_bytes);
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
+            COUNTER_SET(_join_node->_build_collisions_counter,
+                        hash_table_ctx.hash_table.get_collisions());
             COUNTER_SET(_join_node->_build_buckets_fill_counter, filled_bucket_size);
 
             auto hash_table_buckets = hash_table_ctx.hash_table.get_buffer_sizes_in_cells();
@@ -469,12 +471,16 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime", "ProbeTime");
     _probe_side_output_timer =
             ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime", "ProbeTime");
+    _probe_process_hashtable_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProcessHashTableTime", "ProbeTime");
     _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
     _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
     _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");
 
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
+
+    _build_collisions_counter = ADD_COUNTER(runtime_profile(), "BuildCollisions", TUnit::UNIT);
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
@@ -623,7 +629,12 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
     }
-    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
+
+    // Here make _join_block release the columns' ptr
+    _join_block.set_columns(_join_block.clone_empty_columns());
+    mutable_join_block.clear();
+
+    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
@@ -1167,7 +1178,8 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
 
                 bool use_fixed_key = true;
                 bool has_null = false;
-                int key_byte_size = 0;
+                size_t key_byte_size = 0;
+                size_t bitmap_size = get_bitmap_size(_build_expr_ctxs.size());
 
                 _probe_key_sz.resize(_probe_expr_ctxs.size());
                 _build_key_sz.resize(_build_expr_ctxs.size());
@@ -1189,20 +1201,17 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                     key_byte_size += _probe_key_sz[i];
                 }
 
-                if (std::tuple_size<KeysNullMap<UInt256>>::value + key_byte_size >
-                    sizeof(UInt256)) {
+                if (bitmap_size + key_byte_size > sizeof(UInt256)) {
                     use_fixed_key = false;
                 }
 
                 if (use_fixed_key) {
                     // TODO: may we should support uint256 in the future
                     if (has_null) {
-                        if (std::tuple_size<KeysNullMap<UInt64>>::value + key_byte_size <=
-                            sizeof(UInt64)) {
+                        if (bitmap_size + key_byte_size <= sizeof(UInt64)) {
                             _hash_table_variants
                                     ->emplace<I64FixedKeyHashTableContext<true, RowRefListType>>();
-                        } else if (std::tuple_size<KeysNullMap<UInt128>>::value + key_byte_size <=
-                                   sizeof(UInt128)) {
+                        } else if (bitmap_size + key_byte_size <= sizeof(UInt128)) {
                             _hash_table_variants
                                     ->emplace<I128FixedKeyHashTableContext<true, RowRefListType>>();
                         } else {

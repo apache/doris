@@ -30,6 +30,7 @@
 #include <roaring/roaring.hh>
 #include <vector>
 
+#include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "common/config.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
@@ -154,9 +155,10 @@ public:
         _doc = std::make_unique<lucene::document::Document>();
         _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
 
-        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
-            _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
             _analyzer = std::make_unique<lucene::analysis::standard::StandardAnalyzer>();
+        } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
+            _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
         } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
             _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
         } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
@@ -172,7 +174,7 @@ public:
             _analyzer.reset(chinese_analyzer);
         } else {
             // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
-            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<TCHAR>>();
+            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
         }
         _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
                                                                      create, true);
@@ -224,12 +226,11 @@ public:
             _parser_type == InvertedIndexParserType::PARSER_CHINESE) {
             new_char_token_stream(field_value_data, field_value_size, _field);
         } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-            auto stringReader = _CLNEW lucene::util::SimpleInputStreamReader(
-                    new lucene::util::AStringReader(field_value_data, field_value_size),
-                    lucene::util::SimpleInputStreamReader::UTF8);
-            _field->setValue(stringReader);
-        } else {
+            new_char_token_stream(field_value_data, field_value_size, _field);
+        } else if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
             new_field_value(field_value_data, field_value_size, _field);
+        } else {
+            new_field_char_value(field_value_data, field_value_size, _field);
         }
     }
 
@@ -244,6 +245,10 @@ public:
         field->setValue(field_value, false);
         // setValue did not duplicate value, so we don't have to delete
         //_CLDELETE_ARRAY(field_value)
+    }
+
+    void new_field_char_value(const char* s, size_t len, lucene::document::Field* field) {
+        field->setValue((char*)s, len);
     }
 
     Status add_values(const std::string fn, const void* values, size_t count) override {

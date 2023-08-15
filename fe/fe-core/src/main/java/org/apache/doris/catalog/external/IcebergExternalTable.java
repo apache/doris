@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -33,6 +35,7 @@ import org.apache.iceberg.types.Types;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
 
@@ -133,5 +136,12 @@ public class IcebergExternalTable extends ExternalTable {
             tTableDescriptor.setIcebergTable(icebergTable);
             return tTableDescriptor;
         }
+    }
+
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        makeSureInitialized();
+        return StatisticsUtil.getIcebergColumnStats(colName,
+            ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name));
     }
 }

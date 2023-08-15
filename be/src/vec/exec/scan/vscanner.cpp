@@ -33,11 +33,8 @@ VScanner::VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, Runtim
           _parent(parent),
           _limit(limit),
           _profile(profile),
-          _input_tuple_desc(parent->input_tuple_desc()),
           _output_tuple_desc(parent->output_tuple_desc()) {
-    _real_tuple_desc = _input_tuple_desc != nullptr ? _input_tuple_desc : _output_tuple_desc;
     _total_rf_num = _parent->runtime_filter_num();
-    _is_load = (_input_tuple_desc != nullptr);
 }
 
 Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {

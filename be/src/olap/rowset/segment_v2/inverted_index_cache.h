@@ -37,6 +37,7 @@
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
 #include "util/time.h"
@@ -55,7 +56,7 @@ using IndexSearcherPtr = std::shared_ptr<lucene::search::IndexSearcher>;
 
 class InvertedIndexCacheHandle;
 
-class InvertedIndexSearcherCache {
+class InvertedIndexSearcherCache : public LRUCachePolicy {
 public:
     // The cache key of index_searcher lru cache
     struct CacheKey {
@@ -65,17 +66,25 @@ public:
 
     // The cache value of index_searcher lru cache.
     // Holding a opened index_searcher.
-    struct CacheValue {
-        // Save the last visit time of this cache entry.
-        // Use atomic because it may be modified by multi threads.
-        std::atomic<int64_t> last_visit_time = 0;
+    struct CacheValue : public LRUCacheValueBase {
         IndexSearcherPtr index_searcher;
-        size_t size = 0;
     };
 
     // Create global instance of this class.
     // "capacity" is the capacity of lru cache.
     static void create_global_instance(size_t capacity, uint32_t num_shards = 16);
+
+    void reset() {
+        _cache.reset();
+        _mem_tracker.reset();
+        // Reset or clear the state of the object.
+    }
+
+    static void reset_global_instance() {
+        if (_s_instance != nullptr) {
+            _s_instance->reset();
+        }
+    }
 
     // Return global instance.
     // Client should call create_global_cache before.
@@ -98,8 +107,6 @@ public:
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
 
-    int64_t prune();
-
     int64_t mem_consumption();
 
 private:
@@ -117,8 +124,6 @@ private:
 
 private:
     static InvertedIndexSearcherCache* _s_instance;
-    // A LRU cache to cache all opened index_searcher
-    std::unique_ptr<Cache> _cache = nullptr;
     std::unique_ptr<MemTracker> _mem_tracker = nullptr;
 };
 
@@ -187,7 +192,7 @@ private:
 
 class InvertedIndexQueryCacheHandle;
 
-class InvertedIndexQueryCache {
+class InvertedIndexQueryCache : public LRUCachePolicy {
 public:
     // cache key
     struct CacheKey {
@@ -214,19 +219,14 @@ public:
         }
     };
 
-    struct CacheValue {
-        // Save the last visit time of this cache entry.
-        // Use atomic because it may be modified by multi threads.
-        std::atomic<int64_t> last_visit_time = 0;
+    struct CacheValue : public LRUCacheValueBase {
         std::shared_ptr<roaring::Roaring> bitmap;
-        size_t size = 0;
     };
 
     // Create global instance of this class
-    static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
-                                    uint32_t num_shards = 16) {
+    static void create_global_cache(size_t capacity, uint32_t num_shards = 16) {
         DCHECK(_s_instance == nullptr);
-        static InvertedIndexQueryCache instance(capacity, index_cache_percentage, num_shards);
+        static InvertedIndexQueryCache instance(capacity, num_shards);
         _s_instance = &instance;
     }
 
@@ -236,23 +236,19 @@ public:
 
     InvertedIndexQueryCache() = delete;
 
-    InvertedIndexQueryCache(size_t capacity, int32_t index_cache_percentage, uint32_t num_shards) {
-        _cache = std::unique_ptr<Cache>(
-                new_lru_cache("InvertedIndexQueryCache", capacity, LRUCacheType::SIZE, num_shards));
-    }
+    InvertedIndexQueryCache(size_t capacity, uint32_t num_shards)
+            : LRUCachePolicy("InvertedIndexQueryCache", capacity, LRUCacheType::SIZE,
+                             config::inverted_index_cache_stale_sweep_time_sec, num_shards) {}
 
     bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
 
     void insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                 InvertedIndexQueryCacheHandle* handle);
 
-    int64_t prune();
-
     int64_t mem_consumption();
 
 private:
     static InvertedIndexQueryCache* _s_instance;
-    std::unique_ptr<Cache> _cache {nullptr};
 };
 
 class InvertedIndexQueryCacheHandle {

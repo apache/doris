@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "async_result_writer.h"
 #include "common/status.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -35,6 +36,7 @@ struct MysqlConnInfo {
     std::string user;
     std::string passwd;
     std::string db;
+    std::string table_name;
     int port;
     std::string charset;
 
@@ -43,27 +45,21 @@ struct MysqlConnInfo {
 
 class Block;
 
-class VMysqlTableWriter {
+class VMysqlTableWriter final : public AsyncResultWriter {
 public:
-    VMysqlTableWriter(const VExprContextSPtrs& output_exprs);
-    ~VMysqlTableWriter();
+    VMysqlTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    ~VMysqlTableWriter() override;
 
     // connect to mysql server
-    Status open(const MysqlConnInfo& conn_info, const std::string& tbl);
+    Status open() override;
 
-    Status begin_trans() { return Status::OK(); }
-
-    Status append(vectorized::Block* block);
-
-    Status abort_tarns() { return Status::OK(); }
-
-    Status finish_tarns() { return Status::OK(); }
+    Status append_block(vectorized::Block& block) override;
 
 private:
     Status insert_row(vectorized::Block& block, size_t row);
+    MysqlConnInfo _conn_info;
     const VExprContextSPtrs& _vec_output_expr_ctxs;
     fmt::memory_buffer _insert_stmt_buffer;
-    std::string _mysql_tbl;
     MYSQL* _mysql_conn;
 };
 } // namespace vectorized

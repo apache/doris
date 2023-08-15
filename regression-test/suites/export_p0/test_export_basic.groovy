@@ -386,4 +386,47 @@ suite("test_export_basic", "p0") {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")
     }
+
+    // 5. test order by and limit clause
+    uuid1 = UUID.randomUUID().toString()
+    outFilePath = """${outfile_path_prefix}_${uuid1}"""
+    label1 = "label_${uuid1}"
+    uuid2 = UUID.randomUUID().toString()
+    label2 = "label_${uuid2}"
+    try {
+        // check export path
+        check_path_exists.call("${outFilePath}")
+
+        // exec export
+        sql """
+            EXPORT TABLE ${table_export_name} PARTITION (less_than_20)
+            TO "file://${outFilePath}/"
+            PROPERTIES(
+                "label" = "${label1}",
+                "format" = "csv",
+                "column_separator"=","
+            );
+        """
+        sql """
+            EXPORT TABLE ${table_export_name} PARTITION (between_20_70)
+            TO "file://${outFilePath}/"
+            PROPERTIES(
+                "label" = "${label2}",
+                "format" = "csv",
+                "column_separator"=","
+            );
+        """
+        waiting_export.call(label1)
+        waiting_export.call(label2)
+
+        // check file amounts
+        check_file_amounts.call("${outFilePath}", 2)
+
+        // check show export correctness
+        def res = sql """ show export where STATE = "FINISHED" order by JobId desc limit 2"""
+        assertTrue(res[0][0] > res[1][0])
+
+    } finally {
+        delete_files.call("${outFilePath}")
+    }
 }

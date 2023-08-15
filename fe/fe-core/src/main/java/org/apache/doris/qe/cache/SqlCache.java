@@ -35,13 +35,21 @@ public class SqlCache extends Cache {
         super(queryId, selectStmt);
     }
 
+    public SqlCache(TUniqueId queryId) {
+        super(queryId);
+    }
+
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
         this.allViewExpandStmtListStr = allViewExpandStmtListStr;
     }
 
     public String getSqlWithViewStmt() {
-        return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
+        if (selectStmt != null)  {
+            return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
+        } else {
+            return allViewExpandStmtListStr;
+        }
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
@@ -69,6 +77,9 @@ public class SqlCache extends Cache {
     public void copyRowBatch(RowBatch rowBatch) {
         if (rowBatchBuilder == null) {
             rowBatchBuilder = new RowBatchBuilder(CacheAnalyzer.CacheMode.Sql);
+        }
+        if (!super.checkRowLimit()) {
+            return;
         }
         rowBatchBuilder.copyRowData(rowBatch);
     }

@@ -50,8 +50,6 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
 
         context.getScheduleContext().pushJob(rewriteJob);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-
-        cascadesContext.setCurrentRootRewriteJobContext(null);
     }
 
     @Override
@@ -72,7 +70,6 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
         RootRewriteJobContext(Plan plan, boolean childrenVisited, JobContext jobContext) {
             super(plan, null, -1, childrenVisited);
             this.jobContext = Objects.requireNonNull(jobContext, "jobContext cannot be null");
-            jobContext.getCascadesContext().setCurrentRootRewriteJobContext(this);
         }
 
         @Override

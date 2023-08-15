@@ -38,6 +38,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -118,6 +119,15 @@ public class StatisticsRepository {
     private static final String FETCH_PART_TABLE_STATS_TEMPLATE = "SELECT * FROM "
             + FeConstants.INTERNAL_DB_NAME + "." + StatisticConstants.ANALYSIS_TBL_NAME
             + " WHERE tbl_id = ${tblId}"
+            + " AND part_id IS NOT NULL";
+
+    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
+            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
+            + "tbl_id=${tblId} AND idx_id=${idxId} AND col_id='${colId}'";
+
+    private static final String QUERY_PARTITION_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
+            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
+            + " ${inPredicate}"
             + " AND part_id IS NOT NULL";
 
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
@@ -202,6 +212,18 @@ public class StatisticsRepository {
         dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
     }
 
+    public static void dropExternalTableStatistics(long tblId) throws DdlException {
+        Map<String, String> params = new HashMap<>();
+        String inPredicate = String.format("tbl_id = %s", tblId);
+        params.put("tblName", StatisticConstants.ANALYSIS_TBL_NAME);
+        params.put("condition", inPredicate);
+        try {
+            StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+    }
+
     public static void dropStatisticsByColName(long tblId, Set<String> colNames, String statsTblName)
             throws DdlException {
         Map<String, String> params = new HashMap<>();
@@ -259,6 +281,7 @@ public class StatisticsRepository {
 
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
         TableName tableName = alterColumnStatsStmt.getTableName();
+        List<Long> partitionIds = alterColumnStatsStmt.getPartitionIds();
         DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableName);
         String rowCount = alterColumnStatsStmt.getValue(StatsType.ROW_COUNT);
         String ndv = alterColumnStatsStmt.getValue(StatsType.NDV);
@@ -300,16 +323,30 @@ public class StatisticsRepository {
         params.put("idxId", "-1");
         params.put("tblId", String.valueOf(objects.table.getId()));
         params.put("colId", String.valueOf(colName));
-        params.put("partId", "NULL");
         params.put("count", String.valueOf(columnStatistic.count));
         params.put("ndv", String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
         params.put("min", min == null ? "NULL" : min);
         params.put("max", max == null ? "NULL" : max);
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
-        StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
-        Env.getCurrentEnv().getStatisticsCache()
-                .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
+
+        if (partitionIds.isEmpty()) {
+            // update table granularity statistics
+            params.put("partId", "NULL");
+            StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
+            Env.getCurrentEnv().getStatisticsCache()
+                    .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
+        } else {
+            // update partition granularity statistics
+            for (Long partitionId : partitionIds) {
+                HashMap<String, String> partParams = Maps.newHashMap(params);
+                partParams.put("partId", String.valueOf(partitionId));
+                StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, partParams);
+                // TODO cache partition granular statistics
+                // Env.getCurrentEnv().getStatisticsCache()
+                //         .updateColStatsCache(partitionId, -1, colName, builder.build());
+            }
+        }
     }
 
     public static List<ResultRow> fetchRecentStatsUpdatedCol() {
@@ -358,7 +395,7 @@ public class StatisticsRepository {
         if (resultRows.size() == 1) {
             return TableStatistic.fromResultRow(resultRows.get(0));
         }
-        throw new DdlException("Query result is not as expected: " + sql);
+        return TableStatistic.UNKNOWN;
     }
 
     public static TableStatistic fetchTableLevelOfPartStats(long partId) throws DdlException {
@@ -392,5 +429,27 @@ public class StatisticsRepository {
         }
 
         return idToPartitionTableStats;
+    }
+
+    public static List<ResultRow> loadColStats(long tableId, long idxId, String colName) {
+        Map<String, String> params = new HashMap<>();
+        params.put("tblId", String.valueOf(tableId));
+        params.put("idxId", String.valueOf(idxId));
+        params.put("colId", colName);
+
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+                .replace(QUERY_COLUMN_STATISTICS));
+    }
+
+    public static List<ResultRow> loadPartStats(Collection<StatisticsCacheKey> keys) {
+        String inPredicate = "CONCAT(tbl_id, '-', idx_id, '-', col_id) in (%s)";
+        StringJoiner sj = new StringJoiner(",");
+        for (StatisticsCacheKey statisticsCacheKey : keys) {
+            sj.add("'" + statisticsCacheKey.toString() + "'");
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("inPredicate", String.format(inPredicate, sj.toString()));
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+                .replace(QUERY_PARTITION_STATISTICS));
     }
 }

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -57,7 +58,7 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
      */
     public TimestampArithmetic(String funcName, Operator op, Expression e1, Expression e2, TimeUnit timeUnit,
             boolean intervalFirst) {
-        super(e1, e2);
+        super(ImmutableList.of(e1, e2));
         Preconditions.checkState(op == Operator.ADD || op == Operator.SUBTRACT);
         this.funcName = funcName;
         this.op = op;
