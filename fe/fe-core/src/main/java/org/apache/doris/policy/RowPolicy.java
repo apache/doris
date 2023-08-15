@@ -57,6 +57,7 @@ public class RowPolicy extends Policy {
                 .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
                 .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
                 .addColumn(new Column("User", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Role", ScalarType.createVarchar(20)))
                 .addColumn(new Column("OriginStmt", ScalarType.createVarchar(65535)))
                 .build();
 
@@ -68,8 +69,8 @@ public class RowPolicy extends Policy {
     @SerializedName(value = "user")
     private UserIdentity user = null;
 
-    @SerializedName(value = "role")
-    private String role = null;
+    @SerializedName(value = "roleName")
+    private String roleName = null;
 
     @SerializedName(value = "dbId")
     private long dbId = -1;
@@ -150,7 +151,7 @@ public class RowPolicy extends Policy {
     }
 
     private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type,
-                                 String policyName, UserIdentity user) {
+                                 String policyName, UserIdentity user, String roleName) {
         return super.checkMatched(type, policyName)
                 && (dbId == -1 || dbId == this.dbId)
                 && (tableId == -1 || tableId == this.tableId)
@@ -165,14 +166,14 @@ public class RowPolicy extends Policy {
         }
         RowPolicy rowPolicy = (RowPolicy) checkedPolicyCondition;
         return checkMatched(rowPolicy.getDbId(), rowPolicy.getTableId(), rowPolicy.getType(),
-                            rowPolicy.getPolicyName(), rowPolicy.getUser());
+                            rowPolicy.getPolicyName(), rowPolicy.getUser(), rowPolicy.getRoleName());
     }
 
     @Override
     public boolean matchPolicy(DropPolicyLog checkedDropPolicyLogCondition) {
         return checkMatched(checkedDropPolicyLogCondition.getDbId(), checkedDropPolicyLogCondition.getTableId(),
                             checkedDropPolicyLogCondition.getType(), checkedDropPolicyLogCondition.getPolicyName(),
-                            checkedDropPolicyLogCondition.getUser());
+                            checkedDropPolicyLogCondition.getUser(), checkedDropPolicyLogCondition.getRoleName());
     }
 
     @Override

@@ -315,7 +315,7 @@ public class PolicyMgr implements Writable {
             for (RowPolicy rowPolicy : policys) {
                 // on rowPolicy to user
                 if ((rowPolicy.getUser() != null && rowPolicy.getUser().getQualifiedUser().equals(user))
-                        || !StringUtils.isEmpty(rowPolicy.getRole()) && roles.contains(rowPolicy.getRole())) {
+                        || !StringUtils.isEmpty(rowPolicy.getRoleName()) && roles.contains(rowPolicy.getRoleName())) {
                     res.add(rowPolicy);
                 }
             }
@@ -375,6 +375,9 @@ public class PolicyMgr implements Writable {
                 RowPolicy rowPolicy = new RowPolicy();
                 if (showStmt.getUser() != null) {
                     rowPolicy.setUser(showStmt.getUser());
+                }
+                if (!StringUtils.isEmpty(showStmt.getRoleName())) {
+                    rowPolicy.setRoleName(showStmt.getRoleName());
                 }
                 if (currentDbId != -1) {
                     rowPolicy.setDbId(currentDbId);
