@@ -98,8 +98,6 @@ MutableColumnPtr ColumnMap::clone_resized(size_t to_size) const {
 
 // to support field functions
 Field ColumnMap::operator[](size_t n) const {
-    // Map is FieldVector, now we keep key value in seperate  , see in field.h
-    Map m(2);
     size_t start_offset = offset_at(n);
     size_t element_size = size_at(n);
 
@@ -116,9 +114,7 @@ Field ColumnMap::operator[](size_t n) const {
         v[i] = get_values()[start_offset + i];
     }
 
-    m.push_back(k);
-    m.push_back(v);
-    return m;
+    return Map {k, v};
 }
 
 // here to compare to below
