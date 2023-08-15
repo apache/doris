@@ -294,6 +294,19 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_35_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162;"""
 
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
+         // unique table
+        table_name = "github_events_unique"
+        sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                k bigint,
+                v variant
+            )
+            UNIQUE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 4 
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        """
+        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
+        sql "select * from ${table_name}"
     } finally {
         // reset flags
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
