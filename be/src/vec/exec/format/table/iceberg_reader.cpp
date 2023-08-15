@@ -90,8 +90,7 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
                                        RuntimeProfile* profile, RuntimeState* state,
                                        const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                                       io::IOContext* io_ctx,
-                                       int64_t push_down_count)
+                                       io::IOContext* io_ctx, int64_t push_down_count)
         : TableFormatReader(std::move(file_format_reader)),
           _profile(profile),
           _state(state),
@@ -139,11 +138,10 @@ Status IcebergTableReader::init_reader(
 }
 
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-
     // already get rows from be
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_push_down_count > 0) {
-
-        auto rows = std::min(_remaining_push_down_count, (int64_t)_state->query_options().batch_size);
+        auto rows =
+                std::min(_remaining_push_down_count, (int64_t)_state->query_options().batch_size);
         _remaining_push_down_count -= rows;
         for (auto& col : block->mutate_columns()) {
             col->resize(rows);
@@ -203,7 +201,6 @@ Status IcebergTableReader::get_columns(
 }
 
 Status IcebergTableReader::init_row_filters(const TFileRangeDesc& range) {
-
     // We get the count value by doris's be, so we don't need to read the delete file
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _remaining_push_down_count > 0) {
         return Status::OK();
