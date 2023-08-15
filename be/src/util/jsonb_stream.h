@@ -34,11 +34,11 @@
 #endif
 
 #include <assert.h>
+#include <fmt/format.h>
 #include <string.h>
 
 #include <algorithm>
 #include <cinttypes>
-#include <fmt/format.h>
 #include <iostream>
 
 namespace doris {
