@@ -70,16 +70,14 @@ Status DeltaWriterV2::open(WriteRequest* req, DeltaWriterV2** writer, RuntimePro
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req, StorageEngine* storage_engine,
                              RuntimeProfile* profile)
         : _req(*req),
-          _rowset_writer(nullptr),
-          _memtable_writer(*req, profile),
           _tablet_schema(new TabletSchema),
-          _delta_written_success(false) {
+          _profile(profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true,
+                                         true)),
+          _memtable_writer(*req, _profile) {
     _init_profile(profile);
 }
 
 void DeltaWriterV2::_init_profile(RuntimeProfile* profile) {
-    _profile = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
-    _init_timer = ADD_TIMER(_profile, "InitTime");
     _write_data_timer = ADD_TIMER(_profile, "WriteDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
 }
@@ -94,7 +92,6 @@ DeltaWriterV2::~DeltaWriterV2() {
 }
 
 Status DeltaWriterV2::init() {
-    SCOPED_TIMER(_init_timer);
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param, *_req.tablet_schema.get());
     RowsetWriterContext context;

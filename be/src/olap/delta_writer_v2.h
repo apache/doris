@@ -121,9 +121,8 @@ private:
     bool _is_cancelled = false;
     WriteRequest _req;
     std::shared_ptr<BetaRowsetWriterV2> _rowset_writer;
-    MemTableWriter _memtable_writer;
     TabletSchemaSPtr _tablet_schema;
-    bool _delta_written_success;
+    bool _delta_written_success = false;
 
     std::mutex _lock;
 
@@ -131,10 +130,10 @@ private:
     int64_t _total_received_rows = 0;
 
     RuntimeProfile* _profile = nullptr;
-    RuntimeProfile::Counter* _init_timer = nullptr;
     RuntimeProfile::Counter* _write_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
 
+    MemTableWriter _memtable_writer;
     MonotonicStopWatch _lock_watch;
 
     std::vector<brpc::StreamId> _streams;
