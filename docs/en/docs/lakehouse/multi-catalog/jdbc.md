@@ -351,18 +351,31 @@ As for data mapping from SQLServer to Doris, one Database in Doris corresponds t
 
 Jdbc Catalog also support to connect another Doris database:
 
+* mysql 5.7 Driver
+
 ```sql
-CREATE CATALOG jdbc_doris PROPERTIES (
+CREATE CATALOG jdbc_mysql PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
-);
+)
 ```
 
-**Note:** Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to connect another Doris database. If you use 8.x version of JDBC jar package, the data type of column may not be matched.
+* mysql 8 Driver
+
+```sql
+CREATE CATALOG jdbc_mysql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
+)
+```
 
 #### Type Mapping
 
@@ -384,6 +397,7 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 | STRING     | STRING                 |                                                                                      |
 | TEXT       | STRING                 |                                                                                      |
 | HLL        | HLL                    | Query HLL needs to set `return_object_data_as_binary=true`                           |
+| Array      | Array                  | The internal type adaptation logic of Array refers to the above types, and nested complex types are not supported        |
 | Other      | UNSUPPORTED            |                                                                                      |
 
 ### Clickhouse
