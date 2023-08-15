@@ -408,9 +408,18 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
 
     Status status;
     for (int i = 0; i < num_channels; ++i) {
-        if (!channels[i]->is_receiver_eof() && (!channel2rows[i].empty() || eos)) {
-            status = channels[i]->add_rows(block, channel2rows[i], eos);
+        if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
+            status = channels[i]->add_rows(block, channel2rows[i], false);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
+            channel2rows[i].clear();
+        }
+    }
+    if (eos) {
+        for (int i = 0; i < num_channels; ++i) {
+            if (!channels[i]->is_receiver_eof()) {
+                status = channels[i]->add_rows(block, channel2rows[i], true);
+                HANDLE_CHANNEL_STATUS(state, channels[i], status);
+            }
         }
     }
 
