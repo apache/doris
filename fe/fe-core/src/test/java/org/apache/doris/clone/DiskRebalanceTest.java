@@ -31,6 +31,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.resource.Tag;
@@ -81,6 +82,7 @@ public class DiskRebalanceTest {
     @Before
     public void setUp() throws Exception {
         Config.used_capacity_percent_max_diff = 1.0;
+        Config.balance_slot_num_per_path = 1;
         db = new Database(1, "test db");
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {
