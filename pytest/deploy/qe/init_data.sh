@@ -18,7 +18,7 @@
 
 # FE_DB='test_query_qa'
 
-cd ../../hdfs/data/qe/
+cd ../../hdfs/data/qe/ || exit
 
 mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "DROP DATABASE IF EXISTS ${FE_DB}"
 mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "create database ${FE_DB}"
