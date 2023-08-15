@@ -606,6 +606,14 @@ struct TStreamLoadPutRequest {
     44: optional bool enable_profile
     45: optional bool partial_update
     46: optional list<string> table_names
+    47: optional string load_sql // insert into sql used by stream load
+    48: optional i64 backend_id
+    49: optional i32 version // version 1 means use load_sql
+    50: optional string label
+    // only valid when file type is CSV
+    51: optional i8 enclose
+    // only valid when file type is CSV
+    52: optional i8 escape
 }
 
 struct TStreamLoadPutResult {
