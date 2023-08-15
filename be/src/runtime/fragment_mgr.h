@@ -139,6 +139,8 @@ public:
 
     void coordinator_callback(const ReportStatusRequest& req);
 
+    ThreadPool* get_thread_pool() { return _thread_pool.get(); }
+
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
