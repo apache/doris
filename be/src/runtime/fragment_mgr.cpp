@@ -584,7 +584,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 
     exec_state.reset(
             new FragmentExecState(query_ctx->query_id, params.params.fragment_instance_id,
-                                  params.backend_num, _exec_env, query_ctx, this,
+                                  params.backend_num, _exec_env, this, query_ctx,
                                   std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback),
                                                   this, std::placeholders::_1)));
     if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
