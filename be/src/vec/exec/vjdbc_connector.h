@@ -119,7 +119,7 @@ private:
     Status _cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                int rows);
     Status _cast_string_to_bitmap(const SlotDescriptor* slot_desc, Block* block, int column_index,
-                               int rows);
+                                  int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
     Status _convert_batch_result_set(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,

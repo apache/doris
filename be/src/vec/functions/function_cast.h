@@ -1696,8 +1696,9 @@ private:
         return nullptr;
     }
 
-    WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
-                                   const DataTypeBitMap& to_type) const {
+    WrapperType create_bitmap_wrapper(FunctionContext* context,
+                                      const DataTypePtr& from_type_untyped,
+                                      const DataTypeBitMap& to_type) const {
         /// Conversion from String through parsing.
         if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
             return &ConvertImplGenericFromString::execute;
@@ -2107,7 +2108,7 @@ private:
                                       static_cast<const DataTypeHLL&>(*to_type));
         case TypeIndex::BitMap:
             return create_bitmap_wrapper(context, from_type,
-                                      static_cast<const DataTypeBitMap&>(*to_type));
+                                         static_cast<const DataTypeBitMap&>(*to_type));
         default:
             break;
         }

@@ -736,7 +736,6 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
                                       address[1], chars_addres);
         break;
-
     }
     default: {
         const std::string& error_msg =
@@ -795,8 +794,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_array_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchHllResult", "(Ljava/lang/Object;ZIJJJ)V",
                                 _executor_get_hll_result));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchBitMapResult", "(Ljava/lang/Object;ZIJJJ)V",
-                                _executor_get_bitmap_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchBitMapResult",
+                                "(Ljava/lang/Object;ZIJJJ)V", _executor_get_bitmap_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchJsonResult",
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_json_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchCharResult",
@@ -881,7 +880,7 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
 }
 
 Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Block* block,
-                                          int column_index, int rows) {
+                                             int column_index, int rows) {
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
@@ -911,7 +910,8 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
         block->replace_by_position(column_index, nested_ptr);
     }
     str_bitmap_cols[_map_column_idx_to_cast_idx_bitmap[column_index]] =
-            _input_bitmap_string_types[_map_column_idx_to_cast_idx_bitmap[column_index]]->create_column();
+            _input_bitmap_string_types[_map_column_idx_to_cast_idx_bitmap[column_index]]
+                    ->create_column();
     return Status::OK();
 }
 

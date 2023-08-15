@@ -132,5 +132,5 @@ Status DataTypeBitMap::from_string(ReadBuffer& rb, IColumn* column) const {
     }
     data.push_back(std::move(value));
     return Status::OK();
-} 
+}
 } // namespace doris::vectorized
