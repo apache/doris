@@ -40,6 +40,10 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     public static final List<AbstractDataType> EXPECTS_INPUT_TYPES = ImmutableList.of(BooleanType.INSTANCE);
 
     public Not(Expression child) {
+        super(ImmutableList.of(child));
+    }
+
+    private Not(List<Expression> child) {
         super(child);
     }
 
@@ -88,7 +92,7 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     @Override
     public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        Not not = new Not(children.get(0));
+        Not not = new Not(children);
         not.isGeneratedIsNotNull = this.isGeneratedIsNotNull;
         return not;
     }
