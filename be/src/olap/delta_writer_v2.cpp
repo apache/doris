@@ -78,7 +78,7 @@ DeltaWriterV2::DeltaWriterV2(WriteRequest* req, StorageEngine* storage_engine,
 }
 
 void DeltaWriterV2::_init_profile(RuntimeProfile* profile) {
-    _write_data_timer = ADD_TIMER(_profile, "WriteDataTime");
+    _write_memtable_timer = ADD_TIMER(_profile, "WriteMemTableTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
 }
 
@@ -136,7 +136,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    SCOPED_TIMER(_write_data_timer);
+    SCOPED_TIMER(_write_memtable_timer);
     return _memtable_writer.write(block, row_idxs, is_append);
 }
 

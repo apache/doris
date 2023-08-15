@@ -130,7 +130,7 @@ private:
     int64_t _total_received_rows = 0;
 
     RuntimeProfile* _profile = nullptr;
-    RuntimeProfile::Counter* _write_data_timer = nullptr;
+    RuntimeProfile::Counter* _write_memtable_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
 
     MemTableWriter _memtable_writer;

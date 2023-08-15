@@ -255,7 +255,7 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
     _wait_mem_limit_timer = ADD_CHILD_TIMER(_profile, "WaitMemLimitTime", "SendDataTime");
     _row_distribution_timer = ADD_CHILD_TIMER(_profile, "RowDistributionTime", "SendDataTime");
-    _write_data_timer = ADD_CHILD_TIMER(_profile, "WriteDataTime", "SendDataTime");
+    _write_memtable_timer = ADD_CHILD_TIMER(_profile, "WriteMemTableTime", "SendDataTime");
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
@@ -494,7 +494,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
-    SCOPED_TIMER(_write_data_timer);
+    SCOPED_TIMER(_write_memtable_timer);
     auto st = delta_writer->write(block.get(), rows.row_idxes, false);
     return st;
 }
