@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 
@@ -34,7 +35,16 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
                                         String comment) {
         super(catalogId, name, comment);
         props = PropertyConverter.convertToMetaProperties(props);
+        String warehouse = props.get(CatalogProperties.WAREHOUSE_LOCATION);
+        Preconditions.checkArgument(StringUtils.isNotEmpty(warehouse),
+                "Cannot initialize Iceberg HadoopCatalog because 'warehouse' must not be null or empty");
+        String nameService = StringUtils.substringBetween(warehouse, HdfsResource.HDFS_FILE_PREFIX, "/");
+        if (StringUtils.isEmpty(nameService)) {
+            throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
+                    + " because name service is required.");
+        }
         catalogProperty = new CatalogProperty(resource, props);
+        catalogProperty.addProperty(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
     }
 
     @Override
@@ -45,8 +55,6 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();
         String warehouse = catalogProperty.getProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
-        Preconditions.checkArgument(StringUtils.isNotEmpty(warehouse),
-                    "Cannot initialize Iceberg HadoopCatalog because 'warehouse' must not be null or empty");
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
         hadoopCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = hadoopCatalog;

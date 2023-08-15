@@ -54,6 +54,7 @@ public class HdfsResource extends Resource {
     public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
     public static String DSF_NAMESERVICES = "dfs.nameservices";
     public static final String HDFS_PREFIX = "hdfs:";
+    public static final String HDFS_FILE_PREFIX = "hdfs://";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;

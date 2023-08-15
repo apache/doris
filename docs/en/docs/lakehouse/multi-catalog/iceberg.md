@@ -61,7 +61,7 @@ Use the Iceberg API to access metadata, and support services such as Hadoop File
 CREATE CATALOG iceberg_hadoop PROPERTIES (
     'type'='iceberg',
     'iceberg.catalog.type' = 'hadoop',
-    'warehouse' = 'hdfs://your-host/dir/key'
+    'warehouse' = 'hdfs://your-host:8020/dir/key'
 );
 ```
 
