@@ -70,7 +70,7 @@ public class CreatePolicyStmt extends DdlStmt {
      * Use for cup.
      **/
     public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, TableName tableName,
-                            String filterType, UserIdentity user, String roleName, Expr wherePredicate) {
+            String filterType, UserIdentity user, String roleName, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
@@ -85,7 +85,7 @@ public class CreatePolicyStmt extends DdlStmt {
      * Use for cup.
      */
     public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName,
-                            Map<String, String> properties) {
+            Map<String, String> properties) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
@@ -105,10 +105,12 @@ public class CreatePolicyStmt extends DdlStmt {
             case ROW:
             default:
                 tableName.analyze(analyzer);
-                user.analyze(analyzer.getClusterName());
-                if (user.isRootUser() || user.isAdminUser()) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                            user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                if (user != null) {
+                    user.analyze(analyzer.getClusterName());
+                    if (user.isRootUser() || user.isAdminUser()) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
+                                user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                    }
                 }
         }
         // check auth
@@ -132,7 +134,13 @@ public class CreatePolicyStmt extends DdlStmt {
             case ROW:
             default:
                 sb.append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
-                    .append(" TO ").append(user.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
+                        .append(" TO ");
+                if (user == null) {
+                    sb.append("ROLE ").append(roleName);
+                } else {
+                    sb.append(user.getQualifiedUser());
+                }
+                sb.append(" USING ").append(wherePredicate.toSql());
         }
         return sb.toString();
     }
