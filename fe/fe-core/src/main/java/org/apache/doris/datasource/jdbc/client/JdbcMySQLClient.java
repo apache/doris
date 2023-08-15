@@ -129,6 +129,7 @@ public class JdbcMySQLClient extends JdbcClient {
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
             List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             Map<String, String> mapFieldtoType = null;
+            mapFieldtoType = getJdbcColumnsTypeInfo(dbName, tableName);
             while (rs.next()) {
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
@@ -136,6 +137,8 @@ public class JdbcMySQLClient extends JdbcClient {
 
                 // in mysql-jdbc-connector-8.0.*, TYPE_NAME of the HLL column in doris will be "UNKNOWN"
                 // in mysql-jdbc-connector-5.1.*, TYPE_NAME of the HLL column in doris will be "HLL"
+                // in mysql-jdbc-connector-8.0.*, TYPE_NAME of BITMAP column in doris will be "BIT"
+                // in mysql-jdbc-connector-5.1.*, TYPE_NAME of BITMAP column in doris will be "BITMAP"
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 if (isDoris) {
                     mapFieldtoType = getColumnsDataTypeUseQuery(dbName, tableName);
@@ -417,6 +420,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createJsonbType();
             case "HLL":
                 return ScalarType.createHllType();
+            case "BITMAP":
+                return Type.BITMAP;
             default:
                 return Type.UNSUPPORTED;
         }
