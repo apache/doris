@@ -579,11 +579,13 @@ void PlanFragmentExecutor::close() {
 
 FragmentExecState::FragmentExecState(const TUniqueId& query_id,
                                      const TUniqueId& fragment_instance_id, int backend_num,
-                                     ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
+                                     ExecEnv* exec_env, FragmentMgr* fragment_mgr,
+                                     std::shared_ptr<QueryContext> query_ctx,
                                      const report_status_callback_impl& report_status_cb_impl)
         : _query_id(query_id),
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
+          _fragment_mgr(fragment_mgr),
           _query_ctx(std::move(query_ctx)),
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
@@ -629,7 +631,7 @@ void FragmentExecState::execute(const FinishCallback& cb) {
         cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "exec_state execute failed");
     }
 
-    _executor.exec_env()->fragment_mgr()->remove_fragment_exec_state(shared_from_this());
+    _fragment_mgr->remove_fragment_exec_state(shared_from_this());
 
     // Callback after remove from this id
     auto status = _executor.status();

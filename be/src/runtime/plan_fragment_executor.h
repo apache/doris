@@ -256,7 +256,8 @@ public:
     using report_status_callback_impl = std::function<void(const ReportStatusRequest)>;
     // Constructor by using QueryContext
     FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
-                      ExecEnv* exec_env, std::shared_ptr<QueryContext> query_ctx,
+                      ExecEnv* exec_env, FragmentMgr* fragment_mgr,
+                      std::shared_ptr<QueryContext> query_ctx,
                       const report_status_callback_impl& report_status_cb_impl);
     Status prepare(const TExecPlanFragmentParams& params);
 
@@ -325,6 +326,7 @@ private:
     int _backend_num;
     TNetworkAddress _coord_addr;
 
+    FragmentMgr* _fragment_mgr;
     // This context is shared by all fragments of this host in a query.
     // _query_ctx should be the last one to be destructed, because _executor's
     // destruct method will call close and it will depend on query context,

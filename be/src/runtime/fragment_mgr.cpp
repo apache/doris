@@ -428,15 +428,12 @@ void FragmentMgr::remove_pipeline_context(
         std::shared_ptr<pipeline::PipelineFragmentContext>& f_context) {
     std::lock_guard<std::mutex> lock(_lock);
     auto query_id = f_context->get_query_id();
-    LOG(INFO) << "remove 1 " << print_id(query_id);
     auto* q_context = f_context->get_query_context();
-    LOG(INFO) << "remove 2 " << q_context;
     bool all_done = q_context->countdown();
-    LOG(INFO) << "remove 3 " << all_done;
     auto ins_id = f_context->get_fragment_instance_id();
     _pipeline_map.erase(f_context->get_fragment_instance_id());
-    LOG(INFO) << "remove 4" << print_id(ins_id) << ", q_id " << print_id(query_id) << ", all_done "
-              << all_done;
+    LOG(INFO) << "remove pip context " << print_id(ins_id) << ", q_id " << print_id(query_id)
+              << ", all_done " << all_done;
     if (all_done) {
         _query_ctx_map.erase(query_id);
     }
