@@ -41,7 +41,11 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
             = ImmutableList.of(BooleanType.INSTANCE, AnyDataType.INSTANCE);
 
     public WhenClause(Expression operand, Expression result) {
-        super(operand, result);
+        super(ImmutableList.of(operand, result));
+    }
+
+    private WhenClause(List<Expression> children) {
+        super(children);
     }
 
     public Expression getOperand() {
@@ -60,7 +64,7 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
     @Override
     public WhenClause withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new WhenClause(children.get(0), children.get(1));
+        return new WhenClause(children);
     }
 
     @Override

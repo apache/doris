@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -34,7 +36,7 @@ public class TVFProperties extends Expression implements LeafExpression {
     private final Map<String, String> keyValues;
 
     public TVFProperties(Map<String, String> properties) {
-        super();
+        super(ImmutableList.of());
         this.keyValues = Objects.requireNonNull(properties, "properties can not be null");
     }
 

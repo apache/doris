@@ -27,13 +27,15 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
+import java.util.List;
+
 /**
  * like expression: a MATCH 'hello'.
  */
 public abstract class Match extends BinaryOperator implements PropagateNullable {
 
-    public Match(Expression left, Expression right, String symbol) {
-        super(left, right, symbol);
+    public Match(List<Expression> children, String symbol) {
+        super(children, symbol);
     }
 
     /**
