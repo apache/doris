@@ -78,7 +78,7 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         List<Expr> outputs = root.getOutputExprs();
         Preconditions.checkArgument(outputs.size() == queryStmt.getResultExprs().size());
         for (int i = 0; i < outputs.size(); ++i) {
-            if (queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn() != null) {
+            if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
                 queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
                         .setIsAllowNull(outputs.get(i).isNullable());
             }
