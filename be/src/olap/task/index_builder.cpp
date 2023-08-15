@@ -400,8 +400,8 @@ Status IndexBuilder::do_build_inverted_index() {
 
     std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
     if (!migration_rlock.owns_lock()) {
-        return Status::Error<ErrorCode::TRY_LOCK_FAILED>(
-                "got migration_rlock failed. tablet={}", _tablet->full_name());
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>("got migration_rlock failed. tablet={}",
+                                                         _tablet->full_name());
     }
 
     _input_rowsets =
