@@ -40,22 +40,22 @@ Key node version: the version that must be experienced when upgrading, it may be
 
 :::
 
-| Version number | Key node version | LTS version |
-| ------------------------ | ------------ | -------- |
-| 0.12.x | Yes | No |
-| 0.13.x | Yes | No |
-| 0.14.x | Yes | No |
-| 0.15.x | Yes | No |
-| 1.0.0 - 1.1.2 | No | No |
-| 1.1.3 - 1.1.5 | Yes | 1.1-LTS |
-| 1.2.0 - 1.2.5 | Yes | 1.2-LTS |
-| 2.0.0-alpha - 2.0.0-beta | Yes | 2.0-LTS |
+| Version number      | Key node version | LTS version |
+|---------------------| ------------ | -------- |
+| 0.12.x              | Yes | No |
+| 0.13.x              | Yes | No |
+| 0.14.x              | Yes | No |
+| 0.15.x              | Yes | No |
+| 1.0.0 - 1.1.2       | No | No |
+| 1.1.3 - 1.1.5       | Yes | 1.1-LTS |
+| 1.2.0 - 1.2.x       | Yes | 1.2-LTS |
+| 2.0.0-alpha - 2.0.x | Yes | 2.0-LTS |
 
 Example:
 
-The current version is `0.12`, upgrade route to `2.0.0-beta` version
+The current version is `0.12`, upgrade route to `2.0.x` version
 
-`0.12` -> `0.13` -> `0.14` -> `0.15` -> `1.1.3 - 1.1.5` any version -> `1.2.0 - 1.2.5` any version -> `2.0.0 -beta`
+`0.12` -> `0.13` -> `0.14` -> `0.15` -> `1.1.3 - 1.1.5` any version -> `1.2.0 - 1.2.x` any version -> `2.0.x`
 
 :::tip
 
