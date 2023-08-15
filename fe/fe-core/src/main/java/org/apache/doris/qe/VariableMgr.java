@@ -720,6 +720,7 @@ public class VariableMgr {
                     }
                 }
 
+                row.add(ctxByVarName.get(entry.getKey()).defaultValue);
                 rows.add(row);
             }
         } finally {
