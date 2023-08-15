@@ -266,7 +266,8 @@ Status FragmentExecState::execute() {
                       strings::Substitute("Got error while opening fragment $0, query id: $1",
                                           print_id(_fragment_instance_id), print_id(_query_id)));
         if (!st.ok()) {
-            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "PlanFragmentExecutor open failed");
+            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                   fmt::format("PlanFragmentExecutor open failed, reason: {}", st.to_string()));
         }
         _executor.close();
     }
@@ -287,7 +288,7 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _query_ctx->exec_env()->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+            stream_load_ctx->pipe->cancel(msg);
         }
 #endif
         _cancelled = true;
