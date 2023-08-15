@@ -145,6 +145,20 @@ int StreamSinkHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* con
             }
         }
 
+        if (response.has_load_stream_profile()) {
+            TRuntimeProfileTree tprofile;
+            const uint8_t* buf =
+                    reinterpret_cast<const uint8_t*>(response.load_stream_profile().data());
+            uint32_t len = response.load_stream_profile().size();
+            auto st = deserialize_thrift_msg(buf, &len, false, &tprofile);
+            if (st.ok()) {
+                _sink->_state->load_channel_profile()->update(tprofile);
+            } else {
+                LOG(WARNING) << "load channel TRuntimeProfileTree deserialize failed, errmsg="
+                             << st;
+            }
+        }
+
         _sink->_pending_reports.fetch_add(-1);
     }
     return 0;

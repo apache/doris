@@ -29,11 +29,13 @@
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
+#include "util/thrift_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
-TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, uint32_t num_senders)
+TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, uint32_t num_senders,
+                           RuntimeProfile* profile)
         : _id(id), _next_segid(0), _load_id(load_id), _txn_id(txn_id) {
     for (int i = 0; i < 10; i++) {
         _flush_tokens.emplace_back(ExecEnv::GetInstance()->get_load_stream_mgr()->new_token());
@@ -41,7 +43,10 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, uint32
 
     _segids_mapping.resize(num_senders);
     _failed_st = std::make_shared<Status>();
-    _profile = std::make_unique<RuntimeProfile>("TabletStream");
+    _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
+    _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
+    _add_segment_timer = ADD_TIMER(_profile, "AddSegmentTime");
+    _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream) {
@@ -61,7 +66,7 @@ Status TabletStream::init(OlapTableSchemaParam* schema, int64_t index_id, int64_
     // TODO tablet_schema
     req.table_schema_param = schema;
 
-    _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile.get());
+    _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
     auto st = _load_stream_writer->init();
     if (!st.ok()) {
         _failed_st = std::make_shared<Status>(st);
@@ -77,6 +82,8 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     if (header.opcode() == PStreamHeader::ADD_SEGMENT) {
         return add_segment(header, data);
     }
+
+    SCOPED_TIMER(_append_data_timer);
 
     uint32_t sender_id = header.sender_id();
     // We don't need a lock protecting _segids_mapping, because it is written once.
@@ -127,6 +134,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
 }
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
+    SCOPED_TIMER(_add_segment_timer);
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
 
@@ -139,6 +147,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
 }
 
 Status TabletStream::close() {
+    SCOPED_TIMER(_close_wait_timer);
     for (auto& token : _flush_tokens) {
         token->wait();
     }
@@ -148,15 +157,24 @@ Status TabletStream::close() {
     return _load_stream_writer->close();
 }
 
+IndexStream::IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id, uint32_t num_senders,
+                         std::shared_ptr<OlapTableSchemaParam> schema, RuntimeProfile* profile)
+        : _id(id), _num_senders(num_senders), _load_id(load_id), _txn_id(txn_id), _schema(schema) {
+    _profile = profile->create_child(fmt::format("IndexStream {}", id), true, true);
+    _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
+    _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+}
+
 Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
+    SCOPED_TIMER(_append_data_timer);
     int64_t tablet_id = header.tablet_id();
     TabletStreamSharedPtr tablet_stream;
     {
         std::lock_guard lock_guard(_lock);
         auto it = _tablet_streams_map.find(tablet_id);
         if (it == _tablet_streams_map.end()) {
-            tablet_stream =
-                    std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _num_senders);
+            tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id,
+                                                           _num_senders, _profile);
             _tablet_streams_map[tablet_id] = tablet_stream;
             RETURN_IF_ERROR(tablet_stream->init(_schema.get(), _id, header.partition_id()));
         } else {
@@ -170,6 +188,7 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
 void IndexStream::close(std::vector<int64_t>* success_tablet_ids,
                         std::vector<int64_t>* failed_tablet_ids) {
     std::lock_guard lock_guard(_lock);
+    SCOPED_TIMER(_close_wait_timer);
     for (auto& it : _tablet_streams_map) {
         auto st = it.second->close();
         if (st.ok()) {
@@ -183,7 +202,11 @@ void IndexStream::close(std::vector<int64_t>* success_tablet_ids,
                               _failed_tablet_ids.end());
 }
 
-LoadStream::LoadStream(PUniqueId id) : _id(id) {}
+LoadStream::LoadStream(PUniqueId id) : _id(id) {
+    _profile = std::make_unique<RuntimeProfile>("LoadStream");
+    _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
+    _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+}
 
 LoadStream::~LoadStream() {
     LOG(INFO) << "load stream is deconstructed " << *this;
@@ -201,8 +224,8 @@ Status LoadStream::init(const POpenStreamSinkRequest* request) {
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request->schema()));
     for (auto& index : request->schema().indexes()) {
-        _index_streams_map[index.id()] =
-                std::make_shared<IndexStream>(_id, index.id(), _txn_id, _num_senders, _schema);
+        _index_streams_map[index.id()] = std::make_shared<IndexStream>(
+                _id, index.id(), _txn_id, _num_senders, _schema, _profile.get());
     }
     LOG(INFO) << "succeed to init load stream " << *this;
     return Status::OK();
@@ -220,7 +243,7 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
     }
 
     std::lock_guard lock_guard(_lock);
-
+    SCOPED_TIMER(_close_wait_timer);
     // we do nothing until recv CLOSE_LOAD from all stream to ensure all data are handled before ack
     if ((++_senders_closed_streams[sender_id]) < _num_stream_per_sender) {
         LOG(INFO) << fmt::format("OOXXOO {} out of {} stream received CLOSE_LOAD from sender {}",
@@ -266,6 +289,20 @@ void LoadStream::_report_result(StreamId stream, Status& st,
         response.add_failed_tablet_ids(id);
     }
 
+    {
+        TRuntimeProfileTree tprofile;
+        _profile->to_thrift(&tprofile);
+        ThriftSerializer ser(false, 4096);
+        uint8_t* buf = nullptr;
+        uint32_t len = 0;
+        auto st = ser.serialize(&tprofile, &len, &buf);
+        if (st.ok()) {
+            response.set_load_stream_profile(std::string((const char*)buf, len));
+        } else {
+            LOG(WARNING) << "load channel TRuntimeProfileTree serialize failed, errmsg=" << st;
+        }
+    }
+
     buf.append(response.SerializeAsString());
     int ret = brpc::StreamWrite(stream, buf);
     // TODO: handle eagain
@@ -286,6 +323,7 @@ void LoadStream::_parse_header(butil::IOBuf* const message, PStreamHeader& hdr) 
 }
 
 Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data) {
+    SCOPED_TIMER(_append_data_timer);
     IndexStreamSharedPtr index_stream;
 
     uint32_t sender_id = header.sender_id();

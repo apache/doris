@@ -40,7 +40,8 @@ namespace doris {
 using SegIdMapping = std::vector<uint32_t>;
 class TabletStream {
 public:
-    TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, uint32_t num_senders);
+    TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, uint32_t num_senders,
+                 RuntimeProfile* profile);
 
     Status init(OlapTableSchemaParam* schema, int64_t index_id, int64_t partition_id);
 
@@ -61,7 +62,10 @@ private:
     std::shared_ptr<Status> _failed_st;
     PUniqueId _load_id;
     int64_t _txn_id;
-    std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile* _profile;
+    RuntimeProfile::Counter* _append_data_timer = nullptr;
+    RuntimeProfile::Counter* _add_segment_timer = nullptr;
+    RuntimeProfile::Counter* _close_wait_timer = nullptr;
 };
 
 using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;
@@ -69,12 +73,7 @@ using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;
 class IndexStream {
 public:
     IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id, uint32_t num_senders,
-                std::shared_ptr<OlapTableSchemaParam> schema)
-            : _id(id),
-              _num_senders(num_senders),
-              _load_id(load_id),
-              _txn_id(txn_id),
-              _schema(schema) {}
+                std::shared_ptr<OlapTableSchemaParam> schema, RuntimeProfile* profile);
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
 
@@ -91,6 +90,9 @@ private:
     std::shared_ptr<OlapTableSchemaParam> _schema;
     std::unordered_map<int64_t, int64_t> _tablet_partitions;
     std::vector<int64_t> _failed_tablet_ids;
+    RuntimeProfile* _profile;
+    RuntimeProfile::Counter* _append_data_timer = nullptr;
+    RuntimeProfile::Counter* _close_wait_timer = nullptr;
 };
 using IndexStreamSharedPtr = std::shared_ptr<IndexStream>;
 
@@ -134,6 +136,9 @@ private:
     int64_t _txn_id;
     std::shared_ptr<OlapTableSchemaParam> _schema;
     std::set<int64_t> _failed_tablet_ids;
+    std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile::Counter* _append_data_timer = nullptr;
+    RuntimeProfile::Counter* _close_wait_timer = nullptr;
 };
 
 using LoadStreamSharedPtr = std::shared_ptr<LoadStream>;
