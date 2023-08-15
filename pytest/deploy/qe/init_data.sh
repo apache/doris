@@ -20,16 +20,16 @@
 
 cd ../../hdfs/data/qe/
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "DROP DATABASE IF EXISTS ${FE_DB}"
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "create database ${FE_DB}"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "DROP DATABASE IF EXISTS ${FE_DB}"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "create database ${FE_DB}"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} ${FE_DB} -e 'create table baseall(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")'
-curl --location-trusted -T baseall.txt -u root:${FE_PASSWORD} http://${FE_HOST}:${FE_WEB_PORT}/api/${FE_DB}/baseall/_stream_load
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" "${FE_DB}" -e 'create table baseall(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")'
+curl --location-trusted -T baseall.txt -u "${FE_USER}":"${FE_PASSWORD}" http://"${FE_HOST}":"${FE_WEB_PORT}"/api/"${FE_DB}"/baseall/_stream_load
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} ${FE_DB} -e 'create table test(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")'
-curl --location-trusted -T baseall.txt -u root:${FE_PASSWORD} http://${FE_HOST}:${FE_WEB_PORT}/api/${FE_DB}/test/_stream_load
-curl --location-trusted -T xaaa -u root:${FE_PASSWORD} http://${FE_HOST}:${FE_WEB_PORT}/api/${FE_DB}/test/_stream_load
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" "${FE_DB}" -e 'create table test(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")'
+curl --location-trusted -T baseall.txt -u "${FE_USER}":"${FE_PASSWORD}" http://"${FE_HOST}":"${FE_WEB_PORT}"/api/"${FE_DB}"/test/_stream_load
+curl --location-trusted -T xaaa -u "${FE_USER}":"${FE_PASSWORD}" http://"${FE_HOST}":"${FE_WEB_PORT}"/api/"${FE_DB}"/test/_stream_load
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} ${FE_DB} -e 'create table bigtable(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")'
-curl --location-trusted -T baseall.txt -u root:${FE_PASSWORD} http://${FE_HOST}:${FE_WEB_PORT}/api/${FE_DB}/bigtable/_stream_load
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" "${FE_DB}" -e 'create table bigtable(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double max, k9 float sum) engine=olap distributed by hash(k1) buckets 5 properties("storage_type"="column")'
+curl --location-trusted -T baseall.txt -u "${FE_USER}":"${FE_PASSWORD}" http://"${FE_HOST}":"${FE_WEB_PORT}"/api/"${FE_DB}"/bigtable/_stream_load
 

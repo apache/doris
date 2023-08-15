@@ -164,8 +164,8 @@ def test_tinyint_uniq():
     """
     database_name, table_name, rollup_table_name = util.gen_name_list()
     distribution_info = DATA.hash_distribution_info
-    local_data_file = "%s/data/LOAD/test_tinyint.data" % file_dir
-    hdfs_data_file = palo_config.gen_remote_file_path('sys/STREAM_LOAD/test_tinyint.data')
+    local_data_file = "%s/data/LOAD/test_hash_tinyint.data" % file_dir
+    hdfs_data_file = palo_config.gen_remote_file_path('sys/STREAM_LOAD/test_hash_tinyint.data')
     key_type = DATA.unique_key
     column_list = DATA.tinyint_column_no_agg_list
     base(database_name, table_name, column_list, local_data_file, hdfs_data_file, key_type,

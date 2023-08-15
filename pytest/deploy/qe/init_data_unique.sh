@@ -20,21 +20,21 @@ separator='\t'
 # hdfs_data_path='hdfs://xxxxxx'
 # broker_property="WITH BROKER 'hdfs' ('username'='root', 'password'='')"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "DROP DATABASE IF EXISTS ${FE_DB}"
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "create database ${FE_DB}"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "DROP DATABASE IF EXISTS ${FE_DB}"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "create database ${FE_DB}"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "create table ${FE_DB}.baseall(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double, k9 float ) engine=olap unique key (k1, k2, k3, k4, k5, k6, k10) distributed by hash(k1) buckets 5 properties('storage_type'='column')"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "create table ${FE_DB}.baseall(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double, k9 float ) engine=olap unique key (k1, k2, k3, k4, k5, k6, k10) distributed by hash(k1) buckets 5 properties('storage_type'='column')"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "create table ${FE_DB}.test(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double, k9 float) engine=olap unique key (k1, k2, k3, k4, k5, k6, k10) partition by range(k1) (partition p1 values less than ('-64'), partition p2 values less than ('0'), partition p3 values less than ('64'), partition p4 values less than maxvalue ) distributed by hash(k1) buckets 5 properties('storage_type'='column')"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "create table ${FE_DB}.test(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double, k9 float) engine=olap unique key (k1, k2, k3, k4, k5, k6, k10) partition by range(k1) (partition p1 values less than ('-64'), partition p2 values less than ('0'), partition p3 values less than ('64'), partition p4 values less than maxvalue ) distributed by hash(k1) buckets 5 properties('storage_type'='column')"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "create table ${FE_DB}.bigtable(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double, k9 float) engine=olap unique key (k1, k2, k3, k4, k5, k6, k10) distributed by hash(k1) buckets 5 properties('storage_type'='column')"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "create table ${FE_DB}.bigtable(k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 decimal(9,3), k6 char(5), k10 date, k11 datetime, k7 varchar(20), k8 double, k9 float) engine=olap unique key (k1, k2, k3, k4, k5, k6, k10) distributed by hash(k1) buckets 5 properties('storage_type'='column')"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "LOAD LABEL ${FE_DB}.label_1 (DATA INFILE('$hdfs_data_path/qe/baseall.txt') INTO TABLE baseall COLUMNS TERMINATED BY '$separator') $broker_property"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "LOAD LABEL ${FE_DB}.label_1 (DATA INFILE('${hdfs_data_path}/qe/baseall.txt') INTO TABLE baseall COLUMNS TERMINATED BY '${separator}') ${broker_property}"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "LOAD LABEL ${FE_DB}.label_2 (DATA INFILE('$hdfs_data_path/qe/baseall.txt') INTO TABLE test COLUMNS TERMINATED BY '$separator') $broker_property"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "LOAD LABEL ${FE_DB}.label_2 (DATA INFILE('${hdfs_data_path}/qe/baseall.txt') INTO TABLE test COLUMNS TERMINATED BY '${separator}') ${broker_property}"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "LOAD LABEL ${FE_DB}.label_3 (DATA INFILE('$hdfs_data_path/qe/xaaa') INTO TABLE test COLUMNS TERMINATED BY '$separator') $broker_property"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "LOAD LABEL ${FE_DB}.label_3 (DATA INFILE('${hdfs_data_path}/qe/xaaa') INTO TABLE test COLUMNS TERMINATED BY '${separator}') ${broker_property}"
 
-mysql -h ${FE_HOST} -P${FE_QUERY_PORT} -uroot -p${FE_PASSWORD} -e "LOAD LABEL ${FE_DB}.label_4 (DATA INFILE('$hdfs_data_path/qe/baseall.txt') INTO TABLE bigtable COLUMNS TERMINATED BY '$separator') $broker_property"
+mysql -h "${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${FE_USER}" -p"${FE_PASSWORD}" -e "LOAD LABEL ${FE_DB}.label_4 (DATA INFILE('${hdfs_data_path}/qe/baseall.txt') INTO TABLE bigtable COLUMNS TERMINATED BY '${separator}') ${broker_property}"
 
 sleep 20

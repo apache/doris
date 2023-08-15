@@ -119,5 +119,5 @@ drop_column_name_list = ["decimal_key", "bigint_value", "datetime_value_min"]
 #largeint
 largeint_column_list = [("k1", "int"), ("k2", "largeint"), ("v", "largeint", "sum")]
 largeint_distribution_info = palo_client.DistributionInfo("hash(k2)", 20)
-largeint_file_path = palo_config.gen_remote_file_path("/delete/largeint.txt")
+largeint_file_path = palo_config.gen_remote_file_path("sys/delete/largeint.txt")
 local_largeint_file_path = "./data/delete/largeint.txt"

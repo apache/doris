@@ -1,4 +1,4 @@
-#!/usr/bin
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,19 +16,19 @@
 # specific language governing permissions and limitations
 # under the License.
 
-export ROOT_PATH=`pwd`
-export SYS_PATH=$ROOT_PATH/sys
-export QE_PATH=$ROOT_PATH/qe/palo2/src
-export QE_BUG_PATH=$ROOT_PATH/qe/query_regression
-export REPORT_PATH=$ROOT_PATH/result
-export ENV_PATH=$ROOT_PATH/lib
-export PYTHONPATH=$PYTHONPATH:$ROOT_PATH:$ROOT_PATH/sys:$ROOT_PATH/qe/palo2/lib:$ROOT_PATH/deploy
-rm -f $ROOT_PATH/*.xml | tee
-rm -f $ROOT_PATH/*.html | tee
-rm -rf $REPORT_PATH
-mkdir -p $REPORT_PATH
+export ROOT_PATH=$(pwd)
+export SYS_PATH=${ROOT_PATH}/sys
+export QE_PATH=${ROOT_PATH}/qe/palo2/src
+export QE_BUG_PATH=${ROOT_PATH}/qe/query_regression
+export REPORT_PATH=${ROOT_PATH}/result
+export ENV_PATH=${ROOT_PATH}/lib
+export PYTHONPATH=${PYTHONPATH}:${ROOT_PATH}:${ROOT_PATH}/sys:${ROOT_PATH}/qe/palo2/lib:${ROOT_PATH}/deploy
+rm -f ${ROOT_PATH}/*.xml | tee
+rm -f ${ROOT_PATH}/*.html | tee
+rm -rf ${REPORT_PATH}
+mkdir -p ${REPORT_PATH}
 
-cd $SYS_PATH
+cd ${SYS_PATH}
 
 if [[ -z ${testsuite} ]]; then
     testsuite=normal
@@ -42,11 +42,11 @@ if [[ -z ${RESTART_BE_AUTO} ]]; then
     RESTART_BE_AUTO=false
 fi
 
-[ -e /tmp/fd1 ] || mkfifo /tmp/fd1
+[[ -e /tmp/fd1 ]] || mkfifo /tmp/fd1
 exec 3<>/tmp/fd1
 rm -rf /tmp/fd1
 
-for ((i=1;i<=${PROCESS_NUM};i++))
+for ((i=1;i<=PROCESS_NUM;i++))
 do
         echo >&3
 done
@@ -54,7 +54,7 @@ done
 function check_cluster ()
 {
     # check if fe or be dead and start it
-    cd $ENV_PATH
+    cd ${ENV_PATH}
     python node_op.py -c '''
     import Node
     Node.check_cluster(fe_check=False)
@@ -64,20 +64,20 @@ function check_cluster ()
 function pytest_execute ()
 {
     case_file=$1
-    ls $case_file
-    pytest -sv --junit-xml=$REPORT_PATH/${case_file%.py}.xml --html=$REPORT_PATH/${case_file%.py}.html  $case_file --tb=native 2>&1 > ${case_file%.py}.log
+    ls ${case_file}
+    pytest -sv --junit-xml="${REPORT_PATH}"/"${case_file%.py}".xml --html="${REPORT_PATH}"/"${case_file%.py}".html  "${case_file}" --tb=native 2>&1 > "${case_file%.py}".log
     sleep 1
 }
 
 function case_execute ()
 {
-    for case_file in $@
+    for case_file in "$@"
     do
-        read -u3
+        read -r -u3
         {
-            echo "run $case_file"
-            pytest_execute $case_file
-            if [ $RESTART_BE_AUTO == true ]; then
+            echo "run ${case_file}"
+            pytest_execute "${case_file}"
+            if [[ "${RESTART_BE_AUTO}" == true ]]; then
                 check_cluster
             fi     
             echo >&3
@@ -91,8 +91,8 @@ function long_time_case ()
 {
     case_files='test_sys_partition_complex_without_restart_be.py 
                 test_sys_storage_medium.py test_sys_delete_load.py'
-    cd $SYS_PATH
-    case_execute $case_files
+    cd ${SYS_PATH}
+    case_execute "${case_files}"
 }
 
 function query_case ()
@@ -128,13 +128,13 @@ function query_case ()
                 test_query_explain.py
                 test_query_lateral_view.py
                 test_query_bitmap_filter.py'
-    cd $QE_PATH
-    case_execute $case_files
+    cd "${QE_PATH}"
+    case_execute "${case_files}"
 
     # query bug case
     case_files='test_execute.py'
-    cd $QE_BUG_PATH
-    case_execute $case_files
+    cd "${QE_BUG_PATH}"
+    case_execute "${case_files}"
 }
 
 function sys_case ()
@@ -190,29 +190,29 @@ function sys_case ()
                 test_sys_dynamic_partition_parameter.py
                 test_sys_show_data_information.py
                 test_sys_binlog.py'
-    cd $SYS_PATH
-    case_execute $case_files
+    cd "${SYS_PATH}"
+    case_execute "${case_files}"
 
     # sys/test_sys_routine_load routine load case
     case_files='test_routine_load_job_control.py
                 test_routine_load_property.py
                 test_routine_load_with_alter.py'
-    cd $SYS_PATH/test_sys_routine_load/
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_routine_load/
+    case_execute "${case_files}"
 
     # sys/test_sys_broker_load broker load case
     case_files='test_broker_load_property.py
                 test_broker_load_where.py
                 test_broker_load_remote.py'
-    cd $SYS_PATH/test_sys_broker_load/
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_broker_load/
+    case_execute "${case_files}"
 
     # sys/test_sys_backup_restore back & restore case
     case_files='test_sys_snapshot_repo.py
                 test_sys_snapshot_backup.py
                 test_sys_snapshot_restore.py'
-    cd $SYS_PATH/test_sys_backup_restore
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_backup_restore
+    case_execute "${case_files}"
 
     # sys/test_sys_stream_load stream load case
     case_files='test_stream_insert.py
@@ -221,8 +221,8 @@ function sys_case ()
                 test_stream_simple1.py
                 test_stream_load_sc_job.py
                 test_stream_load_json.py'
-    cd $SYS_PATH/test_sys_stream_load/
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_stream_load/
+    case_execute "${case_files}"
 
     # sys/test_sys_alter_for_uniq uniq table alter case
     case_files='test_sys_partition_schema_change_add_a_uniq.py
@@ -238,8 +238,8 @@ function sys_case ()
                 test_sys_schema_change_complex_uniq.py
                 test_sys_schema_change_drop_uniq.py
                 test_sys_schema_change_order_uniq.py'
-    cd $SYS_PATH/test_sys_alter_for_uniq/
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_alter_for_uniq/
+    case_execute "${case_files}"
 
     # sys/test_sys_alter_for_duplicate duplicate table alter case
     case_files='test_sys_partition_schema_change_add_a_duplicate.py
@@ -255,8 +255,8 @@ function sys_case ()
                 test_sys_schema_change_complex_duplicate.py
                 test_sys_schema_change_drop_duplicate.py
                 test_sys_schema_change_order_duplicate.py'
-    cd $SYS_PATH/test_sys_alter_for_duplicate/
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_alter_for_duplicate/
+    case_execute "${case_files}"
 
     # sys/test_sys_alter_for_aggregate agg table alter case
     case_files='test_sys_partition_schema_change_add_a_aggregate.py
@@ -272,40 +272,40 @@ function sys_case ()
                 test_sys_schema_change_complex_aggregate.py
                 test_sys_schema_change_drop_aggregate.py
                 test_sys_schema_change_order_aggregate.py'
-    cd $SYS_PATH/test_sys_alter_for_aggregate/
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_alter_for_aggregate/
+    case_execute "${case_files}"
 
     # sys/test_sys_bitmap
     case_files='test_sys_bitmap_basic.py
                 test_sys_bitmap_function.py
                 test_sys_bitmap_load.py
                 test_sys_bitmap_sc.py'
-    cd $SYS_PATH/test_sys_bitmap/
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_bitmap/
+    case_execute "${case_files}"
 
     # sys/test_sys_export
     case_files='test_export.py
                 test_select_into_datatype.py
                 test_select_into_property.py
                 test_select_into_query.py'
-    cd $SYS_PATH/test_sys_export/
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_export/
+    case_execute "${case_files}"
    
     # sys/test_sys_string
     case_files='test_sys_string_basic.py'
-    cd $SYS_PATH/test_sys_string
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_string
+    case_execute "${case_files}"
 
     # sys/test_sys_array
     case_files='test_array_ddl.py 
                 test_array_alter.py
                 test_array_load.py
                 test_array_select.py'
-    cd $SYS_PATH/test_sys_array
-    case_execute $case_files
+    cd "${SYS_PATH}"/test_sys_array
+    case_execute "${case_files}"
 }
 
-if [ -z $QUERY_ONLY ]; then
+if [[ -z "${QUERY_ONLY}" ]]; then
     echo "default all case"
     long_time_case
     sys_case

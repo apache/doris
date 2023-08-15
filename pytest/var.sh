@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -31,9 +32,9 @@ export MYSQL_DB=test_query_qa
 export PALO_CLIENT_LOG_SQL=DEBUG
 export PALO_CLIENT_STDOUT=DEBUG
 
-root_path=`pwd`
-export PYTHONPATH=$root_path:$root_path/lib::$root_path/sys:$root_path/deploy:$root_path/qe/palo2/lib
+root_path=$(pwd)
+export PYTHONPATH=${root_path}:${root_path}/lib:${root_path}/sys:${root_path}/deploy:${root_path}/qe/palo2/lib
 
 # hdfs broker set
-hdfs_data_path='hdfs://xxxxx/user/test/data'
-broker_property="WITH BROKER 'hdfs' ('username'='root', 'password'='')"
+export hdfs_data_path='hdfs://xxxxx/user/test/data'
+export broker_property="WITH BROKER 'hdfs' ('username'='root', 'password'='')"
