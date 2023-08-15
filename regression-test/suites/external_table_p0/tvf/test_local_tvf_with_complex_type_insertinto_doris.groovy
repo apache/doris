@@ -56,7 +56,7 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
             "backend_id" = "${be_id}",
              "format" = "orc");"""
 
-    qt_sql """ select * from ${table_name}; """
+    qt_sql """ select * from ${table_name} order by id; """
 
     qt_sql """
         select * from local(
@@ -72,7 +72,7 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
 
     qt_sql_count """ select count(*) from ${table_name} """
 
-    qt_sql """ select * from ${table_name} """
+    qt_sql """ select * from ${table_name} order by id"""
 
     qt_sql """ drop table ${table_name} """
 
