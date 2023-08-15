@@ -134,6 +134,7 @@ DECLARE_Double(soft_mem_limit_frac);
 // memory greater than 16 GB.
 DECLARE_mInt64(mmap_threshold); // bytes
 
+// test
 // When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
 // Increase can reduce the number of hash table resize, but may waste more memory.
 DECLARE_mInt32(hash_table_double_grow_degree);
