@@ -527,10 +527,10 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers
             if (_delta_writer_for_tablet.use_count() == 1) {
-                std::for_each(std::execution::par_unseq, std::begin(*_delta_writer_for_tablet),
+                std::for_each(std::execution::seq, std::begin(*_delta_writer_for_tablet),
                               std::end(*_delta_writer_for_tablet),
                               [](auto&& entry) { entry.second->close(); });
-                std::for_each(std::execution::par_unseq, std::begin(*_delta_writer_for_tablet),
+                std::for_each(std::execution::seq, std::begin(*_delta_writer_for_tablet),
                               std::end(*_delta_writer_for_tablet),
                               [](auto&& entry) { entry.second->close_wait(); });
             }
@@ -540,7 +540,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         {
             // send CLOSE_LOAD to all streams, return ERROR if any
             RETURN_IF_ERROR(std::transform_reduce(
-                    std::execution::par_unseq, std::begin(*_node_id_for_stream),
+                    std::execution::seq, std::begin(*_node_id_for_stream),
                     std::end(*_node_id_for_stream), Status::OK(),
                     [](Status& left, Status&& right) { return left.ok() ? right : left; },
                     [this](auto&& entry) { return _close_load(entry.first); }));
@@ -559,7 +559,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             SCOPED_TIMER(_close_stream_timer);
             // close streams
             if (_stream_pool_for_node.use_count() == 1) {
-                std::for_each(std::execution::par_unseq, std::begin(*_node_id_for_stream),
+                std::for_each(std::execution::seq, std::begin(*_node_id_for_stream),
                               std::end(*_node_id_for_stream),
                               [](auto&& entry) { brpc::StreamClose(entry.first); });
             }
