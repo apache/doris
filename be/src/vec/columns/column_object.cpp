@@ -1252,7 +1252,6 @@ size_t ColumnObject::filter(const Filter& filter) {
 }
 
 void ColumnObject::clear() {
-    DCHECK(is_finalized());
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
             part->clear();
