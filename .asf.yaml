@@ -94,7 +94,6 @@ github:
           - P0 Regression (Doris Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
-          - BE UT (Clang)
           - clickbench-new (clickbench)
         required_pull_request_reviews:
         dismiss_stale_reviews: true
