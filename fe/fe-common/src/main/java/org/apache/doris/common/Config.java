@@ -615,6 +615,20 @@ public class Config extends ConfigBase {
     public static double capacity_used_percent_high_water = 0.75;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "负载均衡时，磁盘使用率最大差值。",
+            "The max diff of disk capacity used percent between BE. "
+                    + "It is used for calculating load score of a backend."})
+    public static double used_capacity_percent_max_diff = 0.30;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "设置固定的 BE 负载分数中磁盘使用率系数。BE 负载分数会综合磁盘使用率和副本数而得。有效值范围为[0, 1]，"
+                    + "当超出此范围时，则使用其他方法自动计算此系数。",
+            "Sets a fixed disk usage factor in the BE load fraction. The BE load score is a combination of disk usage "
+                    + "and replica count. The valid value range is [0, 1]. When it is out of this range, other "
+                    + "methods are used to automatically calculate this coefficient."})
+    public static double backend_load_capacity_coeficient = -1.0;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "ALTER TABLE 请求的最大超时时间。设置的足够长以适应表的数据量。",
             "Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size."})
     public static int alter_table_timeout_second = 86400 * 30; // 1month
