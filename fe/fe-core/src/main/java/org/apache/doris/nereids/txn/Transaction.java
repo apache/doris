@@ -198,7 +198,8 @@ public class Transaction {
         // 2. transaction failed but Config.using_old_load_usage_pattern is true.
         // we will record the load job info for these 2 cases
         try {
-            StatementBase statement = planner.getCascadesContext().getStatementContext().getParsedStatement();
+            // the statement parsed by Nereids is saved at executor::parsedStmt.
+            StatementBase statement = executor.getParsedStmt();
             ctx.getEnv().getLoadManager()
                     .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
                             table.getId(),
@@ -207,14 +208,6 @@ public class Transaction {
         } catch (MetaNotFoundException e) {
             LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
             errMsg = "Record info of insert load with error " + e.getMessage();
-        } catch (Exception e) {
-            if (coordinator == null) {
-                LOG.warn("coordinator is null, maybe the query is forwarded to master node and this node is follower");
-            }
-            StatementBase statement = planner.getCascadesContext().getStatementContext().getParsedStatement();
-            if (statement == null) {
-                LOG.warn("statement is null, maybe the query is parsed at follower node");
-            }
         }
 
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
