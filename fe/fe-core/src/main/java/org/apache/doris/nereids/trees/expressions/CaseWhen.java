@@ -51,9 +51,7 @@ public class CaseWhen extends Expression {
     }
 
     public CaseWhen(List<WhenClause> whenClauses, Expression defaultValue) {
-        super(ImmutableList.<Expression>builder()
-                .addAll(whenClauses).add(defaultValue).build()
-                .toArray(new Expression[0]));
+        super(ImmutableList.<Expression>builder().addAll(whenClauses).add(defaultValue).build());
         this.whenClauses = ImmutableList.copyOf(Objects.requireNonNull(whenClauses));
         this.defaultValue = Optional.of(Objects.requireNonNull(defaultValue));
     }

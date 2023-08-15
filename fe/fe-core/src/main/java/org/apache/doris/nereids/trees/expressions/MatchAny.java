@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -28,13 +29,17 @@ import java.util.List;
  */
 public class MatchAny extends Match {
     public MatchAny(Expression left, Expression right) {
-        super(left, right, "MATCH_ANY");
+        super(ImmutableList.of(left, right), "MATCH_ANY");
+    }
+
+    private MatchAny(List<Expression> children) {
+        super(children, "MATCH_ANY");
     }
 
     @Override
     public MatchAny withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MatchAny(children.get(0), children.get(1));
+        return new MatchAny(children);
     }
 
     @Override
