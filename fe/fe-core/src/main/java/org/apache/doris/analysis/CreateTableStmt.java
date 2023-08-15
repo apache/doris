@@ -605,7 +605,7 @@ public class CreateTableStmt extends DdlStmt {
                         }
                     }
                     if (!found) {
-                        throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
+                        throw new AnalysisException("Column does not exist in table. invalid column: "
                                 + indexColName);
                     }
                 }
