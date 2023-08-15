@@ -61,14 +61,14 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
-void MemTableMemoryLimiter::register_writer(MemTableWriter* writer) {
+void MemTableMemoryLimiter::register_writer(std::shared_ptr<MemTableWriter> writer) {
     std::lock_guard<std::mutex> l(_lock);
-    _writers.insert(writer);
+    _writers.insert(writer.get());
 }
 
-void MemTableMemoryLimiter::deregister_writer(MemTableWriter* writer) {
+void MemTableMemoryLimiter::deregister_writer(std::shared_ptr<MemTableWriter> writer) {
     std::lock_guard<std::mutex> l(_lock);
-    _writers.erase(writer);
+    _writers.erase(writer.get());
 }
 
 void MemTableMemoryLimiter::handle_memtable_flush() {

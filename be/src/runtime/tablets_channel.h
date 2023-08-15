@@ -135,7 +135,7 @@ private:
                            int64_t tablet_id, Status error);
     bool _is_broken_tablet(int64_t tablet_id);
     void _init_profile(RuntimeProfile* profile);
-    void _memtable_writers_foreach(std::function<void(MemTableWriter*)> fn);
+    void _memtable_writers_foreach(std::function<void(std::shared_ptr<MemTableWriter>)> fn);
 
     // id of this load channel
     TabletsChannelKey _key;

@@ -40,9 +40,9 @@ public:
     // If yes, it will flush memtable to try to reduce memory consumption.
     void handle_memtable_flush();
 
-    void register_writer(MemTableWriter* writer);
+    void register_writer(std::shared_ptr<MemTableWriter> writer);
 
-    void deregister_writer(MemTableWriter* writer);
+    void deregister_writer(std::shared_ptr<MemTableWriter> writer);
 
     void refresh_mem_tracker() {
         std::lock_guard<std::mutex> l(_lock);
