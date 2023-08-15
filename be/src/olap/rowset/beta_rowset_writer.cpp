@@ -446,8 +446,6 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
         RETURN_IF_ERROR(
                 _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
     }
-    RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
-    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
@@ -714,18 +712,18 @@ Status BetaRowsetWriter::_check_segment_number_limit() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat) {
-    uint32_t segid_offset = segid - _segment_start_id;
+Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+    uint32_t segid_offset = segment_id - _segment_start_id;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
-        CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
-        _segid_statistics_map.emplace(segid, segstat);
-        if (segid >= _segment_num_rows.size()) {
-            _segment_num_rows.resize(segid + 1);
+        CHECK_EQ(_segid_statistics_map.find(segment_id) == _segid_statistics_map.end(), true);
+        _segid_statistics_map.emplace(segment_id, segstat);
+        if (segment_id >= _segment_num_rows.size()) {
+            _segment_num_rows.resize(segment_id + 1);
         }
         _segment_num_rows[segid_offset] = segstat.row_num;
     }
-    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid
+    VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size
                << " index_size:" << segstat.index_size;
 
@@ -736,6 +734,10 @@ Status BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat)
             _num_segment++;
         }
     }
+    if (_context.mow_context != nullptr) {
+        RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
+    }
+    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
