@@ -122,7 +122,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                     userIdent.analyze(ConnectContext.get().getClusterName());
                 }
                 TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent,
+                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent, stmt.getRoleName(),
                         stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(), stmt.getWherePredicate());
             default:
                 throw new AnalysisException("Unknown policy type: " + stmt.getType());
