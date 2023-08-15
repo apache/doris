@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <stdio.h>
 
 #include <atomic>
@@ -43,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
+#include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
@@ -373,6 +375,14 @@ Status DataDir::load() {
                                     const std::string& meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
+        // convert delete predicate to v2 (#22442)
+        if (rowset_meta->has_delete_predicate()) {
+            auto* delete_pred = rowset_meta->mutable_delete_pred_pb();
+            if (!delete_pred->sub_predicates().empty() &&
+                delete_pred->sub_predicates_v2().empty()) {
+                DeleteHandler::convert_to_sub_pred_v2(delete_pred);
+            }
+        }
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
             // return false will break meta iterator, return true to skip this error

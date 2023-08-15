@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
@@ -83,9 +84,15 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
                       << "condition size=" << in_pred->values().size();
         } else {
             DeleteSubPredicatePB* sub_predicate = del_pred->add_sub_predicates_v2();
+            if (condition.__isset.column_unique_id) {
+                sub_predicate->set_column_unique_id(condition.column_unique_id);
+            }
             sub_predicate->set_column_name(condition.column_name);
-            sub_predicate->set_op(_trans_op(condition.condition_op));
+            sub_predicate->set_op(trans_op(condition.condition_op));
             sub_predicate->set_cond_value(condition.condition_values[0]);
+
+            // write sub predicate v1 for compactbility
+            del_pred->add_sub_predicates(construct_sub_predicate(condition));
             LOG(INFO) << "store one sub-delete condition. condition="
                       << fmt::format(" {} {} {}", condition.column_name, condition.condition_op,
                                      condition.condition_values[0]);
@@ -96,7 +103,28 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     return Status::OK();
 }
 
-std::string DeleteHandler::_trans_op(const std::string& opt) {
+void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred) {
+    DCHECK(delete_pred->sub_predicates_v2().empty())
+            << "dest_sub_pred_list should be empty, only convert to v2 once.";
+    for (const auto& condition_str : delete_pred->sub_predicates()) {
+        auto* sub_pred = delete_pred->add_sub_predicates_v2();
+        TCondition condition;
+        parse_condition(condition_str, &condition);
+        sub_pred->set_column_name(condition.column_name);
+        sub_pred->set_op(condition.condition_op);
+        sub_pred->set_cond_value(condition.condition_values[0]);
+    }
+}
+
+std::string DeleteHandler::construct_sub_predicate(const TCondition& condition) {
+    const auto& op = trans_op(condition.condition_op);
+    if ("IS" == op) {
+        return condition.column_name + " " + op + " " + condition.condition_values[0];
+    }
+    return condition.column_name + op + "'" + condition.condition_values[0] + "'";
+}
+
+std::string DeleteHandler::trans_op(const std::string& opt) {
     std::string op = string(opt);
     if (op == "<") {
         op += "<";
@@ -204,12 +232,14 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     return Status::OK();
 }
 
-Status DeleteHandler::_parse_condition(const DeleteSubPredicatePB& sub_cond,
-                                       TCondition* condition) {
+Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCondition* condition) {
     if (!sub_cond.has_column_name() || !sub_cond.has_op() || !sub_cond.has_cond_value()) {
         return Status::Error<DELETE_INVALID_PARAMETERS>(
                 "fail to parse condition. condition={} {} {}", sub_cond.column_name(),
                 sub_cond.op(), sub_cond.cond_value());
+    }
+    if (sub_cond.has_column_unique_id()) {
+        condition->column_unique_id = sub_cond.column_unique_id();
     }
     condition->column_name = sub_cond.column_name();
     condition->condition_op = sub_cond.op();
@@ -217,7 +247,7 @@ Status DeleteHandler::_parse_condition(const DeleteSubPredicatePB& sub_cond,
     return Status::OK();
 }
 
-Status DeleteHandler::_parse_condition(const std::string& condition_str, TCondition* condition) {
+Status DeleteHandler::parse_condition(const std::string& condition_str, TCondition* condition) {
     bool matched = true;
     smatch what;
 
@@ -264,7 +294,7 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr delete_pred_related_sc
                                          DeleteConditions* delete_conditions) {
     for (const auto& sub_predicate : sub_pred_list) {
         TCondition condition;
-        RETURN_IF_ERROR(_parse_condition(sub_predicate, &condition));
+        RETURN_IF_ERROR(parse_condition(sub_predicate, &condition));
         condition.__set_column_unique_id(
                 delete_pred_related_schema->column(condition.column_name).unique_id());
         auto predicate = parse_to_predicate(delete_pred_related_schema, condition,
@@ -286,6 +316,7 @@ template Status DeleteHandler::_parse_column_pred(
         const ::google::protobuf::RepeatedPtrField<std::string>& sub_pred_list,
         DeleteConditions* delete_conditions);
 
+template <bool with_sub_pred_v2>
 Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                            const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
@@ -302,7 +333,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
-        if (delete_condition.sub_predicates_size() == 0) {
+        if constexpr (with_sub_pred_v2) {
             RETURN_IF_ERROR(_parse_column_pred(delete_pred_related_schema,
                                                delete_condition.sub_predicates_v2(), &temp));
         } else {
@@ -334,6 +365,14 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
 
     return Status::OK();
 }
+
+template Status DeleteHandler::init<true>(TabletSchemaSPtr tablet_schema,
+                                          const std::vector<RowsetMetaSharedPtr>& delete_preds,
+                                          int64_t version);
+
+template Status DeleteHandler::init<false>(TabletSchemaSPtr tablet_schema,
+                                           const std::vector<RowsetMetaSharedPtr>& delete_preds,
+                                           int64_t version);
 
 void DeleteHandler::finalize() {
     if (!_is_inited) {

@@ -616,9 +616,13 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                       ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
                         config::enable_delete_when_cumu_compaction)) ||
                       read_params.reader_type == ReaderType::READER_CHECKSUM);
-
-    return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
-                                read_params.version.second);
+    if (_filter_delete) {
+        return _delete_handler.init<false>(_tablet_schema, read_params.delete_predicates,
+                             read_params.version.second);
+    }
+    // for query, use delete sub pred v2
+    return _delete_handler.init<true>(_tablet_schema, read_params.delete_predicates,
+                                      read_params.version.second);
 }
 
 Status TabletReader::init_reader_params_and_create_block(
