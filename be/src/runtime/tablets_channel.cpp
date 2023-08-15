@@ -68,9 +68,7 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& loa
 
 TabletsChannel::~TabletsChannel() {
     _s_tablet_writer_count -= _tablet_writers.size();
-    auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
     for (auto& it : _tablet_writers) {
-        memtable_memory_limiter->deregister_writer(it.second->memtable_writer());
         delete it.second;
     }
     delete _schema;
@@ -502,13 +500,6 @@ void TabletsChannel::register_memtable_memory_limiter() {
     auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
     _memtable_writers_foreach([memtable_memory_limiter](std::shared_ptr<MemTableWriter> writer) {
         memtable_memory_limiter->register_writer(writer);
-    });
-}
-
-void TabletsChannel::deregister_memtable_memory_limiter() {
-    auto memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
-    _memtable_writers_foreach([memtable_memory_limiter](std::shared_ptr<MemTableWriter> writer) {
-        memtable_memory_limiter->deregister_writer(writer);
     });
 }
 

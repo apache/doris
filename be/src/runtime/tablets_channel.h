@@ -115,8 +115,6 @@ public:
 
     void register_memtable_memory_limiter();
 
-    void deregister_memtable_memory_limiter();
-
 private:
     template <typename Request>
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
@@ -170,7 +168,6 @@ private:
     Status _close_status;
 
     // tablet_id -> TabletChannel
-    // when you erase, you should call deregister_writer method in MemTableMemoryLimiter;
     std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.
