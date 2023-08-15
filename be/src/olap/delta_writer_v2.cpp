@@ -79,6 +79,8 @@ DeltaWriterV2::DeltaWriterV2(WriteRequest* req, StorageEngine* storage_engine,
 
 void DeltaWriterV2::_init_profile(RuntimeProfile* profile) {
     _profile = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
+    _init_timer = ADD_TIMER(_profile, "InitTime");
+    _write_data_timer = ADD_TIMER(_profile, "WriteDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
 }
 
@@ -92,6 +94,7 @@ DeltaWriterV2::~DeltaWriterV2() {
 }
 
 Status DeltaWriterV2::init() {
+    SCOPED_TIMER(_init_timer);
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param, *_req.tablet_schema.get());
     RowsetWriterContext context;
@@ -136,6 +139,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
+    SCOPED_TIMER(_write_data_timer);
     return _memtable_writer.write(block, row_idxs, is_append);
 }
 
