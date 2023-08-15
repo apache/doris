@@ -18,6 +18,10 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.catalog.PartitionInfo;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class ColumnStatisticBuilder {
     private double count;
@@ -37,9 +41,22 @@ public class ColumnStatisticBuilder {
 
     private ColumnStatistic original;
 
+    private Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
+
     private String updatedTime;
 
+    private PartitionInfo partitionInfo;
+
     public ColumnStatisticBuilder() {
+    }
+
+    public PartitionInfo getPartitionInfo() {
+        return partitionInfo;
+    }
+
+    public ColumnStatisticBuilder setPartitionInfo(PartitionInfo partitionInfo) {
+        this.partitionInfo = partitionInfo;
+        return this;
     }
 
     public ColumnStatisticBuilder(ColumnStatistic columnStatistic) {
@@ -56,7 +73,9 @@ public class ColumnStatisticBuilder {
         this.isUnknown = columnStatistic.isUnKnown;
         this.histogram = columnStatistic.histogram;
         this.original = columnStatistic.original;
+        this.partitionIdToColStats.putAll(columnStatistic.partitionIdToColStats);
         this.updatedTime = columnStatistic.updatedTime;
+        this.partitionInfo = columnStatistic.partitionInfo;
     }
 
     public ColumnStatisticBuilder setCount(double count) {
@@ -183,12 +202,16 @@ public class ColumnStatisticBuilder {
 
     public ColumnStatistic build() {
         dataSize = Math.max((count - numNulls + 1) * avgSizeByte, 0);
-        if (original == null && !isUnknown) {
+        if (original == null) {
             original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
-                    dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, false,
-                    histogram, updatedTime);
+                    dataSize, minValue, maxValue, selectivity, minExpr, maxExpr,
+                    isUnknown, histogram, updatedTime, partitionInfo);
+            original.partitionIdToColStats.putAll(partitionIdToColStats);
         }
-        return new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
-            dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown, histogram, updatedTime);
+        ColumnStatistic colStats = new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
+                dataSize, minValue, maxValue, selectivity, minExpr, maxExpr,
+                isUnknown, histogram, updatedTime, partitionInfo);
+        colStats.partitionIdToColStats.putAll(partitionIdToColStats);
+        return colStats;
     }
 }
