@@ -223,7 +223,7 @@ void MemTableMemoryLimiter::_refresh_mem_tracker_without_lock() {
             _writers.pop_back();
         }
     }
-    LOG(INFO) << "refreshed mem_tracker, num writers: " << _writers.size();
+    VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
     THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
 }
 
