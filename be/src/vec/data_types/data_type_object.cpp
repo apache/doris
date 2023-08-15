@@ -56,7 +56,9 @@ bool DataTypeObject::equals(const IDataType& rhs) const {
 int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
     const auto& column_object = assert_cast<const ColumnObject&>(column);
-    assert(column_object.is_finalized());
+    if (!column_object.is_finalized()) {
+        const_cast<ColumnObject&>(column_object).finalize();
+    }
 
     const auto& subcolumns = column_object.get_subcolumns();
     size_t size = 0;
@@ -82,7 +84,9 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
 
 char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     const auto& column_object = assert_cast<const ColumnObject&>(column);
-    assert(column_object.is_finalized());
+    if (!column_object.is_finalized()) {
+        const_cast<ColumnObject&>(column_object).finalize();
+    }
 #ifndef NDEBUG
     // DCHECK size
     column_object.check_consistency();

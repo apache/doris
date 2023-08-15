@@ -161,9 +161,9 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
                 *type = std::make_shared<DataTypeFloat64>();
                 return;
             } else {
-                LOG(INFO) << " because some of them are integers and some are floating point "
-                             "but there is no floating point type, that can exactly represent "
-                             "all required integers";
+                VLOG_DEBUG << " because some of them are integers and some are floating point "
+                              "but there is no floating point type, that can exactly represent "
+                              "all required integers";
                 *type = nullptr;
                 return throw_or_return<on_error>(
                         types, doris::ErrorCode::INVALID_ARGUMENT,
@@ -189,9 +189,9 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
                 *type = std::make_shared<DataTypeInt64>();
                 return;
             } else {
-                LOG(INFO) << " because some of them are signed integers and some are unsigned "
-                             "integers, but there is no signed integer type, that can exactly "
-                             "represent all required unsigned integer values";
+                VLOG_DEBUG << " because some of them are signed integers and some are unsigned "
+                              "integers, but there is no signed integer type, that can exactly "
+                              "represent all required unsigned integer values";
                 return throw_or_return<on_error>(
                         types, doris::ErrorCode::INVALID_ARGUMENT,
                         " because some of them are signed integers and some are unsigned "
@@ -345,8 +345,8 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
         if (have_date || have_datetime) {
             bool all_date_or_datetime = type_ids.size() == (have_date + have_datetime);
             if (!all_date_or_datetime) {
-                LOG(INFO) << get_exception_message_prefix(types)
-                          << " because some of them are Date/DateTime and some of them are not";
+                VLOG_DEBUG << get_exception_message_prefix(types)
+                           << " because some of them are Date/DateTime and some of them are not";
                 return throw_or_return<on_error>(
                         types, doris::ErrorCode::INVALID_ARGUMENT,
                         " because some of them are Date/DateTime and some of them are not", type);
@@ -415,8 +415,8 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
             }
 
             if (num_supported != type_ids.size()) {
-                LOG(INFO) << get_exception_message_prefix(types)
-                          << " because some of them have no lossless convertion to Decimal";
+                VLOG_DEBUG << get_exception_message_prefix(types)
+                           << " because some of them have no lossless convertion to Decimal";
                 return throw_or_return<on_error>(
                         types, doris::ErrorCode::INVALID_ARGUMENT,
                         " because some of them have no lossless convertion to Decimal", type);
@@ -439,9 +439,9 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
             }
 
             if (min_precision > DataTypeDecimal<Decimal128>::max_precision()) {
-                LOG(INFO) << fmt::format("{} because the least supertype is Decimal({},{})",
-                                         get_exception_message_prefix(types), min_precision,
-                                         max_scale);
+                VLOG_DEBUG << fmt::format("{} because the least supertype is Decimal({},{})",
+                                          get_exception_message_prefix(types), min_precision,
+                                          max_scale);
                 return throw_or_return<on_error>(
                         types, doris::ErrorCode::INVALID_ARGUMENT,
                         fmt::format(" because some of them have no lossless "
