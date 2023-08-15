@@ -127,7 +127,7 @@ void PipelineTask::_init_profile() {
     static const char* dst_pending_finish_over_time = "Task5DstPendingFinishOverTime";
     _dst_pending_finish_over_timer = ADD_TIMER(_task_profile, dst_pending_finish_over_time);
     _dst_pending_finish_check_timer = ADD_CHILD_TIMER(
-            _task_profile, "Task4DstPendingFinishCheckTime", dst_pending_finish_over_time);
+            _task_profile, "Task5DstPendingFinishCheckTime", dst_pending_finish_over_time);
     _dst_pending_finish_over_timer1 = ADD_CHILD_TIMER(
             _task_profile, "Task5DstPendingFinishFirstOverTime", dst_pending_finish_over_time);
     _pip_task_total_timer = ADD_TIMER(_task_profile, "Task6TotalTime");

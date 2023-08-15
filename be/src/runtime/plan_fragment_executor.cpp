@@ -45,7 +45,6 @@
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
