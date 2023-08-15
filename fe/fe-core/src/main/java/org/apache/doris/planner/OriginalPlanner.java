@@ -264,24 +264,6 @@ public class OriginalPlanner extends Planner {
 
         Collections.reverse(fragments);
 
-        // the nullable mode will be changed in create plan fragment, we should adjust the ones in querystmt's result
-        // exprs.
-        if (queryStmt instanceof SelectStmt) {
-            PlanFragment root = fragments.get(0);
-            List<SlotDescriptor> slots = analyzer.getDescTbl()
-                    .getTupleDesc(root.getPlanRoot().getOutputTupleIds().get(0))
-                    .getSlots();
-            // to exclude the cases that outputs contain an expression.
-            if (queryStmt.getResultExprs().size() == slots.size()) {
-                for (int i = 0; i < slots.size(); ++i) {
-                    if (queryStmt.getResultExprs().get(i).getSrcSlotRef() != null) {
-                        queryStmt.getResultExprs().get(i).getSrcSlotRef().getColumn()
-                                .setIsAllowNull(slots.get(i).getIsNullable());
-                    }
-                }
-            }
-        }
-
         pushDownResultFileSink(analyzer);
 
         pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
