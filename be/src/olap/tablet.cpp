@@ -1355,22 +1355,6 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
     return candidate_rowsets;
 }
 
-void Tablet::extract_rowsets_unlocked(std::vector<RowsetSharedPtr>& rowsets) {
-    rowsets.reserve(_rs_version_map.size());
-    for (auto& it : _rs_version_map) {
-        rowsets.push_back(it.second);
-    }
-    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
-}
-
-void Tablet::extract_stale_rowsets_unlocked(std::vector<RowsetSharedPtr>& stale_rowsets) {
-    stale_rowsets.reserve(_stale_rs_version_map.size());
-    for (auto& it : _stale_rs_version_map) {
-        stale_rowsets.push_back(it.second);
-    }
-    std::sort(stale_rowsets.begin(), stale_rowsets.end(), Rowset::comparator);
-}
-
 std::string Tablet::get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) {
     const Version& ver = rowset->version();
     std::string disk_size = PrettyPrinter::print(
@@ -1381,11 +1365,38 @@ std::string Tablet::get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag
                                rowset->rowset_id().to_string(), disk_size);
 }
 
-void Tablet::get_rowsets_info_pretty_json(rapidjson::Document& root, rapidjson::Document& path_arr,
-                                          const std::vector<RowsetSharedPtr>& rowsets,
-                                          const std::vector<RowsetSharedPtr>& stale_rowsets,
-                                          const std::vector<bool>& delete_flags,
-                                          std::string* json_result) {
+// For http compaction action
+void Tablet::get_compaction_status(std::string* json_result) {
+    rapidjson::Document root;
+    root.SetObject();
+
+    rapidjson::Document path_arr;
+    path_arr.SetArray();
+
+    std::vector<RowsetSharedPtr> rowsets;
+    std::vector<RowsetSharedPtr> stale_rowsets;
+    std::vector<bool> delete_flags;
+    {
+        std::shared_lock rdlock(_meta_lock);
+        rowsets.reserve(_rs_version_map.size());
+        for (auto& it : _rs_version_map) {
+            rowsets.push_back(it.second);
+        }
+        std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+
+        stale_rowsets.reserve(_stale_rs_version_map.size());
+        for (auto& it : _stale_rs_version_map) {
+            stale_rowsets.push_back(it.second);
+        }
+        std::sort(stale_rowsets.begin(), stale_rowsets.end(), Rowset::comparator);
+
+        delete_flags.reserve(rowsets.size());
+        for (auto& rs : rowsets) {
+            delete_flags.push_back(rs->rowset_meta()->has_delete_predicate());
+        }
+        // get snapshot version path json_doc
+        _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
+    }
     rapidjson::Value cumulative_policy_type;
     std::string policy_type_str = "cumulative compaction policy not initializied";
     if (_cumulative_compaction_policy != nullptr) {
@@ -1470,32 +1481,6 @@ void Tablet::get_rowsets_info_pretty_json(rapidjson::Document& root, rapidjson::
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
     root.Accept(writer);
     *json_result = std::string(strbuf.GetString());
-}
-
-// For http compaction action
-void Tablet::get_compaction_status(std::string* json_result) {
-    rapidjson::Document root;
-    root.SetObject();
-
-    rapidjson::Document path_arr;
-    path_arr.SetArray();
-
-    std::vector<RowsetSharedPtr> rowsets;
-    std::vector<RowsetSharedPtr> stale_rowsets;
-    std::vector<bool> delete_flags;
-    {
-        std::shared_lock rdlock(_meta_lock);
-        extract_rowsets_unlocked(rowsets);
-        extract_stale_rowsets_unlocked(stale_rowsets);
-
-        delete_flags.reserve(rowsets.size());
-        for (auto& rs : rowsets) {
-            delete_flags.push_back(rs->rowset_meta()->has_delete_predicate());
-        }
-        // get snapshot version path json_doc
-        _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
-    }
-    get_rowsets_info_pretty_json(root, path_arr, rowsets, stale_rowsets, delete_flags, json_result);
 }
 
 bool Tablet::do_tablet_meta_checkpoint() {
