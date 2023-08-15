@@ -146,16 +146,15 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         index->index_id = p_index.id();
         index->schema_hash = p_index.schema_hash();
         for (auto& pcolumn_desc : p_index.columns_desc()) {
-            if (_is_partial_update &&
-                _partial_update_input_columns.count(pcolumn_desc.name()) == 0) {
-                continue;
+            if (!_is_partial_update ||
+                _partial_update_input_columns.count(pcolumn_desc.name()) > 0) {
+                auto it = slots_map.find(std::make_pair(pcolumn_desc.name(), pcolumn_desc.type()));
+                if (it == std::end(slots_map)) {
+                    return Status::InternalError("unknown index column, column={}, type={}",
+                                                 pcolumn_desc.name(), pcolumn_desc.type());
+                }
+                index->slots.emplace_back(it->second);
             }
-            auto it = slots_map.find(std::make_pair(pcolumn_desc.name(), pcolumn_desc.type()));
-            if (it == std::end(slots_map)) {
-                return Status::InternalError("unknown index column, column={}, type={}",
-                                             pcolumn_desc.name(), pcolumn_desc.type());
-            }
-            index->slots.emplace_back(it->second);
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
             tc->init_from_pb(pcolumn_desc);
             index->columns.emplace_back(tc);
@@ -202,19 +201,18 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->index_id = t_index.id;
         index->schema_hash = t_index.schema_hash;
         for (auto& tcolumn_desc : t_index.columns_desc) {
-            if (_is_partial_update &&
-                _partial_update_input_columns.count(tcolumn_desc.column_name) == 0) {
-                continue;
-            }
             auto it = slots_map.find(std::make_pair(to_lower(tcolumn_desc.column_name),
                                                     thrift_to_type(tcolumn_desc.column_type.type)));
-            if (it == std::end(slots_map)) {
-                return Status::InternalError("unknown index column, column={}, type={}",
-                                             tcolumn_desc.column_name,
-                                             tcolumn_desc.column_type.type);
+            if (!_is_partial_update ||
+                _partial_update_input_columns.count(tcolumn_desc.column_name) > 0) {
+                if (it == slots_map.end()) {
+                    return Status::InternalError("unknown index column, column={}, type={}",
+                                                 tcolumn_desc.column_name,
+                                                 tcolumn_desc.column_type.type);
+                }
+                index_slots_map.emplace(tcolumn_desc.column_name, it->second);
+                index->slots.emplace_back(it->second);
             }
-            index_slots_map.emplace(tcolumn_desc.column_name, it->second);
-            index->slots.emplace_back(it->second);
             TabletColumn* tc = _obj_pool.add(new TabletColumn());
             tc->init_from_thrift(tcolumn_desc);
             index->columns.emplace_back(tc);
