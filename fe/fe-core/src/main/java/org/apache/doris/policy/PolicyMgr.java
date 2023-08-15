@@ -290,7 +290,7 @@ public class PolicyMgr implements Writable {
     /**
      * Match row policy and return it.
      **/
-    public RowPolicy getMatchTablePolicy(long dbId, long tableId, String user) {
+    public RowPolicy getMatchTablePolicy(long dbId, long tableId, UserIdentity user) {
         List<RowPolicy> res = getUserPolicys(dbId, tableId, user);
         if (CollectionUtils.isEmpty(res)) {
             return null;
@@ -298,9 +298,9 @@ public class PolicyMgr implements Writable {
         return mergeRowPolicys(res);
     }
 
-    public List<RowPolicy> getUserPolicys(long dbId, long tableId, String user) {
+    public List<RowPolicy> getUserPolicys(long dbId, long tableId, UserIdentity user) {
         Set<String> roles = Env.getCurrentEnv().getAccessManager().getAuth()
-                .getRolesByUserWithLdap(UserIdentity.fromString(user)).stream().map(Role::getRoleName)
+                .getRolesByUserWithLdap(user).stream().map(Role::getRoleName)
                 .collect(Collectors.toSet());
         List<RowPolicy> res = Lists.newArrayList();
         readLock();
@@ -314,7 +314,8 @@ public class PolicyMgr implements Writable {
             }
             for (RowPolicy rowPolicy : policys) {
                 // on rowPolicy to user
-                if ((rowPolicy.getUser() != null && rowPolicy.getUser().getQualifiedUser().equals(user))
+                if ((rowPolicy.getUser() != null && rowPolicy.getUser().getQualifiedUser()
+                        .equals(user.getQualifiedUser()))
                         || !StringUtils.isEmpty(rowPolicy.getRoleName()) && roles.contains(rowPolicy.getRoleName())) {
                     res.add(rowPolicy);
                 }

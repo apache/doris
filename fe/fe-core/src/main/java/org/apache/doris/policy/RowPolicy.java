@@ -130,7 +130,8 @@ public class RowPolicy extends Policy {
         Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
         return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
-                this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
+                this.filterType.name(), this.wherePredicate.toSql(),
+                this.user == null ? null : this.user.getQualifiedUser(), this.roleName, this.originStmt);
     }
 
     @Override
