@@ -134,7 +134,8 @@ public class PolicyTest extends TestWithFeService {
     @Test
     public void testUnionSql() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
-        String queryStr = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1 union all select * from test.table1";
+        String queryStr
+                = "EXPLAIN select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1 union all select * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`k1` = 1"));
         dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 FOR test_policy");
@@ -143,7 +144,8 @@ public class PolicyTest extends TestWithFeService {
     @Test
     public void testInsertSelectSql() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
-        String queryStr = "EXPLAIN insert into test.table1 select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1";
+        String queryStr
+                = "EXPLAIN insert into test.table1 select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.table1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assertions.assertTrue(explainString.contains("`k1` = 1"));
         dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 FOR test_policy");
@@ -210,13 +212,17 @@ public class PolicyTest extends TestWithFeService {
     public void testComplexSql() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS RESTRICTIVE TO test_policy USING (k1 = 1)");
         createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS RESTRICTIVE TO test_policy USING (k2 = 1)");
-        String joinSql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 join table2 on table1.k1=table2.k1";
+        String joinSql
+                = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 join table2 on table1.k1=table2.k1";
         Assertions.assertTrue(getSQLPlanOrErrorMsg(joinSql).contains("PREDICATES: `k1` = 1 AND `k2` = 1"));
-        String unionSql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 union select * from table2";
+        String unionSql
+                = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 union select * from table2";
         Assertions.assertTrue(getSQLPlanOrErrorMsg(unionSql).contains("PREDICATES: `k1` = 1 AND `k2` = 1"));
-        String subQuerySql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table2 where k1 in (select k1 from table1)";
+        String subQuerySql
+                = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table2 where k1 in (select k1 from table1)";
         Assertions.assertTrue(getSQLPlanOrErrorMsg(subQuerySql).contains("PREDICATES: `k1` = 1 AND `k2` = 1"));
-        String aliasSql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 t1 join table2 t2 on t1.k1=t2.k1";
+        String aliasSql
+                = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from table1 t1 join table2 t2 on t1.k1=t2.k1";
         Assertions.assertTrue(getSQLPlanOrErrorMsg(aliasSql).contains("PREDICATES: `t1`.`k1` = 1 AND `t1`.`k2` = 1"));
         dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
         dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
@@ -235,7 +241,7 @@ public class PolicyTest extends TestWithFeService {
         FilterType filterType = FilterType.PERMISSIVE;
         Expr wherePredicate = null;
 
-        Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, originStmt, tableId, filterType,
+        Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, null, originStmt, tableId, filterType,
                 wherePredicate);
 
         ByteArrayOutputStream emptyOutputStream = new ByteArrayOutputStream();
