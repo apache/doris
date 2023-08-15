@@ -63,7 +63,7 @@ void MemTableWriter::_init_profile(RuntimeProfile* profile) {
     _wait_flush_timer = ADD_TIMER(_profile, "MemTableWaitFlushTime");
     _put_into_output_timer = ADD_TIMER(_profile, "MemTablePutIntoOutputTime");
     _delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapTime");
-    _close_wait_timer = ADD_TIMER(_profile, "MemTableWriterCloseWaitTime");
+    _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
     _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
     _segment_num = ADD_COUNTER(_profile, "SegmentNum", TUnit::UNIT);
@@ -335,7 +335,7 @@ const FlushStatistic& MemTableWriter::get_flush_token_stats() {
 }
 
 int64_t MemTableWriter::mem_consumption(MemType mem) {
-    if (_flush_token == nullptr) {
+    if (!_is_init) {
         // This method may be called before this writer is initialized.
         // So _flush_token may be null.
         return 0;
@@ -344,12 +344,12 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
     {
         std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
         if ((mem & MemType::WRITE) == MemType::WRITE) { // 3 & 2 = 2
-            for (auto mem_table_tracker : _mem_table_insert_trackers) {
+            for (const auto& mem_table_tracker : _mem_table_insert_trackers) {
                 mem_usage += mem_table_tracker->consumption();
             }
         }
         if ((mem & MemType::FLUSH) == MemType::FLUSH) { // 3 & 1 = 1
-            for (auto mem_table_tracker : _mem_table_flush_trackers) {
+            for (const auto& mem_table_tracker : _mem_table_flush_trackers) {
                 mem_usage += mem_table_tracker->consumption();
             }
         }

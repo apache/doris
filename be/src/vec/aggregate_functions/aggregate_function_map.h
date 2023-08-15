@@ -280,7 +280,7 @@ public:
         if (columns[0]->is_nullable()) {
             auto& nullable_col = assert_cast<const ColumnNullable&>(*columns[0]);
             auto& null_map = nullable_col.get_null_map_data();
-            if (columns[0]->is_nullable()) {
+            if (columns[1]->is_nullable()) {
                 this->streaming_agg_serialize_to_column_impl<true, true>(
                         num_rows, nullable_col.get_nested_column(), *columns[1], null_map, writer);
             } else {
@@ -288,7 +288,7 @@ public:
                         num_rows, nullable_col.get_nested_column(), *columns[1], null_map, writer);
             }
         } else {
-            if (columns[0]->is_nullable()) {
+            if (columns[1]->is_nullable()) {
                 this->streaming_agg_serialize_to_column_impl<false, true>(num_rows, *columns[0],
                                                                           *columns[1], {}, writer);
             } else {
