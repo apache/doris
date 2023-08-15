@@ -301,6 +301,14 @@ public:
     // caller should hold the _meta_lock before calling this method
     void generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const;
 
+    void extract_rowsets_unlocked(std::vector<RowsetSharedPtr>& rowsets);
+    void extract_stale_rowsets_unlocked(std::vector<RowsetSharedPtr>& stale_rowsets);
+    std::string get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
+    void get_rowsets_info_pretty_json(rapidjson::Document& root, rapidjson::Document& path_arr,
+                                      const std::vector<RowsetSharedPtr>& rowsets,
+                                      const std::vector<RowsetSharedPtr>& stale_rowsets,
+                                      const std::vector<bool>& delete_flags,
+                                      std::string* json_result);
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
     void get_compaction_status_without_lock(std::string* json_result);
@@ -603,6 +611,7 @@ private:
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
     Status _check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                             int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
+                                            const std::vector<RowsetSharedPtr>& rowsets,
                                             bool with_meta_lock);
 
 public:
