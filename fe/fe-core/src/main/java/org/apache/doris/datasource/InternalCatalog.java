@@ -2795,23 +2795,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean encounterAutoIncColumn = false;
         for (Column column : columns) {
             if (column.isAutoInc()) {
-                if (encounterAutoIncColumn) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_MORE_THAN_ONE_AUTO_INCREMENT_COLUMN);
-                }
-                encounterAutoIncColumn = true;
-                if (column.isAllowNull()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NULLABLE);
-                }
-                if (column.getDefaultValue() != null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE);
-                }
-                if (!column.getType().isBigIntType()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_BIGINT_TYPE);
-                }
+                ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_SUPPORTED);
             }
-        }
-        if (encounterAutoIncColumn && type != KeysType.DUP_KEYS) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE);
         }
     }
 
