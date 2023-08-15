@@ -582,8 +582,9 @@ public class BrokerFileSystem extends RemoteFileSystem {
             List<RemoteFile> result = new ArrayList<>();
             List<TBrokerFileStatus> fileStatus = response.getFiles();
             for (TBrokerFileStatus tFile : fileStatus) {
-                RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size,
-                        tFile.getBlockSize(), tFile.getModificationTime());
+                org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(tFile.path);
+                RemoteFile file = new RemoteFile(path.getName(), path, !tFile.isDir, tFile.isDir, tFile.size,
+                        tFile.getBlockSize(), tFile.getModificationTime(), null /* blockLocations is null*/);
                 result.add(file);
             }
             LOG.info("finished to listLocatedFiles, remote path {}. get files: {}", remotePath, result);
