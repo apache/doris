@@ -21,4 +21,21 @@ suite("view_p0") {
         create view test_view as select 1,to_base64(AES_ENCRYPT('doris','doris')); 
     """
     qt_sql "select * from test_view;"
+    
+    sql """DROP TABLE IF EXISTS test_view_table"""
+    
+    sql """ 
+        create table test_view_table (id int) distributed by hash(id) properties('replication_num'='1');
+    """
+    
+    sql """insert into test_view_table values(1);"""
+    
+    sql """DROP VIEW IF EXISTS test_varchar_view"""
+    
+    sql """ 
+        create view test_varchar_view (id) as  SELECT GROUP_CONCAT(cast( id as varchar)) from test_view_table; 
+    """
+    
+    qt_sql "select * from test_varchar_view;"
+    
 }
