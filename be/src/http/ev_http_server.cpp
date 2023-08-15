@@ -98,7 +98,7 @@ EvHttpServer::~EvHttpServer() {
     }
 }
 
-void EvHttpServer::_Init() {
+void EvHttpServer::_init_ssl() {
     SSL_library_init();
     SSL_load_error_strings();
     OpenSSL_add_all_algorithms();
@@ -117,7 +117,7 @@ void EvHttpServer::_Init() {
         LOG(WARNING) << "SSL_CTX_set_tmp_ecdh fail";
         return;
     }
-    int ret = _ServerSetCerts();
+    int ret = _server_set_certs();
     CHECK(ret >= 0) << "SetCerts failed code=" << ret;
 }
 
@@ -145,7 +145,7 @@ void EvHttpServer::start() {
     evthread_use_pthreads();
     if (config::enable_https) {
         LOG(INFO) << "BE WebServer using https";
-        _Init();
+        _init_ssl();
     }
     _event_bases.resize(_num_workers);
     for (int i = 0; i < _num_workers; ++i) {
@@ -178,7 +178,7 @@ void EvHttpServer::start() {
     }
 }
 
-int EvHttpServer::_ServerSetCerts() {
+int EvHttpServer::_server_set_certs() {
     if (1 != SSL_CTX_use_certificate_chain_file(m_ctx, config::ssl_certificate_path.c_str())) {
         LOG(WARNING) << "SSL_CTX_use_certificate_chain_file fail";
         return -1;

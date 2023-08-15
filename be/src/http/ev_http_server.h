@@ -63,8 +63,8 @@ public:
 private:
     Status _bind();
     HttpHandler* _find_handler(HttpRequest* req);
-    void _Init();
-    int _ServerSetCerts();
+    void _init_ssl();
+    int _server_set_certs();
 
 private:
     // input param
