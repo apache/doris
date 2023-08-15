@@ -34,6 +34,10 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                    << ", match_query_str=" << match_query_str;
         InvertedIndexCtx* inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
+        if (inverted_index_ctx == nullptr) {
+            inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
+                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+        }
 
         const ColumnPtr source_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
