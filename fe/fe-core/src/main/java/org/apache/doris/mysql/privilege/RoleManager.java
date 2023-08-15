@@ -51,6 +51,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -101,7 +102,8 @@ public class RoleManager implements Writable {
         roles.remove(qualifiedRole);
     }
 
-    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist)
+    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs,
+            Map<ColPrivilegeKey, Set<String>> colPrivileges, boolean errOnNonExist)
             throws DdlException {
         Role existingRole = roles.get(name);
         if (existingRole == null) {
@@ -110,7 +112,7 @@ public class RoleManager implements Writable {
             }
             return null;
         }
-        existingRole.revokePrivs(tblPattern, privs, errOnNonExist);
+        existingRole.revokePrivs(tblPattern, privs, colPrivileges, errOnNonExist);
         return existingRole;
     }
 
