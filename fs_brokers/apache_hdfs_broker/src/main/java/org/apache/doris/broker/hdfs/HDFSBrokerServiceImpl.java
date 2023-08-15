@@ -92,10 +92,10 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
         logger.info("received a listLocatedFiles request, request detail: " + request);
         TBrokerListResponse response = new TBrokerListResponse();
         try {
-            boolean recursive = request.isRecursive();
+            boolean recursive = request.isIsRecursive();
             boolean onlyFiles = false;
             if (request.isSetOnlyFiles()) {
-                onlyFiles = request.isOnlyFiles;
+                onlyFiles = request.isOnlyFiles();
             }
             List<TBrokerFileStatus> fileStatuses = fileSystemManager.listLocatedFiles(request.path,
                 onlyFiles, recursive, request.properties);
