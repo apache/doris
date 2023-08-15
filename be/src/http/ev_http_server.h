@@ -14,13 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
+#ifndef EVENT__HAVE_OPENSSL
+#define EVENT__HAVE_OPENSSL
+#endif
 #pragma once
 
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
+
+#include <openssl/ssl.h>
+#include <event2/bufferevent_ssl.h>
 
 #include "common/status.h"
 #include "http/http_method.h"
@@ -58,6 +63,8 @@ public:
 private:
     Status _bind();
     HttpHandler* _find_handler(HttpRequest* req);
+    void _init_ssl();
+    int _server_set_certs();
 
 private:
     // input param
@@ -81,6 +88,8 @@ private:
     PathTrie<HttpHandler*> _head_handlers;
     PathTrie<HttpHandler*> _options_handlers;
     bool _started = false;
+    SSL_CTX* m_ctx;
+    EC_KEY* m_ecdh;
 };
 
 } // namespace doris
