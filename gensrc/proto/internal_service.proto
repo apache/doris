@@ -723,6 +723,7 @@ message PWriteStreamSinkResponse {
     optional PStatus status = 1;
     repeated int64 success_tablet_ids = 2;
     repeated int64 failed_tablet_ids = 3;
+    optional bytes load_stream_profile = 4;
 }
 
 message SegmentStatisticsPB {
