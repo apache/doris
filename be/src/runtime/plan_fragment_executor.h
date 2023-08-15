@@ -46,6 +46,7 @@ class RowDescriptor;
 class DataSink;
 class DescriptorTbl;
 class ExecEnv;
+class FragmentMgr;
 class ObjectPool;
 class QueryStatistics;
 struct ReportStatusRequest;
