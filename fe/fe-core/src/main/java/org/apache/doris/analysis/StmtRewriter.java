@@ -1293,7 +1293,6 @@ public class StmtRewriter {
     public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
         Env currentEnv = Env.getCurrentEnv();
         UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
-        String user = analyzer.getQualifiedUser();
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return false;
         }
