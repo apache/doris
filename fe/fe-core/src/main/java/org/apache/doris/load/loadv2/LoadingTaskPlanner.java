@@ -144,6 +144,9 @@ public class LoadingTaskPlanner {
 
         // use full schema to fill the descriptor table
         for (Column col : table.getFullSchema()) {
+            if (isPartialUpdate && !partialUpdateInputColumns.contains(col.getName())) {
+                continue;
+            }
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(destTupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
