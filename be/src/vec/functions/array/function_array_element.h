@@ -284,13 +284,9 @@ private:
         return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
     }
 
-    template <typename COLUMN_TYPE>
-    ColumnPtr _get_mapped_value(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
-                                const UInt8* arr_null_map, const IColumn& indices,
-                                const UInt8* nested_null_map, UInt8* dst_null_map) {
-        const auto& src_str_offs =
-                reinterpret_cast<const COLUMN_TYPE&>(nested_column).get_offsets();
-
+    ColumnPtr _execute_common(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
+                              const UInt8* arr_null_map, const IColumn& indices,
+                              const UInt8* nested_null_map, UInt8* dst_null_map) {
         // prepare return data
         auto dst_column = nested_column.clone_empty();
         dst_column->reserve(offsets.size());
@@ -316,7 +312,6 @@ private:
             }
             // actual data copy
             if (!null_flag) {
-                DCHECK(index >= 0 && index < src_str_offs.size());
                 dst_null_map[row] = false;
                 dst_column->insert_from(nested_column, index);
             } else {
@@ -400,15 +395,9 @@ private:
         } else if (check_column<ColumnString>(*nested_column)) {
             res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
                                   dst_null_map);
-        } else if (check_column<ColumnArray>(*nested_column)) {
-            res = _get_mapped_value<ColumnArray>(offsets, *nested_column, src_null_map, *idx_col,
-                                                 nested_null_map, dst_null_map);
-        } else if (check_column<ColumnMap>(*nested_column)) {
-            res = _get_mapped_value<ColumnMap>(offsets, *nested_column, src_null_map, *idx_col,
-                                               nested_null_map, dst_null_map);
-        } else if (check_column<ColumnStruct>(*nested_column)) {
-            res = _get_mapped_value<ColumnMap>(offsets, *nested_column, src_null_map, *idx_col,
-                                               nested_null_map, dst_null_map);
+        } else {
+            res = _execute_common(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
+                                  dst_null_map);
         }
 
         return res;
