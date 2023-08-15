@@ -313,7 +313,6 @@ public class BackendLoadStatistic {
         return loadScore;
     }
 
-    // when percent change from percentLowWatermark to percentHighWatermark,
     // the return cofficient:
     // 1. percent <= percentLowWatermark: cofficient = 0.5;
     // 2. percentLowWatermark < percent < percentHighWatermark: cofficient linear increase from 0.5 to 1.0;
