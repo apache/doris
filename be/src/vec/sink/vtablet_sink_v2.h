@@ -206,15 +206,13 @@ private:
     RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _send_data_timer = nullptr;
     RuntimeProfile::Counter* _row_distribution_timer = nullptr;
-    RuntimeProfile::Counter* _delta_writer_create_timer = nullptr;
-    RuntimeProfile::Counter* _delta_writer_write_timer = nullptr;
+    RuntimeProfile::Counter* _write_data_timer = nullptr;
     RuntimeProfile::Counter* _wait_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _close_writer_timer = nullptr;
-    RuntimeProfile::Counter* _close_load_send_timer = nullptr;
-    RuntimeProfile::Counter* _close_load_wait_timer = nullptr;
+    RuntimeProfile::Counter* _close_load_timer = nullptr;
     RuntimeProfile::Counter* _close_stream_timer = nullptr;
 
     // the timeout of load channels opened by this tablet sink. in second

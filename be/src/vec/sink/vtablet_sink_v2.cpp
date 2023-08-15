@@ -255,14 +255,12 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
     _wait_mem_limit_timer = ADD_CHILD_TIMER(_profile, "WaitMemLimitTime", "SendDataTime");
     _row_distribution_timer = ADD_CHILD_TIMER(_profile, "RowDistributionTime", "SendDataTime");
-    _delta_writer_create_timer = ADD_CHILD_TIMER(_profile, "DeltaWriterCreateTime", "SendDataTime");
-    _delta_writer_write_timer = ADD_CHILD_TIMER(_profile, "WriteDeltaWriterTime", "SendDataTime");
+    _write_data_timer = ADD_CHILD_TIMER(_profile, "WriteDataTime", "SendDataTime");
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _close_writer_timer = ADD_CHILD_TIMER(_profile, "CloseWriterTime", "CloseWaitTime");
-    _close_load_send_timer = ADD_CHILD_TIMER(_profile, "CloseLoadSendTime", "CloseWaitTime");
-    _close_load_wait_timer = ADD_CHILD_TIMER(_profile, "CloseLoadWaitTime", "CloseWaitTime");
+    _close_load_timer = ADD_CHILD_TIMER(_profile, "CloseLoadTime", "CloseWaitTime");
     _close_stream_timer = ADD_CHILD_TIMER(_profile, "CloseStreamTime", "CloseWaitTime");
 
     // Prepare the exprs to run.
@@ -455,7 +453,6 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                                          const std::vector<brpc::StreamId>& streams) {
     DeltaWriterV2* delta_writer = nullptr;
     {
-        SCOPED_TIMER(_delta_writer_create_timer);
         auto it = _delta_writer_for_tablet->find(tablet_id);
         if (it == _delta_writer_for_tablet->end()) {
             VLOG_DEBUG << "Creating DeltaWriterV2 for Tablet(tablet id: " << tablet_id
@@ -497,7 +494,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
-    SCOPED_TIMER(_delta_writer_write_timer);
+    SCOPED_TIMER(_write_data_timer);
     auto st = delta_writer->write(block.get(), rows.row_idxes, false);
     return st;
 }
@@ -541,7 +538,6 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         }
 
         {
-            SCOPED_TIMER(_close_load_send_timer);
             // send CLOSE_LOAD to all streams, return ERROR if any
             RETURN_IF_ERROR(std::transform_reduce(
                     std::execution::par_unseq, std::begin(*_node_id_for_stream),
@@ -551,7 +547,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         }
 
         {
-            SCOPED_TIMER(_close_load_wait_timer);
+            SCOPED_TIMER(_close_load_timer);
             while (_pending_reports.load() > 0) {
                 // TODO: use a better wait
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
