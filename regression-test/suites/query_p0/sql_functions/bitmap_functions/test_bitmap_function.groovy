@@ -690,4 +690,21 @@ suite("test_bitmap_function") {
             test_bitmap1;
     """
 
+    // UNHEX_TO_BITMAP
+    def testUnhexToBitmap = "test_unhex_to_bitmap"
+    sql """ DROP TABLE IF EXISTS ${testUnhexToBitmap} """
+    sql """ create table if not exists ${testUnhexToBitmap} (page_id int,user_id bitmap bitmap_union) aggregate key (page_id) distributed by hash (page_id) PROPERTIES("replication_num" = "1") """
+
+    sql """ insert into ${testUnhexToBitmap} values(1, unhex_to_bitmap('0106000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(1, unhex_to_bitmap('0107000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(1, unhex_to_bitmap('0108000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(2, unhex_to_bitmap('010a000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(2, unhex_to_bitmap('010b000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(2, unhex_to_bitmap('010b000000')); """
+
+    qt_sql_unhex_to_bitmap_1 """ select page_id, bitmap_count(bitmap_union(user_id)) from ${testUnhexToBitmap} group by page_id order by page_id """
+    qt_sql_unhex_to_bitmap_2 """ select page_id, count(distinct user_id) from ${testUnhexToBitmap} group by page_id order by page_id """
+
+    sql """ drop table ${testUnhexToBitmap} """
+
 }
