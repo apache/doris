@@ -26,7 +26,7 @@
 namespace doris {
 class MemTableWriter;
 struct WriterMemItem {
-    MemTableWriter* writer;
+    std::weak_ptr<MemTableWriter> writer;
     int64_t mem_size;
 };
 class MemTableMemoryLimiter {
@@ -66,6 +66,6 @@ private:
     int64_t _load_soft_mem_limit = -1;
     bool _soft_reduce_mem_in_progress = false;
 
-    std::unordered_set<MemTableWriter*> _writers;
+    std::unordered_set<std::weak_ptr<MemTableWriter>> _writers;
 };
 } // namespace doris

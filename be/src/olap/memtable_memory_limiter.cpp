@@ -63,12 +63,12 @@ Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
 
 void MemTableMemoryLimiter::register_writer(std::shared_ptr<MemTableWriter> writer) {
     std::lock_guard<std::mutex> l(_lock);
-    _writers.insert(writer.get());
+    _writers.insert(writer);
 }
 
 void MemTableMemoryLimiter::deregister_writer(std::shared_ptr<MemTableWriter> writer) {
     std::lock_guard<std::mutex> l(_lock);
-    _writers.erase(writer.get());
+    _writers.erase(writer);
 }
 
 void MemTableMemoryLimiter::handle_memtable_flush() {
@@ -115,15 +115,24 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         };
         std::priority_queue<WriterMemItem, std::vector<WriterMemItem>, decltype(cmp)> mem_heap(cmp);
 
-        for (auto& writer : _writers) {
-            int64_t active_memtable_mem = writer->active_memtable_mem_consumption();
-            mem_heap.emplace(writer, active_memtable_mem);
+        for (auto it = _writers.cbegin(); it != _writers.cend();) {
+            if (auto writer = it->lock()) {
+                int64_t active_memtable_mem = writer->active_memtable_mem_consumption();
+                mem_heap.emplace(writer, active_memtable_mem);
+                ++it;
+            } else {
+                _writers.erase(it++);
+            }
         }
         int64_t mem_to_flushed = _mem_tracker->consumption() / 10;
         int64_t mem_consumption_in_picked_writer = 0;
         while (!mem_heap.empty()) {
             WriterMemItem mem_item = mem_heap.top();
-            auto writer = mem_item.writer;
+            mem_heap.pop();
+            auto writer = mem_item.writer.lock();
+            if (!writer) {
+                continue;
+            }
             int64_t mem_size = mem_item.mem_size;
             writers_to_reduce_mem.emplace_back(writer, mem_size);
             st = writer->flush_memtable_and_wait(false);
@@ -139,7 +148,6 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             if (mem_consumption_in_picked_writer > mem_to_flushed) {
                 break;
             }
-            mem_heap.pop();
         }
         if (writers_to_reduce_mem.empty()) {
             // should not happen, add log to observe
