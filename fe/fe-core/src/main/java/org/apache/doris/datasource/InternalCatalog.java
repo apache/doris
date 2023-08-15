@@ -2792,7 +2792,6 @@ public class InternalCatalog implements CatalogIf<Database> {
      * check column's auto increment property
      */
     private void checkAutoIncColumns(List<Column> columns, KeysType type) throws DdlException {
-        boolean encounterAutoIncColumn = false;
         for (Column column : columns) {
             if (column.isAutoInc()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_SUPPORTED);
