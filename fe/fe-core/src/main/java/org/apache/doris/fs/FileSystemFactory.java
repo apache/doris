@@ -87,9 +87,6 @@ public class FileSystemFactory {
                                                        String bindBrokerName) {
         Map<String, String> properties = new HashMap<>();
         conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
-        if (bindBrokerName != null) {
-            return new BrokerFileSystem(bindBrokerName, properties);
-        }
         switch (type) {
             case S3:
                 return new S3FileSystem(properties);
@@ -99,6 +96,8 @@ public class FileSystemFactory {
                 return new OFSFileSystem(properties);
             case JFS:
                 return new JFSFileSystem(properties);
+            case BROKER:
+                return new BrokerFileSystem(bindBrokerName, properties);
             default:
                 throw new IllegalStateException("Not supported file system type: " + type);
         }

@@ -298,6 +298,10 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileType getLocationType(String location) throws UserException {
+        String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
+        if (bindBrokerName != null) {
+            return TFileType.FILE_BROKER;
+        }
         return getTFileType(location).orElseThrow(() ->
             new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
