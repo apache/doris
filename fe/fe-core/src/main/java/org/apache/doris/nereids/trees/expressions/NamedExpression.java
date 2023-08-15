@@ -27,10 +27,6 @@ import java.util.List;
  */
 public abstract class NamedExpression extends Expression {
 
-    protected NamedExpression(Expression... children) {
-        super(children);
-    }
-
     protected NamedExpression(List<Expression> children) {
         super(children);
     }
