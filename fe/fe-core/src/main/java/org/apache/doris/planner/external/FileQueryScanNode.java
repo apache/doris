@@ -74,6 +74,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -271,6 +272,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setProperties(locationProperties);
         }
 
+        boolean enableSqlCache = ConnectContext.get().getSessionVariable().enableFileCache;
+        boolean enableShortCircuitRead = HdfsResource.enableShortCircuitRead(locationProperties);
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
@@ -312,6 +315,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
                 rangeDesc.setTableFormatParams(tableFormatFileDesc);
             }
+
             // external data lake table
             if (fileSplit instanceof IcebergSplit) {
                 // TODO: extract all data lake split to factory
@@ -322,11 +326,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
             }
 
+            Backend selectedBackend;
+            if (enableSqlCache) {
+                // Use consistent hash to assign the same scan range into the same backend among different queries
+                selectedBackend = backendPolicy.getNextConsistentBe(curLocations);
+            } else if (enableShortCircuitRead) {
+                // Try to find a local BE if enable hdfs short circuit read
+                selectedBackend = backendPolicy.getNextLocalBe(Arrays.asList(fileSplit.getHosts()));
+            } else {
+                selectedBackend = backendPolicy.getNextBe();
+            }
+
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             TScanRangeLocation location = new TScanRangeLocation();
-            // Use consistent hash to assign the same scan range into the same backend among different queries
-            Backend selectedBackend = ConnectContext.get().getSessionVariable().enableFileCache
-                    ? backendPolicy.getNextConsistentBe(curLocations) : backendPolicy.getNextBe();
             location.setBackendId(selectedBackend.getId());
             location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
             curLocations.addToLocations(location);
