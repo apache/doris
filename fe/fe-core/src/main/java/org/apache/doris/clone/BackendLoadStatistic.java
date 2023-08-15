@@ -314,14 +314,18 @@ public class BackendLoadStatistic {
     }
 
     // when percent change from percentLowWatermark to percentHighWatermark,
-    // the return cofficient will linearly change from 0.5 to 1.0.
-    // If percent >= percentHighWatermark, the cofficient will be 1.0.
+    // the return cofficient:
+    // 1. percent <= percentLowWatermark: cofficient = 0.5;
+    // 2. percentLowWatermark < percent < percentHighWatermark: cofficient linear increase from 0.5 to 1.0;
+    // 3. percent >= percentHighWatermark: cofficient = 1.0;
     public static double getSmoothCofficient(double percent, double percentLowWatermark,
             double percentHighWatermark) {
         final double lowCofficient = 0.5;
         final double highCofficient = 1.0;
+
+        // low watermark and high watermark equal, then return 0.75
         if (Math.abs(percentHighWatermark - percentLowWatermark) < 1e-6) {
-            return highCofficient;
+            return (lowCofficient + highCofficient) / 2;
         }
         if (percentLowWatermark > percentHighWatermark) {
             double tmp = percentLowWatermark;
