@@ -1297,9 +1297,7 @@ public class StmtRewriter {
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return false;
         }
-        if (!currentEnv.getPolicyMgr().existPolicy(user)) {
-            return false;
-        }
+
         if (!(statementBase instanceof SelectStmt)) {
             return false;
         }

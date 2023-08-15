@@ -68,6 +68,9 @@ public class RowPolicy extends Policy {
     @SerializedName(value = "user")
     private UserIdentity user = null;
 
+    @SerializedName(value = "role")
+    private String role = null;
+
     @SerializedName(value = "dbId")
     private long dbId = -1;
 
