@@ -301,7 +301,6 @@ public:
     // caller should hold the _meta_lock before calling this method
     void generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_meta) const;
 
-    std::string get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
     // return a json string to show the compaction status of this tablet
     void get_compaction_status(std::string* json_result);
 
@@ -603,8 +602,8 @@ private:
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
     Status _check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                             int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
-                                            const std::vector<RowsetSharedPtr>& rowsets,
-                                            bool with_meta_lock);
+                                            const std::vector<RowsetSharedPtr>* rowsets = nullptr);
+    std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

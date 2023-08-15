@@ -1355,7 +1355,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
     return candidate_rowsets;
 }
 
-std::string Tablet::get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) {
+std::string Tablet::_get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag) {
     const Version& ver = rowset->version();
     std::string disk_size = PrettyPrinter::print(
             static_cast<uint64_t>(rowset->rowset_meta()->total_disk_size()), TUnit::BYTES);
@@ -1447,7 +1447,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
             missing_versions_arr.PushBack(miss_value, missing_versions_arr.GetAllocator());
         }
         rapidjson::Value value;
-        std::string version_str = get_rowset_info_str(rowsets[i], delete_flags[i]);
+        std::string version_str = _get_rowset_info_str(rowsets[i], delete_flags[i]);
         value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
         last_version = ver.second;
@@ -3241,7 +3241,7 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
     if (config::enable_merge_on_write_correctness_check) {
         // check if all the rowset has ROWSET_SENTINEL_MARK
         RETURN_IF_ERROR(_check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
-                                                         cur_rowset_ids, specified_rowsets, true));
+                                                         cur_rowset_ids, specified_rowsets));
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
     for (auto iter = delete_bitmap->delete_bitmap.begin();
@@ -3345,7 +3345,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
         // only do correctness check if the rowset has at least one row written
         // check if all the rowset has ROWSET_SENTINEL_MARK
         RETURN_IF_ERROR(_check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, txn_id,
-                                                         cur_rowset_ids, specified_rowsets, false));
+                                                         cur_rowset_ids));
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
 
@@ -3704,8 +3704,7 @@ void Tablet::_remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bit
 Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                                 int64_t txn_id,
                                                 const RowsetIdUnorderedSet& rowset_ids,
-                                                const std::vector<RowsetSharedPtr>& rowsets,
-                                                bool with_meta_lock) {
+                                                const std::vector<RowsetSharedPtr>* rowsets) {
     RowsetIdUnorderedSet missing_ids;
     for (const auto& rowsetid : rowset_ids) {
         if (!delete_bitmap->delete_bitmap.contains(
@@ -3718,11 +3717,6 @@ Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, i
         LOG(WARNING) << "[txn_id:" << txn_id << "][tablet_id:" << tablet_id()
                      << "][max_version: " << max_version
                      << "] check delete bitmap correctness failed!";
-        std::vector<bool> delete_flags;
-        delete_flags.reserve(rowsets.size());
-        for (auto& rs : rowsets) {
-            delete_flags.push_back(rs->rowset_meta()->has_delete_predicate());
-        }
         rapidjson::Document root;
         root.SetObject();
         rapidjson::Document required_rowsets_arr;
@@ -3730,12 +3724,29 @@ Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, i
         rapidjson::Document missing_rowsets_arr;
         missing_rowsets_arr.SetArray();
 
-        for (int i = 0; i < rowsets.size(); ++i) {
-            rapidjson::Value value;
-            std::string version_str = get_rowset_info_str(rowsets[i], delete_flags[i]);
-            value.SetString(version_str.c_str(), version_str.length(),
-                            required_rowsets_arr.GetAllocator());
-            required_rowsets_arr.PushBack(value, required_rowsets_arr.GetAllocator());
+        if (rowsets != nullptr) {
+            for (const auto& rowset : *rowsets) {
+                rapidjson::Value value;
+                std::string version_str =
+                        _get_rowset_info_str(rowset, rowset.rowset_meta()->has_delete_predicate());
+                value.SetString(version_str.c_str(), version_str.length(),
+                                required_rowsets_arr.GetAllocator());
+                required_rowsets_arr.PushBack(value, required_rowsets_arr.GetAllocator());
+            }
+        } else {
+            std::vector<RowsetSharedPtr> rowsets;
+            {
+                std::shared_lock meta_rlock(_meta_lock);
+                rowsets = get_rowset_by_ids(&rowset_ids_to_add);
+            }
+            for (const auto& rowset : rowsets) {
+                rapidjson::Value value;
+                std::string version_str =
+                        _get_rowset_info_str(rowset, rowset.rowset_meta()->has_delete_predicate());
+                value.SetString(version_str.c_str(), version_str.length(),
+                                required_rowsets_arr.GetAllocator());
+                required_rowsets_arr.PushBack(value, required_rowsets_arr.GetAllocator());
+            }
         }
         for (const auto& missing_rowset_id : missing_ids) {
             rapidjson::Value miss_value;
