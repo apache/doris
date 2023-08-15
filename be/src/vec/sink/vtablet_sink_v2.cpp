@@ -255,9 +255,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
     _wait_mem_limit_timer = ADD_CHILD_TIMER(_profile, "WaitMemLimitTime", "SendDataTime");
     _row_distribution_timer = ADD_CHILD_TIMER(_profile, "RowDistributionTime", "SendDataTime");
-    _filter_timer = ADD_CHILD_TIMER(_profile, "FilterTime", "SendDataTime");
-    _where_clause_timer = ADD_CHILD_TIMER(_profile, "WhereClauseTime", "SendDataTime");
-    _append_node_channel_timer = ADD_CHILD_TIMER(_profile, "AppendNodeChannelTime", "SendDataTime");
+    _delta_writer_create_timer = ADD_CHILD_TIMER(_profile, "DeltaWriterCreateTime", "SendDataTime");
+    _delta_writer_write_timer = ADD_CHILD_TIMER(_profile, "WriteDeltaWriterTime", "SendDataTime");
     _validate_data_timer = ADD_TIMER(_profile, "ValidateDataTime");
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
@@ -265,18 +264,6 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
     _close_load_send_timer = ADD_CHILD_TIMER(_profile, "CloseLoadSendTime", "CloseWaitTime");
     _close_load_wait_timer = ADD_CHILD_TIMER(_profile, "CloseLoadWaitTime", "CloseWaitTime");
     _close_stream_timer = ADD_CHILD_TIMER(_profile, "CloseStreamTime", "CloseWaitTime");
-    _non_blocking_send_timer = ADD_TIMER(_profile, "NonBlockingSendTime");
-    _non_blocking_send_work_timer =
-            ADD_CHILD_TIMER(_profile, "NonBlockingSendWorkTime", "NonBlockingSendTime");
-    _serialize_batch_timer =
-            ADD_CHILD_TIMER(_profile, "SerializeBatchTime", "NonBlockingSendWorkTime");
-    _total_add_batch_exec_timer = ADD_TIMER(_profile, "TotalAddBatchExecTime");
-    _max_add_batch_exec_timer = ADD_TIMER(_profile, "MaxAddBatchExecTime");
-    _total_wait_exec_timer = ADD_TIMER(_profile, "TotalWaitExecTime");
-    _max_wait_exec_timer = ADD_TIMER(_profile, "MaxWaitExecTime");
-    _add_batch_number = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
-    _num_node_channels = ADD_COUNTER(_profile, "NumberNodeChannels", TUnit::UNIT);
-    _load_mem_limit = state->get_load_mem_limit();
 
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc));
@@ -468,6 +455,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                                          const std::vector<brpc::StreamId>& streams) {
     DeltaWriterV2* delta_writer = nullptr;
     {
+        SCOPED_TIMER(_delta_writer_create_timer);
         auto it = _delta_writer_for_tablet->find(tablet_id);
         if (it == _delta_writer_for_tablet->end()) {
             VLOG_DEBUG << "Creating DeltaWriterV2 for Tablet(tablet id: " << tablet_id
@@ -509,6 +497,7 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
+    SCOPED_TIMER(_delta_writer_write_timer);
     auto st = delta_writer->write(block.get(), rows.row_idxes, false);
     return st;
 }
@@ -530,7 +519,6 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
                     _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows());
         COUNTER_SET(_send_data_timer, _send_data_ns);
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
-        COUNTER_SET(_filter_timer, _filter_ns);
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
 
         for (const auto& [_, delta_writer] : *_delta_writer_for_tablet) {
