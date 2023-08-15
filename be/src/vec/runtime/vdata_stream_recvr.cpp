@@ -211,7 +211,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     COUNTER_UPDATE(_recvr->_rows_produced_counter, block->rows());
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
 
-        bool empty = !block->rows();
+    bool empty = !block->rows();
 
     if (!empty) {
         _block_queue.emplace_back(std::move(nblock), block_mem_size);
