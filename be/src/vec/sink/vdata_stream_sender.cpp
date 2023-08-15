@@ -637,7 +637,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         int result[result_size];
         // vectorized calculate hash
         int rows = block->rows();
-        auto element_size = _channels.size();
+        auto element_size = _part_type == TPartitionType::HASH_PARTITIONED
+                                    ? _channels.size()
+                                    : _channel_shared_ptrs.size();
         std::vector<uint64_t> hash_vals(rows);
         auto* __restrict hashes = hash_vals.data();
         if (!block->empty()) {
@@ -685,7 +687,6 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                             .first->update_crcs_with_value(
                                     hash_vals, _partition_expr_ctxs[j]->root()->type().type);
                 }
-                element_size = _channel_shared_ptrs.size();
                 for (int i = 0; i < rows; i++) {
                     hashes[i] = hashes[i] % element_size;
                 }
