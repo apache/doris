@@ -198,7 +198,6 @@ private:
     int64_t _send_data_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
-    int64_t _filter_ns = 0;
 
     MonotonicStopWatch _row_distribution_watch;
 
@@ -207,9 +206,8 @@ private:
     RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
     RuntimeProfile::Counter* _send_data_timer = nullptr;
     RuntimeProfile::Counter* _row_distribution_timer = nullptr;
-    RuntimeProfile::Counter* _append_node_channel_timer = nullptr;
-    RuntimeProfile::Counter* _filter_timer = nullptr;
-    RuntimeProfile::Counter* _where_clause_timer = nullptr;
+    RuntimeProfile::Counter* _delta_writer_create_timer = nullptr;
+    RuntimeProfile::Counter* _delta_writer_write_timer = nullptr;
     RuntimeProfile::Counter* _wait_mem_limit_timer = nullptr;
     RuntimeProfile::Counter* _validate_data_timer = nullptr;
     RuntimeProfile::Counter* _open_timer = nullptr;
@@ -218,18 +216,6 @@ private:
     RuntimeProfile::Counter* _close_load_send_timer = nullptr;
     RuntimeProfile::Counter* _close_load_wait_timer = nullptr;
     RuntimeProfile::Counter* _close_stream_timer = nullptr;
-    RuntimeProfile::Counter* _non_blocking_send_timer = nullptr;
-    RuntimeProfile::Counter* _non_blocking_send_work_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
-    RuntimeProfile::Counter* _total_add_batch_exec_timer = nullptr;
-    RuntimeProfile::Counter* _max_add_batch_exec_timer = nullptr;
-    RuntimeProfile::Counter* _total_wait_exec_timer = nullptr;
-    RuntimeProfile::Counter* _max_wait_exec_timer = nullptr;
-    RuntimeProfile::Counter* _add_batch_number = nullptr;
-    RuntimeProfile::Counter* _num_node_channels = nullptr;
-
-    // load mem limit is for remote load channel
-    int64_t _load_mem_limit = -1;
 
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;
