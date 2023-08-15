@@ -62,13 +62,6 @@ namespace vectorized::schema_util {
 class LocalSchemaChangeRecorder;
 }
 
-struct SegmentStatistics {
-    int64_t row_num;
-    int64_t data_size;
-    int64_t index_size;
-    KeyBoundsPB key_bounds;
-};
-
 class BetaRowsetWriter : public RowsetWriter {
     friend class SegcompactionWorker;
 
@@ -86,9 +79,9 @@ public:
 
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
-    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer);
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
 
-    Status add_segment(uint32_t segid, SegmentStatistics& segstat);
+    Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) override;
 
     Status flush() override;
 
