@@ -78,7 +78,7 @@ public:
         // give response a default value to avoid null pointers in high concurrency.
         Status st;
         st.to_protobuf(response->mutable_status());
-        st = stream_mgr->transmit_block(request, &done);
+        st = stream_mgr->transmit_block(request, &done, 0);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st
                          << ", fragment_instance_id=" << print_id(request->finst_id())

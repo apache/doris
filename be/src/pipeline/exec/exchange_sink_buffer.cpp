@@ -439,14 +439,14 @@ void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
     auto* _max_rpc_exec_delay_timer = ADD_TIMER(profile, "Rpc2MaxExecDelayTime");
     auto* _min_rpc_exec_delay_timer = ADD_TIMER(profile, "Rpc2MinExecDelayTime");
 
-    auto* _max_rpc_exec_timer = ADD_TIMER(profile, "Rpc2MaxExecTime");
-    auto* _min_rpc_exec_timer = ADD_TIMER(profile, "Rpc2MinExecTime");
+    auto* _max_rpc_exec_timer = ADD_TIMER(profile, "Rpc3MaxExecTime");
+    auto* _min_rpc_exec_timer = ADD_TIMER(profile, "Rpc3MinExecTime");
 
-    auto* _max_rpc_callback_timer = ADD_TIMER(profile, "Rpc3MaxCallbackTime");
-    auto* _min_rpc_callback_timer = ADD_TIMER(profile, "Rpc3MinCallbackTime");
+    auto* _max_rpc_callback_timer = ADD_TIMER(profile, "Rpc4MaxCallbackTime");
+    auto* _min_rpc_callback_timer = ADD_TIMER(profile, "Rpc4MinCallbackTime");
 
-    auto* _max_rpc_callback_exec_timer = ADD_TIMER(profile, "Rpc4MaxCallbackExecTime");
-    auto* _min_rpc_callback_exec_timer = ADD_TIMER(profile, "Rpc4MinCallbackExecTime");
+    auto* _max_rpc_callback_exec_timer = ADD_TIMER(profile, "Rpc5MaxCallbackExecTime");
+    auto* _min_rpc_callback_exec_timer = ADD_TIMER(profile, "Rpc5MinCallbackExecTime");
 
     int64_t max_rpc_time = 0, min_rpc_time = 0, max_exec_delay_t = 0, min_exec_delay_t = 0,
             max_exec_t, min_exec_t = 0, max_callback_t = 0, min_callback_t = 0,
