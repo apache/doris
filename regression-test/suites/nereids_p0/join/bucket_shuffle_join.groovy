@@ -75,6 +75,4 @@ suite("bucket-shuffle-join") {
         contains "BUCKET_SHFFULE_HASH_PARTITIONED: expr_cast(c as VARCHAR(*))"
     }
 
-    sql """ DROP TABLE IF EXISTS shuffle_join_t1 """
-    sql """ DROP TABLE IF EXISTS shuffle_join_t2 """
 }

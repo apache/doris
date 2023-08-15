@@ -753,6 +753,9 @@ public class ConnectProcessor {
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
             ctx.setExecutor(executor);
+            if (request.isSetDefaultCatalog()) {
+                ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
+            }
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();

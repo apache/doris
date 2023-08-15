@@ -1671,6 +1671,50 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
     return true;
 }
 
+template <TimeUnit unit>
+bool VecDateTimeValue::date_set_interval(const TimeInterval& interval) {
+    static_assert(
+            (unit == YEAR) || (unit == MONTH) || (unit == DAY) || (unit == HOUR) ||
+                    (unit == MINUTE) || (unit == SECOND),
+            "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
+    if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR)) {
+        set_zero(type());
+        // This may change the day information
+        int64_t seconds = interval.day * 86400L + interval.hour * 3600 + interval.minute * 60 +
+                          interval.second;
+        int64_t days = seconds / 86400;
+        seconds %= 86400L;
+        _second = seconds % 60;
+        _minute = (seconds / 60) % 60;
+        _hour = seconds / 3600;
+        int64_t day_nr = doris::calc_daynr(_year, _month, 1) + days;
+        if (!get_date_from_daynr(day_nr)) {
+            return false;
+        }
+        if (_second || _minute || _hour) {
+            _type = TIME_DATETIME;
+        }
+    } else if constexpr ((unit == DAY)) {
+        // This only change day information, not change second information
+        int64_t day_nr = interval.day;
+        if (!get_date_from_daynr(day_nr)) {
+            return false;
+        }
+    } else if constexpr (unit == YEAR) {
+        // This only change year information
+        _year = interval.year;
+        _day = 1;
+        _month = 1;
+    } else if constexpr (unit == MONTH) {
+        // This will change month and year information, maybe date.
+        int64_t months = 12 * interval.year + interval.month;
+        _year = months / 12;
+        _day = 1;
+        _month = (months % 12) + 1;
+    }
+    return true;
+}
+
 bool VecDateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
@@ -2874,6 +2918,39 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
 
 template <typename T>
 template <TimeUnit unit>
+bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
+    static_assert(
+            (unit == YEAR) || (unit == MONTH) || (unit == DAY) || (unit == HOUR) ||
+                    (unit == MINUTE) || (unit == SECOND),
+            "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
+    if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) || (unit == DAY)) {
+        set_zero();
+        // This may change the day information
+        int64_t seconds = (interval.day * 86400 + interval.hour * 3600 + interval.minute * 60 +
+                           interval.second);
+        int64_t days = seconds / 86400;
+        seconds %= 86400L;
+        if (!this->get_date_from_daynr(days)) {
+            return false;
+        }
+        if constexpr (is_datetime) {
+            this->set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, 0);
+        }
+    } else if constexpr (unit == YEAR) {
+        this->set_time(0, 1, 1, 0, 0, 0, 0);
+        this->template set_time_unit<TimeUnit::YEAR>(interval.year);
+    } else if constexpr (unit == MONTH) {
+        // This will change month and year information, maybe date.
+        this->set_time(0, 1, 1, 0, 0, 0, 0);
+        int64_t months = 12 * interval.year + interval.month;
+        this->template set_time_unit<TimeUnit::YEAR>(months / 12);
+        this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1);
+    }
+    return true;
+}
+
+template <typename T>
+template <TimeUnit unit>
 bool DateV2Value<T>::datetime_trunc() {
     if constexpr (is_datetime) {
         if (!is_valid_date()) {
@@ -3634,6 +3711,39 @@ template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR
 template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
         const TimeInterval& interval);
 template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK>(
+        const TimeInterval& interval);
+
+template bool VecDateTimeValue::date_set_interval<TimeUnit::SECOND>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::MINUTE>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::HOUR>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::DAY>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::MONTH>(const TimeInterval& interval);
+template bool VecDateTimeValue::date_set_interval<TimeUnit::YEAR>(const TimeInterval& interval);
+
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::SECOND>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::MINUTE>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::HOUR>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::DAY>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::MONTH>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::YEAR>(
+        const TimeInterval& interval);
+
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::SECOND>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::MINUTE>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::HOUR>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::DAY>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::MONTH>(
+        const TimeInterval& interval);
+template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::YEAR>(
         const TimeInterval& interval);
 
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::SECOND>();

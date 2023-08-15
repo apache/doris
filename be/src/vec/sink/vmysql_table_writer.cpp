@@ -17,6 +17,7 @@
 
 #include "vec/sink/vmysql_table_writer.h"
 
+#include <gen_cpp/DataSinks_types.h>
 #include <glog/logging.h>
 #include <mysql/mysql.h>
 #include <stdint.h>
@@ -55,12 +56,22 @@ std::string MysqlConnInfo::debug_string() const {
     std::stringstream ss;
 
     ss << "(host=" << host << ",port=" << port << ",user=" << user << ",db=" << db
-       << ",passwd=" << passwd << ",charset=" << charset << ")";
+       << ",table=" << table_name << ",passwd=" << passwd << ",charset=" << charset << ")";
     return ss.str();
 }
 
-VMysqlTableWriter::VMysqlTableWriter(const VExprContextSPtrs& output_expr_ctxs)
-        : _vec_output_expr_ctxs(output_expr_ctxs) {}
+VMysqlTableWriter::VMysqlTableWriter(const TDataSink& t_sink,
+                                     const VExprContextSPtrs& output_expr_ctxs)
+        : _vec_output_expr_ctxs(output_expr_ctxs) {
+    const auto& t_mysql_sink = t_sink.mysql_table_sink;
+    _conn_info.host = t_mysql_sink.host;
+    _conn_info.port = t_mysql_sink.port;
+    _conn_info.user = t_mysql_sink.user;
+    _conn_info.passwd = t_mysql_sink.passwd;
+    _conn_info.db = t_mysql_sink.db;
+    _conn_info.table_name = t_mysql_sink.table;
+    _conn_info.charset = t_mysql_sink.charset;
+}
 
 VMysqlTableWriter::~VMysqlTableWriter() {
     if (_mysql_conn) {
@@ -68,16 +79,17 @@ VMysqlTableWriter::~VMysqlTableWriter() {
     }
 }
 
-Status VMysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string& tbl) {
+Status VMysqlTableWriter::open() {
     _mysql_conn = mysql_init(nullptr);
     if (_mysql_conn == nullptr) {
         return Status::InternalError("Call mysql_init failed.");
     }
 
-    MYSQL* res = mysql_real_connect(_mysql_conn, conn_info.host.c_str(), conn_info.user.c_str(),
-                                    conn_info.passwd.c_str(), conn_info.db.c_str(), conn_info.port,
-                                    nullptr, // unix socket
-                                    0);      // flags
+    MYSQL* res =
+            mysql_real_connect(_mysql_conn, _conn_info.host.c_str(), _conn_info.user.c_str(),
+                               _conn_info.passwd.c_str(), _conn_info.db.c_str(), _conn_info.port,
+                               nullptr, // unix socket
+                               0);      // flags
     if (res == nullptr) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "mysql_real_connect failed because : {}.", mysql_error(_mysql_conn));
@@ -85,26 +97,24 @@ Status VMysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string
     }
 
     // set character
-    if (mysql_set_character_set(_mysql_conn, conn_info.charset.c_str())) {
+    if (mysql_set_character_set(_mysql_conn, _conn_info.charset.c_str())) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "mysql_set_character_set failed because : {}.",
                        mysql_error(_mysql_conn));
         return Status::InternalError(fmt::to_string(err_ss.data()));
     }
 
-    _mysql_tbl = tbl;
-
     return Status::OK();
 }
 
-Status VMysqlTableWriter::append(vectorized::Block* block) {
+Status VMysqlTableWriter::append_block(vectorized::Block& block) {
     Status status = Status::OK();
-    if (block == nullptr || block->rows() == 0) {
+    if (block.rows() == 0) {
         return status;
     }
     Block output_block;
     RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, *block, &output_block));
+            _vec_output_expr_ctxs, block, &output_block));
     auto num_rows = output_block.rows();
     materialize_block_inplace(output_block);
     for (int i = 0; i < num_rows; ++i) {
@@ -115,7 +125,7 @@ Status VMysqlTableWriter::append(vectorized::Block* block) {
 
 Status VMysqlTableWriter::insert_row(vectorized::Block& block, size_t row) {
     _insert_stmt_buffer.clear();
-    fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", _mysql_tbl);
+    fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", _conn_info.table_name);
     int num_columns = _vec_output_expr_ctxs.size();
 
     for (int i = 0; i < num_columns; ++i) {

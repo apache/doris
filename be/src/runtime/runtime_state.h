@@ -160,11 +160,11 @@ public:
 
     bool is_cancelled() const { return _is_cancelled.load(); }
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v) {
+    void set_is_cancelled(bool v, std::string msg) {
         _is_cancelled.store(v);
         // Create a error status, so that we could print error stack, and
         // we could know which path call cancel.
-        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>("");
+        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>(msg);
     }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }

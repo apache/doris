@@ -221,14 +221,27 @@ suite("test_hive_statistic", "p2,external,hive,external_remote,external_remote_h
         assertTrue(result[0][6] == "'AIR'")
         assertTrue(result[0][7] == "'TRUCK'")
 
-        // sql """ALTER TABLE statistics MODIFY COLUMN lo_shipmode SET STATS ('row_count'='6001215')"""
-        // result = sql "show column stats `statistics` (lo_shipmode)"
-        // assertTrue(result.size() == 1)
-        // assertTrue(result[0][0] == "lo_shipmode")
-        // assertTrue(result[0][1] == "6001215.0")
+        sql """ALTER TABLE statistics MODIFY COLUMN lo_shipmode SET STATS ('row_count'='6001215')"""
+        result = sql "show column stats `statistics` (lo_shipmode)"
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][0] == "lo_shipmode")
+        assertTrue(result[0][1] == "6001215.0")
 
         sql """drop stats statistics"""
         result = sql """show column stats statistics"""
+        assertTrue(result.size() == 0)
+
+        sql """analyze database `statistics` with sync"""
+        result = sql """show table stats statistics"""
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][0] == "100")
+
+        result = sql """show table cached stats statistics"""
+        assertTrue(result.size() == 1)
+        assertTrue(result[0][0] == "100")
+
+        sql """drop stats statistics"""
+        result = sql """show column cached stats statistics"""
         assertTrue(result.size() == 0)
     }
 }

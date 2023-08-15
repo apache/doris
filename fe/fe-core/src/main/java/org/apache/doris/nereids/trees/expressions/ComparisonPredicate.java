@@ -25,20 +25,16 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
+import java.util.List;
+
 /**
  * Comparison predicate expression.
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
 public abstract class ComparisonPredicate extends BinaryOperator {
 
-    /**
-     * Constructor of ComparisonPredicate.
-     *
-     * @param left     left child of comparison predicate
-     * @param right    right child of comparison predicate
-     */
-    public ComparisonPredicate(Expression left, Expression right, String symbol) {
-        super(left, right, symbol);
+    public ComparisonPredicate(List<Expression> children, String symbol) {
+        super(children, symbol);
     }
 
     @Override
