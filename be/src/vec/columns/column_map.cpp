@@ -169,7 +169,7 @@ void ColumnMap::pop_back(size_t n) {
 }
 
 void ColumnMap::insert_from(const IColumn& src_, size_t n) {
-    DCHECK(n >= 0 && n < src_.size());
+    DCHECK(n < src_.size());
     const ColumnMap& src = assert_cast<const ColumnMap&>(src_);
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
