@@ -334,8 +334,13 @@ public class DeleteStmt extends DdlStmt {
             }
             if (!column.isKey()) {
                 if (table.getKeysType() == KeysType.AGG_KEYS) {
-                    throw new AnalysisException("delete predicate on value column only supports Unique table and"
-                            + " Duplicate table, but " + "Table[" + table.getName() + "] is an Aggregate table.");
+                    throw new AnalysisException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
+                } else if (table.getKeysType() == KeysType.UNIQUE_KEYS && !table.getEnableUniqueKeyMergeOnWrite()) {
+                    throw new AnalysisException("delete predicate on value column only supports Unique table with"
+                            + " merge-on-write enabled and Duplicate table, but " + "Table[" + table.getName()
+                                    + "] is an Aggregate table.");
                 }
             }
 
