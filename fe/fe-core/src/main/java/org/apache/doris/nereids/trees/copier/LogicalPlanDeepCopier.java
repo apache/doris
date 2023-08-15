@@ -116,7 +116,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         Optional<Expression> subCorrespondingConjunct = apply.getSubCorrespondingConjunct()
                 .map(c -> ExpressionDeepCopier.INSTANCE.deepCopy(c, context));
         return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
-                markJoinSlotReference, subCorrespondingConjunct, apply.isNeedAddSubOutputToProjects(), left, right);
+                markJoinSlotReference, subCorrespondingConjunct,
+                apply.isNeedAddSubOutputToProjects(), apply.isInProject(), left, right);
     }
 
     @Override
