@@ -519,8 +519,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 if (serialized) {
                     auto cur_block = _serializer.get_block()->to_block();
                     if (!cur_block.empty()) {
-                        _serializer.serialize_block(&cur_block, block_holder->get_block(),
-                                                    _channels.size());
+                        RETURN_IF_ERROR(_serializer.serialize_block(
+                                &cur_block, block_holder->get_block(), _channels.size()));
                     } else {
                         block_holder->get_block()->Clear();
                     }
@@ -548,7 +548,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             if (serialized) {
                 auto cur_block = _serializer.get_block()->to_block();
                 if (!cur_block.empty()) {
-                    _serializer.serialize_block(&cur_block, _cur_pb_block, _channels.size());
+                    RETURN_IF_ERROR(_serializer.serialize_block(&cur_block, _cur_pb_block,
+                                                                _channels.size()));
                 }
                 Status status;
                 for (auto channel : _channels) {
@@ -658,7 +659,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 }
 
 Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
-    DCHECK(_serializer.get_block() == nullptr || _serializer.get_block()->rows() == 0);
+    _serializer.reset_block();
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
         Status st = _channels[i]->close(state);
