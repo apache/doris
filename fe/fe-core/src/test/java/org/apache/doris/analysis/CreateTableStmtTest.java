@@ -216,7 +216,7 @@ public class CreateTableStmtTest {
                 new HashDistributionDesc(10, Lists.newArrayList("col3")), properties, null, "");
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("table property 'enable_duplicate_without_keys_by_default' only can "
-                                                + "set 'true' when create olap table by default.");
+                + "set 'true' when create olap table by default.");
         stmt1.analyze(analyzer);
 
         CreateTableStmt stmt2 = new CreateTableStmt(false, false, tblName, cols, "olap",
@@ -442,5 +442,69 @@ public class CreateTableStmtTest {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 "String Type should not be used in key column[string_col].", () -> col.analyze(true));
         col.analyze(false);
+    }
+
+    @Test
+    public void testToSql() {
+        List<ColumnDef> columnDefs = new ArrayList<>();
+        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT), false));
+        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT), false));
+        String engineName = "olap";
+        ArrayList<String> aggKeys = Lists.newArrayList("a");
+        KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        TableName tableName = new TableName("internal", "demo", "testTosql1");
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, columnDefs, engineName, keysDesc, null, null,
+                properties, null, "", null);
+
+        String createTableSql = "CREATE TABLE IF NOT EXISTS `demo`.`testTosql1` (\n"
+                + "  `a` bigint(20) NOT NULL COMMENT \"\",\n"
+                + "  `b` int(11) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "AGGREGATE KEY(`a`)\n"
+                + "PROPERTIES (\"replication_num\"  =  \"1\")";
+
+        Assert.assertEquals(createTableStmt.toSql(), createTableSql);
+
+
+        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), true));
+        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), true));
+        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128), false));
+        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE), false));
+        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT), false));
+        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN), false));
+
+        aggKeys = Lists.newArrayList("a", "d", "f");
+        keysDesc = new KeysDesc(KeysType.DUP_KEYS, aggKeys);
+        properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Math.max(10,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        tableName = new TableName("internal", "demo", "testTosql2");
+        createTableStmt = new CreateTableStmt(false, false,
+                tableName, columnDefs, engineName, keysDesc, null, null,
+                properties, null, "", null);
+        createTableSql = "CREATE TABLE `demo`.`testTosql2` (\n"
+                + "  `a` bigint(20) NOT NULL COMMENT \"\",\n"
+                + "  `b` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `c` text NULL COMMENT \"\",\n"
+                + "  `d` double NULL COMMENT \"\",\n"
+                + "  `e` decimalv3(38, 0) NOT NULL COMMENT \"\",\n"
+                + "  `f` date NOT NULL COMMENT \"\",\n"
+                + "  `g` smallint(6) NOT NULL COMMENT \"\",\n"
+                + "  `h` boolean NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "DUPLICATE KEY(`a`, `d`, `f`)\n"
+                + "PROPERTIES (\"replication_num\"  =  \"10\")";
+        Assert.assertEquals(createTableStmt.toSql(), createTableSql);
+
     }
 }
