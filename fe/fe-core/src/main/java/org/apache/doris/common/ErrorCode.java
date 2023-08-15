@@ -1205,7 +1205,10 @@ public enum ErrorCode {
             "the auto increment must be BIGINT type."),
 
     ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE(5096, new byte[]{'4', '2', '0', '0', '0'},
-            "the auto increment is only supported in duplicate table.");
+            "the auto increment is only supported in duplicate table."),
+
+    ERR_AUTO_INCREMENT_COLUMN_NOT_SUPPORTED(5097, new byte[]{'4', '2', '0', '0', '0'},
+            "auto increment column is not supported currently.");
 
     // This is error code
     private final int code;
