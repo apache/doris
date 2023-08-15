@@ -89,7 +89,6 @@ github:
           - CheckStyle
           - Build Documents
           - ShellCheck
-          - Need_2_Approval
           - COMPILE (DORIS_COMPILE)
           - P0 Regression (Doris Regression)
           - FE UT (Doris FE UT)
