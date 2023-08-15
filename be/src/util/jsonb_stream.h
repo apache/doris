@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <cinttypes>
+#include <fmt/format.h>
 #include <iostream>
 
 namespace doris {
@@ -130,40 +131,15 @@ public:
         size_ += len;
     }
 
-    // TODO: use more efficient impl for int128
     void write(int128_t l) {
         // snprintf automatically adds a NULL, so we need one more char
         if (size_ + MAX_INT128_DIGITS + 1 > capacity_) {
             realloc(MAX_INT128_DIGITS + 1);
         }
 
-        int len = 0;
-        // output negtive sign
-        if (l < 0) {
-            *(head_ + size_) = '-';
-            size_ += 1;
-        }
-
-        uint32_t start_size = size_;
-
-        // snprintf from low digit to high digit
-        while (l != 0) {
-            // get lowest digit
-            int n = l % 10;
-            if (n < 0) {
-                n = 0 - n;
-            }
-            assert(n >= 0 && n < 10);
-            len = snprintf(head_ + size_, MAX_INT128_DIGITS, "%d", n);
-            assert(len == 1);
-            size_ += len;
-
-            // shift out lowest digit by dividing 10
-            l = l / 10;
-        }
-
-        // reverse to hight digit to low digit
-        std::reverse(head_ + start_size, head_ + size_);
+        const auto result = fmt::format_to_n(head_ + size_, MAX_INT128_DIGITS, "{}", l);
+        assert(result.size > 0);
+        size_ += result.size;
     }
 
     // write the double to string
