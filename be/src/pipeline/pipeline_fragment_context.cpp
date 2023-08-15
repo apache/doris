@@ -157,7 +157,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             _exec_status = Status::Cancelled(msg);
         }
-        _runtime_state->set_is_cancelled(true);
+        _runtime_state->set_is_cancelled(true, msg);
 
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
 
@@ -172,7 +172,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+            stream_load_ctx->pipe->cancel(msg);
         }
         _cancel_reason = reason;
         _cancel_msg = msg;

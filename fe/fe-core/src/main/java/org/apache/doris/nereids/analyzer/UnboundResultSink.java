@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -40,12 +41,12 @@ import java.util.Optional;
 public class UnboundResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> implements Unbound, Sink {
 
     public UnboundResultSink(CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, child);
+        super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, ImmutableList.of(), child);
     }
 
     public UnboundResultSink(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_UNBOUND_RESULT_SINK, ImmutableList.of(), groupExpression, logicalProperties, child);
     }
 
     @Override

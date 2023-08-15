@@ -44,10 +44,15 @@ public:
 
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
+    Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
+        return _writer->sink(state, block, eos);
+    }
+
     Status close(RuntimeState* state, Status exec_status) override;
 
+    bool is_close_done() override { return !_writer->is_pending_finish(); }
+
 private:
-    MysqlConnInfo _conn_info;
     std::unique_ptr<VMysqlTableWriter> _writer;
 };
 } // namespace vectorized

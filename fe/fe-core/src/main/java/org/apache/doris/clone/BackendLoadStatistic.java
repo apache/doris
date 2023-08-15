@@ -87,11 +87,14 @@ public class BackendLoadStatistic {
     private Tag tag;
 
     public static class LoadScore {
-        public double replicaNumCoefficient = 0.5;
         public double capacityCoefficient = 0.5;
         public double score = 0.0;
 
         public static final LoadScore DUMMY = new LoadScore();
+
+        public double getReplicaNumCoefficient() {
+            return 1.0 - capacityCoefficient;
+        }
     }
 
     private Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
@@ -244,24 +247,27 @@ public class BackendLoadStatistic {
     }
 
     public void calcScore(Map<TStorageMedium, Double> avgClusterUsedCapacityPercentMap,
+            Map<TStorageMedium, Double> maxUsedPercentDiffMap,
             Map<TStorageMedium, Double> avgClusterReplicaNumPerBackendMap) {
 
         for (TStorageMedium medium : TStorageMedium.values()) {
-            LoadScore loadScore = calcSore(totalUsedCapacityMap.getOrDefault(medium, 0L),
+            LoadScore loadScore = calcScore(totalUsedCapacityMap.getOrDefault(medium, 0L),
                     totalCapacityMap.getOrDefault(medium, 1L),
                     totalReplicaNumMap.getOrDefault(medium, 0L),
                     avgClusterUsedCapacityPercentMap.getOrDefault(medium, 0.0),
+                    maxUsedPercentDiffMap.getOrDefault(medium, 0.0),
                     avgClusterReplicaNumPerBackendMap.getOrDefault(medium, 0.0));
 
             loadScoreMap.put(medium, loadScore);
 
             LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
-                    beId, medium, loadScore.capacityCoefficient, loadScore.replicaNumCoefficient, loadScore.score);
+                    beId, medium, loadScore.capacityCoefficient, loadScore.getReplicaNumCoefficient(),
+                    loadScore.score);
         }
     }
 
-    public static LoadScore calcSore(long beUsedCapacityB, long beTotalCapacityB, long beTotalReplicaNum,
-            double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
+    public static LoadScore calcScore(long beUsedCapacityB, long beTotalCapacityB, long beTotalReplicaNum,
+            double avgClusterUsedCapacityPercent, double maxUsedPercentDiff, double avgClusterReplicaNumPerBackend) {
 
         double usedCapacityPercent = (beUsedCapacityB / (double) beTotalCapacityB);
         double capacityProportion = avgClusterUsedCapacityPercent <= 0 ? 0.0
@@ -271,20 +277,69 @@ public class BackendLoadStatistic {
 
         LoadScore loadScore = new LoadScore();
 
-        // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
-        // Else if capacity used percent > 75%, set capacityCoefficient to 1.
-        // Else, capacityCoefficient changed smoothly from 0.5 to 1 with used capacity increasing
-        // Function: (2 * usedCapacityPercent - 0.5)
-        if (!Config.be_rebalancer_fuzzy_test) {
-            loadScore.capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
-                    : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
-                            : (2 * usedCapacityPercent - 0.5));
-            loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
+        if (Config.backend_load_capacity_coeficient >= 0.0 && Config.backend_load_capacity_coeficient <= 1.0) {
+            loadScore.capacityCoefficient = Config.backend_load_capacity_coeficient;
+        } else if (!Config.be_rebalancer_fuzzy_test) {
+            // Emphasize disk usage for calculating load score.
+            //
+            // thisBeCapacityCoefficient:
+            //   If this be has a high used capacity percent, we should increase its load score.
+            //   So we increase capacity coefficient with this be's used capacity percent.
+            //
+            // Also we emphasize the difference of disk usage between all the BEs.
+            // For example, if the tablets have a big difference in data size.
+            // Then for below two BEs, their load score maybe the same:
+            // BE A:  disk usage = 60%,  replica number = 2000  (it contains the big tablets)
+            // BE B:  disk usage = 30%,  replica number = 4000  (it contains the small tablets)
+            //
+            // But what we want is: firstly move some big tablets from A to B, after their disk usages are close,
+            // then move some small tablets from B to A, finally both of their disk usages and replica number
+            // are close.
+            //
+            // allBeCapacityCoefficient is used to achieve this, when the max difference between all BE's
+            // disk usages >= 30%,  we set the capacity cofficient to 1.0 and avoid the affect of replica num.
+            // After the disk usage difference decrease, then decrease the capacity cofficient.
+            //
+            double thisBeCapacityCoefficient = getSmoothCofficient(usedCapacityPercent, 0.5,
+                    Config.capacity_used_percent_high_water);
+            double allBeCapacityCoefficient = getSmoothCofficient(maxUsedPercentDiff, 0.05,
+                    Config.used_capacity_percent_max_diff);
+
+            loadScore.capacityCoefficient = Math.max(thisBeCapacityCoefficient, allBeCapacityCoefficient);
         }
         loadScore.score = capacityProportion * loadScore.capacityCoefficient
-                + replicaNumProportion * loadScore.replicaNumCoefficient;
+                + replicaNumProportion * loadScore.getReplicaNumCoefficient();
 
         return loadScore;
+    }
+
+    // the return cofficient:
+    // 1. percent <= percentLowWatermark: cofficient = 0.5;
+    // 2. percentLowWatermark < percent < percentHighWatermark: cofficient linear increase from 0.5 to 1.0;
+    // 3. percent >= percentHighWatermark: cofficient = 1.0;
+    public static double getSmoothCofficient(double percent, double percentLowWatermark,
+            double percentHighWatermark) {
+        final double lowCofficient = 0.5;
+        final double highCofficient = 1.0;
+
+        // low watermark and high watermark equal, then return 0.75
+        if (Math.abs(percentHighWatermark - percentLowWatermark) < 1e-6) {
+            return (lowCofficient + highCofficient) / 2;
+        }
+        if (percentLowWatermark > percentHighWatermark) {
+            double tmp = percentLowWatermark;
+            percentLowWatermark = percentHighWatermark;
+            percentHighWatermark = tmp;
+        }
+        if (percent <= percentLowWatermark) {
+            return lowCofficient;
+        }
+        if (percent >= percentHighWatermark) {
+            return highCofficient;
+        }
+
+        return lowCofficient + (highCofficient - lowCofficient)
+            * (percent - percentLowWatermark) / (percentHighWatermark - percentLowWatermark);
     }
 
     public BalanceStatus isFit(long tabletSize, TStorageMedium medium,
@@ -444,7 +499,7 @@ public class BackendLoadStatistic {
         info.add(String.valueOf(totalReplicaNumMap.getOrDefault(medium, 0L)));
         LoadScore loadScore = loadScoreMap.getOrDefault(medium, new LoadScore());
         info.add(String.valueOf(loadScore.capacityCoefficient));
-        info.add(String.valueOf(loadScore.replicaNumCoefficient));
+        info.add(String.valueOf(loadScore.getReplicaNumCoefficient()));
         info.add(String.valueOf(loadScore.score));
         info.add(clazzMap.getOrDefault(medium, Classification.INIT).name());
         return info;

@@ -22,9 +22,9 @@ import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
-import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
+import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -86,7 +86,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 new UserAuthentication(),
                 new BindExpression()
             ),
-            topDown(new BindInsertTargetTable()),
+            topDown(new BindSink()),
             bottomUp(new CheckBound()),
             bottomUp(
                 new ProjectToGlobalAggregate(),
