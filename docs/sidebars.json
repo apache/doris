@@ -1279,8 +1279,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
-                "releasenotes/release-2.0-Beta",
-                "releasenotes/release-2.0-Alpha",
+                "releasenotes/release-2.0.0",
                 "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4",

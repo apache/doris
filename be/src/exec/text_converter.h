@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <cstddef>
 
 #include "vec/columns/column.h"
 
@@ -33,9 +33,15 @@ public:
 
     TextConverter(char escape_char, char collection_delimiter = '\2', char map_kv_delimiter = '\3');
 
+    inline void write_string_column(const SlotDescriptor* slot_desc,
+                                    vectorized::MutableColumnPtr* column_ptr, const char* data,
+                                    size_t len) {
+        return write_string_column(slot_desc, column_ptr, data, len, false);
+    }
+
     void write_string_column(const SlotDescriptor* slot_desc,
-                             vectorized::MutableColumnPtr* column_ptr, const char* data,
-                             size_t len);
+                             vectorized::MutableColumnPtr* column_ptr, const char* data, size_t len,
+                             bool need_escape);
 
     inline bool write_column(const SlotDescriptor* slot_desc,
                              vectorized::MutableColumnPtr* column_ptr, const char* data, size_t len,
@@ -61,6 +67,8 @@ public:
         _collection_delimiter = collection_delimiter;
     }
     void set_map_kv_delimiter(char mapkv_delimiter) { _map_kv_delimiter = mapkv_delimiter; }
+
+    inline void set_escape_char(const char escape) { this->_escape_char = escape; }
 
 private:
     bool _write_data(const TypeDescriptor& type_desc, vectorized::IColumn* nullable_col_ptr,

@@ -469,6 +469,7 @@ struct TMasterOpRequest {
     22: optional string clientNodeHost
     23: optional i32 clientNodePort
     24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
+    25: optional string defaultCatalog
 }
 
 struct TColumnDefinition {
@@ -609,6 +610,10 @@ struct TStreamLoadPutRequest {
     48: optional i64 backend_id
     49: optional i32 version // version 1 means use load_sql
     50: optional string label
+    // only valid when file type is CSV
+    51: optional i8 enclose
+    // only valid when file type is CSV
+    52: optional i8 escape
 }
 
 struct TStreamLoadPutResult {
