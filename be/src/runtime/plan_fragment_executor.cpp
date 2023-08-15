@@ -45,6 +45,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/query_statistics.h"
@@ -74,6 +75,7 @@
 namespace doris {
 using namespace ErrorCode;
 
+#ifndef BE_TEST
 PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
                                            const report_status_callback& report_status_cb)
         : _exec_env(exec_env),
@@ -571,6 +573,7 @@ void PlanFragmentExecutor::close() {
     profile()->add_to_span(_span);
     _closed = true;
 }
+#endif
 
 ///////////////// FragmentExecState //////////////
 

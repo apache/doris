@@ -48,6 +48,7 @@ class DescriptorTbl;
 class ExecEnv;
 class ObjectPool;
 class QueryStatistics;
+struct ReportStatusRequest;
 
 namespace vectorized {
 class Block;
