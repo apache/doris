@@ -571,7 +571,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
         boolean needReturn = true;
         try {
             TBrokerListPathRequest req = new TBrokerListPathRequest(TBrokerVersion.VERSION_ONE, remotePath,
-                recursive, properties);
+                    recursive, properties);
             req.setOnlyFiles(onlyFiles);
             TBrokerListResponse response = client.listLocatedFiles(req);
             TBrokerOperationStatus operationStatus = response.getOpStatus();
@@ -583,7 +583,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
             List<TBrokerFileStatus> fileStatus = response.getFiles();
             for (TBrokerFileStatus tFile : fileStatus) {
                 RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size,
-                    tFile.getBlockSize(), tFile.getModificationTime());
+                        tFile.getBlockSize(), tFile.getModificationTime());
                 result.add(file);
             }
             LOG.info("finished to listLocatedFiles, remote path {}. get files: {}", remotePath, result);

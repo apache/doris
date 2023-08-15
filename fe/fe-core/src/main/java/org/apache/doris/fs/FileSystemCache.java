@@ -87,8 +87,8 @@ public class FileSystemCache {
                 return false;
             }
             boolean equalsWithoutBroker = type.equals(((FileSystemCacheKey) obj).type)
-                && fsIdent.equals(((FileSystemCacheKey) obj).fsIdent)
-                && conf == ((FileSystemCacheKey) obj).conf;
+                    && fsIdent.equals(((FileSystemCacheKey) obj).fsIdent)
+                    && conf == ((FileSystemCacheKey) obj).conf;
             if (bindBrokerName == null) {
                 return equalsWithoutBroker;
             }

@@ -83,7 +83,7 @@ public class FileSystemFactory {
         return Pair.of(fsType, fsIdent);
     }
 
-    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type,Configuration conf,
+    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Configuration conf,
                                                        String bindBrokerName) {
         Map<String, String> properties = new HashMap<>();
         conf.iterator().forEachRemaining(e -> properties.put(e.getKey(), e.getValue()));
