@@ -1437,6 +1437,7 @@ void Tablet::get_rowsets_info_pretty_json(rapidjson::Document& root, rapidjson::
         }
         rapidjson::Value value;
         std::string version_str = get_rowset_info_str(rowsets[i], delete_flags[i]);
+        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
         last_version = ver.second;
     }
@@ -3743,23 +3744,13 @@ Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, i
         required_rowsets_arr.SetArray();
         rapidjson::Document missing_rowsets_arr;
         missing_rowsets_arr.SetArray();
-        rapidjson::Document missing_versions_arr;
-        missing_versions_arr.SetArray();
 
-        int64_t last_version = -1;
         for (int i = 0; i < rowsets.size(); ++i) {
-            const Version& ver = rowsets[i]->version();
-            if (ver.first != last_version + 1) {
-                rapidjson::Value miss_value;
-                miss_value.SetString(
-                        strings::Substitute("[$0-$1]", last_version + 1, ver.first - 1).c_str(),
-                        missing_versions_arr.GetAllocator());
-                missing_versions_arr.PushBack(miss_value, missing_versions_arr.GetAllocator());
-            }
             rapidjson::Value value;
             std::string version_str = get_rowset_info_str(rowsets[i], delete_flags[i]);
+            value.SetString(version_str.c_str(), version_str.length(),
+                            required_rowsets_arr.GetAllocator());
             required_rowsets_arr.PushBack(value, required_rowsets_arr.GetAllocator());
-            last_version = ver.second;
         }
         for (const auto& missing_rowset_id : missing_ids) {
             rapidjson::Value miss_value;
@@ -3771,7 +3762,6 @@ Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, i
 
         root.AddMember("requied_rowsets", required_rowsets_arr, root.GetAllocator());
         root.AddMember("missing_rowsets", missing_rowsets_arr, root.GetAllocator());
-        root.AddMember("missing_versions", missing_versions_arr, root.GetAllocator());
         rapidjson::StringBuffer strbuf;
         rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
         root.Accept(writer);
