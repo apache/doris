@@ -73,7 +73,6 @@ E(COMPRESS_ERROR, -111);
 E(DECOMPRESS_ERROR, -112);
 E(UNKNOWN_COMPRESSION_TYPE, -113);
 E(MMAP_ERROR, -114);
-E(READ_UNENOUGH, -116);
 E(CANNOT_CREATE_DIR, -117);
 E(UB_NETWORK_ERROR, -118);
 E(FILE_FORMAT_ERROR, -119);
@@ -96,8 +95,6 @@ E(VERSION_NOT_EXIST, -214);
 E(TABLE_NOT_FOUND, -215);
 E(TRY_LOCK_FAILED, -216);
 E(OUT_OF_BOUND, -218);
-E(FILE_DATA_ERROR, -220);
-E(TEST_FILE_ERROR, -221);
 E(INVALID_ROOT_PATH, -222);
 E(NO_AVAILABLE_ROOT_PATH, -223);
 E(CHECK_LINES_ERROR, -224);
@@ -412,17 +409,6 @@ public:
     void set_code(int code) { _code = code; }
 
     bool ok() const { return _code == ErrorCode::OK; }
-
-    bool is_io_error() const {
-        return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
-               ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
-               ErrorCode::TEST_FILE_ERROR == _code;
-    }
-
-    bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
-
-    bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
-    bool is_not_authorized() const { return code() == TStatusCode::NOT_AUTHORIZED; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
