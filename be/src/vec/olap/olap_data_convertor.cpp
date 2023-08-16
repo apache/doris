@@ -1052,12 +1052,16 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
 void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
     // set
-    auto root = assert_cast<const ColumnObject&>(*typed_column.column).get_root();
+    auto variant = assert_cast<const ColumnObject&>(*typed_column.column);
+    if (!variant.is_finalized()) {
+        variant.finalize();
+    }
+    auto root = variant.get_root();
     auto nullable = assert_cast<const ColumnNullable*>(root.get());
     CHECK(nullable);
     _root_data_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
     _nullmap = nullable->get_null_map_data().data();
-    _root_data_convertor->set_source_column({root, nullptr, ""}, row_pos, num_rows);
+    _root_data_convertor->set_source_column({root->get_ptr(), nullptr, ""}, row_pos, num_rows);
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 }
