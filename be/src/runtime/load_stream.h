@@ -80,6 +80,8 @@ public:
     void flush(uint32_t sender_id);
     void close(std::vector<int64_t>* success_tablet_ids, std::vector<int64_t>* failed_tablet_ids);
 
+    Status open_tablet(int64_t partition_id, int64_t tablet_id);
+
 private:
     int64_t _id;
     uint32_t _num_senders;
@@ -116,6 +118,8 @@ public:
     void on_closed(StreamId id) override;
 
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_stream);
+
+    Status open_tablet(int64_t index_id, int64_t partition_id, int64_t tablet_id);
 
 private:
     void _parse_header(butil::IOBuf* const message, PStreamHeader& hdr);

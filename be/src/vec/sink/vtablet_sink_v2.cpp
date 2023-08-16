@@ -329,6 +329,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
                     auto req = request.add_tablets();
                     req->set_tablet_id(tablet_id);
                     req->set_index_id(index.index_id);
+                    req->set_partition_id(partition->id);
                 }
             }
         }

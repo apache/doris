@@ -58,6 +58,7 @@ Status LoadStreamMgr::try_open_load_stream(const POpenStreamSinkRequest* request
             _load_streams_map[load_id] = *load_stream;
         }
     }
+
     return Status::OK();
 }
 
