@@ -465,6 +465,14 @@ public:
     // if(!status) or if (status) will use this operator
     operator bool() const { return this->ok(); }
 
+    // Used like if ASSERT_EQ(res, Status::OK())
+    // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
+    // ignore error messages during comparison
+    bool operator==(const Status& st) const { return _code == st._code; }
+
+    // Used like if ASSERT_NE(res, Status::OK())
+    bool operator!=(const Status& st) const { return _code != st._code; }
+
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
 private:
@@ -481,14 +489,6 @@ private:
         return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
                                : fmt::format("E{}", (int16_t)_code);
     }
-
-    // Used like if ASSERT_EQ(res, Status::OK())
-    // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
-    // ignore error messages during comparison
-    bool operator==(const Status& st) const { return _code == st._code; }
-
-    // Used like if ASSERT_NE(res, Status::OK())
-    bool operator!=(const Status& st) const { return _code != st._code; }
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {

@@ -819,7 +819,7 @@ Status VFileScanner::_get_next_reader() {
         if (_state->query_options().truncate_char_or_varchar_columns && need_to_get_parsed_schema) {
             Status status = _cur_reader->get_parsed_schema(&_source_file_col_names,
                                                            &_source_file_col_types);
-            if (status != Status::OK() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
+            if (!status.ok() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
                 return status;
             }
             DCHECK(_source_file_col_names.size() == _source_file_col_types.size());

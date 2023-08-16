@@ -1124,7 +1124,7 @@ Status TabletManager::start_trash_sweep() {
                     (*it)->tablet_meta()->save(meta_file_path);
                     LOG(INFO) << "start to move tablet to trash. " << tablet_path;
                     Status rm_st = (*it)->data_dir()->move_to_trash(tablet_path);
-                    if (rm_st != Status::OK()) {
+                    if (!rm_st.ok()) {
                         LOG(WARNING) << "fail to move dir to trash. " << tablet_path;
                         ++it;
                         continue;
