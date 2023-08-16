@@ -97,6 +97,7 @@ public:
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
+    // TODO(hzq): what is the different between this two overload versions?
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
@@ -148,11 +149,11 @@ private:
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
     void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
-                                                    RuntimeState* state, QueryContext* query_ctx);
+                                                    QueryContext* query_ctx);
 
     void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
                                                     const TPipelineInstanceParams& local_params,
-                                                    RuntimeState* state, QueryContext* query_ctx);
+                                                    QueryContext* query_ctx);
 
     template <typename Params>
     Status _get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,

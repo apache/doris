@@ -74,8 +74,8 @@ class TRuntimeProfileTree;
 
 class ObjectPool;
 
-// Runtime profile is a group of profiling counters.  It supports adding named counters
-// and being able to serialize and deserialize them.
+// Runtime profile is a group of profiling counters.  
+// It supports to add named counters and is able to serialize and deserialize them.
 // The profiles support a tree structure to form a hierarchy of counters.
 // Runtime profiles supports measuring wall clock rate based counters.  There is a
 // single thread per process that will convert an amount (i.e. bytes) counter to a
@@ -100,13 +100,13 @@ public:
             _value.store(binary_cast<double, int64_t>(value), std::memory_order_relaxed);
         }
 
-        virtual int64_t value() const { return _value.load(std::memory_order_relaxed); }
+        [[nodiscard]] virtual int64_t value() const { return _value.load(std::memory_order_relaxed); }
 
-        virtual double double_value() const {
+        [[nodiscard]] virtual double double_value() const {
             return binary_cast<int64_t, double>(_value.load(std::memory_order_relaxed));
         }
 
-        TUnit::type type() const { return _type; }
+        [[nodiscard]] TUnit::type type() const { return _type; }
 
     private:
         friend class RuntimeProfile;
@@ -115,8 +115,8 @@ public:
         TUnit::type _type;
     };
 
-    /// A counter that keeps track of the highest value seen (reporting that
-    /// as value()) and the current value.
+    // A counter that keeps track of the highest value ever seen (reporting that
+    // as value()) and the current value.
     class HighWaterMarkCounter : public Counter {
     public:
         HighWaterMarkCounter(TUnit::type unit) : Counter(unit), current_value_(0) {}
@@ -148,7 +148,7 @@ public:
             UpdateMax(v);
         }
 
-        int64_t current_value() const { return current_value_.load(std::memory_order_relaxed); }
+        [[nodiscard]] int64_t current_value() const { return current_value_.load(std::memory_order_relaxed); }
 
     private:
         /// Set '_value' to 'v' if 'v' is larger than '_value'. The entire operation is
@@ -181,7 +181,7 @@ public:
         DerivedCounter(TUnit::type type, const DerivedCounterFunction& counter_fn)
                 : Counter(type, 0), _counter_fn(counter_fn) {}
 
-        int64_t value() const override { return _counter_fn(); }
+        [[nodiscard]] int64_t value() const override { return _counter_fn(); }
 
     private:
         DerivedCounterFunction _counter_fn;
@@ -418,8 +418,8 @@ private:
     /// All counters in this profile must be of unit AveragedCounter.
     bool _is_averaged_profile;
 
-    // Map from counter names to counters.  The profile owns the memory for the
-    // counters.
+    // Map from counter names to counters.
+    // The profile owns the memory of the counters.
     using CounterMap = std::map<std::string, Counter*>;
     CounterMap _counter_map;
 
@@ -513,7 +513,7 @@ private:
     }
 };
 
-// Utility class to update the counter at object construction and destruction.
+// Utility class to update the counter during object construction and destruction.
 // When the object is constructed, decrement the counter by val.
 // When the object goes out of scope, increment the counter by val.
 class ScopedCounter {

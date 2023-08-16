@@ -524,8 +524,7 @@ Status RuntimeFilterMergeController::add_entity(
         return Status::OK();
     }
 
-    runtime_filter_merge_entity_closer entity_closer =
-            std::bind(runtime_filter_merge_entity_close, this, std::placeholders::_1);
+    runtime_filter_merge_entity_closer entity_closer = std::bind(runtime_filter_merge_entity_close, this, std::placeholders::_1);
 
     UniqueId query_id(params.query_id);
     std::string query_id_str = query_id.to_string();

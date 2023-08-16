@@ -135,9 +135,9 @@ public:
     Status merge(const PMergeFilterRequest* request, butil::IOBufAsZeroCopyInputStream* attach_data,
                  bool opt_remote_rf);
 
-    UniqueId query_id() const { return _query_id; }
+    [[nodiscard]] UniqueId query_id() const { return _query_id; }
 
-    UniqueId instance_id() const { return _fragment_instance_id; }
+    [[nodiscard]] UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t merge_time;
@@ -150,7 +150,6 @@ public:
         std::shared_ptr<ObjectPool> pool;
     };
 
-public:
     RuntimeFilterCntlVal* get_filter(int id) { return _filter_map[id].first.get(); }
 
 private:
@@ -186,10 +185,10 @@ public:
     // add a query-id -> entity
     // If a query-id -> entity already exists
     // add_entity will return a exists entity
-    Status add_entity(const TExecPlanFragmentParams& params,
+    [[nodiscard]] Status add_entity(const TExecPlanFragmentParams& params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                       RuntimeState* state);
-    Status add_entity(const TPipelineFragmentParams& params,
+    [[nodiscard]] Status add_entity(const TPipelineFragmentParams& params,
                       const TPipelineInstanceParams& local_params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                       RuntimeState* state);
