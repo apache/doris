@@ -27,12 +27,12 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -277,14 +277,14 @@ public class PolicyMgr implements Writable {
                 if (policy instanceof StoragePolicy) {
                     ((StoragePolicy) policy).removeResourceReference();
                 }
+                if (policy instanceof RowPolicy) {
+                    dropTablePolicys((RowPolicy) policy);
+                }
                 return true;
             }
             return false;
         });
         typeToPolicyMap.put(log.getType(), policies);
-        if (PolicyTypeEnum.ROW == log.getType()) {
-            dropTablePolicys(log);
-        }
     }
 
     /**
@@ -299,9 +299,8 @@ public class PolicyMgr implements Writable {
     }
 
     public List<RowPolicy> getUserPolicys(long dbId, long tableId, UserIdentity user) {
-        Set<String> roles = Env.getCurrentEnv().getAccessManager().getAuth()
-                .getRolesByUserWithLdap(user).stream().map(Role::getRoleName)
-                .collect(Collectors.toSet());
+        Set<String> roles = Env.getCurrentEnv().getAccessManager().getAuth().getRolesByUserWithLdap(user).stream()
+                .map(role -> ClusterNamespace.getNameFromFullName(role.getRoleName())).collect(Collectors.toSet());
         List<RowPolicy> res = Lists.newArrayList();
         readLock();
         try {
@@ -352,7 +351,7 @@ public class PolicyMgr implements Writable {
         if (andPolicy == null) {
             return orPolicy;
         }
-        if (orPolicy != null) {
+        if (orPolicy == null) {
             return andPolicy;
         }
         andPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND, andPolicy.getWherePredicate(),
@@ -409,14 +408,16 @@ public class PolicyMgr implements Writable {
     }
 
     private void addTablePolicys(RowPolicy policy) {
-        policy.getUser().setIsAnalyzed();
+        if (policy.getUser() != null) {
+            policy.getUser().setIsAnalyzed();
+        }
         List<RowPolicy> policys = getOrCreateTblPolicys(policy.getDbId(), policy.getTableId());
         policys.add(policy);
     }
 
-    private void dropTablePolicys(DropPolicyLog log) {
-        List<RowPolicy> policys = getOrCreateTblPolicys(log.getDbId(), log.getTableId());
-        policys.removeIf(p -> p.matchPolicy(log));
+    private void dropTablePolicys(RowPolicy policy) {
+        List<RowPolicy> policys = getOrCreateTblPolicys(policy.getDbId(), policy.getTableId());
+        policys.removeIf(p -> p.matchPolicy(policy));
     }
 
     private List<RowPolicy> getOrCreateTblPolicys(long dbId, long tableId) {

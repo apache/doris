@@ -27,7 +27,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-import org.apache.commons.lang3.StringUtils;
 
 /**
  * Drop policy statement.
@@ -46,28 +45,9 @@ public class DropPolicyStmt extends DdlStmt {
     @Getter
     private final String policyName;
 
-    @Getter
-    private final TableName tableName;
-
-    @Getter
-    private final UserIdentity user;
-
-    @Getter
-    private final String roleName;
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        switch (type) {
-            case STORAGE:
-                break;
-            case ROW:
-            default:
-                tableName.analyze(analyzer);
-                if (user != null) {
-                    user.analyze(analyzer.getClusterName());
-                }
-        }
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
@@ -82,19 +62,6 @@ public class DropPolicyStmt extends DdlStmt {
             sb.append("IF EXISTS ");
         }
         sb.append(policyName);
-        switch (type) {
-            case STORAGE:
-                break;
-            case ROW:
-            default:
-                sb.append(" ON ").append(tableName.toSql());
-                if (user != null) {
-                    sb.append(" FOR ").append(user.getQualifiedUser());
-                }
-                if (!StringUtils.isEmpty(roleName)) {
-                    sb.append(" FOR ROLE ").append(roleName);
-                }
-        }
         return sb.toString();
     }
 }
