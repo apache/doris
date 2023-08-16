@@ -146,8 +146,7 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
 
         }
     }
-    CHECK(curpos == line.size) << curpos << " vs " << line.size;
-    process_value_func(line.data, start, curpos - start, trimming_char, splitted_values);
+    process_value_func(line.data, start, line.size - start, trimming_char, splitted_values);
 }
 
 void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
