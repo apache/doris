@@ -228,4 +228,7 @@ under the License.
      `HedgedReadWins`: The number of successful Hedged Reads (numbers initiated and returned faster than the original request)
 
      Note that the value here is the cumulative value of a single HDFS Client, not the value of a single query. The same HDFS Client will be reused by multiple queries.
+20. Query the appearance of hive and encounter this error:`java.lang.ClassNotFoundException: Class com.hadoop.compression.lzo.LzoCodec not found`
+
+    Search in the hadoop environment hadoop-lzo-*.jar, and put it under "${DORIS_HOME}/fe/lib/",then restart fe.
 
