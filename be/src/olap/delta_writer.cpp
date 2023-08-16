@@ -66,7 +66,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, Runti
                          const UniqueId& load_id)
         : _req(*req),
           _rowset_builder(*req, storage_engine, profile),
-          _memtable_writer(new MemTableWriter(*req, profile)),
+          _memtable_writer(new MemTableWriter(*req)),
           _storage_engine(storage_engine) {
     _init_profile(profile);
 }
@@ -142,7 +142,7 @@ Status DeltaWriter::build_rowset() {
             << "delta writer is supposed be to initialized before build_rowset() being called";
 
     SCOPED_TIMER(_close_wait_timer);
-    RETURN_IF_ERROR(_memtable_writer->close_wait());
+    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
     return _rowset_builder.build_rowset();
 }
 
