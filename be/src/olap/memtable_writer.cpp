@@ -54,6 +54,8 @@ MemTableWriter::MemTableWriter(const WriteRequest& req, RuntimeProfile* profile)
 }
 
 void MemTableWriter::_init_profile(RuntimeProfile* profile) {
+    // NOTE: MemTableWriter may live longer than the scope of profile because of MemTableMemoryLimiter.
+    // To avoid accessing dangling pointers, we should only update profile in MemTableWriter::close_wait()
     _profile = profile->create_child(fmt::format("MemTableWriter {}", _req.tablet_id), true, true);
     _lock_timer = ADD_TIMER(_profile, "LockTime");
     _sort_timer = ADD_TIMER(_profile, "MemTableSortTime");
