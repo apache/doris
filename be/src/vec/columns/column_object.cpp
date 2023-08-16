@@ -1140,9 +1140,6 @@ void ColumnObject::finalize(bool ignore_sparse) {
         new_subcolumns.get_mutable_root()->data.finalize();
     }
     for (auto&& entry : subcolumns) {
-        if (entry->data.is_root) {
-            continue;
-        }
         const auto& least_common_type = entry->data.get_least_common_type();
         /// Do not add subcolumns, which consists only from NULLs
         if (is_nothing(get_base_type_of_array(least_common_type))) {
@@ -1150,6 +1147,10 @@ void ColumnObject::finalize(bool ignore_sparse) {
         }
         entry->data.finalize();
         entry->data.wrapp_array_nullable();
+
+        if (entry->data.is_root) {
+            continue;
+        }
 
         // Check and spilit sparse subcolumns
         if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows) ||
