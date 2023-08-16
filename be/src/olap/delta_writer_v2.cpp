@@ -73,7 +73,7 @@ DeltaWriterV2::DeltaWriterV2(WriteRequest* req, StorageEngine* storage_engine,
           _tablet_schema(new TabletSchema),
           _profile(profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true,
                                          true)),
-          _memtable_writer(*req, _profile) {
+          _memtable_writer(new MemTableWriter(*req)) {
     _init_profile(profile);
 }
 
@@ -88,7 +88,7 @@ DeltaWriterV2::~DeltaWriterV2() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer.cancel();
+    _memtable_writer->cancel();
 }
 
 Status DeltaWriterV2::init() {
@@ -116,7 +116,7 @@ Status DeltaWriterV2::init() {
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     _rowset_writer->init(context);
-    _memtable_writer.init(_rowset_writer, _tablet_schema, _req.enable_unique_key_merge_on_write);
+    _memtable_writer->init(_rowset_writer, _tablet_schema, _req.enable_unique_key_merge_on_write);
     _is_init = true;
     return Status::OK();
 }
@@ -137,15 +137,15 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
         RETURN_IF_ERROR(init());
     }
     SCOPED_TIMER(_write_memtable_timer);
-    return _memtable_writer.write(block, row_idxs, is_append);
+    return _memtable_writer->write(block, row_idxs, is_append);
 }
 
 Status DeltaWriterV2::flush_memtable_and_wait(bool need_wait) {
-    return _memtable_writer.flush_memtable_and_wait(need_wait);
+    return _memtable_writer->flush_memtable_and_wait(need_wait);
 }
 
 Status DeltaWriterV2::wait_flush() {
-    return _memtable_writer.wait_flush();
+    return _memtable_writer->wait_flush();
 }
 
 Status DeltaWriterV2::close() {
@@ -160,7 +160,7 @@ Status DeltaWriterV2::close() {
         // for this tablet when being closed.
         RETURN_IF_ERROR(init());
     }
-    return _memtable_writer.close();
+    return _memtable_writer->close();
 }
 
 Status DeltaWriterV2::close_wait() {
@@ -169,7 +169,7 @@ Status DeltaWriterV2::close_wait() {
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
 
-    RETURN_IF_ERROR(_memtable_writer.close_wait());
+    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
 
     _delta_written_success = true;
     return Status::OK();
@@ -184,17 +184,17 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
     if (_is_cancelled) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_memtable_writer.cancel_with_status(st));
+    RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
     _is_cancelled = true;
     return Status::OK();
 }
 
 int64_t DeltaWriterV2::mem_consumption(MemType mem) {
-    return _memtable_writer.mem_consumption(mem);
+    return _memtable_writer->mem_consumption(mem);
 }
 
 int64_t DeltaWriterV2::active_memtable_mem_consumption() {
-    return _memtable_writer.active_memtable_mem_consumption();
+    return _memtable_writer->active_memtable_mem_consumption();
 }
 
 int64_t DeltaWriterV2::partition_id() const {

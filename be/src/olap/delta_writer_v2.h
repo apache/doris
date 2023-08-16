@@ -102,7 +102,7 @@ public:
 
     int32_t schema_hash() { return _req.schema_hash; }
 
-    MemTableWriter* memtable_writer() { return &_memtable_writer; }
+    std::shared_ptr<MemTableWriter> memtable_writer() { return _memtable_writer; }
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
@@ -133,7 +133,7 @@ private:
     RuntimeProfile::Counter* _write_memtable_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
 
-    MemTableWriter _memtable_writer;
+    std::shared_ptr<MemTableWriter> _memtable_writer;
     MonotonicStopWatch _lock_watch;
 
     std::vector<brpc::StreamId> _streams;

@@ -518,11 +518,6 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
 
-        for (const auto& [_, delta_writer] : *_delta_writer_for_tablet) {
-            ExecEnv::GetInstance()->memtable_memory_limiter()->deregister_writer(
-                    delta_writer->memtable_writer());
-        }
-
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers
