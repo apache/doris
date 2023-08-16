@@ -367,7 +367,7 @@ std::string type_to_string(PrimitiveType t) {
         return "STRUCT";
     case TYPE_LAMBDA_FUNCTION:
         return "LAMBDA_FUNCTION TYPE";
-    
+
     case TYPE_VARIANT:
         return "VARIANT";
 
