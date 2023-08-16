@@ -45,7 +45,7 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
         "password" = "${jdbcPassword}",
         "jdbc_url" = "${jdbcUrl}",
         "driver_url" = "${driver_url}",
-        "driver_class" = "com.mysql.jdbc.Driver"
+        "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
     sql """use ${internal_db_name}"""
     sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
