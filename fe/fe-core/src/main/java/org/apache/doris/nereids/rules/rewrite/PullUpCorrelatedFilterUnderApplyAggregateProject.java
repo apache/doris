@@ -79,7 +79,7 @@ public class PullUpCorrelatedFilterUnderApplyAggregateProject extends OneRewrite
                     LogicalAggregate newAgg = agg.withChildren(ImmutableList.of(newFilter));
                     return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
                             apply.getCorrelationFilter(), apply.getMarkJoinSlotReference(),
-                            apply.getSubCorrespondingConjunct(), apply.isNeedAddSubOutputToProjects(),
+                            apply.isNeedAddSubOutputToProjects(),
                             apply.isInProject(), apply.left(), newAgg);
                 }).toRule(RuleType.PULL_UP_CORRELATED_FILTER_UNDER_APPLY_AGGREGATE_PROJECT);
     }

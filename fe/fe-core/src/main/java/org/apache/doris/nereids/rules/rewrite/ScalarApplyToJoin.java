@@ -61,9 +61,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 (LogicalPlan) apply.right());
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
-                apply.getSubCorrespondingConjunct().isPresent()
-                    ? ExpressionUtils.extractConjunction((Expression) apply.getSubCorrespondingConjunct().get())
-                    : ExpressionUtils.EMPTY_CONDITION,
+                ExpressionUtils.EMPTY_CONDITION,
                 JoinHint.NONE,
                 apply.getMarkJoinSlotReference(),
                 (LogicalPlan) apply.left(), assertNumRows);
@@ -87,12 +85,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 apply.isNeedAddSubOutputToProjects() ? JoinType.LEFT_OUTER_JOIN
                         : JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
-                ExpressionUtils.extractConjunction(
-                    apply.getSubCorrespondingConjunct().isPresent()
-                        ? ExpressionUtils.and(
-                            (Expression) apply.getSubCorrespondingConjunct().get(),
-                            correlationFilter.get())
-                        : correlationFilter.get()),
+                ExpressionUtils.extractConjunction(correlationFilter.get()),
                 JoinHint.NONE,
                 apply.getMarkJoinSlotReference(),
                 apply.children());

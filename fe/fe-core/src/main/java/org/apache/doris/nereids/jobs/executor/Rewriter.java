@@ -78,7 +78,6 @@ import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
-import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
@@ -137,8 +136,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
             // subquery unnesting relay on ExpressionNormalization to extract common factor expression
             topic("Subquery unnesting",
-                    bottomUp(new PullUpProjectUnderApply(), new MergeProjects()),
-                    topDown(new PushdownFilterThroughProject()),
                     costBased(
                             custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
                                     AggScalarSubQueryToWindowFunction::new)

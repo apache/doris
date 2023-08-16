@@ -187,7 +187,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 subquery.getCorrelateSlots(),
                 subquery, Optional.empty(),
                 subqueryToMarkJoinSlot.get(subquery),
-                Optional.empty(), needAddScalarSubqueryOutputToProjects, isProject,
+                needAddScalarSubqueryOutputToProjects, isProject,
                 childPlan, subquery.getQueryPlan());
 
         List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
