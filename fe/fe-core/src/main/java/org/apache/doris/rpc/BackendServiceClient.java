@@ -147,6 +147,11 @@ public class BackendServiceClient {
         return stub.reportStreamLoadStatus(request);
     }
 
+    public Future<InternalService.PFetchRemoteSchemaResponse> fetchRemoteTabletSchemaAsync(
+            InternalService.PFetchRemoteSchemaRequest request) {
+        return stub.fetchRemoteTabletSchema(request);
+    }
+
     public Future<InternalService.PGlobResponse> glob(InternalService.PGlobRequest request) {
         return stub.glob(request);
     }
