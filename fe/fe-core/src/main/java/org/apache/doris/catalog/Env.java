@@ -4797,7 +4797,7 @@ public class Env {
         try {
             newView.init();
         } catch (UserException e) {
-            throw new DdlException("failed to init view stmt", e);
+            throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
         }
 
         if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {

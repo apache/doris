@@ -701,7 +701,7 @@ public class Alter {
                 try {
                     view.init();
                 } catch (UserException e) {
-                    throw new DdlException("failed to init view stmt", e);
+                    throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
                 }
                 view.setNewFullSchema(newFullSchema);
                 String viewName = view.getName();
@@ -737,7 +737,7 @@ public class Alter {
             try {
                 view.init();
             } catch (UserException e) {
-                throw new DdlException("failed to init view stmt", e);
+                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
             }
             view.setNewFullSchema(newFullSchema);
 
