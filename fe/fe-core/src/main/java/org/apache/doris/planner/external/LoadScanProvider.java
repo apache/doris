@@ -109,6 +109,8 @@ public class LoadScanProvider {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         textParams.setColumnSeparator(fileGroup.getColumnSeparator());
         textParams.setLineDelimiter(fileGroup.getLineDelimiter());
+        textParams.setEnclose(fileGroup.getEnclose());
+        textParams.setEscape(fileGroup.getEscape());
         fileAttributes.setTextParams(textParams);
         fileAttributes.setStripOuterArray(fileGroup.isStripOuterArray());
         fileAttributes.setJsonpaths(fileGroup.getJsonPaths());

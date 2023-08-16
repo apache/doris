@@ -269,7 +269,7 @@ For data synchronization across multiple clusters, Apache Doris used to require 
 
 # Behavior Change
 
-- 1.2-lts can be scrolled and upgraded to 2.0.0, while 2.0-alpha can be shut down and upgraded to 2.0.0
+- 1.2-lts requires downtime to upgrade to 2.0.0, 2.0-alpha requires downtime to upgrade to 2.0.0
 - Query optimizer switch default on ` enable_ Nereids_ Planner=true `;
 - Non vectorized code has been removed from the system, so 'enable'_ Vectorized_ The 'engine' parameter will no longer be effective;
 - Add Parameter ` enable_ Single_ Replica_ Compaction `;
