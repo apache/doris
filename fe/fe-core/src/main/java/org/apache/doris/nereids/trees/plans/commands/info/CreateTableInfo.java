@@ -188,6 +188,9 @@ public class CreateTableInfo {
         distribution.validate(columnMap, keysType);
 
         // analyze key set.
+        if ((keysType.equals(KeysType.AGG_KEYS) || keysType.equals(KeysType.UNIQUE_KEYS)) && !distribution.isHash()) {
+            throw new AnalysisException("Should not be distributed by random when keys type is agg or unique");
+        }
         boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
             try {

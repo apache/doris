@@ -46,6 +46,10 @@ public class DistributionDescriptor {
         this.cols = cols;
     }
 
+    public boolean isHash() {
+        return isHash;
+    }
+
     /**
      * analyze distribution descriptor
      */
