@@ -1857,6 +1857,7 @@ private:
                 DCHECK(nested_from_type->is_nullable());
                 DCHECK(!data_type_to->is_nullable());
                 // dst type nullable has been removed, so we should remove the inner nullable of root column
+<<<<<<< HEAD
                 auto wrapper = fn->prepare_impl(context, remove_nullable(nested_from_type), data_type_to, true);
                 Block tmp_block {{remove_nullable(nested), remove_nullable(nested_from_type), ""}};
                 tmp_block.insert({nullptr, data_type_to, ""});
@@ -1868,6 +1869,15 @@ private:
                 //         {nested, nested_from_type, ""},
                 //         make_nullable(data_type_to), &col_to));
                 // fill nullmap of dst
+=======
+                auto wrapper = fn->prepare_impl(context, remove_nullable(nested_from_type),
+                                                data_type_to, true);
+                Block tmp_block {{remove_nullable(nested), remove_nullable(nested_from_type), ""}};
+                tmp_block.insert({nullptr, data_type_to, ""});
+                /// Perform the requested conversion.
+                RETURN_IF_ERROR(wrapper(context, tmp_block, {0}, 1, input_rows_count));
+                col_to = tmp_block.get_by_position(1).column;
+>>>>>>> e364b1d1af (variant cast remove dependancy of schema util)
                 // Note: here we should return the nullable result column
                 col_to = wrap_in_nullable(
                         col_to, Block({{nested, nested_from_type, ""}, {col_to, data_type_to, ""}}),
@@ -1919,10 +1929,10 @@ private:
     // create cresponding type convert from variant
     WrapperType create_variant_wrapper(const DataTypeObject& from_type,
                                        const DataTypePtr& to_type) const {
-        return [this](FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const size_t result,
-                              size_t input_rows_count) -> Status {
-            return ConvertImplGenericFromVariant::execute(this, context, block, arguments, result, input_rows_count);
+        return [this](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                      const size_t result, size_t input_rows_count) -> Status {
+            return ConvertImplGenericFromVariant::execute(this, context, block, arguments, result,
+                                                          input_rows_count);
         };
     }
 
