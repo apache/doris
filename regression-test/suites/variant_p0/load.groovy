@@ -298,6 +298,7 @@ suite("regression_test_variant", "variant_type"){
         // load gharchive
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "github_events"
+        sql """DROP TABLE IF EXISTS ${table_name}"""
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
@@ -307,11 +308,32 @@ suite("regression_test_variant", "variant_type"){
             DISTRIBUTED BY HASH(k) BUCKETS 4 
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
+        // 2015
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-2.json'}""")
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-3.json'}""")
+        // 2022
+        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-16.json'}""")
+        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-10.json'}""")
+        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-22.json'}""")
+        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
+
+        // unique table
+        table_name = "github_events_unique"
+        sql """DROP TABLE IF EXISTS ${table_name}"""
+        sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                k bigint,
+                v variant
+            )
+            UNIQUE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 4 
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        """
+        load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
+        sql "select * from ${table_name}"
     } finally {
         // reset flags
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
