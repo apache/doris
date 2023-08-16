@@ -48,7 +48,7 @@ suite("test_full_compaction") {
             `user_id` INT NOT NULL, `value` INT NOT NULL)
             UNIQUE KEY(`user_id`) 
             DISTRIBUTED BY HASH(`user_id`) 
-            BUCKETS 3 
+            BUCKETS 1 
             PROPERTIES ("replication_allocation" = "tag.location.default: 1",
             "disable_auto_compaction" = "true",
             "enable_unique_key_merge_on_write" = "true");"""
@@ -114,9 +114,64 @@ suite("test_full_compaction") {
         }
         assert (rowsetCount == 7)
 
+        // trigger full compactions for all tablets in ${tableName}
+        for (String[] tablet in tablets) {
+            String tablet_id = tablet[0]
+            backend_id = tablet[2]
+            times = 1
+
+            do{
+                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+                ++times
+                sleep(2000)
+            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
+
+            def compactJson = parseJson(out.trim())
+            if (compactJson.status.toLowerCase() == "fail") {
+                assertEquals(disableAutoCompaction, false)
+                logger.info("Compaction was done automatically!")
+            }
+            if (disableAutoCompaction) {
+                assertEquals("success", compactJson.status.toLowerCase())
+            }
+        }
+
+        // wait for full compaction done
+        for (String[] tablet in tablets) {
+            boolean running = true
+            do {
+                Thread.sleep(1000)
+                String tablet_id = tablet[0]
+                backend_id = tablet[2]
+                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(code, 0)
+                def compactionStatus = parseJson(out.trim())
+                assertEquals("success", compactionStatus.status.toLowerCase())
+                running = compactionStatus.run_status
+            } while (running)
+        }
+
+        // after full compaction, there is only 1 rowset.
+        
+        rowsetCount = 0
+        for (String[] tablet in tablets) {
+            String tablet_id = tablet[0]
+            def compactionStatusUrlIndex = 18
+            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def tabletJson = parseJson(out.trim())
+            assert tabletJson.rowsets instanceof List
+            rowsetCount +=((List<String>) tabletJson.rowsets).size()
+        }
+        assert (rowsetCount == 1)
+
         // make sure all hidden data has been deleted
         // (1,100)(2,200)
         qt_select_final """select * from ${tableName} order by user_id"""
     } finally {
+        try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

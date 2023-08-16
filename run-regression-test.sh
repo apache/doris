@@ -114,7 +114,7 @@ if [[ ${WRONG_CMD} -eq 1 ]]; then
 fi
 
 # set maven
-MVN_CMD='/mnt/disk2/lianyukang/apache-maven-3.6.3/bin/mvn'
+MVN_CMD='mvn'
 if [[ -n "${CUSTOM_MVN}" ]]; then
     MVN_CMD="${CUSTOM_MVN}"
 fi
