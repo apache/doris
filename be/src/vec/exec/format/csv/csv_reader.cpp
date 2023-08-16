@@ -101,7 +101,7 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
 void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
                                                         std::vector<Slice>* splitted_values) {
     size_t start = 0;  // point to the start pos of next col value.
-    size_t curpos = 0; // point to the last pos of non_space charactor.
+    size_t curpos = 0; // point to the start pos of separator matching sequence.
 
     // value_sep : AAAA
     // line.data : 1234AAAA5678
