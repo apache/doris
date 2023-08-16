@@ -54,11 +54,14 @@ CompactionAction::CompactionAction(CompactionActionType ctype, ExecEnv* exec_env
                                    TPrivilegeHier::type hier, TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype), _type(ctype) {}
 Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
+    // req tablet id and table id, we have to set only one of them.
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_table_id = req->param(TABLE_ID_KEY);
     if (req_tablet_id == "") {
         if (req_table_id == "") {
-            return Status::OK();
+            // both tablet id and table id are empty, return error.
+            return Status::InternalError(
+                    "tablet id and table id can not be empty at the same time!");
         } else {
             try {
                 *table_id = std::stoull(req_table_id);
@@ -76,7 +79,8 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uin
             }
             return Status::OK();
         } else {
-            return Status::OK();
+            // both tablet id and table id are not empty, return err.
+            return Status::InternalError("tablet id and table id can not be set at the same time!");
         }
     }
 }
@@ -98,7 +102,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
 
 Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* json_result) {
     // 1. param check
-    // check req_tablet_id is not empty
+    // check req_tablet_id or req_table_id is not empty and can not be set together.
     uint64_t tablet_id = 0;
     uint64_t table_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
@@ -150,8 +154,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     }
     LOG(INFO) << "Manual compaction task is successfully triggered";
     *json_result =
-            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully "
-            "triggered.\"}";
+            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered. Table "
+            "id: " +
+            std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
     return Status::OK();
 }
 

@@ -1754,7 +1754,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         }
         compaction_rowsets = _base_compaction->get_input_rowsets();
     } else {
-        // TODO: full compaction code
         DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
         MonotonicStopWatch watch;
         watch.start();
@@ -1882,7 +1881,6 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         }
         set_last_base_compaction_failure_time(0);
     } else {
-        // TODO: full compaction code
         DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
         MonotonicStopWatch watch;
         watch.start();
