@@ -57,7 +57,8 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
 
     LOG(INFO) << "writer appendv, load_id: " << UniqueId(_load_id).to_string()
               << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
-              << ", segment_id: " << _segment_id << ", data_length: " << bytes_req;
+              << ", segment_id: " << _segment_id << ", data_length: " << bytes_req
+              << ", current batched bytes: " << _pending_bytes;
 
     if (_pending_bytes >= _max_pending_bytes) {
         RETURN_IF_ERROR(_stream_sender(_buf));
@@ -66,7 +67,6 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
         _pending_bytes = 0;
     }
 
-    LOG(INFO) << "current batched bytes: " << _pending_bytes;
     return Status::OK();
 }
 
