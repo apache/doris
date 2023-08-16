@@ -94,18 +94,16 @@ public:
     // Initialize DeleteHandler, use the delete conditions of this tablet whose version less than or equal to
     // 'version' to fill '_del_conds'.
     // NOTE: You should lock the tablet's header file before calling this function.
-    //
-    // template:
-    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB, v1 is based on condition string)
     // input:
     //     * schema: tablet's schema, the delete conditions and data rows are in this schema
     //     * version: maximum version
+    //     * with_sub_pred_v2: whether to use delete sub predicate v2 (v2 is based on PB, v1 is based on condition string)
     // return:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
     //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
-    template <bool with_sub_pred_v2 = false>
     Status init(TabletSchemaSPtr tablet_schema,
-                const std::vector<RowsetMetaSharedPtr>& delete_conditions, int64_t version);
+                const std::vector<RowsetMetaSharedPtr>& delete_conditions, int64_t version,
+                bool with_sub_pred_v2 = false);
 
     [[nodiscard]] bool empty() const { return _del_conds.empty(); }
 
@@ -119,7 +117,8 @@ public:
 
 private:
     template <typename SubPredicateList>
-    Status _parse_column_pred(TabletSchemaSPtr delete_pred_related_schema,
+    Status _parse_column_pred(TabletSchemaSPtr complete_schema,
+                              TabletSchemaSPtr delete_pred_related_schema,
                               const SubPredicateList& sub_pred_list,
                               DeleteConditions* delete_conditions);
 

@@ -289,7 +289,8 @@ Status DeleteHandler::parse_condition(const std::string& condition_str, TConditi
 }
 
 template <typename SubPredicateList>
-Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr delete_pred_related_schema,
+Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
+                                         TabletSchemaSPtr delete_pred_related_schema,
                                          const SubPredicateList& sub_pred_list,
                                          DeleteConditions* delete_conditions) {
     for (const auto& sub_predicate : sub_pred_list) {
@@ -306,19 +307,21 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr delete_pred_related_sc
     return Status::OK();
 }
 
-template Status DeleteHandler::_parse_column_pred(
-        TabletSchemaSPtr delete_pred_related_schema,
+template Status
+DeleteHandler::_parse_column_pred<::google::protobuf::RepeatedPtrField<DeleteSubPredicatePB>>(
+        TabletSchemaSPtr complete_schema, TabletSchemaSPtr delete_pred_related_schema,
         const ::google::protobuf::RepeatedPtrField<DeleteSubPredicatePB>& sub_pred_list,
         DeleteConditions* delete_conditions);
 
-template Status DeleteHandler::_parse_column_pred(
-        TabletSchemaSPtr delete_pred_related_schema,
+template Status
+DeleteHandler::_parse_column_pred<::google::protobuf::RepeatedPtrField<std::string>>(
+        TabletSchemaSPtr complete_schema, TabletSchemaSPtr delete_pred_related_schema,
         const ::google::protobuf::RepeatedPtrField<std::string>& sub_pred_list,
         DeleteConditions* delete_conditions);
 
-template <bool with_sub_pred_v2>
 Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
-                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version) {
+                           const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
+                           bool with_sub_pred_v2) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
     _predicate_arena.reset(new vectorized::Arena());
@@ -333,12 +336,12 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;
-        if constexpr (with_sub_pred_v2) {
-            RETURN_IF_ERROR(_parse_column_pred(delete_pred_related_schema,
+        if (with_sub_pred_v2) {
+            RETURN_IF_ERROR(_parse_column_pred(tablet_schema, delete_pred_related_schema,
                                                delete_condition.sub_predicates_v2(), &temp));
         } else {
             // make it compatible with the former versions
-            RETURN_IF_ERROR(_parse_column_pred(delete_pred_related_schema,
+            RETURN_IF_ERROR(_parse_column_pred(tablet_schema, delete_pred_related_schema,
                                                delete_condition.sub_predicates(), &temp));
         }
         for (const auto& in_predicate : delete_condition.in_predicates()) {
@@ -365,14 +368,6 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
 
     return Status::OK();
 }
-
-template Status DeleteHandler::init<true>(TabletSchemaSPtr tablet_schema,
-                                          const std::vector<RowsetMetaSharedPtr>& delete_preds,
-                                          int64_t version);
-
-template Status DeleteHandler::init<false>(TabletSchemaSPtr tablet_schema,
-                                           const std::vector<RowsetMetaSharedPtr>& delete_preds,
-                                           int64_t version);
 
 void DeleteHandler::finalize() {
     if (!_is_inited) {
