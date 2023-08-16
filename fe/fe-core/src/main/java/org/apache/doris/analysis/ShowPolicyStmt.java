@@ -34,7 +34,7 @@ import org.apache.commons.lang3.StringUtils;
 /**
  * Show policy statement
  * syntax:
- * SHOW ROW POLICY [FOR user][FOR ROLE role]
+ * SHOW ROW POLICY [FOR user｜ROLE role]
  **/
 public class ShowPolicyStmt extends ShowStmt {
 

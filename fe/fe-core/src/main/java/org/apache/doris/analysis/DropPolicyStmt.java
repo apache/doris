@@ -31,7 +31,7 @@ import lombok.Getter;
 /**
  * Drop policy statement.
  * syntax:
- * DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table [FOR user][FOR ROLE role]
+ * DROP [ROW] POLICY [IF EXISTS] test_row_policy
  **/
 @AllArgsConstructor
 public class DropPolicyStmt extends DdlStmt {
