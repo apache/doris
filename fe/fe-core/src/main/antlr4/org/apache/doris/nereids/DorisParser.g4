@@ -833,6 +833,15 @@ nonReserved
     | JOBS
     | JSON
     | JSONB
+    | INPATH
+    | INPUTFORMAT
+    | INSERT
+    | INTERVAL
+    | INTO
+    | IS
+    | ITEMS
+    | KEY
+    | KEYS
     | LABEL
     | LAST
     | LDAP
