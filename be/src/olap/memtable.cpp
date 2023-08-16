@@ -46,6 +46,7 @@
 #include "tablet_meta.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "util/simd/bits.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -55,6 +56,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
+#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -564,14 +566,28 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
 
     try {
         // Parse each variant column from raw string column
-        vectorized::schema_util::parse_variant_columns(block, variant_column_pos);
+        // TODO we should not use a config instead we should use param from load
+        // but it's really hard to get the param for now.
+        vectorized::IColumn::Filter filter;
+        filter.resize_fill(block.rows(), 0);
+        RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(
+                block, variant_column_pos, config::max_filter_ratio_for_variant_parsing, filter));
         vectorized::schema_util::finalize_variant_columns(block, variant_column_pos,
                                                           false /*not ingore sparse*/);
         vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_column_pos);
+        size_t count = simd::count_zero_num((int8_t*)filter.data(), filter.size());
+        if (count > 0) {
+            vectorized::Block::filter_block_internal(&block, filter, block.columns());
+            _stat.merged_rows += count;
+        }
     } catch (const doris::Exception& e) {
         // TODO more graceful, max_filter_ratio
         LOG(WARNING) << "encounter execption " << e.to_string();
         return Status::InternalError(e.to_string());
+    }
+
+    if (block.rows() == 0) {
+        return Status::OK();
     }
 
     // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
@@ -645,8 +661,8 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
         // => update_schema:   A(bigint), B(double), C(int), D(int)
         std::lock_guard<std::mutex> lock(*(_rowset_writer->mutable_context().schema_lock));
         TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
-        vectorized::schema_util::get_least_common_schema({_rowset_writer->mutable_context().tablet_schema, flush_schema},
-                                                         update_schema);
+        vectorized::schema_util::get_least_common_schema(
+                {_rowset_writer->mutable_context().tablet_schema, flush_schema}, update_schema);
         CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
                 << "Rowset merge schema columns count is " << update_schema->num_columns()
                 << ", but flush_schema is larger " << flush_schema->num_columns()

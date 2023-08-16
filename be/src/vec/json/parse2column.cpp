@@ -35,6 +35,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
@@ -184,44 +185,26 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     column_object.incr_num_rows();
 }
 
-bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
-                 const std::vector<ExtractType>& types, JsonParser* parser) {
-    return parser->extract_key(columns, json, keys, types);
-}
-
-// exposed interfaces
-void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* parser) {
-    return parse_json_to_variant(column, json.data, json.size, parser);
-}
-
-void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column) {
+Status parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
+                             double max_filter_ratio, IColumn::Filter& filter) {
     auto parser = parsers_pool.get([] { return new JsonParser(); });
+    int32_t parse_failed = 0;
     for (size_t i = 0; i < raw_json_column.size(); ++i) {
         StringRef raw_json = raw_json_column.get_data_at(i);
-        parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get());
-    }
-}
-
-bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,
-                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
-    auto parser = parsers_pool.get([] { return new JsonParser(); });
-    for (StringRef json : jsons) {
-        if (!extract_key(columns, json, keys, types, parser.get())) {
-            return false;
+        try {
+            parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get());
+            filter[i] = 1;
+        } catch (const doris::Exception& e) {
+            double failed_ratio = static_cast<double>(parse_failed) / raw_json_column.size();
+            if (e.code() == ErrorCode::INVALID_ARGUMENT && failed_ratio < max_filter_ratio) {
+                filter[i] = 0;
+                continue;
+            }
+            return Status::Aborted("Too many filtered rows {}, {}", parse_failed,
+                                   raw_json_column.size());
         }
     }
-    return true;
-}
-
-bool extract_key(MutableColumns& columns, const ColumnString& json_column,
-                 const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
-    auto parser = parsers_pool.get([] { return new JsonParser(); });
-    for (size_t x = 0; x < json_column.size(); ++x) {
-        if (!extract_key(columns, json_column.get_data_at(x), keys, types, parser.get())) {
-            return false;
-        }
-    }
-    return true;
+    return Status::OK();
 }
 
 } // namespace doris::vectorized

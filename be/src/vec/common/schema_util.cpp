@@ -361,7 +361,8 @@ void get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     }
 }
 
-void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                             double max_filter_ratio, IColumn::Filter& filter) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         auto& column = block.get_by_position(variant_pos[i]).column;
         const auto& root = *assert_cast<const ColumnObject&>(*column.get()).get_root();
@@ -371,10 +372,12 @@ void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
                                   static_cast<const ColumnNullable&>(root).get_nested_column())
                         : static_cast<const ColumnString&>(root);
         MutableColumnPtr variant_column = ColumnObject::create(true);
-        parse_json_to_variant(*variant_column.get(), raw_json_column);
+        RETURN_IF_ERROR(parse_json_to_variant(*variant_column.get(), raw_json_column,
+                                              max_filter_ratio, filter));
         block.get_by_position(variant_pos[i]).column = variant_column->get_ptr();
         block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
     }
+    return Status::OK();
 }
 
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
