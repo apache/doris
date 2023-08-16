@@ -175,11 +175,14 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    public static final String MAX_JOIN_NUMBER_OF_REORDER = "max_join_number_of_reorder";
+
     public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
     public static final String ENABLE_STRICT_CONSISTENCY_DML = "enable_strict_consistency_dml";
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
+    public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
 
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
@@ -361,6 +364,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
+
+    public static final String TRUNCATE_CHAR_OR_VARCHAR_COLUMNS = "truncate_char_or_varchar_columns";
 
     public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
 
@@ -629,7 +634,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
     public boolean enableNereidsDML = false;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
@@ -707,8 +712,31 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
+    @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_OF_REORDER)
+    private int maxJoinNumberOfReorder = 63;
+
     @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
     private boolean enableBushyTree = false;
+
+    public int getMaxJoinNumBushyTree() {
+        return maxJoinNumBushyTree;
+    }
+
+    public void setMaxJoinNumBushyTree(int maxJoinNumBushyTree) {
+        this.maxJoinNumBushyTree = maxJoinNumBushyTree;
+    }
+
+    public int getMaxJoinNumberOfReorder() {
+        return maxJoinNumberOfReorder;
+    }
+
+    public void setMaxJoinNumberOfReorder(int maxJoinNumberOfReorder) {
+        this.maxJoinNumberOfReorder = maxJoinNumberOfReorder;
+    }
+
+
+    @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
+    private int maxJoinNumBushyTree = 5;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
@@ -1022,6 +1050,19 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
     public int parallelSyncAnalyzeTaskNum = 2;
+
+    @VariableMgr.VarAttr(name = TRUNCATE_CHAR_OR_VARCHAR_COLUMNS,
+            description = {"是否按照表的 schema 来截断 char 或者 varchar 列。默认为 false。\n"
+                    + "因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致"
+                    + "的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。",
+                    "Whether to truncate char or varchar columns according to the table's schema. "
+                            + "The default is false.\n"
+                    + "Because the maximum length of the char or varchar column in the schema of the table"
+                            + " is inconsistent with the schema in the underlying parquet or orc file."
+                    + " At this time, if the option is turned on, it will be truncated according to the maximum length"
+                            + " in the schema of the table."},
+            needForward = true)
+    public boolean truncateCharOrVarcharColumns = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1997,6 +2038,14 @@ public class SessionVariable implements Serializable, Writable {
         return externalTableAnalyzePartNum;
     }
 
+    public boolean isTruncateCharOrVarcharColumns() {
+        return truncateCharOrVarcharColumns;
+    }
+
+    public void setTruncateCharOrVarcharColumns(boolean truncateCharOrVarcharColumns) {
+        this.truncateCharOrVarcharColumns = truncateCharOrVarcharColumns;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2082,6 +2131,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
 
         tResult.setEnableInsertStrict(enableInsertStrict);
+        tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
 
         return tResult;
     }
@@ -2387,3 +2437,4 @@ public class SessionVariable implements Serializable, Writable {
         return connectContext.getSessionVariable().enableAggState;
     }
 }
+

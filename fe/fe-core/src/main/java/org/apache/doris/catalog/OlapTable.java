@@ -56,8 +56,11 @@ import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TOlapTable;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -815,7 +818,7 @@ public class OlapTable extends Table {
             if (!isForceDrop) {
                 // recycle partition
                 if (partitionInfo.getType() == PartitionType.RANGE) {
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
                             partitionInfo.getItem(partition.getId()).getItems(),
                             new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
                             partitionInfo.getDataProperty(partition.getId()),
@@ -835,7 +838,7 @@ public class OlapTable extends Table {
                     }
                     Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
 
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
                             dummyRange,
                             partitionInfo.getItem(partition.getId()),
                             partitionInfo.getDataProperty(partition.getId()),
@@ -2183,5 +2186,44 @@ public class OlapTable extends Table {
         return getKeysType() == KeysType.DUP_KEYS
                 || (getKeysType() == KeysType.UNIQUE_KEYS
                 && getEnableUniqueKeyMergeOnWrite());
+    }
+
+    /**
+     * generate two phase read fetch option from this olap table.
+     *
+     * @param selectedIndexId the index want to scan
+     */
+    public TFetchOption generateTwoPhaseReadOption(long selectedIndexId) {
+        TFetchOption fetchOption = new TFetchOption();
+        fetchOption.setFetchRowStore(this.storeRowColumn());
+        fetchOption.setUseTwoPhaseFetch(true);
+        fetchOption.setNodesInfo(SystemInfoService.createAliveNodesInfo());
+        if (!this.storeRowColumn()) {
+            List<TColumn> columnsDesc = Lists.newArrayList();
+            getColumnDesc(selectedIndexId, columnsDesc, null, null);
+            fetchOption.setColumnDesc(columnsDesc);
+        }
+        return fetchOption;
+    }
+
+    public void getColumnDesc(long selectedIndexId, List<TColumn> columnsDesc, List<String> keyColumnNames,
+            List<TPrimitiveType> keyColumnTypes) {
+        if (selectedIndexId != -1) {
+            for (Column col : this.getSchemaByIndexId(selectedIndexId, true)) {
+                TColumn tColumn = col.toThrift();
+                col.setIndexFlag(tColumn, this);
+                if (columnsDesc != null) {
+                    columnsDesc.add(tColumn);
+                }
+                if ((Util.showHiddenColumns() || (!Util.showHiddenColumns() && col.isVisible())) && col.isKey()) {
+                    if (keyColumnNames != null) {
+                        keyColumnNames.add(col.getName());
+                    }
+                    if (keyColumnTypes != null) {
+                        keyColumnTypes.add(col.getDataType().toThrift());
+                    }
+                }
+            }
+        }
     }
 }

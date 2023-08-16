@@ -34,6 +34,7 @@
 #include "common/logging.h"
 #include "gutil/integral_types.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -142,27 +143,22 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
     return _add_block(block, &_segment_writer);
 }
 
-Status BetaRowsetWriter::_load_noncompacted_segments(
-        std::vector<segment_v2::SegmentSharedPtr>* segments, size_t num) {
+Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment,
+                                                    int32_t segment_id) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>(
-                "BetaRowsetWriter::_load_noncompacted_segments _rowset_meta->fs get failed");
+                "BetaRowsetWriter::_load_noncompacted_segment _rowset_meta->fs get failed");
     }
-    for (int seg_id = _segcompacted_point; seg_id < num; ++seg_id) {
-        auto seg_path =
-                BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
-        std::shared_ptr<segment_v2::Segment> segment;
-        auto type = config::enable_file_cache ? config::file_cache_type : "";
-        io::FileReaderOptions reader_options(io::cache_type_from_string(type),
-                                             io::SegmentCachePathPolicy());
-        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(),
-                                           _context.tablet_schema, reader_options, &segment);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();
-            return s;
-        }
-        segments->push_back(std::move(segment));
+    auto path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
+    auto type = config::enable_file_cache ? config::file_cache_type : "";
+    io::FileReaderOptions reader_options(io::cache_type_from_string(type),
+                                         io::SegmentCachePathPolicy());
+    auto s = segment_v2::Segment::open(fs, path, segment_id, rowset_id(), _context.tablet_schema,
+                                       reader_options, &segment);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to open segment. " << path << ":" << s;
+        return s;
     }
     return Status::OK();
 }
@@ -172,43 +168,46 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
  *  2. if the consecutive smalls end up with a big, compact the smalls, except
  *     single small
  *  3. if the consecutive smalls end up with small, compact the smalls if the
- *     length is beyond (config::segcompaction_threshold_segment_num / 2)
+ *     length is beyond (config::segcompaction_batch_size / 2)
  */
 Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
-        SegCompactionCandidatesSharedPtr segments) {
-    std::vector<segment_v2::SegmentSharedPtr> all_segments;
-    // subtract one to skip last (maybe active) segment
-    RETURN_IF_ERROR(_load_noncompacted_segments(&all_segments, _num_segment - 1));
-
-    if (VLOG_DEBUG_IS_ON) {
-        vlog_buffer.clear();
-        for (auto& segment : all_segments) {
-            fmt::format_to(vlog_buffer, "[id:{} num_rows:{}]", segment->id(), segment->num_rows());
-        }
-        VLOG_DEBUG << "all noncompacted segments num:" << all_segments.size()
-                   << " list of segments:" << fmt::to_string(vlog_buffer);
-    }
-
-    bool is_terminated_by_big = false;
-    bool let_big_terminate = false;
-    size_t small_threshold = config::segcompaction_small_threshold;
-    for (int64_t i = 0; i < all_segments.size(); ++i) {
-        segment_v2::SegmentSharedPtr seg = all_segments[i];
-        if (seg->num_rows() > small_threshold) {
-            if (let_big_terminate) {
-                is_terminated_by_big = true;
-                break;
-            } else {
+        SegCompactionCandidatesSharedPtr& segments) {
+    segments = std::make_shared<SegCompactionCandidates>();
+    // skip last (maybe active) segment
+    int32_t last_segment = _num_segment - 1;
+    size_t task_bytes = 0;
+    uint32_t task_rows = 0;
+    int32_t segid;
+    for (segid = _segcompacted_point;
+         segid < last_segment && segments->size() < config::segcompaction_batch_size; segid++) {
+        segment_v2::SegmentSharedPtr segment;
+        RETURN_IF_ERROR(_load_noncompacted_segment(segment, segid));
+        const auto segment_rows = segment->num_rows();
+        const auto segment_bytes = segment->file_reader()->size();
+        bool is_large_segment = segment_rows > config::segcompaction_candidate_max_rows ||
+                                segment_bytes > config::segcompaction_candidate_max_bytes;
+        if (is_large_segment) {
+            if (segid == _segcompacted_point) {
+                // skip large segments at the front
                 RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
+                continue;
+            } else {
+                // stop because we need consecutive segments
+                break;
             }
-        } else {
-            let_big_terminate = true; // break if find a big after small
-            segments->push_back(seg);
         }
+        bool is_task_full = task_rows + segment_rows > config::segcompaction_task_max_rows ||
+                            task_bytes + segment_bytes > config::segcompaction_task_max_bytes;
+        if (is_task_full) {
+            break;
+        }
+        segments->push_back(segment);
+        task_rows += segment->num_rows();
+        task_bytes += segment->file_reader()->size();
     }
     size_t s = segments->size();
-    if (!is_terminated_by_big && s <= (config::segcompaction_threshold_segment_num / 2)) {
-        // start with big segments and end with small, better to do it in next
+    if (segid == last_segment && s <= (config::segcompaction_batch_size / 2)) {
+        // we didn't collect enough segments, better to do it in next
         // round to compact more at once
         segments->clear();
         return Status::OK();
@@ -324,23 +323,6 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments,
-                                                       bool is_last) {
-    if (is_last) {
-        VLOG_DEBUG << "segcompaction last few segments";
-        // currently we only rename remaining segments to reduce wait time
-        // so that transaction can be committed ASAP
-        RETURN_IF_ERROR(_load_noncompacted_segments(segments.get(), _num_segment));
-        for (int i = 0; i < segments->size(); ++i) {
-            RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
-        }
-        segments->clear();
-    } else {
-        RETURN_IF_ERROR(_find_longest_consecutive_small_segment(segments));
-    }
-    return Status::OK();
-}
-
 bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
     std::lock_guard<std::mutex> l(_is_doing_segcompaction_lock);
     if (!_is_doing_segcompaction) {
@@ -360,10 +342,9 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>(
                 "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state");
-    } else if ((_num_segment - _segcompacted_point) >=
-               config::segcompaction_threshold_segment_num) {
-        SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
-        status = _get_segcompaction_candidates(segments, false);
+    } else if ((_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
+        SegCompactionCandidatesSharedPtr segments;
+        status = _find_longest_consecutive_small_segment(segments);
         if (LIKELY(status.ok()) && (segments->size() > 0)) {
             LOG(INFO) << "submit segcompaction task, tablet_id:" << _context.tablet_id
                       << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
@@ -382,34 +363,26 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     return status;
 }
 
-Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
-    Status status = Status::OK();
+Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
     DCHECK_EQ(_is_doing_segcompaction, false);
     if (!config::enable_segcompaction) {
         return Status::OK();
     }
     if (_segcompaction_status.load() != OK) {
         return Status::Error<SEGCOMPACTION_FAILED>(
-                "BetaRowsetWriter::_segcompaction_ramaining_if_necessary meet invalid state");
+                "BetaRowsetWriter::_segcompaction_rename_last_segments meet invalid state");
     }
     if (!_is_segcompacted() || _segcompacted_point == _num_segment) {
         // no need if never segcompact before or all segcompacted
         return Status::OK();
     }
-    _is_doing_segcompaction = true;
-    SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
-    status = _get_segcompaction_candidates(segments, true);
-    if (LIKELY(status.ok()) && (segments->size() > 0)) {
-        LOG(INFO) << "submit segcompaction remaining task, tablet_id:" << _context.tablet_id
-                  << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment
-                  << " segcompacted_point:" << _segcompacted_point;
-        status = StorageEngine::instance()->submit_seg_compaction_task(this, segments);
-        if (status.ok()) {
-            return status;
-        }
+    // currently we only rename remaining segments to reduce wait time
+    // so that transaction can be committed ASAP
+    VLOG_DEBUG << "segcompaction last few segments";
+    for (int32_t segid = _segcompacted_point; segid < _num_segment; segid++) {
+        RETURN_IF_ERROR(_rename_compacted_segment_plain(_segcompacted_point++));
     }
-    _is_doing_segcompaction = false;
-    return status;
+    return Status::OK();
 }
 
 Status BetaRowsetWriter::_do_add_block(const vectorized::Block* block,
@@ -561,19 +534,15 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     // if _segment_start_id is not zero, that means it's a transient rowset writer for
     // MoW partial update, don't need to do segment compaction.
     if (_segment_start_id == 0) {
+        _segcompaction_worker.cancel();
         status = wait_flying_segcompaction();
-        if (!status.ok()) {
-            LOG(WARNING) << "segcompaction failed when build new rowset 1st wait, res=" << status;
-            return nullptr;
-        }
-        status = _segcompaction_ramaining_if_necessary();
         if (!status.ok()) {
             LOG(WARNING) << "segcompaction failed when build new rowset, res=" << status;
             return nullptr;
         }
-        status = wait_flying_segcompaction();
+        status = _segcompaction_rename_last_segments();
         if (!status.ok()) {
-            LOG(WARNING) << "segcompaction failed when build new rowset 2nd wait, res=" << status;
+            LOG(WARNING) << "rename last segments failed when build new rowset, res=" << status;
             return nullptr;
         }
 

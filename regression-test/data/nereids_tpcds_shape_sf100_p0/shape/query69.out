@@ -32,8 +32,9 @@ PhysicalResultSink
 ------------------------------------PhysicalOlapScan[date_dim]
 ------------------------PhysicalDistribute
 --------------------------hashJoin[INNER_JOIN](customer_demographics.cd_demo_sk = c.c_current_cdemo_sk)
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer_demographics]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[customer_demographics]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[RIGHT_ANTI_JOIN](c.c_customer_sk = web_sales.ws_bill_customer_sk)
 --------------------------------PhysicalDistribute

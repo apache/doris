@@ -155,6 +155,14 @@ Partition fields can also be other fields, but need to ensure that only a small 
 
 ## How to use
 
+> NOTE:
+>
+>   In the following scenarios, the cache result is wrong
+>   1. Use session variable: default_order_by_limit, sql_select_limit
+>   2. Use var = cur_date(), var = random() functions that generate random values
+>
+>   There may be other cases where the cache result is wrong, so it is recommended to enable it only in controllable scenarios such as reports.
+
 ### Enable SQLCache
 
 Make sure cache_enable_sql_mode=true in fe.conf (default is true)
@@ -228,14 +236,14 @@ Other monitoring: You can view the CPU and memory indicators of the BE node, the
 
 ### Optimization parameters
 
-The configuration item cache_result_max_row_count of FE, the maximum number of rows in the cache for the query result set, can be adjusted according to the actual situation, but it is recommended not to set it too large to avoid taking up too much memory, and the result set exceeding this size will not be cached.
+The configuration item cache_result_max_row_count of FE, the maximum number of rows in the cache for the query result set, FE configuration item cache_result_max_data_size, the maximum data size of the query result set put into the cache, can be adjusted according to the actual situation, but it is recommended not to set it too large to avoid taking up too much memory, and the result set exceeding this size will not be cached.
 
 ```text
 vim fe/conf/fe.conf
 cache_result_max_row_count=3000
 ```
 
-The maximum number of partitions in BE cache_max_partition_count refers to the maximum number of partitions corresponding to each SQL. If it is partitioned by date, it can cache data for more than 2 years. If you want to keep the cache for a longer time, please set this parameter to a larger value and modify it at the same time. Parameter of cache_result_max_row_count.
+The maximum number of partitions in BE cache_max_partition_count refers to the maximum number of partitions corresponding to each SQL. If it is partitioned by date, it can cache data for more than 2 years. If you want to keep the cache for a longer time, please set this parameter to a larger value and modify it at the same time. Parameter of cache_result_max_row_count and cache_result_max_data_size.
 
 ```text
 vim be/conf/be.conf

@@ -1097,6 +1097,8 @@ public class TabletScheduler extends MasterDaemon {
                 preWatermarkTxnId = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionIDGenerator().getNextTransactionId();
                 replica.setPreWatermarkTxnId(preWatermarkTxnId);
+                LOG.info("set decommission replica {} on backend {} of tablet {} pre watermark txn id {}",
+                        replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), preWatermarkTxnId);
             }
 
             long postWatermarkTxnId = replica.getPostWatermarkTxnId();
@@ -1113,6 +1115,8 @@ public class TabletScheduler extends MasterDaemon {
                 postWatermarkTxnId = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionIDGenerator().getNextTransactionId();
                 replica.setPostWatermarkTxnId(postWatermarkTxnId);
+                LOG.info("set decommission replica {} on backend {} of tablet {} post watermark txn id {}",
+                        replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), postWatermarkTxnId);
             }
 
             try {

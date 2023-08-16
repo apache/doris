@@ -335,6 +335,8 @@ DECLARE_mInt32(tablet_rowset_stale_sweep_time_sec);
 // garbage sweep policy
 DECLARE_Int32(max_garbage_sweep_interval);
 DECLARE_Int32(min_garbage_sweep_interval);
+// garbage sweep every batch will sleep 1ms
+DECLARE_mInt32(garbage_sweep_batch_size);
 DECLARE_mInt32(snapshot_expire_time_sec);
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
@@ -953,14 +955,23 @@ DECLARE_Bool(hide_webserver_config_page);
 
 DECLARE_Bool(enable_segcompaction);
 
-// Trigger segcompaction if the num of segments in a rowset exceeds this threshold.
-DECLARE_Int32(segcompaction_threshold_segment_num);
+// Max number of segments allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_batch_size);
 
-// The segment whose row number above the threshold will be compacted during segcompaction
-DECLARE_Int32(segcompaction_small_threshold);
+// Max row count allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int32(segcompaction_candidate_max_rows);
 
-// This config can be set to limit thread number in  segcompaction thread pool.
-DECLARE_mInt32(segcompaction_max_threads);
+// Max file size allowed in a single source segment, bigger segments will be skipped.
+DECLARE_Int64(segcompaction_candidate_max_bytes);
+
+// Max total row count allowed in a single segcompaction task.
+DECLARE_Int32(segcompaction_task_max_rows);
+
+// Max total file size allowed in a single segcompaction task.
+DECLARE_Int64(segcompaction_task_max_bytes);
+
+// Global segcompaction thread pool size.
+DECLARE_mInt32(segcompaction_num_threads);
 
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
@@ -1093,6 +1104,11 @@ DECLARE_Int32(hdfs_hedged_read_thread_num);
 // the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
 // Maybe overwritten by the value specified when creating catalog
 DECLARE_Int32(hdfs_hedged_read_threshold_time);
+
+DECLARE_mBool(enable_merge_on_write_correctness_check);
+
+// The secure path with user files, used in the `local` table function.
+DECLARE_mString(user_files_secure_path);
 
 #ifdef BE_TEST
 // test s3

@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -77,8 +78,13 @@ public class AnalysisInfo implements Writable {
     @SerializedName("jobId")
     public final long jobId;
 
+    // When this AnalysisInfo represent a task, this is the task id for it.
     @SerializedName("taskId")
     public final long taskId;
+
+    // When this AnalysisInfo represent a job, this is the list of task ids belong to this job.
+    @SerializedName("taskIds")
+    public final List<Long> taskIds;
 
     @SerializedName("catalogName")
     public final String catalogName;
@@ -153,7 +159,11 @@ public class AnalysisInfo implements Writable {
     @SerializedName("samplingPartition")
     public boolean samplingPartition;
 
-    public AnalysisInfo(long jobId, long taskId, String catalogName, String dbName, String tblName,
+    // For serialize
+    @SerializedName("cronExpr")
+    public String cronExprStr;
+
+    public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, String catalogName, String dbName, String tblName,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
@@ -161,6 +171,7 @@ public class AnalysisInfo implements Writable {
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition) {
         this.jobId = jobId;
         this.taskId = taskId;
+        this.taskIds = taskIds;
         this.catalogName = catalogName;
         this.dbName = dbName;
         this.tblName = tblName;
@@ -229,6 +240,10 @@ public class AnalysisInfo implements Writable {
 
     public boolean isJob() {
         return taskId == -1;
+    }
+
+    public void addTaskId(long taskId) {
+        taskIds.add(taskId);
     }
 
     // TODO: use thrift

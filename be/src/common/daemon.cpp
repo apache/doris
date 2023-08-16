@@ -305,6 +305,9 @@ void Daemon::calculate_metrics_thread() {
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
     do {
+        if (!ExecEnv::GetInstance()->initialized()) {
+            continue;
+        }
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
@@ -353,12 +356,12 @@ void Daemon::calculate_metrics_thread() {
             DorisMetrics::instance()->all_segments_num->set_value(
                     StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)) && !k_doris_exit);
 }
 
 // clean up stale spilled files
 void Daemon::block_spill_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)) && !k_doris_exit) {
         if (ExecEnv::GetInstance()->initialized()) {
             ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
         }

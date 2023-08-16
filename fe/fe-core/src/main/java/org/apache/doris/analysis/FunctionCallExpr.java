@@ -1411,20 +1411,22 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
-            if (assignmentCompatibleType.isDecimalV3()) {
-                if (assignmentCompatibleType.isDecimalV3() && !childTypes[0].equals(assignmentCompatibleType)) {
-                    uncheckedCastChild(assignmentCompatibleType, 0);
+            if (assignmentCompatibleType != Type.INVALID) {
+                if (assignmentCompatibleType.isDecimalV3()) {
+                    if (assignmentCompatibleType.isDecimalV3() && !childTypes[0].equals(assignmentCompatibleType)) {
+                        uncheckedCastChild(assignmentCompatibleType, 0);
+                    }
+                    if (assignmentCompatibleType.isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
+                        uncheckedCastChild(assignmentCompatibleType, 1);
+                    }
                 }
-                if (assignmentCompatibleType.isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
-                    uncheckedCastChild(assignmentCompatibleType, 1);
-                }
-            }
-            childTypes[0] = assignmentCompatibleType;
-            childTypes[1] = assignmentCompatibleType;
+                childTypes[0] = assignmentCompatibleType;
+                childTypes[1] = assignmentCompatibleType;
 
-            if (childTypes[1].isDecimalV3() && childTypes[0].isDecimalV3()) {
-                argTypes[1] = assignmentCompatibleType;
-                argTypes[0] = assignmentCompatibleType;
+                if (childTypes[1].isDecimalV3() && childTypes[0].isDecimalV3()) {
+                    argTypes[1] = assignmentCompatibleType;
+                    argTypes[0] = assignmentCompatibleType;
+                }
             }
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

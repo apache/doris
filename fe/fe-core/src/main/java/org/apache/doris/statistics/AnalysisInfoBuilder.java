@@ -23,12 +23,14 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public class AnalysisInfoBuilder {
     private long jobId;
     private long taskId;
+    private List<Long> taskIds;
     private String catalogName;
     private String dbName;
     private String tblName;
@@ -59,6 +61,7 @@ public class AnalysisInfoBuilder {
     public AnalysisInfoBuilder(AnalysisInfo info) {
         jobId = info.jobId;
         taskId = info.taskId;
+        taskIds = info.taskIds;
         catalogName = info.catalogName;
         dbName = info.dbName;
         tblName = info.tblName;
@@ -91,6 +94,11 @@ public class AnalysisInfoBuilder {
 
     public AnalysisInfoBuilder setTaskId(long taskId) {
         this.taskId = taskId;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setTaskIds(List<Long> taskIds) {
+        this.taskIds = taskIds;
         return this;
     }
 
@@ -210,7 +218,7 @@ public class AnalysisInfoBuilder {
     }
 
     public AnalysisInfo build() {
-        return new AnalysisInfo(jobId, taskId, catalogName, dbName, tblName, colToPartitions, partitionNames,
+        return new AnalysisInfo(jobId, taskId, taskIds, catalogName, dbName, tblName, colToPartitions, partitionNames,
                 colName, indexId, jobType, analysisMode, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 externalTableLevelTask, partitionOnly, samplingPartition);
@@ -220,6 +228,7 @@ public class AnalysisInfoBuilder {
         return new AnalysisInfoBuilder()
                 .setJobId(jobId)
                 .setTaskId(taskId)
+                .setTaskIds(taskIds)
                 .setCatalogName(catalogName)
                 .setDbName(dbName)
                 .setTblName(tblName)

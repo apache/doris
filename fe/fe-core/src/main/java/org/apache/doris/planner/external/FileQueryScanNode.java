@@ -353,14 +353,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 params.setHdfsParams(tHdfsParams);
             }
 
-            if (locationType == TFileType.FILE_BROKER && !params.isSetBrokerAddresses()) {
-                FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
-                if (broker == null) {
-                    throw new UserException("No alive broker.");
+            if (locationType == TFileType.FILE_BROKER) {
+                params.setProperties(locationProperties);
+
+                if (!params.isSetBrokerAddresses()) {
+                    FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                    if (broker == null) {
+                        throw new UserException("No alive broker.");
+                    }
+                    params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
                 }
-                params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
-        } else if (locationType == TFileType.FILE_S3 && !params.isSetProperties()) {
+        } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
+                && !params.isSetProperties()) {
             params.setProperties(locationProperties);
         }
 
@@ -401,6 +406,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
         } else if (locationType == TFileType.FILE_S3
                 || locationType == TFileType.FILE_BROKER
+                || locationType == TFileType.FILE_LOCAL
                 || locationType == TFileType.FILE_NET) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
@@ -449,6 +455,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
                 return Optional.of(TFileType.FILE_LOCAL);
             } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+                return Optional.of(TFileType.FILE_BROKER);
+            } else if (location.startsWith(FeConstants.FS_PREFIX_COSN)) {
                 return Optional.of(TFileType.FILE_BROKER);
             } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
                 return Optional.of(TFileType.FILE_BROKER);

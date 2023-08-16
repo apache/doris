@@ -120,6 +120,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -1258,7 +1259,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
                     }
                     columnDef = new ColumnDef(name, typeDef, false, null,
-                            column.isAllowNull(), column.isAutoInc(), defaultValue, column.getComment());
+                            column.isAllowNull(), false, defaultValue, column.getComment());
                 }
                 createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution
@@ -1539,8 +1540,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             long partitionId = idGeneratorBuffer.getNextId();
             Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
-                    olapTable.getBaseIndexId(), partitionId, partitionName, indexIdToMeta, distributionInfo,
-                    dataProperty.getStorageMedium(), singlePartitionDesc.getReplicaAlloc(),
+                    olapTable.getName(), olapTable.getBaseIndexId(), partitionId, partitionName, indexIdToMeta,
+                    distributionInfo, dataProperty.getStorageMedium(), singlePartitionDesc.getReplicaAlloc(),
                     singlePartitionDesc.getVersionInfo(), bfColumns, olapTable.getBfFpp(), tabletIdSet,
                     olapTable.getCopiedIndexes(), singlePartitionDesc.isInMemory(), olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(), olapTable.getCompressionType(), olapTable.getDataSortInfo(),
@@ -1731,8 +1732,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 clause.isForceDrop(), recycleTime);
         Env.getCurrentEnv().getEditLog().logDropPartition(info);
 
-        LOG.info("succeed in dropping partition[{}], is temp : {}, is force : {}", partitionName, isTempPartition,
-                clause.isForceDrop());
+        LOG.info("succeed in dropping partition[{}], table : [{}-{}], is temp : {}, is force : {}",
+                partitionName, olapTable.getId(), olapTable.getName(), isTempPartition, clause.isForceDrop());
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {
@@ -1770,8 +1771,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    private Partition createPartitionWithIndices(String clusterName, long dbId, long tableId, long baseIndexId,
-            long partitionId, String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
+    private Partition createPartitionWithIndices(String clusterName, long dbId, long tableId, String tableName,
+            long baseIndexId, long partitionId, String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
             DistributionInfo distributionInfo, TStorageMedium storageMedium, ReplicaAllocation replicaAlloc,
             Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
@@ -1858,8 +1859,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             AgentTaskExecutor.submit(batchTask);
 
             // estimate timeout
-            long timeout = Config.tablet_create_timeout_second * 1000L * totalTaskNum;
-            timeout = Math.min(timeout, Config.max_create_table_timeout_second * 1000);
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(totalTaskNum);
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
@@ -1872,18 +1872,33 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // clear tasks
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
+                int quorumReplicaNum = totalReplicaNum / 2 + 1;
+                Map<Long, Integer> failedTabletCounter = Maps.newHashMap();
+                countDownLatch.getLeftMarks().stream().forEach(
+                        item -> failedTabletCounter.put(item.getValue(),
+                                failedTabletCounter.getOrDefault(item.getValue(), 0) + 1));
+                boolean createFailed = failedTabletCounter.values().stream().anyMatch(
+                        failedNum -> (totalReplicaNum - failedNum) < quorumReplicaNum);
+                errMsg = createFailed ? "Failed to create partition[" + partitionName + "]."
+                        : "Failed to create some replicas when create partition[" + partitionName + "].";
+
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
                 } else {
-                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                    errMsg += "Timeout:" + (timeout / 1000) + " seconds.";
                     // only show at most 3 results
-                    List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
+                    List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
+                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                            .collect(Collectors.toList());
                     if (!subList.isEmpty()) {
-                        errMsg += " Unfinished mark: " + Joiner.on(", ").join(subList);
+                        errMsg += " Unfinished: " + Joiner.on(", ").join(subList);
                     }
                 }
+
                 LOG.warn(errMsg);
-                throw new DdlException(errMsg);
+                if (createFailed) {
+                    throw new DdlException(errMsg);
+                }
             }
 
             if (index.getId() != baseIndexId) {
@@ -1891,6 +1906,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 partition.createRollupIndex(index);
             }
         } // end for indexMap
+
+        LOG.info("succeed in creating partition[{}-{}], table : [{}-{}]", partitionId, partitionName,
+                tableId, tableName);
+
         return partition;
     }
 
@@ -2374,8 +2393,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
                 }
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
-                        olapTable.getBaseIndexId(), partitionId, partitionName, olapTable.getIndexIdToMeta(),
-                        partitionDistributionInfo, partitionInfo.getDataProperty(partitionId).getStorageMedium(),
+                        olapTable.getName(), olapTable.getBaseIndexId(), partitionId, partitionName,
+                        olapTable.getIndexIdToMeta(), partitionDistributionInfo,
+                        partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
                         olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
@@ -2443,8 +2463,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
 
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
-                            olapTable.getId(), olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
-                            olapTable.getIndexIdToMeta(), partitionDistributionInfo,
+                            olapTable.getId(), olapTable.getName(), olapTable.getBaseIndexId(), entry.getValue(),
+                            entry.getKey(), olapTable.getIndexIdToMeta(), partitionDistributionInfo,
                             dataProperty.getStorageMedium(), partitionInfo.getReplicaAllocation(entry.getValue()),
                             versionInfo, bfColumns, bfFpp, tabletIdSet, olapTable.getCopiedIndexes(), isInMemory,
                             storageFormat, partitionInfo.getTabletType(entry.getValue()), compressionType,
@@ -2772,26 +2792,10 @@ public class InternalCatalog implements CatalogIf<Database> {
      * check column's auto increment property
      */
     private void checkAutoIncColumns(List<Column> columns, KeysType type) throws DdlException {
-        boolean encounterAutoIncColumn = false;
         for (Column column : columns) {
             if (column.isAutoInc()) {
-                if (encounterAutoIncColumn) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_MORE_THAN_ONE_AUTO_INCREMENT_COLUMN);
-                }
-                encounterAutoIncColumn = true;
-                if (column.isAllowNull()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NULLABLE);
-                }
-                if (column.getDefaultValue() != null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_WITH_DEFAULT_VALUE);
-                }
-                if (!column.getType().isBigIntType()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_BIGINT_TYPE);
-                }
+                ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_SUPPORTED);
             }
-        }
-        if (encounterAutoIncColumn && type != KeysType.DUP_KEYS) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE);
         }
     }
 
@@ -2867,8 +2871,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long oldPartitionId = entry.getValue();
                 long newPartitionId = idGeneratorBuffer.getNextId();
                 Partition newPartition = createPartitionWithIndices(db.getClusterName(), db.getId(), copiedTbl.getId(),
-                        copiedTbl.getBaseIndexId(), newPartitionId, entry.getKey(), copiedTbl.getIndexIdToMeta(),
-                        partitionsDistributionInfo.get(oldPartitionId),
+                        copiedTbl.getName(), copiedTbl.getBaseIndexId(), newPartitionId, entry.getKey(),
+                        copiedTbl.getIndexIdToMeta(), partitionsDistributionInfo.get(oldPartitionId),
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
                         copiedTbl.getPartitionInfo().getReplicaAllocation(oldPartitionId), null /* version info */,
                         copiedTbl.getCopiedBfColumns(), copiedTbl.getBfFpp(), tabletIdSet, copiedTbl.getCopiedIndexes(),

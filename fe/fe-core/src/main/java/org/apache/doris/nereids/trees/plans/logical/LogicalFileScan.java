@@ -31,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -97,5 +98,10 @@ public class LogicalFileScan extends LogicalCatalogRelation {
 
     public Set<Expression> getConjuncts() {
         return this.conjuncts;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return super.equals(o) && Objects.equals(conjuncts, ((LogicalFileScan) o).conjuncts);
     }
 }

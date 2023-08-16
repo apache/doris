@@ -636,17 +636,53 @@ BaseCompaction:546859:
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
 * 默认值：true
 
-#### `segcompaction_threshold_segment_num`
+#### `segcompaction_batch_size`
 
 * 类型：int32
 * 描述：当 segment 数量超过此阈值时触发 segment compaction
 * 默认值：10
 
-#### `segcompaction_small_threshold`
+#### `segcompaction_candidate_max_rows`
 
 * 类型：int32
 * 描述：当 segment 的行数超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
+
+#### `segcompaction_batch_size`
+
+* 类型: int32
+* 描述: 单个 segment compaction 任务中的最大原始 segment 数量。
+* 默认值: 10
+
+#### `segcompaction_candidate_max_rows`
+
+* 类型: int32
+* 描述: segment compaction 任务中允许的单个原始 segment 行数，过大的 segment 将被跳过。
+* 默认值: 1048576
+
+#### `segcompaction_candidate_max_bytes`
+
+* 类型: int64
+* 描述: segment compaction 任务中允许的单个原始 segment 大小（字节），过大的 segment 将被跳过。
+* 默认值: 104857600
+
+#### `segcompaction_task_max_rows`
+
+* 类型: int32
+* 描述: 单个 segment compaction 任务中允许的原始 segment 总行数。
+* 默认值: 1572864
+
+#### `segcompaction_task_max_bytes`
+
+* 类型: int64
+* 描述: 单个 segment compaction 任务中允许的原始 segment 总大小（字节）。
+* 默认值: 157286400
+
+#### `segcompaction_num_threads`
+
+* 类型: int32
+* 描述: segment compaction 线程池大小。
+* 默认值: 5
 
 #### `disable_compaction_trace_log`
 
@@ -1458,3 +1494,8 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: 如果为true，则当内存未超过 exec_mem_limit 时，查询内存将不受限制；当进程内存超过 exec_mem_limit 且大于 2GB 时，查询会被取消。如果为false，则在使用的内存超过 exec_mem_limit 时取消查询。
 * 默认值: true
+
+#### `user_files_secure_path`
+
+* 描述: `local` 表函数查询的文件的存储目录。
+* 默认值: `${DORIS_HOME}`

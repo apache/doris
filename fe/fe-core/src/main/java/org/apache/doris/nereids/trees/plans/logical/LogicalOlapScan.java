@@ -141,7 +141,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             List<Long> selectedTabletIds, long selectedIndexId, boolean indexSelected,
             PreAggStatus preAggStatus, List<Long> specifiedPartitions,
             List<String> hints, Map<String, Slot> cacheSlotWithSlotName) {
-
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
         Preconditions.checkArgument(selectedPartitionIds != null, "selectedPartitionIds can not be null");

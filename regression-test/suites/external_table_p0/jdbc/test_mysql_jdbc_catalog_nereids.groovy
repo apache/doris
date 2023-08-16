@@ -61,7 +61,7 @@ suite("test_mysql_jdbc_catalog_nereids", "p0") {
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
-        
+        sql """use internal.${internal_db_name}"""
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
               CREATE TABLE ${inDorisTable} (
@@ -78,8 +78,12 @@ suite("test_mysql_jdbc_catalog_nereids", "p0") {
         qt_ex_tb0_where """select id from ${ex_tb0} where id = 111;"""
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select id, name from ${ex_tb0}; """
-        order_qt_in_tb  """ select id, name from internal.${internal_db_name}.${inDorisTable} order by id; """
+        // order_qt_in_tb  """ select id, name from ${internal_db_name}.${inDorisTable} order by id; """
+        sql """switch internal;"""
+        order_qt_in_tb  """ select id, name from ${internal_db_name}.${inDorisTable} order by id; """
 
+        sql """switch ${catalog_name}"""
+        sql """ use ${ex_db_name}"""
         order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
         order_qt_ex_tb2  """ select * from ${ex_tb2} order by id; """
         order_qt_ex_tb3  """ select * from ${ex_tb3} order by game_code; """

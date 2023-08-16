@@ -81,7 +81,4 @@ SET enable_fallback_to_original_planner=true;
 
 ### 已知问题
 
-- 不支持命中 Query Cache 和 Partition Cache
-- 不支持选中多表物化视图
-- 不支持选中使用 2.0 版本新创建物化视图
-- 部分不支持的子查询用法会产生错误结果而不是报错
+- 不支持命中 Partition Cache
