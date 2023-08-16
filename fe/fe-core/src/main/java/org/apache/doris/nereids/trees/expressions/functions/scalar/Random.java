@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -53,6 +54,8 @@ public class Random extends ScalarFunction
      */
     public Random(Expression arg) {
         super("random", arg);
+        // align with original planner behavior, refer to: org/apache/doris/analysis/Expr.getBuiltinFunction()
+        Preconditions.checkState(arg instanceof Literal, "The param of rand function must be literal");
     }
 
     /**

@@ -62,7 +62,7 @@ enum MemType { WRITE = 1, FLUSH = 2, ALL = 3 };
 // This class is NOT thread-safe, external synchronization is required.
 class MemTableWriter {
 public:
-    MemTableWriter(const WriteRequest& req, RuntimeProfile* profile);
+    MemTableWriter(const WriteRequest& req);
 
     ~MemTableWriter();
 
@@ -76,9 +76,15 @@ public:
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
-    // wait for all memtables to be flushed.
+    // wait for all memtables to be flushed, update profiles if provided.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait();
+    Status close_wait(RuntimeProfile* profile = nullptr) {
+        RETURN_IF_ERROR(_do_close_wait());
+        if (profile != nullptr) {
+            _update_profile(profile);
+        }
+        return Status::OK();
+    }
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -110,7 +116,8 @@ private:
 
     void _reset_mem_table();
 
-    void _init_profile(RuntimeProfile* profile);
+    Status _do_close_wait();
+    void _update_profile(RuntimeProfile* profile);
 
     std::atomic<bool> _is_init = false;
     bool _is_cancelled = false;
@@ -132,22 +139,9 @@ private:
 
     // total rows num written by MemTableWriter
     int64_t _total_received_rows = 0;
-
-    RuntimeProfile* _profile = nullptr;
-    RuntimeProfile::Counter* _lock_timer = nullptr;
-    RuntimeProfile::Counter* _sort_timer = nullptr;
-    RuntimeProfile::Counter* _agg_timer = nullptr;
-    RuntimeProfile::Counter* _wait_flush_timer = nullptr;
-    RuntimeProfile::Counter* _delete_bitmap_timer = nullptr;
-    RuntimeProfile::Counter* _segment_writer_timer = nullptr;
-    RuntimeProfile::Counter* _memtable_duration_timer = nullptr;
-    RuntimeProfile::Counter* _put_into_output_timer = nullptr;
-    RuntimeProfile::Counter* _sort_times = nullptr;
-    RuntimeProfile::Counter* _agg_times = nullptr;
-    RuntimeProfile::Counter* _close_wait_timer = nullptr;
-    RuntimeProfile::Counter* _segment_num = nullptr;
-    RuntimeProfile::Counter* _raw_rows_num = nullptr;
-    RuntimeProfile::Counter* _merged_rows_num = nullptr;
+    int64_t _wait_flush_time_ns = 0;
+    int64_t _close_wait_time_ns = 0;
+    int64_t _segment_num = 0;
 
     MonotonicStopWatch _lock_watch;
 };
