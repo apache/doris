@@ -139,15 +139,11 @@ public class JdbcMySQLClient extends JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            tableName = modifyTableNameIfNecessary(tableName);
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
             List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             boolean needGetDorisColumns = true;
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
-                if (isTableModified(tableName, rs.getString("TABLE_NAME"))) {
-                    continue;
-                }
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
