@@ -50,6 +50,7 @@ class ColumnArray;
 class ColumnMap;
 class ColumnString;
 class ColumnStruct;
+class ColumnObject;
 } // namespace vectorized
 } // namespace doris
 
@@ -266,6 +267,7 @@ public:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
+                      std::is_same_v<ColumnType, ColumnObject> ||
                       std::is_same_v<ColumnType, ColumnHLL>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
