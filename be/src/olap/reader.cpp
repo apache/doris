@@ -618,7 +618,7 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                       read_params.reader_type == ReaderType::READER_CHECKSUM);
     if (_filter_delete) {
         return _delete_handler.init<false>(_tablet_schema, read_params.delete_predicates,
-                             read_params.version.second);
+                                           read_params.version.second);
     }
     // for query, use delete sub pred v2
     return _delete_handler.init<true>(_tablet_schema, read_params.delete_predicates,
