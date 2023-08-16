@@ -624,8 +624,8 @@ Status NewJsonReader::_vhandle_flat_array_complex_json(
             }
             RETURN_IF_ERROR(st);
             if (*is_empty_row == true) {
-                if (st == Status::OK()) {
-                    return Status::OK();
+                if (st.ok()) {
+                    return st;
                 }
                 if (_total_rows == 0) {
                     continue;
@@ -1225,8 +1225,8 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
                 }
                 RETURN_IF_ERROR(st);
                 if (*is_empty_row == true) {
-                    if (st == Status::OK()) {
-                        return Status::OK();
+                    if (st.ok()) {
+                        return st;
                     }
                     if (_total_rows == 0) {
                         continue;

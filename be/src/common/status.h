@@ -273,7 +273,7 @@ E(INVERTED_INDEX_BUILD_WAITTING, -6008);
 
 // clang-format off
 // whether to capture stacktrace
-inline bool capture_stacktrace(int code) {
+consteval bool capture_stacktrace(int code) {
     return code != ErrorCode::OK
         && code != ErrorCode::END_OF_FILE
         && code != ErrorCode::MEM_LIMIT_EXCEEDED
@@ -343,10 +343,24 @@ public:
 
     template <int code, bool stacktrace = true, typename... Args>
     Status static Error(std::string_view msg, Args&&... args) {
-        return Error<stacktrace>(code, msg, std::forward<Args>(args)...);
+        Status status;
+        status._code = code;
+        status._err_msg = std::make_unique<ErrMsg>();
+        if constexpr (sizeof...(args) == 0) {
+            status._err_msg->_msg = msg;
+        } else {
+            status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
+        }
+#ifdef ENABLE_STACKTRACE
+        if constexpr (stacktrace && capture_stacktrace(code)) {
+            status._err_msg->_stack = get_stack_trace();
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
+        }
+#endif
+        return status;
     }
 
-    template <bool stacktrace = true, typename... Args>
+    template <bool stacktrace = false, typename... Args>
     Status static Error(int code, std::string_view msg, Args&&... args) {
         Status status;
         status._code = code;
@@ -357,7 +371,7 @@ public:
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
 #ifdef ENABLE_STACKTRACE
-        if (stacktrace && capture_stacktrace(code)) {
+        if constexpr (stacktrace) {
             status._err_msg->_stack = get_stack_trace();
             LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
@@ -451,14 +465,6 @@ public:
     // if(!status) or if (status) will use this operator
     operator bool() const { return this->ok(); }
 
-    // Used like if (res == Status::OK())
-    // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
-    // ignore error messages during comparison
-    bool operator==(const Status& st) const { return _code == st._code; }
-
-    // Used like if (res != Status::OK())
-    bool operator!=(const Status& st) const { return _code != st._code; }
-
     friend std::ostream& operator<<(std::ostream& ostr, const Status& status);
 
 private:
@@ -475,6 +481,14 @@ private:
         return (int)_code >= 0 ? doris::to_string(static_cast<TStatusCode::type>(_code))
                                : fmt::format("E{}", (int16_t)_code);
     }
+
+    // Used like if ASSERT_EQ(res, Status::OK())
+    // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
+    // ignore error messages during comparison
+    bool operator==(const Status& st) const { return _code == st._code; }
+
+    // Used like if ASSERT_NE(res, Status::OK())
+    bool operator!=(const Status& st) const { return _code != st._code; }
 };
 
 inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
