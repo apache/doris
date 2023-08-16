@@ -80,7 +80,7 @@ struct LocalTimestampFunctionName {
     static constexpr auto name = "localtimestamp";
 };
 
-using FunctionNow = FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, true>>;
+using FunctionNow = FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<NowFunctionName, false>>;
 using FunctionCurrentTimestamp =
         FunctionCurrentDateOrDateTime<CurrentDateTimeImpl<CurrentTimestampFunctionName, false>>;
 using FunctionLocalTime =

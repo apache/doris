@@ -20,7 +20,6 @@
 #include <assert.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>

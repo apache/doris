@@ -298,8 +298,8 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
         RETURN_IF_ERROR(parse_condition(sub_predicate, &condition));
         condition.__set_column_unique_id(
                 delete_pred_related_schema->column(condition.column_name).unique_id());
-        auto predicate = parse_to_predicate(delete_pred_related_schema, condition,
-                                            _predicate_arena.get(), true);
+        auto predicate =
+                parse_to_predicate(complete_schema, condition, _predicate_arena.get(), true);
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
         }
