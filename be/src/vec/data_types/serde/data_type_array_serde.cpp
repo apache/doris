@@ -19,7 +19,6 @@
 
 #include <arrow/array/builder_nested.h>
 
-#include "gutil/casts.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -74,9 +73,9 @@ void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
                                                 const cctz::time_zone& ctz) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
-    auto concrete_array = down_cast<const arrow::ListArray*>(arrow_array);
+    auto concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
     auto arrow_offsets_array = concrete_array->offsets();
-    auto arrow_offsets = down_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    auto arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     auto prev_size = offsets_data.back();
     auto arrow_nested_start_offset = arrow_offsets->Value(start);
     auto arrow_nested_end_offset = arrow_offsets->Value(end);

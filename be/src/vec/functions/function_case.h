@@ -31,6 +31,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
@@ -197,7 +198,7 @@ public:
         }
 
         auto result_column_ptr = data_type->create_column();
-        update_result_normal(result_column_ptr, then_idx, column_holder);
+        update_result_normal<int, ColumnType>(result_column_ptr, then_idx, column_holder);
         block.replace_by_position(result, std::move(result_column_ptr));
         return Status::OK();
     }
@@ -269,11 +270,11 @@ public:
                       std::is_same_v<ColumnType, ColumnHLL>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
-            update_result_normal(result_column_ptr, then_idx, column_holder);
+            update_result_normal<uint8_t, ColumnType>(result_column_ptr, then_idx, column_holder);
         } else if constexpr (then_null) {
             // result_column and all then_column is nullable.
             // TODO: make here simd automatically.
-            update_result_normal(result_column_ptr, then_idx, column_holder);
+            update_result_normal<uint8_t, ColumnType>(result_column_ptr, then_idx, column_holder);
         } else {
             update_result_auto_simd<ColumnType>(result_column_ptr, then_idx, column_holder);
         }
@@ -282,9 +283,15 @@ public:
         return Status::OK();
     }
 
-    template <typename IndexType>
+    template <typename IndexType, typename ColumnType>
     void update_result_normal(MutableColumnPtr& result_column_ptr, IndexType* then_idx,
                               CaseWhenColumnHolder& column_holder) {
+        std::vector<uint8_t> is_consts(column_holder.then_ptrs.size());
+        std::vector<ColumnPtr> raw_columns(column_holder.then_ptrs.size());
+        for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
+            std::tie(raw_columns[i], is_consts[i]) =
+                    unpack_if_const(column_holder.then_ptrs[i].value());
+        }
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             if constexpr (!has_else) {
                 if (!then_idx[row_idx]) {
@@ -292,8 +299,9 @@ public:
                     continue;
                 }
             }
-            result_column_ptr->insert_from(*column_holder.then_ptrs[then_idx[row_idx]].value(),
-                                           row_idx);
+            size_t target = is_consts[then_idx[row_idx]] ? 0 : row_idx;
+            assert_cast<ColumnType*>(result_column_ptr.get())
+                    ->insert_from(*raw_columns[then_idx[row_idx]], target);
         }
     }
 
@@ -361,18 +369,16 @@ public:
                                  size_t input_rows_count) {
         bool when_null = false;
         if constexpr (has_case) {
+            block.replace_by_position_if_const(arguments[0]);
             if (block.get_by_position(arguments[0]).type->is_nullable()) {
                 when_null = true;
             }
         }
         for (int i = has_case; i < arguments.size() - has_else; i += 2) {
+            block.replace_by_position_if_const(arguments[i]);
             if (block.get_by_position(arguments[i]).type->is_nullable()) {
                 when_null = true;
             }
-        }
-
-        for (int i = 0; i < arguments.size(); i++) {
-            block.replace_by_position_if_const(arguments[i]);
         }
 
         if (when_null) {

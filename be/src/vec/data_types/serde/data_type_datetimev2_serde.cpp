@@ -21,7 +21,6 @@
 
 #include <type_traits>
 
-#include "gutil/casts.h"
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
