@@ -82,6 +82,25 @@ public:
         }
     }
 
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        if constexpr (arg_nullable) {
+            auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
+            const auto& column =
+                    assert_cast<const ColVecType&>(nullable_column.get_nested_column());
+            std::vector<T> values;
+            for (int i = 0; i < batch_size; ++i) {
+                if (!nullable_column.is_null_at(i)) {
+                    values.push_back(column.get_data()[i]);
+                }
+            }
+            this->data(place).value.add_many(values.data(), values.size());
+        } else {
+            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+            this->data(place).value.add_many(column.get_data().data(), column.size());
+        }
+    }
+
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
