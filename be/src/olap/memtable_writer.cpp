@@ -175,7 +175,7 @@ Status MemTableWriter::flush_memtable_and_wait(bool need_wait) {
 
     if (need_wait) {
         // wait all memtables in flush queue to be flushed.
-        SCOPED_TIMER(_wait_flush_timer);
+        SCOPED_RAW_TIMER(&_wait_flush_time_ns);
         RETURN_IF_ERROR(_flush_token->wait());
     }
     return Status::OK();
@@ -193,7 +193,7 @@ Status MemTableWriter::wait_flush() {
             return _cancel_status;
         }
     }
-    SCOPED_TIMER(_wait_flush_timer);
+    SCOPED_RAW_TIMER(&_wait_flush_time_ns);
     RETURN_IF_ERROR(_flush_token->wait());
     return Status::OK();
 }
@@ -269,7 +269,7 @@ Status MemTableWriter::close_wait() {
     Status st;
     // return error if previous flush failed
     {
-        SCOPED_TIMER(_wait_flush_timer);
+        SCOPED_RAW_TIMER(&_wait_flush_time_ns);
         st = _flush_token->wait();
     }
     if (UNLIKELY(!st.ok())) {
@@ -299,6 +299,7 @@ Status MemTableWriter::close_wait() {
     COUNTER_UPDATE(_lock_timer, _lock_watch.elapsed_time() / 1000);
     COUNTER_SET(_delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
     COUNTER_SET(_segment_writer_timer, _rowset_writer->segment_writer_ns());
+    COUNTER_SET(_wait_flush_timer, _wait_flush_time_ns);
     const auto& memtable_stat = _flush_token->memtable_stat();
     COUNTER_SET(_sort_timer, memtable_stat.sort_ns);
     COUNTER_SET(_agg_timer, memtable_stat.agg_ns);

@@ -132,6 +132,7 @@ private:
 
     // total rows num written by MemTableWriter
     int64_t _total_received_rows = 0;
+    int64_t _wait_flush_time_ns = 0;
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _lock_timer = nullptr;
