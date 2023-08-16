@@ -394,6 +394,11 @@ public:
                _query_options.enable_share_hash_table_for_broadcast_join;
     }
 
+    bool enable_hash_join_early_start_probe() const {
+        return _query_options.__isset.enable_hash_join_early_start_probe &&
+               _query_options.enable_hash_join_early_start_probe;
+    }
+
     int repeat_max_num() const {
 #ifndef BE_TEST
         if (!_query_options.__isset.repeat_max_num) {
