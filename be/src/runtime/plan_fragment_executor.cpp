@@ -39,6 +39,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "common/version_internal.h"
 #include "exec/data_sink.h"
 #include "exec/exec_node.h"
@@ -322,7 +323,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
             RETURN_IF_ERROR(get_vectorized_internal(&block, &eos));
-
             // Collect this plan and sub plan statistics, and send to parent plan.
             if (_collect_query_statistics_with_every_batch) {
                 _collect_query_statistics();
@@ -330,6 +330,13 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
             if (!eos || block.rows() > 0) {
                 auto st = _sink->send(runtime_state(), &block);
+                //TODO: Asynchronisation need refactor this
+                if (st.is<NEED_SEND_AGAIN>()) { // created partition, do it again.
+                    st = _sink->send(runtime_state(), &block);
+                    if (st.is<NEED_SEND_AGAIN>()) {
+                        LOG(WARNING) << "have to create partition again...";
+                    }
+                }
                 if (st.is<END_OF_FILE>()) {
                     break;
                 }

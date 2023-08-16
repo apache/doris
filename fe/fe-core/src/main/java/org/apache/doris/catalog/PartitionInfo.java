@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionValue;
@@ -40,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -81,6 +83,10 @@ public class PartitionInfo implements Writable {
     // so we defer adding meta serialization until memory engine feature is more complete.
     protected Map<Long, TTabletType> idToTabletType;
 
+    // the enable automatic partition will hold this, could create partition by expr result
+    protected ArrayList<Expr> partitionExprs;
+    protected boolean isAutoCreatePartitions;
+
     public PartitionInfo() {
         this.type = PartitionType.UNPARTITIONED;
         this.idToDataProperty = new HashMap<>();
@@ -88,6 +94,7 @@ public class PartitionInfo implements Writable {
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
+        this.partitionExprs = new ArrayList<>();
     }
 
     public PartitionInfo(PartitionType type) {
@@ -97,6 +104,7 @@ public class PartitionInfo implements Writable {
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
         this.idToStoragePolicy = new HashMap<>();
+        this.partitionExprs = new ArrayList<>();
     }
 
     public PartitionInfo(PartitionType type, List<Column> partitionColumns) {
@@ -213,6 +221,14 @@ public class PartitionInfo implements Writable {
             }
         }
         return null;
+    }
+
+    public boolean enableAutomaticPartition() {
+        return isAutoCreatePartitions;
+    }
+
+    public ArrayList<Expr> getPartitionExprs() {
+        return this.partitionExprs;
     }
 
     public void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
@@ -374,6 +390,13 @@ public class PartitionInfo implements Writable {
             idToReplicaAllocation.get(entry.getKey()).write(out);
             out.writeBoolean(idToInMemory.get(entry.getKey()));
         }
+        int size = partitionExprs.size();
+        out.writeInt(size);
+        for (int i = 0; i < size; ++i) {
+            Expr e = this.partitionExprs.get(i);
+            Expr.writeTo(e, out);
+        }
+        out.writeBoolean(isAutoCreatePartitions);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -399,6 +422,14 @@ public class PartitionInfo implements Writable {
             }
 
             idToInMemory.put(partitionId, in.readBoolean());
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
+            int size = in.readInt();
+            for (int i = 0; i < size; ++i) {
+                Expr e = Expr.readIn(in);
+                this.partitionExprs.add(e);
+            }
+            this.isAutoCreatePartitions = in.readBoolean();
         }
     }
 
@@ -438,12 +469,13 @@ public class PartitionInfo implements Writable {
                 && Objects.equals(idToTempItem, that.idToTempItem) && Objects.equals(idToDataProperty,
                 that.idToDataProperty) && Objects.equals(idToStoragePolicy, that.idToStoragePolicy)
                 && Objects.equals(idToReplicaAllocation, that.idToReplicaAllocation) && Objects.equals(
-                idToInMemory, that.idToInMemory) && Objects.equals(idToTabletType, that.idToTabletType);
+                idToInMemory, that.idToInMemory) && Objects.equals(idToTabletType, that.idToTabletType)
+                && Objects.equals(partitionExprs, that.partitionExprs);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(type, partitionColumns, idToItem, idToTempItem, idToDataProperty, idToStoragePolicy,
-                idToReplicaAllocation, isMultiColumnPartition, idToInMemory, idToTabletType);
+                idToReplicaAllocation, isMultiColumnPartition, idToInMemory, idToTabletType, partitionExprs);
     }
 }
