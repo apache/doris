@@ -80,6 +80,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
+import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
@@ -187,7 +188,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -217,11 +217,12 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public InternalCatalog() {
         // create internal databases
-        List<Database> internalDbs = new ArrayList<>();
-        internalDbs.add(new InfoSchemaDb(SystemInfoService.DEFAULT_CLUSTER));
-        internalDbs.add(new MysqlDb(SystemInfoService.DEFAULT_CLUSTER));
+        List<MysqlCompatibleDatabase> mysqlCompatibleDatabases = new ArrayList<>();
+        mysqlCompatibleDatabases.add(new InfoSchemaDb(SystemInfoService.DEFAULT_CLUSTER));
+        mysqlCompatibleDatabases.add(new MysqlDb(SystemInfoService.DEFAULT_CLUSTER));
+        MysqlCompatibleDatabase.COUNT = 2;
 
-        for (Database idb : internalDbs) {
+        for (MysqlCompatibleDatabase idb : mysqlCompatibleDatabases) {
             // do not call unprotectedCreateDb, because it will cause loop recursive when initializing Env singleton
             idToDb.put(idb.getId(), idb);
             fullNameToDb.put(idb.getFullName(), idb);
@@ -3080,14 +3081,19 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public long saveDb(CountingDataOutputStream dos, long checksum) throws IOException {
         // 2 is for information_schema db & mysql db, which does not need to be persisted.
-        int dbCount = idToDb.size() - 2;
+        // And internal database could not be dropped, so we assert dbCount >= 0
+        int dbCount = idToDb.size() - MysqlCompatibleDatabase.COUNT;
+        if (dbCount < 0) {
+            throw new IOException("Invalid database count");
+        }
+
         checksum ^= dbCount;
         dos.writeInt(dbCount);
+
         for (Map.Entry<Long, Database> entry : idToDb.entrySet()) {
             Database db = entry.getValue();
-            String dbName = db.getFullName();
-            // Don't write information_schema & mysql db meta
-            if (!InfoSchemaDb.isInfoSchemaDb(dbName) && !MysqlDb.isMysqlDb(dbName)) {
+            // Don't write internal database meta.
+            if (!db.isMysqlCompatibleDatabase()) {
                 checksum ^= entry.getKey();
                 db.write(dos);
             }
