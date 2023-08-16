@@ -69,7 +69,7 @@ suite("test_mow_txn_case") {
                   UNIQUE KEY(`test`, `id`)
                   DISTRIBUTED BY HASH(id) BUCKETS 1 
                   PROPERTIES ( 
-                        "enable_unique_key_merge_on_write" = "true"
+                        "enable_unique_key_merge_on_write" = "true",
                       "replication_allocation" = "tag.location.default: 1"
                   )
               """
@@ -140,6 +140,7 @@ suite("test_mow_txn_case") {
                 UNIQUE KEY(`test`, `id`)
                 DISTRIBUTED BY HASH(id) BUCKETS 1 
                 PROPERTIES ( 
+                    "enable_unique_key_merge_on_write" = "true",
                     "replication_allocation" = "tag.location.default: 1"
                 )
             """

@@ -26,7 +26,7 @@ suite("test_mow_create_table_with_binlog_config") {
 
     // Case 1: database disable binlog, create table with binlog disable
     sql """
-        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "false" );
+        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "false" );
         """
     result = sql "show create table test_table_binlog.t1"
     logger.info("${result}")
@@ -37,7 +37,7 @@ suite("test_mow_create_table_with_binlog_config") {
 
     // Case 2: database disable binlog, create table with binlog enable
     sql """
-        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "true" );
+        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "true" );
         """
     result = sql "show create table test_table_binlog.t1"
     logger.info("${result}")
@@ -52,7 +52,7 @@ suite("test_mow_create_table_with_binlog_config") {
         """
     assertThrows(Exception.class, {
         sql """
-            CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "false" );
+            CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "false" );
             """
     })
     sql """
@@ -64,7 +64,7 @@ suite("test_mow_create_table_with_binlog_config") {
         alter database test_table_binlog set properties ("binlog.enable" = "true")
         """
     sql """
-        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "true" );
+        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1", "binlog.enable" = "true" );
         """
     result = sql "show create table test_table_binlog.t1"
     logger.info("${result}")
@@ -75,7 +75,7 @@ suite("test_mow_create_table_with_binlog_config") {
 
     // Case 5: database enable binlog, create table inherit database binlog config
     sql """
-        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1" );
+        CREATE TABLE test_table_binlog.t1 ( k1 INT ) ENGINE = olap UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ( "enable_unique_key_merge_on_write" = "true", "replication_num" = "1" );
         """
     result = sql "show create table test_table_binlog.t1"
     logger.info("${result}")
