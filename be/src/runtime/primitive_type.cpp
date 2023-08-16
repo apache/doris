@@ -260,6 +260,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
         return TPrimitiveType::STRUCT;
     case TYPE_LAMBDA_FUNCTION:
         return TPrimitiveType::LAMBDA_FUNCTION;
+    case TYPE_AGG_STATE:
+        return TPrimitiveType::AGG_STATE;
 
     default:
         return TPrimitiveType::INVALID_TYPE;
