@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -185,6 +186,10 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                 ++tabletNum;
                                 Tablet.TabletStatus res = null;
                                 if (groupId != null) {
+                                    ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(groupId);
+                                    if (groupSchema != null) {
+                                        replicaAlloc = groupSchema.getReplicaAlloc();
+                                    }
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
                                     res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc,
                                             backendsSet);
