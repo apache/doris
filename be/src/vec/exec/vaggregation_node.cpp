@@ -678,11 +678,13 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
                 }
             }
 
-            ColumnPtr ptr = std::move(columns[i]);
-            // unless `count`, other aggregate function dispose empty set should be null
-            // so here check the children row return
-            ptr = make_nullable(ptr, _children[0]->rows_returned() == 0);
-            columns[i] = std::move(*ptr).mutate();
+            if (column_type->is_nullable() && !data_types[i]->is_nullable()) {
+                ColumnPtr ptr = std::move(columns[i]);
+                // unless `count`, other aggregate function dispose empty set should be null
+                // so here check the children row return
+                ptr = make_nullable(ptr, _children[0]->rows_returned() == 0);
+                columns[i] = ptr->assume_mutable();
+            }
         }
     }
 

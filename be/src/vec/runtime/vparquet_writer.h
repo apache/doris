@@ -86,7 +86,8 @@ public:
                               const TParquetVersion::type& parquet_version);
     static void build_schema_data_logical_type(
             std::shared_ptr<const parquet::LogicalType>& parquet_data_logical_type_ptr,
-            const TParquetDataLogicalType::type& column_data_logical_type);
+            const TParquetDataLogicalType::type& column_data_logical_type, int* primitive_length,
+            const TypeDescriptor& type_desc);
 };
 
 class VFileWriterWrapper {

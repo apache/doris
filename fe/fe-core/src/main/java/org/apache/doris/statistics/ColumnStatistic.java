@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -109,7 +110,6 @@ public class ColumnStatistic {
      */
     public final ColumnStatistic original;
 
-    // For display only.
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
@@ -117,14 +117,17 @@ public class ColumnStatistic {
     // assign value when do stats estimation.
     public final Histogram histogram;
 
+    @SerializedName("partitionIdToColStats")
     public final Map<Long, ColumnStatistic> partitionIdToColStats = new HashMap<>();
 
     public final String updatedTime;
 
+    public final PartitionInfo partitionInfo;
+
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             double selectivity, LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram,
-            String updatedTime) {
+            String updatedTime, PartitionInfo partitionInfo) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -139,6 +142,7 @@ public class ColumnStatistic {
         this.isUnKnown = isUnKnown;
         this.histogram = histogram;
         this.updatedTime = updatedTime;
+        this.partitionInfo = partitionInfo;
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
@@ -395,7 +399,7 @@ public class ColumnStatistic {
             null,
             stat.getBoolean("IsUnKnown"),
             Histogram.deserializeFromJson(stat.getString("Histogram")),
-            stat.getString("LastUpdatedTime")
+            stat.getString("LastUpdatedTime"), null
         );
     }
 

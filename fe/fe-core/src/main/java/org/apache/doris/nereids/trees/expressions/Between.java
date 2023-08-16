@@ -24,6 +24,7 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -46,10 +47,17 @@ public class Between extends Expression implements TernaryExpression {
 
     public Between(Expression compareExpr, Expression lowerBound,
                    Expression upperBound) {
-        super(compareExpr, lowerBound, upperBound);
+        super(ImmutableList.of(compareExpr, lowerBound, upperBound));
         this.compareExpr = compareExpr;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
+    }
+
+    public Between(List<Expression> children) {
+        super(children);
+        this.compareExpr = children.get(0);
+        this.lowerBound = children.get(1);
+        this.upperBound = children.get(2);
     }
 
     @Override
@@ -91,7 +99,7 @@ public class Between extends Expression implements TernaryExpression {
     @Override
     public Between withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new Between(children.get(0), children.get(1), children.get(2));
+        return new Between(children);
     }
 
     @Override

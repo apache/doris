@@ -107,7 +107,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public boolean canBind() {
-        return !bound() && childrenBound();
+        return !bound() && children().stream().allMatch(Plan::bound);
     }
 
     /**
@@ -170,8 +170,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public LogicalProperties computeLogicalProperties() {
         boolean hasUnboundChild = children.stream()
-                .map(Plan::getLogicalProperties)
-                .anyMatch(UnboundLogicalProperties.class::isInstance);
+                .anyMatch(child -> !child.bound());
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {

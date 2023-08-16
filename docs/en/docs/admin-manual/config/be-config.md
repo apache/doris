@@ -712,6 +712,11 @@ BaseCompaction:546859:
 * Description: Import the number of threads for processing NORMAL priority tasks
 * Default value: 3
 
+#### `enable_single_replica_load`
+
+* Description: Whether to enable the single-copy data import function
+* Default value: false
+
 #### `load_error_log_reserve_hours`
 
 * Description: The load error log will be deleted after this time

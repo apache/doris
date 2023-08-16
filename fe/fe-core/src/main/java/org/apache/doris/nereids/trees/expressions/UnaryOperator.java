@@ -33,7 +33,7 @@ public abstract class UnaryOperator extends Expression implements UnaryExpressio
 
     protected final String symbol;
 
-    public UnaryOperator(Expression child, String symbol) {
+    protected UnaryOperator(List<Expression> child, String symbol) {
         super(child);
         this.symbol = symbol;
     }

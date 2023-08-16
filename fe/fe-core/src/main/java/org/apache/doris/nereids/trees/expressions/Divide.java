@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -36,13 +37,17 @@ import java.util.List;
 public class Divide extends BinaryArithmetic implements AlwaysNullable {
 
     public Divide(Expression left, Expression right) {
-        super(left, right, Operator.DIVIDE);
+        super(ImmutableList.of(left, right), Operator.DIVIDE);
+    }
+
+    private Divide(List<Expression> children) {
+        super(children, Operator.DIVIDE);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Divide(children.get(0), children.get(1));
+        return new Divide(children);
     }
 
     @Override
