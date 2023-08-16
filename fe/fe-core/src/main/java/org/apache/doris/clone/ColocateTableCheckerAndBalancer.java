@@ -219,6 +219,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 continue;
             }
 
+            ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
+            ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             String unstableReason = null;
             OUT:
             for (Long tableId : tableIds) {
@@ -237,8 +239,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getPartitions()) {
-                        ReplicaAllocation replicaAlloc
-                                = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
                         short replicationNum = replicaAlloc.getTotalReplicaNum();
                         long visibleVersion = partition.getVisibleVersion();
                         // Here we only get VISIBLE indexes. All other indexes are not queryable.
@@ -269,8 +269,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     TabletSchedCtx tabletCtx = new TabletSchedCtx(
                                             TabletSchedCtx.Type.REPAIR,
                                             db.getId(), tableId, partition.getId(), index.getId(), tablet.getId(),
-                                            olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                                            System.currentTimeMillis());
+                                            replicaAlloc, System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletStatus(st);
                                     tabletCtx.setPriority(Priority.NORMAL);
