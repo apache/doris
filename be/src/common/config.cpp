@@ -953,6 +953,7 @@ DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mBool(enable_flatten_nested_for_variant, "false");
 DEFINE_mDouble(ratio_of_defaults_as_sparse_column, "0.95");
+DEFINE_mDouble(max_filter_ratio_for_variant_parsing, "0.05");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");

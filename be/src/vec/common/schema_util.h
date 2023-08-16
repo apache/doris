@@ -85,7 +85,8 @@ TabletColumn get_least_type_column(const TabletColumn& original, const DataTypeP
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 2. encode sparse sub columns
-void parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                             double max_filter_ratio, IColumn::Filter& filter);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);
 void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);

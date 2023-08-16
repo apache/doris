@@ -321,8 +321,20 @@ suite("regression_test_variant", "variant_type"){
         sql "select * from ${table_name}"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
+
+        // filter invalid variant
+        table_name = "invalid_variant"
+        set_be_config.call("max_filter_ratio_for_variant_parsing", "1")
+        create_table.call(table_name, "4")
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')""" 
+        sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')""" 
+        set_be_config.call("max_filter_ratio_for_variant_parsing", "0.05")
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')""" 
+        sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')""" 
+        sql "select * from ${table_name}"
     } finally {
         // reset flags
+        set_be_config.call("max_filter_ratio_for_variant_parsing", "0.05")
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
     }
 }
