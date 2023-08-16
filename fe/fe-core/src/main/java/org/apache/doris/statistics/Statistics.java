@@ -111,7 +111,12 @@ public class Statistics {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
             columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
-            columnStatisticBuilder.setNumNulls(rowCount - columnStatistic.numNulls);
+
+            double numNulls = Math.min(columnStatistic.numNulls, rowCount - columnStatistic.ndv);
+            columnStatisticBuilder.setNumNulls(numNulls);
+
+            // columnStatisticBuilder.setNumNulls(rowCount - columnStatistic.numNulls);
+
             columnStatisticBuilder.setCount(rowCount);
             expressionToColumnStats.put(entry.getKey(), columnStatisticBuilder.build());
         }

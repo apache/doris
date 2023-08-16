@@ -358,10 +358,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             Expression expr = entry.getKey();
             ColumnStatistic originColStats = entry.getValue();
             ColumnStatistic childColStats = childStats.findColumnStatistics(expr);
-            double originNonNullCount = Math.max(originColStats.count - originColStats.numNulls, 0);
-            double childNonNullCount = Math.max(childColStats.count - childColStats.numNulls, 0);
-            double supersetValuesPerDistinctValue = StatsMathUtil.divide(originNonNullCount, originColStats.ndv);
-            double subsetValuesPerDistinctValue = StatsMathUtil.divide(childNonNullCount, childColStats.ndv);
+
+            double supersetValuesPerDistinctValue = StatsMathUtil.divide(originColStats.count, originColStats.ndv);
+            double subsetValuesPerDistinctValue = StatsMathUtil.divide(childColStats.count, childColStats.ndv);
             double ndv;
             if (supersetValuesPerDistinctValue <= subsetValuesPerDistinctValue) {
                 ndv = Math.max(originColStats.ndv - childColStats.ndv, 0);
