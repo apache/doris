@@ -23,7 +23,7 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "sqlserver_catalog";
-        String internal_db_name = "regression_test_jdbc_catalog_p0";
+        String internal_db_name = "sqlserver_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
         String sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port");
 
@@ -39,6 +39,8 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
+        sql """drop database if exists ${internal_db_name}"""
+        sql """create database if not exists ${internal_db_name}"""
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
