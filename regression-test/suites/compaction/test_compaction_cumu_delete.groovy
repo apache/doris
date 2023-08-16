@@ -63,6 +63,7 @@ suite("test_compaction_cumu_delete") {
 
         if (!allowDeleteWhenCumu) {
             logger.info("Skip test compaction when cumu compaction because not enabled this config")
+            return
         }
 
 
