@@ -75,7 +75,7 @@ suite("regression_test_variant", "variant_type"){
     }
     try {
         def table_name = "simple_variant"
-        // // 1. simple cases
+        // 1. simple cases
         create_table table_name
         sql """insert into ${table_name} values (1,  '[1]'),(1,  '{"a" : 1}');"""
         sql """insert into ${table_name} values (2,  '[2]'),(1,  '{"a" : [[[1]]]}');"""
@@ -295,6 +295,7 @@ suite("regression_test_variant", "variant_type"){
 
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
          // unique table
+        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "github_events_unique"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -306,6 +307,19 @@ suite("regression_test_variant", "variant_type"){
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (2, '{"b" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (2, '{"c" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (3, '{"d" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (3, '{"e" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (4, '{"f" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (4, '{"g" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (5, '{"h" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (5, '{"i" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (6, '{"j" : 1}'), (1, '{"a" : 1}')"""
+        sql """insert into ${table_name} values (6, '{"k" : 1}'), (1, '{"a" : 1}')"""
+        sql "select * from ${table_name}"
+        sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
     } finally {
         // reset flags
