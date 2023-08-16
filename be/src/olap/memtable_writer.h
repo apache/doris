@@ -76,7 +76,7 @@ public:
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
-    // wait for all memtables to be flushed.
+    // wait for all memtables to be flushed, update profiles if provided.
     // mem_consumption() should be 0 after this function returns.
     Status close_wait(RuntimeProfile* profile = nullptr) {
         RETURN_IF_ERROR(_do_close_wait());
