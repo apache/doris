@@ -992,6 +992,11 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
 bool ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
     CHECK(is_finalized());
     rapidjson::StringBuffer buf;
+    if (is_scalar_variant()) {
+        auto type = get_root_type();
+        *output = type->to_string(*get_root(), row);
+        return true;
+    }
     bool res = serialize_one_row_to_json_format(row, &buf, nullptr);
     if (res) {
         // TODO avoid copy
@@ -1002,6 +1007,11 @@ bool ColumnObject::serialize_one_row_to_string(int row, std::string* output) con
 
 bool ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
     CHECK(is_finalized());
+    if (is_scalar_variant()) {
+        auto type = get_root_type();
+        type->to_string(*get_root(), row, output);
+        return true;
+    }
     rapidjson::StringBuffer buf;
     bool res = serialize_one_row_to_json_format(row, &buf, nullptr);
     if (res) {
