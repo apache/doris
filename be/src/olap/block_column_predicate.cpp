@@ -17,7 +17,9 @@
 
 #include "block_column_predicate.h"
 
+#include <glog/logging.h>
 #include <string.h>
+#include <string>
 
 namespace roaring {
 class Roaring;
@@ -32,7 +34,9 @@ class InvertedIndexIterator;
 uint16_t SingleColumnBlockPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                                               uint16_t selected_size) const {
     auto column_id = _predicate->column_id();
+    LOG(INFO) << "===col_id:" << std::to_string(column_id);
     auto& column = block[column_id];
+    LOG(INFO) << "===col: " << column_id << " " << column->dump_structure();
     return _predicate->evaluate(*column, sel, selected_size);
 }
 

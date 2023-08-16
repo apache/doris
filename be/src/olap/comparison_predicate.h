@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <cstdint>
 
 #include "olap/column_predicate.h"
@@ -133,11 +135,21 @@ public:
         if (column.is_nullable()) {
             auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+            if (nullable_column_ptr == nullptr) {
+                LOG(INFO) << "=====cast failed";
+            }
             auto& nested_column = nullable_column_ptr->get_nested_column();
-            auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
-                                     nullable_column_ptr->get_null_map_column())
-                                     .get_data();
-
+            LOG(INFO) << "===== nested column: " << nested_column.dump_structure();
+            LOG(INFO) << "===== null map column: "
+                      << nullable_column_ptr->get_null_map_column().dump_structure();
+            LOG(INFO) << "===== null map casted column: "
+                      << reinterpret_cast<const vectorized::ColumnUInt8&>(
+                                 nullable_column_ptr->get_null_map_column())
+                                 .get_data_at(0);
+            // auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            //                          nullable_column_ptr->get_null_map_column())
+            //                          .get_data();
+            auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
             return _base_evaluate<true>(&nested_column, null_map.data(), sel, size);
         } else {
             return _base_evaluate<false>(&column, nullptr, sel, size);
