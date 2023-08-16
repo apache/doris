@@ -383,6 +383,7 @@ struct TimeRound {
 
     template <typename NativeType, typename DateValueType>
     static void time_round(const DateValueType& ts2, Int32 period, DateValueType& ts1) {
+        period = period < 1 ? 1 : period;
         int64_t diff;
         int64_t trivial_part_ts1;
         int64_t trivial_part_ts2;
