@@ -377,7 +377,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         delete_sign_column != nullptr) {
         auto& delete_sign_col =
                 reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
-        if (delete_sign_col.size() == row_pos + num_rows) {
+        if (delete_sign_col.size() >= row_pos + num_rows) {
             delete_sign_column_data = delete_sign_col.get_data().data();
         }
     }
