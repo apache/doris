@@ -314,7 +314,9 @@ public:
 
     bool has() const { return size >= 0; }
 
-    const char* get_data() const { return size <= MAX_SMALL_STRING_SIZE ? small_data : large_data.get(); }
+    const char* get_data() const {
+        return size <= MAX_SMALL_STRING_SIZE ? small_data : large_data.get();
+    }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
