@@ -1226,6 +1226,9 @@ Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorize
         }
         break;
     }
+    if (partition == nullptr) {
+        return Status::OK();
+    }
     for (int j = 0; j < partition->indexes.size(); ++j) {
         auto tid = partition->indexes[j].tablets[tablet_index];
         auto it = _channels[j]->_channels_by_tablet.find(tid);
