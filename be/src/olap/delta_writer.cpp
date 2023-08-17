@@ -66,7 +66,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, Runti
                          const UniqueId& load_id)
         : _req(*req),
           _rowset_builder(*req, storage_engine, profile),
-          _memtable_writer(*req, profile),
+          _memtable_writer(new MemTableWriter(*req)),
           _storage_engine(storage_engine) {
     _init_profile(profile);
 }
@@ -83,10 +83,10 @@ DeltaWriter::~DeltaWriter() {
     }
 
     // cancel and wait all memtables in flush queue to be finished
-    _memtable_writer.cancel();
+    _memtable_writer->cancel();
 
     if (_rowset_builder.tablet() != nullptr) {
-        const FlushStatistic& stat = _memtable_writer.get_flush_token_stats();
+        const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
         _rowset_builder.tablet()->flush_bytes->increment(stat.flush_size_bytes);
         _rowset_builder.tablet()->flush_finish_count->increment(stat.flush_finish_count);
     }
@@ -94,8 +94,8 @@ DeltaWriter::~DeltaWriter() {
 
 Status DeltaWriter::init() {
     _rowset_builder.init();
-    _memtable_writer.init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
-                          _rowset_builder.tablet()->enable_unique_key_merge_on_write());
+    _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
+                           _rowset_builder.tablet()->enable_unique_key_merge_on_write());
     _is_init = true;
     return Status::OK();
 }
@@ -115,10 +115,10 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    return _memtable_writer.write(block, row_idxs, is_append);
+    return _memtable_writer->write(block, row_idxs, is_append);
 }
 Status DeltaWriter::wait_flush() {
-    return _memtable_writer.wait_flush();
+    return _memtable_writer->wait_flush();
 }
 
 Status DeltaWriter::close() {
@@ -133,7 +133,7 @@ Status DeltaWriter::close() {
         // for this tablet when being closed.
         RETURN_IF_ERROR(init());
     }
-    return _memtable_writer.close();
+    return _memtable_writer->close();
 }
 
 Status DeltaWriter::build_rowset() {
@@ -142,7 +142,7 @@ Status DeltaWriter::build_rowset() {
             << "delta writer is supposed be to initialized before build_rowset() being called";
 
     SCOPED_TIMER(_close_wait_timer);
-    RETURN_IF_ERROR(_memtable_writer.close_wait());
+    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
     return _rowset_builder.build_rowset();
 }
 
@@ -193,13 +193,13 @@ Status DeltaWriter::cancel_with_status(const Status& st) {
     if (_is_cancelled) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_memtable_writer.cancel_with_status(st));
+    RETURN_IF_ERROR(_memtable_writer->cancel_with_status(st));
     _is_cancelled = true;
     return Status::OK();
 }
 
 int64_t DeltaWriter::mem_consumption(MemType mem) {
-    return _memtable_writer.mem_consumption(mem);
+    return _memtable_writer->mem_consumption(mem);
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {

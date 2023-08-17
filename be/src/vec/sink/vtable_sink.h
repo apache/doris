@@ -54,6 +54,8 @@ public:
 
     const RowDescriptor& row_desc() { return _row_desc; }
 
+    virtual bool can_write() { return true; }
+
 protected:
     // owned by RuntimeState
     ObjectPool* _pool;

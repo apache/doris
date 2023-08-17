@@ -77,17 +77,10 @@ private:
         }
     }
 
-    void _deregister_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
-        for (auto& [_, tablet_channel] : channel->get_tablets_channels()) {
-            tablet_channel->deregister_memtable_memory_limiter();
-        }
-    }
-
 protected:
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel
-    // when you erase, you should call deregister_writer method in MemTableMemoryLimiter ;
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     Cache* _last_success_channel = nullptr;
 
