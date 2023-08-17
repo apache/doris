@@ -539,9 +539,11 @@ void FragmentMgr::remove_pipeline_context(
     f_context->instance_ids(ins_ids);
     bool all_done = q_context->countdown(ins_ids.size());
     for (const auto& ins_id : ins_ids) {
+        LOG(INFO) << "remove pipeline context " << print_id(ins_id);
         _pipeline_map.erase(ins_id);
     }
     if (all_done) {
+        LOG(INFO) << "remove query context " << print_id(query_id);
         _query_ctx_map.erase(query_id);
     }
 }

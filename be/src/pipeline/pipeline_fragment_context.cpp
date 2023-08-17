@@ -151,11 +151,25 @@ PipelineFragmentContext::~PipelineFragmentContext() {
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
-    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
-        LOG(WARNING) << "PipelineFragmentContext "
-                     << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
-                     << " is canceled, cancel message: " << msg;
+    LOG_INFO("PipelineFragmentContext::cancel")
+            .tag("query_id", print_id(_query_ctx->query_id()))
+            .tag("fragment_id", _fragment_id)
+            .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
+            .tag("reason", PPlanFragmentCancelReason_Name(reason))
+            .tag("message", msg);
 
+    if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
+        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
+            LOG(WARNING) << "PipelineFragmentContext "
+                         << PrintInstanceStandardInfo(_query_id, _fragment_id, _fragment_instance_id)
+                         << " is canceled, cancel message: " << msg;
+
+        } else {
+            _set_is_report_on_cancel(false);
+        }
+
+        _runtime_state->set_is_cancelled(true, msg);
+        _runtime_state->set_process_status(_query_ctx->exec_status());
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
@@ -199,6 +213,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     LOG_INFO("PipelineFragmentContext::prepare")
             .tag("query_id", print_id(_query_id))
+            .tag("fragment_id", _fragment_id)
             .tag("instance_id", print_id(local_params.fragment_instance_id))
             .tag("backend_num", local_params.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
@@ -311,6 +326,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
+    _start_report_thread();
+
     _prepared = true;
     return Status::OK();
 }
@@ -342,6 +359,19 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     }
 
     return Status::OK();
+}
+
+void PipelineFragmentContext::_start_report_thread() {
+    if (_is_report_success && config::status_report_interval > 0) {
+        std::unique_lock<std::mutex> l(_report_thread_lock);
+        _exec_env->send_report_thread_pool()->submit_func([this] {
+            Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
+            this->report_profile();
+        });
+        // make sure the thread started up, otherwise report_profile() might get into a race
+        // with stop_report_thread()
+        _report_thread_started_cv.wait(l);
+    }
 }
 
 void PipelineFragmentContext::_stop_report_thread() {
@@ -705,6 +735,7 @@ void PipelineFragmentContext::close_sink() {
 }
 
 void PipelineFragmentContext::close_if_prepare_failed() {
+    LOG(WARNING) << "close PipelineFragmentContext because prepare failed";
     if (_tasks.empty()) {
         if (_root_plan) {
             _root_plan->close(_runtime_state.get());

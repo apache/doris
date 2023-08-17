@@ -147,6 +147,7 @@ protected:
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);
     virtual void _close_action();
+    void _start_report_thread();
     void _stop_report_thread();
     void _set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 

@@ -112,7 +112,8 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
     if (!_runtime_states.empty()) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
         SCOPED_ATTACH_TASK(_runtime_state.get());
-        FOR_EACH_RUNTIME_STATE(_call_back(runtime_state.get(), &st); runtime_state.reset();)
+        FOR_EACH_RUNTIME_STATE(_call_back(runtime_state.get(), &st);
+                               runtime_state.reset();)
     } else {
         _call_back(nullptr, &st);
     }
@@ -122,8 +123,18 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
+    LOG_INFO("PipelineXFragmentContext::cancel")
+            .tag("query_id", print_id(_query_ctx->query_id()))
+            .tag("fragment_id", _fragment_id)
+            .tag("reason", reason)
+            .tag("error message", msg);
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
-        LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
+        if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
+            FOR_EACH_RUNTIME_STATE(LOG(WARNING) << "PipelineXFragmentContext cancel instance: "
+                                                << print_id(runtime_state->fragment_instance_id());)
+        } else {
+            _set_is_report_on_cancel(false);
+        }
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
@@ -212,6 +223,8 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
 
     // 5. Build pipeline tasks and initialize local state.
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
+
+    _start_report_thread();
 
     _prepared = true;
     return Status::OK();
