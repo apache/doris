@@ -57,7 +57,7 @@ ADMIN SET PARTITION VERSION
 1. 设置 partition 1769152 在 FE 元数据上的版本为 100。
 
 ```sql
-ADMIN SET REPLICA STATUS PROPERTIES("partition_id" = "1769152", "visible_version" = "100");
+ADMIN SET PARTITION VERSION PROPERTIES("partition_id" = "1769152", "visible_version" = "100");
 ```
 
 ### Keywords

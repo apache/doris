@@ -57,7 +57,7 @@ The following properties are currently supported:
 1. Set the version of partition 1769152 to 100.
 
 ```sql
-ADMIN SET REPLICA STATUS PROPERTIES("partition_id" = "1769152", "visible_version" = "100");
+ADMIN SET PARTITION VERSION PROPERTIES("partition_id" = "1769152", "visible_version" = "100");
 ```
 
 ### Keywords
