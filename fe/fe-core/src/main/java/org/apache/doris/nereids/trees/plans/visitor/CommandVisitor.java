@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoValuesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 
 /** CommandVisitor. */
@@ -39,9 +40,13 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createPolicy, context);
     }
 
-    default R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
+    default R visitInsertIntoTableCommand(InsertIntoTableCommand insertIntoSelectCommand,
             C context) {
         return visitCommand(insertIntoSelectCommand, context);
+    }
+
+    default R visitInsertIntoValuesCommand(InsertIntoValuesCommand insertIntoValuesCommand, C context) {
+        return visitCommand(insertIntoValuesCommand, context);
     }
 
     default R visitUpdateCommand(UpdateCommand updateCommand, C context) {
