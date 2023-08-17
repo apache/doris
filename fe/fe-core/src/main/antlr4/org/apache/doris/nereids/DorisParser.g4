@@ -404,8 +404,18 @@ primaryExpression
     | interval                                                                                 #intervalLiteral
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
-      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
+    | CHAR LEFT_PAREN
+                arguments+=expression (COMMA arguments+=expression)*
+                (USING charSet=identifierOrText)?
+          RIGHT_PAREN                                                                         #charFunction
+    | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN       #convertCharSet
+    | CONVERT LEFT_PAREN argument=expression COMMA type=dataType RIGHT_PAREN                  #convertType
+    | functionIdentifier 
+        LEFT_PAREN (
+            (DISTINCT|ALL)? 
+            arguments+=expression (COMMA arguments+=expression)*
+            (ORDER BY sortItem (COMMA sortItem)*)?
+        )? RIGHT_PAREN
       (OVER windowSpec)?                                                                       #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
@@ -584,6 +594,7 @@ nonReserved
     | CATALOG
     | CATALOGS
     | CHANGE
+    | CHAR
     | CHECK
     | CLEAR
     | CLUSTER
@@ -600,6 +611,7 @@ nonReserved
     | COMPUTE
     | CONCATENATE
     | CONSTRAINT
+    | CONVERT
     | COST
     | CREATE
     | CUBE

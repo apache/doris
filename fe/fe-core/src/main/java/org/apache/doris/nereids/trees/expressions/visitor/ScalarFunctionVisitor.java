@@ -86,6 +86,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Char;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
@@ -631,6 +632,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitConcat(Concat concat, C context) {
         return visitScalarFunction(concat, context);
+    }
+
+    default R visitChar(Char charFunc, C context) {
+        return visitScalarFunction(charFunc, context);
     }
 
     default R visitConcatWs(ConcatWs concatWs, C context) {
