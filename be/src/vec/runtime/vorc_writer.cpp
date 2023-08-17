@@ -88,6 +88,7 @@ VOrcWriterWrapper::VOrcWriterWrapper(doris::io::FileWriter* file_writer,
                                      const VExprContextSPtrs& output_vexpr_ctxs,
                                      const std::string& schema, bool output_object_data)
         : VFileWriterWrapper(output_vexpr_ctxs, output_object_data),
+          _file_writer(file_writer),
           _write_options(new orc::WriterOptions()),
           _schema_str(schema) {}
 
