@@ -601,7 +601,9 @@ private:
 
     void _remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bitmap);
     Status _check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
-                                            const RowsetIdUnorderedSet& rowset_ids) const;
+                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
+                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
+    std::string _get_rowset_info_str(RowsetSharedPtr rowset, bool delete_flag);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
