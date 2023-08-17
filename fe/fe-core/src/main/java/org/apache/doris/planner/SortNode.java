@@ -316,6 +316,11 @@ public class SortNode extends PlanNode {
     }
 
     @Override
+    public int getNumInstances() {
+        return children.get(0).getNumInstances();
+    }
+
+    @Override
     public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         removeUnusedExprs();
         List<Expr> materializedTupleExprs = new ArrayList<>(resolvedTupleExprs);
