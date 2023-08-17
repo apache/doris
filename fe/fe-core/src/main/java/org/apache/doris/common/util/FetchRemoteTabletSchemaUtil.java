@@ -18,9 +18,12 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -41,6 +44,8 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -136,20 +141,76 @@ public class FetchRemoteTabletSchemaUtil {
 
     private void fillColumns(PFetchRemoteSchemaResponse response) throws AnalysisException {
         TabletSchemaPB schemaPB = response.getMergedSchema();
-        for (ColumnPB column : schemaPB.getColumnList()) {
+        for (ColumnPB columnPB : schemaPB.getColumnList()) {
             try {
-                AggregateType aggType = getAggTypeFromAggName(column.getAggregation());
-                Type type = getTypeFromTypeName(column.getType());
-                String columnName = column.getName();
-                boolean isKey = column.getIsKey();
-                boolean isNullable = column.getIsNullable();
-                String defaultValue = column.getDefaultValue().toString("UTF-8");
-                Column remoteColumn = new Column(columnName, type, isKey, aggType, isNullable,
-                                                            defaultValue, "remote schema");
+                Column remoteColumn = initColumnFromPB(columnPB);
                 columns.add(remoteColumn);
             } catch (Exception e) {
                 throw new AnalysisException("default value to string failed");
             }
+        }
+        int variantColumntIdx = 0;
+        for (Column column : columns) {
+            variantColumntIdx++;
+            if (column.getType().isVariantType()) {
+                break;
+            }
+        }
+        if (variantColumntIdx == columns.size()) {
+            return;
+        }
+        List<Column> subList = columns.subList(variantColumntIdx, columns.size());
+        Collections.sort(subList, new Comparator<Column>() {
+            @Override
+            public int compare(Column c1, Column c2) {
+                return c1.getName().compareTo(c2.getName());
+            }
+        });
+    }
+
+    private Column initColumnFromPB(ColumnPB column) throws AnalysisException {
+        try {
+            AggregateType aggType = getAggTypeFromAggName(column.getAggregation());
+            Type type = getTypeFromTypeName(column.getType());
+            String columnName = column.getName();
+            boolean isKey = column.getIsKey();
+            boolean isNullable = column.getIsNullable();
+            String defaultValue = column.getDefaultValue().toString("UTF-8");
+            if (defaultValue.equals("")) {
+                defaultValue = "NULL";
+            }
+            do {
+                if (type.isArrayType()) {
+                    List<ColumnPB> childColumn = column.getChildrenColumnsList();
+                    if (childColumn == null || childColumn.size() != 1) {
+                        break;
+                    }
+                    Column child = initColumnFromPB(childColumn.get(0));
+                    type = new ArrayType(child.getType());
+                } else if (type.isMapType()) {
+                    List<ColumnPB> childColumn = column.getChildrenColumnsList();
+                    if (childColumn == null || childColumn.size() != 2) {
+                        break;
+                    }
+                    Column keyChild = initColumnFromPB(childColumn.get(0));
+                    Column valueChild = initColumnFromPB(childColumn.get(1));
+                    type = new MapType(keyChild.getType(), valueChild.getType());
+                } else if (type.isStructType()) {
+                    List<ColumnPB> childColumn = column.getChildrenColumnsList();
+                    if (childColumn == null) {
+                        break;
+                    }
+                    List<Type> childTypes = Lists.newArrayList();
+                    for (ColumnPB childPB : childColumn) {
+                        childTypes.add(initColumnFromPB(childPB).getType());
+                    }
+                    type = new StructType(childTypes);
+                }
+            } while (false);
+            return new Column(columnName, type, isKey, aggType, isNullable,
+                                                    defaultValue, "remote schema");
+        } catch (Exception e) {
+            throw new AnalysisException("default value to string failed");
         }
     }
 

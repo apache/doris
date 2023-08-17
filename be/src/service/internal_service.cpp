@@ -763,7 +763,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             }
             std::vector<TabletSchemaSPtr> schemas;
             for (auto& rpc_context : rpc_contexts) {
-                brpc::Join(rpc_context.cid);
+                brpc::Join(rpc_context.cntl.call_id());
                 if (rpc_context.cntl.Failed()) {
                     LOG(WARNING) << "fetch_remote_tablet_schema rpc err:"
                                  << rpc_context.cntl.ErrorText();
@@ -786,6 +786,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             if (!schemas.empty()) {
                 // merge all
                 TabletSchemaSPtr merged_schema = merge_schema(schemas);
+                merged_schema->to_schema_pb(response->mutable_merged_schema());
             }
             st.to_protobuf(response->mutable_status());
             return;

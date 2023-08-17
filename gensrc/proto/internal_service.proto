@@ -608,23 +608,6 @@ message PFetchTableSchemaResult {
   repeated PTypeDesc column_types = 4;
 }
 
-message PTabletsLocation {
-    required string host = 1;
-    required int32  brpc_port = 2;
-    repeated int64  tablet_id = 3;
-}
-
-message PFetchRemoteSchemaRequest {
-    repeated PTabletsLocation tablet_location = 1;
-    required bool is_coordinator = 2;
-}
-
-message PFetchRemoteSchemaResponse {
-    optional PStatus status = 1;
-    // intermediate merged schema
-    optional TabletSchemaPB merged_schema = 2;
-}
-
 message PRowLocation {
     optional int64 tablet_id = 1;
     optional string rowset_id = 2;
@@ -716,8 +699,8 @@ message PTabletsLocation {
 }
 
 message PFetchRemoteSchemaRequest {
-    repeated PTabletsLocation tabletLocation = 1;
-    required bool isCoordinator = 2;
+    repeated PTabletsLocation tablet_location = 1;
+    required bool is_coordinator = 2;
 }
 
 message PFetchRemoteSchemaResponse {
