@@ -17,9 +17,8 @@
 name: Dead Link Checker
 
 on:
-  pull_request:
   schedule:
-    - cron: '0 18 * * *'  # TimeZone: UTC 0
+    - cron: '30 3,14 * * *'
 
 concurrency:
   group: dlc-${{ github.event.pull_request.number || github.ref }}
