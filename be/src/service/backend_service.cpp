@@ -651,7 +651,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     auto calc_delete_bitmap_token =
             StorageEngine::instance()->calc_delete_bitmap_executor()->create_token();
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(local_tablet_id);
-    auto pre_rowset_ids = local_tablet->all_rs_id(local_tablet->max_version_unlocked().second);
+    RowsetIdUnorderedSet pre_rowset_ids;
     if (local_tablet->enable_unique_key_merge_on_write()) {
         auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
         std::vector<segment_v2::SegmentSharedPtr> segments;
