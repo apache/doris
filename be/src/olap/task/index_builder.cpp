@@ -451,10 +451,28 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
         _tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::mutex> rwlock(_tablet->get_rowset_update_lock());
         std::shared_lock<std::shared_mutex> wrlock(_tablet->get_header_lock());
-        for (auto rowset_ptr : _output_rowsets) {
-            RETURN_IF_ERROR(_tablet->update_delete_bitmap_without_lock(rowset_ptr));
-        }
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
+
+        std::vector<RowsetSharedPtr> calc_delete_bitmap_rowsets;
+        int64_t to_add_min_version = INT64_MAX;
+        for (auto& rs : _output_rowsets) {
+            if (to_add_min_version > rs->start_version()) {
+                to_add_min_version = rs->start_version();
+            }
+        }
+        Version calc_delete_bitmap_ver =
+                Version(to_add_min_version, _tablet->max_version_unlocked().second);
+        if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
+            Status res = _tablet->capture_consistent_rowsets(calc_delete_bitmap_ver,
+                                                             &calc_delete_bitmap_rowsets);
+            // Because the data in memory has been changed, can't return an error.
+            CHECK(res.ok()) << "fail to capture_consistent_rowsets, res: " << res;
+
+            for (auto rs : calc_delete_bitmap_rowsets) {
+                res = _tablet->update_delete_bitmap_without_lock(rs);
+                CHECK(res.ok()) << "fail to update_delete_bitmap_without_lock, res: " << res;
+            }
+        }
     } else {
         std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
