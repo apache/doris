@@ -45,7 +45,7 @@ public class IndexSchemaProcNodeTest {
         column2.setDefineExpr(functionCallExpr);
         columnList.add(column1);
         columnList.add(column2);
-        IndexSchemaProcNode indexSchemaProcNode = new IndexSchemaProcNode(null, columnList, null);
+        IndexSchemaProcNode indexSchemaProcNode = new IndexSchemaProcNode(columnList, null);
         ProcResult procResult = indexSchemaProcNode.fetchResult();
         Assert.assertEquals(2, procResult.getRows().size());
         Assert.assertTrue(procResult.getRows().get(1).contains(column2.getDisplayName()));

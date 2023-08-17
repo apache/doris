@@ -18,23 +18,15 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -43,7 +35,7 @@ import java.util.Set;
  * SHOW PROC /dbs/dbId/tableId/index_schema/indexId"
  * show index schema
  */
-public class IndexSchemaProcNode implements ProcDirInterface {
+public class IndexSchemaProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Field").add("Type").add("Null").add("Key")
             .add("Default").add("Extra")
@@ -51,10 +43,8 @@ public class IndexSchemaProcNode implements ProcDirInterface {
 
     private List<Column> schema;
     private Set<String> bfColumns;
-    private TableIf table;
 
-    public IndexSchemaProcNode(TableIf table, List<Column> schema, Set<String> bfColumns) {
-        this.table = table;
+    public IndexSchemaProcNode(List<Column> schema, Set<String> bfColumns) {
         this.schema = schema;
         this.bfColumns = bfColumns;
     }
@@ -115,71 +105,7 @@ public class IndexSchemaProcNode implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(table);
         Preconditions.checkNotNull(schema);
-        for (Column column : schema) {
-            if (column.getType().isVariantType()) {
-                List<Tablet> tablets = null;
-                table.readLock();
-                try {
-                    OlapTable olapTable = (OlapTable) table;
-                    tablets = olapTable.getAllTablets();
-                } finally {
-                    table.readUnlock();
-                }
-                List<Column> remoteSchema = new FetchRemoteTabletSchemaUtil(tablets).fetch();
-                if (remoteSchema == null || remoteSchema.isEmpty()) {
-                    throw new AnalysisException("fetch remote tablet schema failed");
-                }
-                this.schema = remoteSchema;
-                break;
-            }
-        }
         return createResult(this.schema, this.bfColumns);
     }
-
-    @Override
-    public boolean register(String name, ProcNodeInterface node) {
-        return false;
-    }
-
-    @Override
-    public ProcNodeInterface lookup(String partitionString) throws AnalysisException {
-        Preconditions.checkNotNull(table);
-
-        List<String> partitionNameList = new ArrayList<String>(Arrays.asList(partitionString.split(",")));
-        if (partitionNameList == null || partitionNameList.isEmpty()) {
-            throw new AnalysisException("Describe table[" + table.getName() + "] failed");
-        }
-        List<Tablet> tablets = Lists.newArrayList();
-        table.readLock();
-        try {
-            if (table.getType() == TableType.OLAP) {
-                OlapTable olapTable = (OlapTable) table;
-                List<Partition> partitions = Lists.newArrayList();
-                for (String partitionName : partitionNameList) {
-                    Partition partition = olapTable.getPartition(partitionName);
-                    if (partition == null) {
-                        throw new AnalysisException("Partition " + partitionName + " does not exist");
-                    }
-                    partitions.add(partition);
-                }
-                for (Partition partition : partitions) {
-                    MaterializedIndex idx = partition.getBaseIndex();
-                    for (Tablet tablet : idx.getTablets()) {
-                        tablets.add(tablet);
-                    }
-                }
-            } else {
-                throw new AnalysisException("Describe table[" + table.getName() + "] failed");
-            }
-        } catch (Throwable t) {
-            throw new AnalysisException("Describe table[" + table.getName() + "] failed");
-        } finally {
-            table.readUnlock();
-        }
-
-        return new RemoteIndexSchemaProcNode(this.schema, this.bfColumns, tablets);
-    }
-
 }

@@ -131,7 +131,12 @@ public class IndexInfoProcDir implements ProcDirInterface {
             } else {
                 schema = table.getBaseSchema();
             }
-            return new IndexSchemaProcNode(table, schema, bfColumns);
+            for (Column column : schema) {
+                if (column.getType().isVariantType()) {
+                    return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
+                }
+            }
+            return new IndexSchemaProcNode(schema, bfColumns);
         } finally {
             table.readUnlock();
         }

@@ -18,12 +18,15 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Set;
@@ -38,32 +41,32 @@ public class RemoteIndexSchemaProcNode implements ProcNodeInterface {
             .add("Default").add("Extra")
             .build();
 
+    private List<Partition> partitions;
     private List<Column> schema;
     private Set<String> bfColumns;
-    private List<Tablet> tablets;
 
-    public RemoteIndexSchemaProcNode(List<Column> schema, Set<String> bfColumns, List<Tablet> tablets) {
+    public RemoteIndexSchemaProcNode(List<Partition> partitions, List<Column> schema, Set<String> bfColumns) {
+        this.partitions = partitions;
         this.schema = schema;
         this.bfColumns = bfColumns;
-        this.tablets = tablets;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         Preconditions.checkNotNull(schema);
-        for (Column column : schema) {
-            if (column.getType().isVariantType()) {
-                // fetch schema from remote
-                List<Column> remoteSchema = new FetchRemoteTabletSchemaUtil(tablets).fetch();
-                if (remoteSchema == null || remoteSchema.isEmpty()) {
-                    // remoteSchema = this.schema;
-                    throw new AnalysisException("fetch remote tablet schema failed");
-                }
-                this.schema = remoteSchema;
-                break;
+        Preconditions.checkNotNull(partitions);
+        List<Tablet> tablets = Lists.newArrayList();
+        for (Partition partition : partitions) {
+            MaterializedIndex idx = partition.getBaseIndex();
+            for (Tablet tablet : idx.getTablets()) {
+                tablets.add(tablet);
             }
         }
+        List<Column> remoteSchema = new FetchRemoteTabletSchemaUtil(tablets).fetch();
+        if (remoteSchema == null || remoteSchema.isEmpty()) {
+            throw new AnalysisException("fetch remote tablet schema failed");
+        }
+        this.schema = remoteSchema;
         return IndexSchemaProcNode.createResult(this.schema, this.bfColumns);
     }
-
 }
