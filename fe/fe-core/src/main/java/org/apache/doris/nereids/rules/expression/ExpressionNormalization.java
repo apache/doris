@@ -29,7 +29,6 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
-import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
 
@@ -59,11 +58,6 @@ public class ExpressionNormalization extends ExpressionRewrite {
 
     public ExpressionNormalization() {
         super(new ExpressionRuleExecutor(NORMALIZE_REWRITE_RULES));
-    }
-
-    @Override
-    public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
-        return super.rewrite(expression, context);
     }
 }
 
