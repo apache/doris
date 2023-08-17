@@ -21,6 +21,8 @@ suite("test_array_functions_by_literal") {
 
     // array with decimal and other types
     qt_sql_1 """select array(1.0,2.0,null, null,2.0);"""
+    qt_sql_1 """select array('a',2.0,null, null,2.0);"""
+    qt_sql_1 """select array(1,2.0,null, null,2.0);"""
     qt_sql_2 """select array_sort(array(1.0,2.0,null, null,2.0));"""
     qt_sql_3 """select array_min(array(1.0,2.0,null, null,2.0));"""
     qt_sql_4 """select array_max(array(1.0,2.0,null, null,2.0));"""
