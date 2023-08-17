@@ -62,7 +62,7 @@ public:
                                             const std::vector<TCondition>& conditions,
                                             DeletePredicatePB* del_pred);
 
-    static void convert_to_sub_pred_v2(DeletePredicatePB* delete_pred);
+    static void convert_to_sub_pred_v2(DeletePredicatePB* delete_pred, TabletSchemaSPtr schema);
 
 private:
     // Validate the condition on the schema.

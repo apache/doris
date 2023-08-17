@@ -37,6 +37,7 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
+#include "olap/tablet_schema.h"
 #include "olap/utils.h"
 
 using apache::thrift::ThriftDebugString;
@@ -103,13 +104,15 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
     return Status::OK();
 }
 
-void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred) {
+void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
+                                           TabletSchemaSPtr schema) {
     DCHECK(delete_pred->sub_predicates_v2().empty())
             << "dest_sub_pred_list should be empty, only convert to v2 once.";
     for (const auto& condition_str : delete_pred->sub_predicates()) {
         auto* sub_pred = delete_pred->add_sub_predicates_v2();
         TCondition condition;
         parse_condition(condition_str, &condition);
+        sub_pred->set_column_unique_id(schema->column(condition.column_name).unique_id());
         sub_pred->set_column_name(condition.column_name);
         sub_pred->set_op(condition.condition_op);
         sub_pred->set_cond_value(condition.condition_values[0]);

@@ -19,6 +19,8 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 #include <rocksdb/env.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/status.h>
@@ -27,11 +29,13 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/olap_define.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -41,6 +45,7 @@
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "util/tdigest.h"
 
 using rocksdb::DB;
 using rocksdb::DBOptions;
@@ -315,6 +320,27 @@ Status OlapMeta::iterate(const int column_family_index, const std::string& seek_
     }
 
     return Status::OK();
+}
+
+Status OlapMeta::iterate_with_write(
+        const int column_family_index, const std::string& prefix,
+        std::function<bool(const std::string&, const std::string&, std::string*)> const& func) {
+    return iterate_with_write(column_family_index, prefix, prefix, func);
+}
+
+Status OlapMeta::iterate_with_write(
+        const int column_family_index, const std::string& seek_key, const std::string& prefix,
+        std::function<bool(const std::string&, const std::string&, std::string*)> const& func) {
+    const auto& traverse_func = [column_family_index, &func, this](const std::string& key,
+                                                                   const std::string& value) {
+        std::string* overwrite_val = nullptr;
+        func(key, value, overwrite_val);
+        if (overwrite_val == nullptr) {
+            return true;
+        }
+        return put(column_family_index, key, *overwrite_val).ok();
+    };
+    return iterate(column_family_index, seek_key, prefix, traverse_func);
 }
 
 } // namespace doris

@@ -380,7 +380,7 @@ Status DataDir::load() {
             auto* delete_pred = rowset_meta->mutable_delete_pred_pb();
             if (!delete_pred->sub_predicates().empty() &&
                 delete_pred->sub_predicates_v2().empty()) {
-                DeleteHandler::convert_to_sub_pred_v2(delete_pred);
+                DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
             }
         }
         if (!parsed) {

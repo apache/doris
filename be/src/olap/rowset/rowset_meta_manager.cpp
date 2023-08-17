@@ -27,12 +27,15 @@
 #include <new>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "common/logging.h"
 #include "olap/binlog.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
+#include "olap/storage_engine.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -443,23 +446,49 @@ Status RowsetMetaManager::traverse_rowset_metas(
         std::function<bool(const TabletUid&, const RowsetId&, const std::string&)> const& func) {
     auto traverse_rowset_meta_func = [&func](const std::string& key,
                                              const std::string& value) -> bool {
-        std::vector<std::string> parts;
-        // key format: rst_uuid_rowset_id
-        split_string<char>(key, '_', &parts);
-        if (parts.size() != 3) {
-            LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
+        std::pair<TabletUid, RowsetId> res;
+        if (!_get_tablet_id_and_rowset_id(key, &res)) {
             return true;
         }
-        RowsetId rowset_id;
-        rowset_id.init(parts[2]);
-        std::vector<std::string> uid_parts;
-        split_string<char>(parts[1], '-', &uid_parts);
-        TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
-        return func(tablet_uid, rowset_id, value);
+        return func(res.first, res.second, value);
     };
     Status status =
             meta->iterate(META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX, traverse_rowset_meta_func);
     return status;
+}
+
+Status RowsetMetaManager::traverse_rowset_metas_with_write(
+        OlapMeta* meta, std::function<bool(const TabletUid&, const RowsetId&, const std::string&,
+                                           std::string*)> const& visitor) {
+    auto traverse_rowset_meta_func = [&visitor](const std::string& key,
+                                                const std::string& value, std::string* result) -> bool {
+        std::pair<TabletUid, RowsetId> res;
+        if (!_get_tablet_id_and_rowset_id(key, &res)) {
+            return true;
+        }
+        return visitor(res.first, res.second, value, result);
+    };
+    Status status =
+            meta->iterate_with_write(META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX, traverse_rowset_meta_func);
+    return status;
+}
+
+bool RowsetMetaManager::_get_tablet_id_and_rowset_id(const std::string& key,
+                                                     std::pair<TabletUid, RowsetId>* res) {
+    std::vector<std::string> parts;
+    // key format: rst_uuid_rowset_id
+    split_string<char>(key, '_', &parts);
+    if (parts.size() != 3) {
+        LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
+        return false;
+    }
+    RowsetId rowset_id;
+    rowset_id.init(parts[2]);
+    std::vector<std::string> uid_parts;
+    split_string<char>(parts[1], '-', &uid_parts);
+    TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
+    *res = {tablet_uid, rowset_id};
+    return true;
 }
 
 Status RowsetMetaManager::traverse_binlog_metas(
