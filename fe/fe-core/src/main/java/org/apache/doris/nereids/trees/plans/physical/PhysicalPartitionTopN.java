@@ -183,8 +183,7 @@ public class PhysicalPartitionTopN<CHILD_TYPE extends Plan> extends PhysicalUnar
             "partitionKeys", partitionKeys,
             "orderKeys", orderKeys,
             "hasGlobalLimit", hasGlobalLimit,
-            "partitionLimit", partitionLimit,
-            "stats", statistics
+            "partitionLimit", partitionLimit
         );
     }
 
