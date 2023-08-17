@@ -163,7 +163,7 @@ public:
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
-    size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
+
     StorageEngine* storage_engine() { return _storage_engine; }
     void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
 
@@ -193,8 +193,7 @@ private:
 
     bool _is_init;
     std::vector<StorePath> _store_paths;
-    // path => store index
-    std::map<std::string, size_t> _store_path_map;
+
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
     doris::vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
