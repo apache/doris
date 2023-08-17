@@ -47,6 +47,10 @@ suite("test_hive_default_partition", "p2,external,hive,external_remote,external_
     def string_part_prune3 = """select * from test_date_string_partition where cast(day1 as date) > cast("2023-08-16" as date) and day2="2023-08-17";"""
     def string_part_prune4 = """select * from test_date_string_partition where cast(day1 as date) > cast("2023-08-16" as date) or day2<"2023-08-17";"""
     def string_part_prune5 = """select * from test_date_string_partition where cast(day1 as date) > cast("2023-08-16" as date) or cast(day2 as string) = "2023-08-17";"""
+    def string_part_prune6 = """select * from test_date_string_partition where day1 in ("2023-08-16", "2023-08-15");"""
+    def string_part_prune7 = """select * from test_date_string_partition where day1 in ("2023-08-16", "2023-08-18");"""
+    def string_part_prune8 = """select * from test_date_string_partition where cast(day1 as date) in ("2023-08-16", "2023-08-18");"""
+    def string_part_prune9 = """select * from test_date_string_partition where cast(day1 as date) in (cast("2023-08-16" as date), "2023-08-18");"""
 
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -97,6 +101,10 @@ suite("test_hive_default_partition", "p2,external,hive,external_remote,external_
         order_qt_string_part_prune3 string_part_prune3
         order_qt_string_part_prune4 string_part_prune4
         order_qt_string_part_prune5 string_part_prune5
+        order_qt_string_part_prune5 string_part_prune6
+        order_qt_string_part_prune5 string_part_prune7
+        order_qt_string_part_prune5 string_part_prune8
+        order_qt_string_part_prune5 string_part_prune9
 
         explain {
             sql("${one_partition1}")
@@ -214,6 +222,22 @@ suite("test_hive_default_partition", "p2,external,hive,external_remote,external_
         }
         explain {
             sql("${string_part_prune5}")
+            contains "partition=2/4"
+        }
+        explain {
+            sql("${string_part_prune6}")
+            contains "partition=2/4"
+        }
+        explain {
+            sql("${string_part_prune7}")
+            contains "partition=1/4"
+        }
+        explain {
+            sql("${string_part_prune8}")
+            contains "partition=2/4"
+        }
+        explain {
+            sql("${string_part_prune9}")
             contains "partition=2/4"
         }
     }
