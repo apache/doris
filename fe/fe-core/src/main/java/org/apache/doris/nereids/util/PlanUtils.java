@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -95,5 +96,13 @@ public class PlanUtils {
                 return getAlias == null ? expr : getAlias;
             }
         }).collect(ImmutableList.toImmutableList());
+    }
+
+    public static Plan skipProjectFilterLimit(Plan plan) {
+        if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).isAllSlots()
+                || plan instanceof LogicalFilter || plan instanceof LogicalLimit) {
+            return plan.child(0);
+        }
+        return plan;
     }
 }
