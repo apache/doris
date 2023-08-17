@@ -857,6 +857,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check database
         Database db = (Database) getDbOrDdlException(dbName);
+        if (db.isMysqlCompatibleDatabase()) {
+            throw new DdlException("Drop table from this database is not allowed.");
+        }
+
         db.writeLockOrDdlException();
         try {
             Table table = db.getTableNullable(tableName);
@@ -1075,7 +1079,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // check if db exists
         Database db = getDbOrDdlException(dbName);
         // InfoSchemaDb and MysqlDb can not create table manually
-        if (db instanceof InfoSchemaDb || db instanceof MysqlDb) {
+        if (db.isMysqlCompatibleDatabase()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
                     ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
         }
