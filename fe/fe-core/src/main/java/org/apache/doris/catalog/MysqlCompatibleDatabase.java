@@ -90,4 +90,12 @@ public abstract class MysqlCompatibleDatabase extends Database {
     public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
         return Pair.of(false, false);
     }
+
+    /**
+    * All tables of mysql compatible database has case-insensitive name
+    * */
+    @Override
+    public Table getTableNullable(String name) {
+        return super.getTableNullable(name.toLowerCase());
+    }
 }
