@@ -30,6 +30,7 @@ import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
+import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -190,6 +191,7 @@ import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
@@ -5375,6 +5377,62 @@ public class Env {
                 }
             }
         }
+    }
+
+    public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
+        long partitionId = stmt.getPartitionId();
+        long versionInfo = stmt.getVisibleVersion();
+        int setSuccess = setPartitionVersionInternal(partitionId, versionInfo, false);
+        if (setSuccess == -1) {
+            throw new DdlException("Failed to set partition visible version to " + versionInfo + ". "
+                + "Partition " + partitionId + " not exists.");
+        }
+    }
+
+    public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {
+        int setSuccess = setPartitionVersionInternal(log.getPartitionId(), log.getVersionInfo(), true);
+        if (setSuccess == -1) {
+            LOG.warn("Failed to set partition visible version to {}. Partition {} not exists.",
+                    log.getVersionInfo(), log.getPartitionId());
+        }
+    }
+
+    public int setPartitionVersionInternal(long partitionId, long versionInfo, boolean isReplay) throws DdlException {
+        int result = -1;
+        List<Long> dbIds = getInternalCatalog().getDbIds();
+        // TODO should use inverted index
+        for (long dbId : dbIds) {
+            Database database = getInternalCatalog().getDbNullable(dbId);
+            if (database == null) {
+                continue;
+            }
+            List<Table> tables = database.getTables();
+            for (Table tbl : tables) {
+                if (tbl instanceof OlapTable) {
+                    tbl.writeLock();
+                    try {
+                        Partition partition = ((OlapTable) tbl).getPartition(partitionId);
+                        if (partition != null) {
+                            Long oldVersion = partition.getVisibleVersion();
+                            partition.updateVisibleVersion(versionInfo);
+                            partition.setNextVersion(versionInfo + 1);
+                            result = 0;
+                            if (!isReplay) {
+                                SetPartitionVersionOperationLog log = new SetPartitionVersionOperationLog(
+                                        partitionId, versionInfo);
+                                getEditLog().logSetPartitionVersion(log);
+                            }
+                            LOG.info("set partition {} of table {} visible version from {} to {}",
+                                    partitionId, tbl.getId(), oldVersion, versionInfo);
+                            break;
+                        }
+                    } finally {
+                        tbl.writeUnlock();
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     public static boolean isStoredTableNamesLowerCase() {

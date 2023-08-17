@@ -71,6 +71,9 @@ public class PropertyAnalyzer {
     // for restore
     public static final String PROPERTIES_SCHEMA_VERSION = "schema_version";
 
+    public static final String PROPERTIES_PARTITION_ID = "partition_id";
+    public static final String PROPERTIES_VISIBLE_VERSION = "visible_version";
+
     public static final String PROPERTIES_BF_COLUMNS = "bloom_filter_columns";
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
 
@@ -425,6 +428,38 @@ public class PropertyAnalyzer {
         }
 
         return schemaVersion;
+    }
+
+    public static Long analyzePartitionId(Map<String, String> properties) throws AnalysisException {
+        long partitionId = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_PARTITION_ID)) {
+            String partitionIdStr = properties.get(PROPERTIES_PARTITION_ID);
+            try {
+                partitionId = Long.parseLong(partitionIdStr);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid partition id: " + partitionIdStr);
+            }
+
+            properties.remove(PROPERTIES_PARTITION_ID);
+        }
+
+        return partitionId;
+    }
+
+    public static Long analyzeVisibleVersion(Map<String, String> properties) throws AnalysisException {
+        long visibleVersion = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_VISIBLE_VERSION)) {
+            String visibleVersionStr = properties.get(PROPERTIES_VISIBLE_VERSION);
+            try {
+                visibleVersion = Long.parseLong(visibleVersionStr);
+            } catch (Exception e) {
+                throw new AnalysisException("Invalid visible version: " + visibleVersionStr);
+            }
+
+            properties.remove(PROPERTIES_VISIBLE_VERSION);
+        }
+
+        return visibleVersion;
     }
 
     public static Set<String> analyzeBloomFilterColumns(Map<String, String> properties, List<Column> columns,
