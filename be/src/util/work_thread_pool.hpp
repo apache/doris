@@ -42,7 +42,6 @@ public:
     public:
         int priority;
         WorkFunction work_function;
-        int queue_id;
         bool operator<(const Task& o) const { return priority < o.priority; }
 
         Task& operator++() {
@@ -88,12 +87,12 @@ public:
     virtual bool offer(Task task) { return _work_queue.blocking_put(task); }
 
     virtual bool offer(WorkFunction func) {
-        WorkThreadPool::Task task = {0, func, 0};
+        WorkThreadPool::Task task = {0, func};
         return _work_queue.blocking_put(task);
     }
 
     virtual bool try_offer(WorkFunction func) {
-        WorkThreadPool::Task task = {0, func, 0};
+        WorkThreadPool::Task task = {0, func};
         return _work_queue.try_put(task);
     }
 
