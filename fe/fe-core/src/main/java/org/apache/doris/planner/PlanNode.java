@@ -136,12 +136,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     //  Node should compact data.
     protected boolean compactData;
-    // Most of the plan node has the same numInstance as its (left) child, except some special nodes, such as
-    // 1. scan node, whose numInstance is calculated according to its data distribution
-    // 2. exchange node, which is gather distribution
-    // 3. union node, whose numInstance is the sum of its children's numInstance
-    // ...
-    // only special nodes need to call setNumInstances() and getNumInstances() from attribute numInstances
     protected int numInstances;
 
     // Runtime filters assigned to this node.
@@ -853,7 +847,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public int getNumInstances() {
-        return this.children.get(0).getNumInstances();
+        return numInstances;
     }
 
     public boolean shouldColoAgg(AggregateInfo aggregateInfo) {

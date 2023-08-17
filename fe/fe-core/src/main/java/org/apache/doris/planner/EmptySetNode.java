@@ -77,9 +77,4 @@ public class EmptySetNode extends PlanNode {
         msg.node_type = TPlanNodeType.EMPTY_SET_NODE;
     }
 
-    @Override
-    public int getNumInstances() {
-        return 1;
-    }
-
 }

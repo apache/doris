@@ -1813,6 +1813,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         RepeatNode repeatNode = new RepeatNode(context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(), groupingInfo, repeatSlotIdList,
                 allSlotId, repeat.computeVirtualSlotValues(sortedVirtualSlots));
+        repeatNode.setNumInstances(inputPlanFragment.getPlanRoot().getNumInstances());
         addPlanRoot(inputPlanFragment, repeatNode, repeat);
         updateLegacyPlanIdToPhysicalPlan(inputPlanFragment.getPlanRoot(), repeat);
         return inputPlanFragment;
@@ -1897,6 +1898,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 orderElementsIsNullableMatched,
                 bufferedTupleDesc
         );
+        analyticEvalNode.setNumInstances(inputPlanFragment.getPlanRoot().getNumInstances());
         inputPlanFragment.addPlanRoot(analyticEvalNode);
         return inputPlanFragment;
     }

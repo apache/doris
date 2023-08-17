@@ -90,9 +90,4 @@ public class AssertNumRowsNode extends PlanNode {
         msg.assert_num_rows_node.setSubqueryString(subqueryString);
         msg.assert_num_rows_node.setAssertion(assertion.toThrift());
     }
-
-    @Override
-    public int getNumInstances() {
-        return 1;
-    }
 }
