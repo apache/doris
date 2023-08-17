@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <atomic>
 #include <condition_variable>
 #include <map>
 #include <memory>
@@ -51,7 +52,8 @@ struct SharedHashTableContext {
     SharedHashTableContext()
             : hash_table_variants(nullptr),
               signaled(false),
-              short_circuit_for_null_in_probe_side(false) {}
+              short_circuit_for_null_in_probe_side(false),
+              fragment_instance_count(0) {}
 
     Status status;
     std::shared_ptr<Arena> arena;
@@ -60,6 +62,14 @@ struct SharedHashTableContext {
     std::map<int, SharedRuntimeFilterContext> runtime_filters;
     bool signaled;
     bool short_circuit_for_null_in_probe_side;
+    std::atomic_int fragment_instance_count;
+
+    void probe_side_done(bool empty) {
+        if (empty) {
+            --fragment_instance_count;
+        }
+    }
+    bool all_probe_sides_empty() const { return fragment_instance_count == 0; }
 };
 
 using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
@@ -81,7 +91,6 @@ private:
     bool _pipeline_engine_enabled = false;
     std::mutex _mutex;
     std::condition_variable _cv;
-    std::map<int, std::vector<TUniqueId>> _ref_fragments;
     std::map<int /*node id*/, TUniqueId /*fragment instance id*/> _builder_fragment_ids;
     std::map<int /*node id*/, SharedHashTableContextPtr> _shared_contexts;
 };

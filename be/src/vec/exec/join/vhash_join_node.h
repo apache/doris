@@ -571,8 +571,8 @@ private:
                 (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
     }
 
-    bool _enable_hash_join_early_start_probe(RuntimeState* state) const;
-    bool _is_hash_join_early_start_probe_eos(RuntimeState* state) const;
+    bool _enable_early_start_probe(RuntimeState* state) const;
+    bool _is_early_start_probe_eos(RuntimeState* state) const;
 
     // probe expr
     VExprContextSPtrs _probe_expr_ctxs;
@@ -668,6 +668,8 @@ private:
     SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 
     Status _materialize_build_side(RuntimeState* state) override;
+
+    void _notify_build_finish();
 
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 

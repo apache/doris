@@ -34,7 +34,6 @@ void SharedHashTableController::set_builder_and_consumers(TUniqueId builder,
     std::lock_guard<std::mutex> lock(_mutex);
     DCHECK(_builder_fragment_ids.find(node_id) == _builder_fragment_ids.cend());
     _builder_fragment_ids.insert({node_id, builder});
-    _ref_fragments[node_id].assign(consumers.cbegin(), consumers.cend());
 }
 
 bool SharedHashTableController::should_build_hash_table(const TUniqueId& fragment_instance_id,
@@ -60,6 +59,7 @@ SharedHashTableContextPtr SharedHashTableController::get_context(int my_node_id)
     if (!_shared_contexts.count(my_node_id)) {
         _shared_contexts.insert({my_node_id, std::make_shared<SharedHashTableContext>()});
     }
+    _shared_contexts[my_node_id]->fragment_instance_count++;
     return _shared_contexts[my_node_id];
 }
 

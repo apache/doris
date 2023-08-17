@@ -586,7 +586,7 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (_is_hash_join_early_start_probe_eos(state)) {
+    if (_enable_early_start_probe(state) && _probe_block.empty()) {
         *eos = true;
         return Status::OK();
     }
@@ -674,25 +674,40 @@ void HashJoinNode::_prepare_probe_block() {
     release_block_memory(_probe_block);
 }
 
-bool HashJoinNode::_enable_hash_join_early_start_probe(RuntimeState* state) const {
+bool HashJoinNode::_enable_early_start_probe(RuntimeState* state) const {
     return state->enable_hash_join_early_start_probe() &&
            (_join_op == TJoinOp::INNER_JOIN || _join_op == TJoinOp::LEFT_OUTER_JOIN ||
             _join_op == TJoinOp::LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN);
 }
 
-bool HashJoinNode::_is_hash_join_early_start_probe_eos(RuntimeState* state) const {
-    return _enable_hash_join_early_start_probe(state) && _probe_block.rows() == 0;
+bool HashJoinNode::_is_early_start_probe_eos(RuntimeState* state) const {
+    if (!_enable_early_start_probe(state)) {
+        return false;
+    }
+    if (!_is_broadcast_join || !state->enable_share_hash_table_for_broadcast_join()) {
+        return _probe_open_finish && _probe_block.empty();
+    } else {
+        // If share hash table for broadcast join, need to check if all probe side
+        // data are empty
+        return _shared_hash_table_context->all_probe_sides_empty();
+    }
 }
 
 void HashJoinNode::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* promise) {
     SCOPED_ATTACH_TASK(state);
-    auto st = child(0)->open(state);
-    if (!st.ok()) {
+    Status st;
+    Defer defer {[&]() {
         _probe_open_finish = true;
+        if (_shared_hash_table_context) {
+            _shared_hash_table_context->probe_side_done(_probe_block.empty());
+        }
         promise->set_value(st);
+    }};
+    st = child(0)->open(state);
+    if (!st.ok()) {
         return;
     }
-    if (_enable_hash_join_early_start_probe(state)) {
+    if (_enable_early_start_probe(state)) {
         while (need_more_input_data()) {
             prepare_for_next();
             SCOPED_TIMER(_probe_next_timer);
@@ -703,21 +718,15 @@ void HashJoinNode::_probe_side_open_thread(RuntimeState* state, std::promise<Sta
                               _children[0], std::placeholders::_1, std::placeholders::_2,
                               std::placeholders::_3));
             if (!st.ok()) {
-                _probe_open_finish = true;
-                promise->set_value(st);
                 return;
             }
 
             st = push(state, &_probe_block, _probe_eos);
             if (!st.ok()) {
-                _probe_open_finish = true;
-                promise->set_value(st);
                 return;
             }
         }
     }
-    _probe_open_finish = true;
-    promise->set_value(Status::OK());
 }
 
 Status HashJoinNode::open(RuntimeState* state) {
@@ -760,7 +769,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from data.
         while (!eos && !_short_circuit_for_null_in_probe_side &&
-               (!_probe_open_finish || !_is_hash_join_early_start_probe_eos(state))) {
+               !_is_early_start_probe_eos(state)) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
             {
@@ -773,6 +782,9 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
                                   std::placeholders::_3)));
             }
             RETURN_IF_ERROR(sink(state, &block, eos));
+        }
+        if (_shared_hashtable_controller) {
+            _notify_build_finish();
         }
         RETURN_IF_ERROR(child(1)->close(state));
     } else {
@@ -856,17 +868,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             return ret;
         }
         if (_shared_hashtable_controller) {
-            _shared_hash_table_context->status = Status::OK();
-            // arena will be shared with other instances.
-            _shared_hash_table_context->arena = _arena;
-            _shared_hash_table_context->blocks = _build_blocks;
-            _shared_hash_table_context->hash_table_variants = _hash_table_variants;
-            _shared_hash_table_context->short_circuit_for_null_in_probe_side =
-                    _short_circuit_for_null_in_probe_side;
-            if (_runtime_filter_slots) {
-                _runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
-            }
-            _shared_hashtable_controller->signal(id());
+            _notify_build_finish();
         }
     } else if (!_should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
@@ -923,6 +925,20 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     _init_short_circuit_for_probe();
 
     return Status::OK();
+}
+
+void HashJoinNode::_notify_build_finish() {
+    _shared_hash_table_context->status = Status::OK();
+    // arena will be shared with other instances.
+    _shared_hash_table_context->arena = _arena;
+    _shared_hash_table_context->blocks = _build_blocks;
+    _shared_hash_table_context->hash_table_variants = _hash_table_variants;
+    _shared_hash_table_context->short_circuit_for_null_in_probe_side =
+            _short_circuit_for_null_in_probe_side;
+    if (_runtime_filter_slots) {
+        _runtime_filter_slots->copy_to_shared_context(_shared_hash_table_context);
+    }
+    _shared_hashtable_controller->signal(id());
 }
 
 void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
