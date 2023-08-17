@@ -401,7 +401,6 @@ public class BackendServiceProxy {
         }
     }
 
-<<<<<<< HEAD
     public Future<InternalService.PGlobResponse> glob(TNetworkAddress address,
             InternalService.PGlobRequest request) throws RpcException {
         try {

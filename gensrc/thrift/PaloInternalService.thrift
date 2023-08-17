@@ -652,6 +652,7 @@ struct TPipelineFragmentParams {
   28: optional string table_name
   // scan node id -> scan range params, only for external file scan
   29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+  30: optional bool group_commit = false;
 }
 
 struct TPipelineFragmentParamsList {

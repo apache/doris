@@ -1137,9 +1137,10 @@ struct TRequestGroupCommitFragmentRequest {
 
 struct TRequestGroupCommitFragmentResult {
     1: optional Status.TStatus status
+    2: i64 base_schema_version
     // valid when status is OK
-    2: optional PaloInternalService.TExecPlanFragmentParams params
-    3: i64 base_schema_version
+    3: optional PaloInternalService.TExecPlanFragmentParams params
+    4: optional PaloInternalService.TPipelineFragmentParams pipeline_params
 }
 
 struct TFinishGroupCommitRequest {

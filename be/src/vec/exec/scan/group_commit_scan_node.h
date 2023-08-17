@@ -43,6 +43,6 @@ protected:
 
 private:
     int64_t _table_id;
-    std::shared_ptr<LoadInstanceInfo> load_instance_info;
+    std::shared_ptr<LoadBlockQueue> load_block_queue;
 };
 } // namespace doris::vectorized

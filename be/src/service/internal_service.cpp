@@ -1723,7 +1723,6 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
     StorageEngine::instance()->get_tablet_rowset_versions(request, response);
 }
 
-<<<<<<< HEAD
 void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
                                 const PGlobRequest* request, PGlobResponse* response,
                                 google::protobuf::Closure* done) {
@@ -1793,19 +1792,12 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
                 return;
             }
         }
-        int64_t loaded_rows = 0;
-        int64_t total_rows = 0;
         st = _exec_env->group_commit_mgr()->group_commit_insert(
-                table_id, plan, tdesc_tbl, tscan_range_params, request, &loaded_rows, &total_rows);
+                table_id, plan, tdesc_tbl, tscan_range_params, request, response);
         response->mutable_status()->set_status_code(st.code());
-        response->set_loaded_rows(loaded_rows);
-        response->set_filtered_rows(total_rows - loaded_rows);
     });
     if (!ret) {
-        LOG(WARNING) << "fail to offer request to the work pool";
-        brpc::ClosureGuard closure_guard(done);
-        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+        offer_failed(response, done, _light_work_pool);
     }
 };
 

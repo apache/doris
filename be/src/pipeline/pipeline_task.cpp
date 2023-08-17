@@ -160,7 +160,8 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block = doris::vectorized::Block::create_unique();
+    _block = _fragment_context->is_group_commit() ? doris::vectorized::FutureBlock::create_unique()
+                                                  : doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -279,6 +280,18 @@ Status PipelineTask::execute(bool* eos) {
             auto status = _sink->sink(_state, block, _data_state);
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
+            }
+            if (UNLIKELY(!status.ok() || block->rows() == 0)) {
+                if (typeid(*block) == typeid(doris::vectorized::FutureBlock)) {
+                    auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block);
+                    std::unique_lock<doris::Mutex> l(*(future_block->lock));
+                    if (!std::get<0>(*(future_block->block_status))) {
+                        auto block_status = std::make_tuple<bool, Status, int64_t, int64_t>(
+                                true, Status(status), 0, 0);
+                        block_status.swap(*(future_block->block_status));
+                        future_block->cv->notify_all();
+                    }
+                }
             }
             *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work

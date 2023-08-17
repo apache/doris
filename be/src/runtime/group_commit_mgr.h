@@ -36,10 +36,13 @@ class ObjectPool;
 class RuntimeState;
 class StreamLoadPipe;
 
-class LoadInstanceInfo {
+class LoadBlockQueue {
 public:
-    LoadInstanceInfo(const UniqueId& load_instance_id, int64_t schema_version)
+    LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
+                   int64_t schema_version)
             : load_instance_id(load_instance_id),
+              label(label),
+              txn_id(txn_id),
               schema_version(schema_version),
               _start_time(std::chrono::steady_clock::now()) {
         _mutex = std::make_shared<doris::Mutex>();
@@ -52,6 +55,8 @@ public:
     void cancel(const Status& st);
 
     UniqueId load_instance_id;
+    std::string label;
+    int64_t txn_id;
     int64_t schema_version;
     bool need_commit = false;
 
@@ -70,23 +75,24 @@ class GroupCommitTable {
 public:
     GroupCommitTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
             : _exec_env(exec_env), _db_id(db_id), _table_id(table_id) {};
-    Status get_block_load_instance_info(int64_t table_id,
-                                        std::shared_ptr<vectorized::FutureBlock> block,
-                                        std::shared_ptr<LoadInstanceInfo>& load_instance_info);
-    Status get_load_instance_info(const TUniqueId& instance_id,
-                                  std::shared_ptr<LoadInstanceInfo>& load_instance_info);
+    Status _get_first_block_load_queue(int64_t table_id,
+                                       std::shared_ptr<vectorized::FutureBlock> block,
+                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status get_load_block_queue(const TUniqueId& instance_id,
+                                std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
     Status _create_group_commit_load(int64_t table_id,
-                                     std::shared_ptr<LoadInstanceInfo>& load_instance_info);
-    Status _exe_plan_fragment(int64_t db_id, int64_t table_id,
-                              const TExecPlanFragmentParams& params);
+                                     std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status _exec_plan_fragment(int64_t db_id, int64_t table_id, int64_t txn_id, bool is_pipeline,
+                               const TExecPlanFragmentParams& params,
+                               const TPipelineFragmentParams& pipeline_params);
 
     ExecEnv* _exec_env;
     int64_t _db_id;
     int64_t _table_id;
     doris::Mutex _lock;
-    std::unordered_map<UniqueId, std::shared_ptr<LoadInstanceInfo>> load_instance_infos;
+    std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> load_block_queues;
 
     doris::Mutex _request_fragment_mutex;
 };
@@ -100,20 +106,20 @@ public:
     Status group_commit_insert(int64_t table_id, const TPlan& plan,
                                const TDescriptorTable& desc_tbl,
                                const TScanRangeParams& scan_range_params,
-                               const PGroupCommitInsertRequest* request, int64_t* loaded_rows,
-                               int64_t* total_rows);
+                               const PGroupCommitInsertRequest* request,
+                               PGroupCommitInsertResponse* response);
 
     // used when init group_commit_scan_node
-    Status get_load_instance_info(int64_t table_id, const TUniqueId& instance_id,
-                                  std::shared_ptr<LoadInstanceInfo>& load_instance_info);
+    Status get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
+                                std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
     // used by insert into
     Status _append_row(std::shared_ptr<io::StreamLoadPipe> pipe,
                        const PGroupCommitInsertRequest* request);
-    Status _get_block_load_instance_info(int64_t db_id, int64_t table_id,
-                                         std::shared_ptr<vectorized::FutureBlock> block,
-                                         std::shared_ptr<LoadInstanceInfo>& load_instance_info);
+    Status _get_first_block_load_queue(int64_t db_id, int64_t table_id,
+                                       std::shared_ptr<vectorized::FutureBlock> block,
+                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
     ExecEnv* _exec_env;
 

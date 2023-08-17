@@ -57,8 +57,8 @@ suite("insert_group_commit_with_large_data") {
         }
         def result = sql """ ${insert_sql} """
         logger.info("insert result: " + result)
-        assertTrue(result.size() == 1)
-        assertTrue(result[0].size() == 1)
+        assertEquals(1, result.size())
+        assertEquals(1, result[0].size())
         assertEquals(5000, result[0][0])
         getRowCount(5000)
 
@@ -73,8 +73,8 @@ suite("insert_group_commit_with_large_data") {
         }
         result = sql """ ${insert_sql} """
         logger.info("insert result: " + result)
-        assertTrue(result.size() == 1)
-        assertTrue(result[0].size() == 1)
+        assertEquals(1, result.size())
+        assertEquals(1, result[0].size())
         assertEquals(5000, result[0][0])
         getRowCount(10000)*/
     } finally {

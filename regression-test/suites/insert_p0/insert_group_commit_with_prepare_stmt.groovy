@@ -107,7 +107,7 @@ suite("insert_group_commit_with_prepare_stmt") {
 
             // 2. insert into partial columns
             insert_stmt = prepareStatement """ INSERT INTO ${table}(name, id, __DORIS_DELETE_SIGN__) VALUES(?, ?, ?) """
-            assertEquals(insert_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+            assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, insert_stmt.class)
 
             insert_prepared_partial insert_stmt, 'a', 1, 1
             result = insert_stmt.executeBatch()
@@ -172,7 +172,7 @@ suite("insert_group_commit_with_prepare_stmt") {
 
             // 2. insert into partial columns
             insert_stmt = prepareStatement """ INSERT INTO ${table}(name, id) VALUES(?, ?) """
-            assertEquals(insert_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+            assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, insert_stmt.class)
 
             insert_prepared_partial_dup insert_stmt, 'a', 1
             result = insert_stmt.executeBatch()

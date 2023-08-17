@@ -70,10 +70,16 @@ suite("insert_group_commit_into_duplicate") {
         // 1. insert into
         def result = sql """ insert into ${table}(name, id) values('c', 3);  """
         logger.info("insert result: " + result)
+        assertEquals(1, result.size())
+        assertEquals(1, result[0].size())
+        assertEquals(1, result[0][0])
         result = sql """ insert into ${table}(id) values(4);  """
         logger.info("insert result: " + result)
         result = sql """ insert into ${table} values (1, 'a', 10),(5, 'q', 50);  """
         logger.info("insert result: " + result)
+        assertEquals(1, result.size())
+        assertEquals(1, result[0].size())
+        assertEquals(2, result[0][0])
         result = sql """ insert into ${table}(id, name) values(2, 'b');  """
         logger.info("insert result: " + result)
         result = sql """ insert into ${table}(id) select 6; """

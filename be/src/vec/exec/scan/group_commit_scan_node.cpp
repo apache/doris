@@ -35,15 +35,15 @@ GroupCommitScanNode::GroupCommitScanNode(ObjectPool* pool, const TPlanNode& tnod
 Status GroupCommitScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     bool find_node = false;
     while (!find_node && !*eos) {
-        RETURN_IF_ERROR(load_instance_info->get_block(block, &find_node, eos));
+        RETURN_IF_ERROR(load_block_queue->get_block(block, &find_node, eos));
     }
     return Status::OK();
 }
 
 Status GroupCommitScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::init(tnode, state));
-    return state->exec_env()->group_commit_mgr()->get_load_instance_info(
-            _table_id, state->fragment_instance_id(), load_instance_info);
+    return state->exec_env()->group_commit_mgr()->get_load_block_queue(
+            _table_id, state->fragment_instance_id(), load_block_queue);
 }
 
 Status GroupCommitScanNode::prepare(RuntimeState* state) {

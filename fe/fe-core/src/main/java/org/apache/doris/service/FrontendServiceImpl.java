@@ -3082,11 +3082,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LoadTaskInfo taskInfo = new StreamLoadTask(loadId, txnId, TFileType.FILE_STREAM,
                     TFileFormatType.FORMAT_CSV_PLAIN, TFileCompressType.PLAIN);
             GroupCommitLoadPlanner planner = new GroupCommitLoadPlanner(db, olapTable, taskInfo);
-            TExecPlanFragmentParams execPlanFragmentParams = planner.plan(loadId);
-            execPlanFragmentParams.params.setGroupCommit(true);
-            execPlanFragmentParams.setTxnConf(new TTxnParams());
-            execPlanFragmentParams.txn_conf.setTxnId(txnId);
-            result.setParams(execPlanFragmentParams);
+            if (Config.enable_pipeline_load) {
+                TPipelineFragmentParams pipelineFragmentParams = planner.planForPipeline(loadId);
+                Preconditions.checkState(pipelineFragmentParams.getLocalParams().size() == 1);
+                pipelineFragmentParams.setGroupCommit(true);
+                pipelineFragmentParams.setTxnConf(new TTxnParams());
+                pipelineFragmentParams.txn_conf.setTxnId(txnId);
+                pipelineFragmentParams.setImportLabel(label.getLabelName());
+                result.setPipelineParams(pipelineFragmentParams);
+            } else {
+                TExecPlanFragmentParams execPlanFragmentParams = planner.plan(loadId);
+                execPlanFragmentParams.params.setGroupCommit(true);
+                execPlanFragmentParams.setTxnConf(new TTxnParams());
+                execPlanFragmentParams.txn_conf.setTxnId(txnId);
+                execPlanFragmentParams.setImportLabel(label.getLabelName());
+                result.setParams(execPlanFragmentParams);
+            }
             result.setBaseSchemaVersion(olapTable.getBaseSchemaVersion());
         } finally {
             table.readUnlock();
