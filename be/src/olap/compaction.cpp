@@ -658,11 +658,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     _tablet->calc_compaction_output_rowset_delete_bitmap(
                             _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
                             &location_map, *it.delete_bitmap.get(), &output_delete_bitmap);
-                    if (config::enable_merge_on_write_correctness_check &&
-                        !output_delete_bitmap.empty()) {
+                    if (config::enable_merge_on_write_correctness_check) {
                         RowsetIdUnorderedSet rowsetids;
-                        rowsetids.insert(
-                                std::get<0>(output_delete_bitmap.delete_bitmap.begin()->first));
+                        rowsetids.insert(_output_rowset->rowset_id());
                         _tablet->add_sentinel_mark_to_delete_bitmap(&output_rowset_delete_bitmap,
                                                                     rowsetids);
                     }
