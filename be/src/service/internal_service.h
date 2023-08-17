@@ -86,6 +86,10 @@ public:
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
 
+    void open_stream_sink(google::protobuf::RpcController* controller,
+                          const POpenStreamSinkRequest* request, POpenStreamSinkResponse* response,
+                          google::protobuf::Closure* done) override;
+
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
                                  PTabletWriterAddBlockResult* response,

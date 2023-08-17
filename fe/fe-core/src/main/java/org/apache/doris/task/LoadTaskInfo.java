@@ -121,6 +121,10 @@ public interface LoadTaskInfo {
         return false;
     }
 
+    default boolean isMemtableOnSinkNode() {
+        return false;
+    }
+
     class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();
         public boolean isColumnDescsRewrited = false;

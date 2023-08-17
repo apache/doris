@@ -189,6 +189,7 @@ public:
     UIntGauge* segcompaction_mem_consumption;
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
+    UIntGauge* tablet_sink_v2_mem_consumption;
     UIntGauge* load_channel_mem_consumption;
     UIntGauge* memtable_memory_limiter_mem_consumption;
     UIntGauge* query_mem_consumption;
