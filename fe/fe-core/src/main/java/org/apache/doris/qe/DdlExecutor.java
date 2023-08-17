@@ -26,6 +26,7 @@ import org.apache.doris.analysis.AdminRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
+import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.AlterColumnStatsStmt;
@@ -255,6 +256,8 @@ public class DdlExecutor {
             env.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             env.setConfig((AdminSetConfigStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminSetTableStatusStmt) {
+            env.setTableStatus((AdminSetTableStatusStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFileStmt) {
             env.getSmallFileMgr().createFile((CreateFileStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {

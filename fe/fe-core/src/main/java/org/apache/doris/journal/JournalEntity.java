@@ -108,6 +108,7 @@ import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
+import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
@@ -433,6 +434,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_BATCH_REMOVE_TXNS_V2: {
                 data = BatchRemoveTransactionsOperationV2.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_SET_TABLE_STATUS: {
+                data = SetTableStatusOperationLog.read(in);
                 isRead = true;
                 break;
             }
