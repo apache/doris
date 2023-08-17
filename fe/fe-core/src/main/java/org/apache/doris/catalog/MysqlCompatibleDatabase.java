@@ -39,7 +39,7 @@ public abstract class MysqlCompatibleDatabase extends Database {
 
     /**
      * Internal database is not persisted to bdb, it will be created when fe starts.
-     * So driven class should implement this function to create itself
+     * So driven class should implement this function to create table.
      */
     protected abstract void initTables();
 
@@ -51,7 +51,7 @@ public abstract class MysqlCompatibleDatabase extends Database {
      */
     @Override
     public boolean createTable(Table table) {
-        return false;
+        return super.createTable(table);
     }
 
     @Override
@@ -60,7 +60,8 @@ public abstract class MysqlCompatibleDatabase extends Database {
     }
 
     /**
-     * MysqlCompatibleDatabase will not be persisted to bdb. It will be constructed everytime the fe starts.
+     * MysqlCompatibleDatabase will not be persisted to bdb.
+     * It will be constructed everytime the fe starts. See
      * {@link org.apache.doris.datasource.InternalCatalog#InternalCatalog()}
      */
     @Override

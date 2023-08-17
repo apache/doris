@@ -38,4 +38,9 @@ public class InfoSchemaDb extends MysqlCompatibleDatabase {
             super.createTable(table);
         }
     }
+
+    @Override
+    public boolean createTable(Table table) {
+        return false;
+    }
 }
