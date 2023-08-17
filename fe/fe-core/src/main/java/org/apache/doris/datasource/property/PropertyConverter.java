@@ -123,11 +123,24 @@ public class PropertyConverter {
         } else if (props.containsKey(MinioProperties.ENDPOINT)) {
             return convertToMinioProperties(props, MinioProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.ENDPOINT)) {
+            CloudCredential credential = S3Properties.getCredential(props);
+            String s3CliEndpoint = props.get(S3Properties.ENDPOINT);
+            if (s3CliEndpoint.contains(CosProperties.COS_PREFIX)) {
+                props.putIfAbsent(CosProperties.ENDPOINT, s3CliEndpoint);
+                // CosN is not compatible with S3, when use s3 properties, will convert to cosn properties.
+                return convertToCOSProperties(props, credential);
+            }
             return convertToS3Properties(props, S3Properties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
             // checkout env in the end
             // compatible with the s3,obs,oss,cos when they use aws client.
-            return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), false);
+            CloudCredentialWithEndpoint envCredentials = S3Properties.getEnvironmentCredentialWithEndpoint(props);
+            if (envCredentials.getEndpoint().contains(CosProperties.COS_PREFIX)) {
+                props.putIfAbsent(CosProperties.ENDPOINT, envCredentials.getEndpoint());
+                // CosN is not compatible with S3, when use s3 properties, will convert to cosn properties.
+                return convertToCOSProperties(props, envCredentials);
+            }
+            return convertToS3EnvProperties(props, envCredentials, false);
         }
         return props;
     }
