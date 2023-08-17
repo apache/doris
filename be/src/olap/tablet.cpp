@@ -2639,6 +2639,7 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
     opt.file_reader = segment->file_reader().get();
     opt.stats = &stats;
     opt.use_page_cache = !config::disable_storage_page_cache;
+    opt.io_ctx.reader_type = ReaderType::READER_QUERY;
     column_iterator->init(opt);
     // get and parse tuple row
     vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
@@ -2693,6 +2694,7 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
     opt.file_reader = segment->file_reader().get();
     opt.stats = &stats;
     opt.use_page_cache = !config::disable_storage_page_cache;
+    opt.io_ctx.reader_type = ReaderType::READER_QUERY;
     column_iterator->init(opt);
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), dst));
     return Status::OK();
