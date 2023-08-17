@@ -2990,7 +2990,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                       << "[add_sentinel_mark_to_delete_bitmap][end_version:" << end_version << "]"
                       << "add:" << rowset->rowset_id();
         }
-        add_sentinel_mark_to_delete_bitmap(delete_bitmap, rowsetids);
+        add_sentinel_mark_to_delete_bitmap(delete_bitmap.get(), rowsetids);
     }
 
     if (pos > 0) {
@@ -3682,7 +3682,7 @@ Status Tablet::calc_delete_bitmap_between_segments(
     return Status::OK();
 }
 
-void Tablet::add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
+void Tablet::add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
                                                 const RowsetIdUnorderedSet& rowsetids) {
     for (const auto& rowsetid : rowsetids) {
         delete_bitmap->add({rowsetid, DeleteBitmap::INVALID_SEGMENT_ID, 0},
