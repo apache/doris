@@ -92,6 +92,7 @@ public class DescribeStmt extends ShowStmt {
 
     private TableName dbTableName;
     private ProcNodeInterface node;
+    private PartitionNames partitionNames;
 
     List<List<String>> totalRows = new LinkedList<List<String>>();
 
@@ -104,6 +105,12 @@ public class DescribeStmt extends ShowStmt {
     public DescribeStmt(TableName dbTableName, boolean isAllTables) {
         this.dbTableName = dbTableName;
         this.isAllTables = isAllTables;
+    }
+
+    public DescribeStmt(TableName dbTableName, boolean isAllTables, PartitionNames partitionNames) {
+        this.dbTableName = dbTableName;
+        this.isAllTables = isAllTables;
+        this.partitionNames = partitionNames;
     }
 
     public DescribeStmt(TableValuedFunctionRef tableValuedFunctionRef) {
@@ -156,6 +163,13 @@ public class DescribeStmt extends ShowStmt {
             return;
         }
 
+        if (partitionNames != null) {
+            partitionNames.analyze(analyzer);
+            if (partitionNames.isTemp()) {
+                throw new AnalysisException("Do not support temp partitions");
+            }
+        }
+
         dbTableName.analyze(analyzer);
 
         if (!Env.getCurrentEnv().getAccessManager()
@@ -178,9 +192,21 @@ public class DescribeStmt extends ShowStmt {
                 if (table.getType() == TableType.OLAP) {
                     procString += ((OlapTable) table).getBaseIndexId();
                 } else {
+                    if (partitionNames != null) {
+                        throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
+                    }
                     procString += table.getId();
                 }
-
+                if (partitionNames != null) {
+                    procString += "/";
+                    StringBuilder builder = new StringBuilder();
+                    for (String str : partitionNames.getPartitionNames()) {
+                        builder.append(str);
+                        builder.append(",");
+                    }
+                    builder.deleteCharAt(builder.length() - 1);
+                    procString += builder.toString();
+                }
                 node = ProcService.getInstance().open(procString);
                 if (node == null) {
                     throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");

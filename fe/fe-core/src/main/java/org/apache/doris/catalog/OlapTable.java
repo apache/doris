@@ -2423,4 +2423,14 @@ public class OlapTable extends Table {
         }
         return false;
     }
+
+    public List<Tablet> getAllTablets() throws AnalysisException {
+        List<Tablet> tablets = Lists.newArrayList();
+        for (Partition partition : getPartitions()) {
+            for (Tablet tablet : partition.getBaseIndex().getTablets()) {
+                tablets.add(tablet);
+            }
+        }
+        return tablets;
+    }
 }
