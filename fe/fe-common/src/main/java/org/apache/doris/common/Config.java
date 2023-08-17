@@ -934,17 +934,19 @@ public class Config extends ConfigBase {
     public static long tablet_repair_delay_factor_second = 60;
 
     /**
-     * the default slot number per path in tablet scheduler
+     * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int schedule_slot_num_per_path = 4;
+    public static int schedule_slot_num_per_hdd_path = 4;
+
 
     /**
-     * the default slot number per path in tablet scheduler for decommission backend
+     * the default slot number per path for ssd in tablet scheduler
+     * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int schedule_decommission_slot_num_per_path = 8;
+    public static int schedule_slot_num_per_ssd_path = 8;
 
     /**
      * the default batch size in tablet scheduler for a single schedule.
