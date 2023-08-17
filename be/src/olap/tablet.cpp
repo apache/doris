@@ -3403,11 +3403,6 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
             }
         }
     }
-    if (config::enable_merge_on_write_correctness_check && dst.rowset_id != RowsetId {}) {
-        RowsetIdUnorderedSet rowsetids;
-        rowsetids.insert(dst.rowset_id);
-        add_sentinel_mark_to_delete_bitmap(output_rowset_delete_bitmap, rowsetids);
-    }
 }
 
 void Tablet::merge_delete_bitmap(const DeleteBitmap& delete_bitmap) {
