@@ -684,6 +684,23 @@ message PGlobResponse {
     repeated PFileInfo files = 2;
 }
 
+message PTabletsLocation {
+    required string host = 1;
+    required int32  brpc_port = 2;
+    repeated int64  tablet_id = 3;
+}
+
+message PFetchRemoteSchemaRequest {
+    repeated PTabletsLocation tablet_location = 1;
+    required bool is_coordinator = 2;
+}
+
+message PFetchRemoteSchemaResponse {
+    optional PStatus status = 1;
+    // intermediate merged schema
+    optional TabletSchemaPB merged_schema = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -722,5 +739,6 @@ service PBackendService {
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
     rpc glob(PGlobRequest) returns (PGlobResponse);
+    rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
 };
 
