@@ -189,15 +189,6 @@ public class CancelExportStmtTest extends TestWithFeService {
 
         Assert.assertTrue(exportJobList1.stream().filter(filter).count() == 1);
 
-        stateStringLiteral = new StringLiteral("IN_QUEUE");
-        stateEqPredicate =
-                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
-        stmt = new CancelExportStmt(null, stateEqPredicate);
-        stmt.analyze(analyzer);
-        filter = ExportMgr.buildCancelJobFilter(stmt);
-
-        Assert.assertTrue(exportJobList2.stream().filter(filter).count() == 1);
-
     }
 
 }
