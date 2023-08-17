@@ -1047,6 +1047,23 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
+    public Database dbExistsOrDdlException(CreateTableStmt stmt) throws DdlException {
+        String dbName = stmt.getDbName();
+        String tableName = stmt.getTableName();
+        // check if db exists
+        Database db = (Database) getDbOrDdlException(dbName);
+        // InfoSchemaDb and MysqlDb can not create table manually
+        if (db instanceof InfoSchemaDb || db instanceof MysqlDb) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
+                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
+        }
+        return db;
+    }
+
+    public boolean tableExists(Database db, String tableName) {
+        return db.getTable(tableName).isPresent();
+    }
+
     /**
      * Following is the step to create an olap table:
      * 1. create columns
@@ -1068,16 +1085,9 @@ public class InternalCatalog implements CatalogIf<Database> {
      */
     public void createTable(CreateTableStmt stmt) throws UserException {
         String engineName = stmt.getEngineName();
-        String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
 
-        // check if db exists
-        Database db = getDbOrDdlException(dbName);
-        // InfoSchemaDb and MysqlDb can not create table manually
-        if (db instanceof InfoSchemaDb || db instanceof MysqlDb) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
-                    ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
-        }
+        Database db = dbExistsOrDdlException(stmt);
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
@@ -1088,7 +1098,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // check if table exists in db
-        if (db.getTable(tableName).isPresent()) {
+        if (tableExists(db, tableName)) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
                 return;
