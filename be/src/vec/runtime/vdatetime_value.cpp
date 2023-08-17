@@ -1678,7 +1678,6 @@ bool VecDateTimeValue::date_set_interval(const TimeInterval& interval) {
                     (unit == MINUTE) || (unit == SECOND),
             "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
     if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR)) {
-        set_zero(type());
         // This may change the day information
         int64_t seconds = interval.day * 86400L + interval.hour * 3600 + interval.minute * 60 +
                           interval.second;
