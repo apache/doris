@@ -572,22 +572,21 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
         filter.resize_fill(block.rows(), 0);
         RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(
                 block, variant_column_pos, config::max_filter_ratio_for_variant_parsing, filter));
-        vectorized::schema_util::finalize_variant_columns(block, variant_column_pos,
-                                                          false /*not ingore sparse*/);
-        vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_column_pos);
         size_t count = simd::count_zero_num((int8_t*)filter.data(), filter.size());
         if (count > 0) {
             vectorized::Block::filter_block_internal(&block, filter, block.columns());
             _stat.merged_rows += count;
         }
+        if (block.rows() == 0) {
+            return Status::OK();
+        }
+        vectorized::schema_util::finalize_variant_columns(block, variant_column_pos,
+                                                          false /*not ingore sparse*/);
+        vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_column_pos);
     } catch (const doris::Exception& e) {
         // TODO more graceful, max_filter_ratio
         LOG(WARNING) << "encounter execption " << e.to_string();
         return Status::InternalError(e.to_string());
-    }
-
-    if (block.rows() == 0) {
-        return Status::OK();
     }
 
     // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
