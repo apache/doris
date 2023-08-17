@@ -196,6 +196,9 @@ public:
         } else if constexpr (sizeof(T) < sizeof(uint32_t)) {
             auto& roaring = roarings[0];
             std::vector<uint32_t> values(n_args);
+            for (size_t i = 0; i != n_args; ++i) {
+                values[i] = uint32_t(vals[i]);
+            }
             roaring.addMany(n_args, values.data());
             roaring.setCopyOnWrite(copyOnWrite);
         } else {
