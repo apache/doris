@@ -749,6 +749,7 @@ message PStreamHeader {
     optional bool segment_eos = 7;
     optional uint32 sender_id = 8;
     optional SegmentStatisticsPB segment_statistics = 9;
+    repeated int64 committing_partitions = 10;
 }
 
 service PBackendService {

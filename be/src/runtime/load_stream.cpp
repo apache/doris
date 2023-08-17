@@ -35,8 +35,8 @@
 namespace doris {
 
 TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id, uint32_t num_senders,
-                           RuntimeProfile* profile)
-        : _id(id), _next_segid(0), _load_id(load_id), _txn_id(txn_id) {
+                           RuntimeProfile* profile, int64_t partition_id)
+        : _id(id), _next_segid(0), _load_id(load_id), _txn_id(txn_id), _partition_id(partition_id) {
     for (int i = 0; i < 10; i++) {
         _flush_tokens.emplace_back(ExecEnv::GetInstance()->get_load_stream_mgr()->new_token());
     }
@@ -171,8 +171,9 @@ Status IndexStream::open_tablet(int64_t partition_id, int64_t tablet_id) {
         std::lock_guard lock_guard(_lock);
         auto it = _tablet_streams_map.find(tablet_id);
         if (it == _tablet_streams_map.end()) {
-            tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id,
-                                                           _num_senders, _profile);
+            tablet_stream =
+                    std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _num_senders,
+                                                   _profile, partition_id);
             _tablet_streams_map[tablet_id] = tablet_stream;
             RETURN_IF_ERROR(tablet_stream->init(_schema.get(), _id, partition_id));
         }
@@ -196,10 +197,16 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
 }
 
 void IndexStream::close(std::vector<int64_t>* success_tablet_ids,
-                        std::vector<int64_t>* failed_tablet_ids) {
+                        std::vector<int64_t>* failed_tablet_ids,
+                        const std::unordered_set<int64_t>& committing_partitions) {
     std::lock_guard lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
     for (auto& it : _tablet_streams_map) {
+        if (committing_partitions.contains(it.second->partition_id()) <= 0 ) {
+            // The tablet's partition is not in committing partition list
+            // which means it is not written. So ignore it.
+            continue;
+        }
         auto st = it.second->close();
         if (st.ok()) {
             success_tablet_ids->push_back(it.second->id());
@@ -247,7 +254,8 @@ Status LoadStream::init(const POpenStreamSinkRequest* request) {
 }
 
 Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_tablet_ids,
-                         std::vector<int64_t>* failed_tablet_ids) {
+                         std::vector<int64_t>* failed_tablet_ids,
+                         const std::unordered_set<int64_t>& committing_partitions) {
     if (sender_id >= _senders_status.size()) {
         LOG(WARNING) << "out of range sender id " << sender_id << "  num "
                      << _senders_status.size();
@@ -274,7 +282,7 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
     _num_working_senders--;
     if (_num_working_senders == 0) {
         for (auto& it : _index_streams_map) {
-            it.second->close(success_tablet_ids, failed_tablet_ids);
+            it.second->close(success_tablet_ids, failed_tablet_ids, committing_partitions);
         }
         failed_tablet_ids->insert(failed_tablet_ids->end(), _failed_tablet_ids.begin(),
                                   _failed_tablet_ids.end());
@@ -401,7 +409,12 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
         case PStreamHeader::CLOSE_LOAD: {
             std::vector<int64_t> success_tablet_ids;
             std::vector<int64_t> failed_tablet_ids;
-            auto st = close(hdr.sender_id(), &success_tablet_ids, &failed_tablet_ids);
+            std::unordered_set<int64_t> committing_partitions;
+            for (const auto& p : hdr.committing_partitions()) {
+                committing_partitions.emplace(p);
+            }
+            auto st = close(hdr.sender_id(), &success_tablet_ids, &failed_tablet_ids,
+                            committing_partitions);
             _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
         } break;
         default:

@@ -350,15 +350,23 @@ void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* con
                                             const POpenStreamSinkRequest* request,
                                             POpenStreamSinkResponse* response,
                                             google::protobuf::Closure* done) {
+    uint64_t begin_time = GetCurrentTimeMicros();
     brpc::ClosureGuard done_guard(done);
     LOG(INFO) << "OOXXOO: open stream sink, backend_id = " << request->backend_id();
     std::unique_ptr<PStatus> status = std::make_unique<PStatus>();
     brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
     brpc::StreamOptions stream_options;
 
+    std::unordered_set<int64_t> index_ids;
     for (const auto& req : request->tablets()) {
         TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
         TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
+        int64_t index_id = req.index_id();
+        if (index_ids.contains(index_id) > 0) {
+            // we only need one schema per index
+            continue;
+        }
+        index_ids.emplace(index_id);
         if (tablet == nullptr) {
             cntl->SetFailed("Tablet not found");
             status->set_status_code(TStatusCode::NOT_FOUND);
@@ -367,7 +375,7 @@ void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* con
             return;
         }
         auto resp = response->add_tablet_schemas();
-        resp->set_index_id(req.index_id());
+        resp->set_index_id(index_id);
         resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
         tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
     }
@@ -397,6 +405,9 @@ void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* con
     status->set_status_code(TStatusCode::OK);
     response->set_allocated_status(status.get());
     response->release_status();
+    uint64_t elapsed = GetCurrentTimeMicros() - begin_time;
+    LOG(INFO) << "XXXXX: open stream sink, backend_id = " << request->backend_id()
+              << ", elapsed time = " << elapsed;
 }
 
 void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcController* controller,

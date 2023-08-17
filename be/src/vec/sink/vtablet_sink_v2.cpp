@@ -269,6 +269,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
 }
 
 Status VOlapTableSinkV2::open(RuntimeState* state) {
+    uint64_t begin_time = GetCurrentTimeMicros();
+    SCOPED_TIMER(_profile->total_time_counter());
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
     SCOPED_TIMER(_profile->total_time_counter());
@@ -279,6 +281,8 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     _node_id_for_stream = std::make_shared<NodeIdForStream>();
     _delta_writer_for_tablet = std::make_shared<DeltaWriterForTablet>();
     RETURN_IF_ERROR(_init_stream_pools());
+    uint64_t elapsed = GetCurrentTimeMicros() - begin_time;
+    LOG(INFO) << "XXXXX open VOlapTableSinkV2 cost " << elapsed << " us";
 
     return Status::OK();
 }
@@ -323,13 +327,14 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
         request.set_allocated_schema(_schema->to_protobuf());
         for (const auto& partition : _vpartition->get_partitions()) {
             for (const auto& index : partition->indexes) {
-                auto tablet_id = index.tablets[0];
-                auto nodes = _location->find_tablet(tablet_id)->node_ids;
-                if (std::find(nodes.begin(), nodes.end(), node_info.id) != nodes.end()) {
-                    auto req = request.add_tablets();
-                    req->set_tablet_id(tablet_id);
-                    req->set_index_id(index.index_id);
-                    req->set_partition_id(partition->id);
+                for (const auto& tablet_id : index.tablets) {
+                    auto nodes = _location->find_tablet(tablet_id)->node_ids;
+                    if (std::find(nodes.begin(), nodes.end(), node_info.id) != nodes.end()) {
+                        auto req = request.add_tablets();
+                        req->set_tablet_id(tablet_id);
+                        req->set_index_id(index.index_id);
+                        req->set_partition_id(partition->id);
+                    }
                 }
             }
         }
@@ -607,6 +612,9 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
     header.set_sender_id(_sender_id);
     header.set_allocated_load_id(&_load_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
+    for (const auto& i : _tablet_finder->partition_ids()) {
+        header.add_committing_partitions(i);
+    }
     size_t header_len = header.ByteSizeLong();
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
     buf.append(header.SerializeAsString());
