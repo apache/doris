@@ -18,5 +18,5 @@ suite("test_account") {
     // todo: test account management, such as role, user, grant, revoke ...
     sql "show roles"
 
-    sql "show grants for 'non_existent_user_1'"
+    qt_show_grants1 "show grants for 'non_existent_user_1'"
 }
