@@ -70,7 +70,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private JdbcTable tbl;
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
-        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, false);
+        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, true);
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
