@@ -109,16 +109,9 @@ Status StreamSinkFileWriter::send_with_retry(brpc::StreamId stream, butil::IOBuf
     }
 }
 
-Status StreamSinkFileWriter::abort() {
-    return Status::OK();
-}
-
 Status StreamSinkFileWriter::close() {
     return Status::OK();
 }
 
-Status StreamSinkFileWriter::write_at(size_t offset, const Slice& data) {
-    return Status::OK();
-}
 } // namespace io
 } // namespace doris

@@ -49,9 +49,13 @@ public:
 
     Status close() override;
 
-    Status abort() override;
+    Status abort() override {
+        return Status::NotSupported("StreamSinkFileWriter::abort() is not supported");
+    }
 
-    Status write_at(size_t offset, const Slice& data) override;
+    Status write_at(size_t offset, const Slice& data) override {
+        return Status::NotSupported("StreamSinkFileWriter::write_at() is not supported");
+    }
 
 private:
     Status _stream_sender(butil::IOBuf buf) const {
