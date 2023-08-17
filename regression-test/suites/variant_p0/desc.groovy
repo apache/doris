@@ -102,37 +102,37 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         qt_sql_2 """desc ${table_name}"""
         sql "truncate table sparse_columns"
 
-        // streamload remote file
-        table_name = "logdata"
+        // no sparse columns
+        table_name = "no_sparse_columns"
         create_table.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-        // no sparse columns
         set_be_config.call("ratio_of_defaults_as_sparse_column", "1")
-        load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
+        sql """insert into  ${table_name} select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
+            union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_3 """desc ${table_name}"""
-        sql "truncate table ${table_name}"
-
-        // 0.95 default ratio    
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
-        load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
-        qt_sql_4 """desc ${table_name}"""
         sql "truncate table ${table_name}"
 
         // always sparse column
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
-        load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
+        sql """insert into  ${table_name} select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
+            union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_5 """desc ${table_name}"""
         sql "truncate table ${table_name}"
 
         // partititon
-        table_name = "logdata_partition"
+        table_name = "partition_data"
         create_table_partition.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
-        load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
-        qt_sql_6 """desc ${table_name} partition p1"""
-        qt_sql_6_1 """desc ${table_name} partition p2"""
-        qt_sql_6_2 """desc ${table_name} partition p3"""
+        sql """insert into  ${table_name} select 2500, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
+            union  all select 2500, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql """insert into  ${table_name} select 45000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
+            union  all select 45000, '{"a": 1123}' as json_str union all select 45000, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql """insert into  ${table_name} values(95000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
+        qt_sql_6_1 """desc ${table_name} partition p1"""
+        qt_sql_6_2 """desc ${table_name} partition p2"""
+        qt_sql_6_3 """desc ${table_name} partition p3"""
+        qt_sql_6 """desc ${table_name}"""
         sql "truncate table ${table_name}"
 
         // drop partition

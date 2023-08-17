@@ -41,8 +41,8 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             .add("Default").add("Extra")
             .build();
 
-    private List<Column> schema;
-    private Set<String> bfColumns;
+    private final List<Column> schema;
+    private final  Set<String> bfColumns;
 
     public IndexSchemaProcNode(List<Column> schema, Set<String> bfColumns) {
         this.schema = schema;
@@ -105,7 +105,6 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(schema);
         return createResult(this.schema, this.bfColumns);
     }
 }
