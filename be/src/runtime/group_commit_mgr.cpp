@@ -294,8 +294,8 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id, in
     return st;
 }
 
-Status GroupCommitTable::get_load_block_queue(
-        const TUniqueId& instance_id, std::shared_ptr<LoadBlockQueue>& load_block_queue) {
+Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
+                                              std::shared_ptr<LoadBlockQueue>& load_block_queue) {
     std::unique_lock l(_lock);
     auto it = load_block_queues.find(instance_id);
     if (it == load_block_queues.end()) {
@@ -445,9 +445,8 @@ Status GroupCommitMgr::_get_first_block_load_queue(
     return group_commit_table->_get_first_block_load_queue(table_id, block, load_block_queue);
 }
 
-Status GroupCommitMgr::get_load_block_queue(
-        int64_t table_id, const TUniqueId& instance_id,
-        std::shared_ptr<LoadBlockQueue>& load_block_queue) {
+Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
+                                            std::shared_ptr<LoadBlockQueue>& load_block_queue) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard<doris::Mutex> l(_lock);
