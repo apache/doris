@@ -55,17 +55,12 @@ public interface Plan extends TreeNode<Plan> {
     boolean canBind();
 
     default boolean bound() {
+        // TODO: avoid to use getLogicalProperties()
         return !(getLogicalProperties() instanceof UnboundLogicalProperties);
     }
 
     default boolean hasUnboundExpression() {
         return getExpressions().stream().anyMatch(Expression::hasUnbound);
-    }
-
-    default boolean childrenBound() {
-        return children()
-                .stream()
-                .allMatch(Plan::bound);
     }
 
     default LogicalProperties computeLogicalProperties() {

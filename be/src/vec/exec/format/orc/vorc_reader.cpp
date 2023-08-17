@@ -1413,8 +1413,10 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         }
         *read_rows = rr;
 
-        RETURN_IF_ERROR(_fill_partition_columns(block, rr, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, rr, _lazy_read_ctx.missing_columns));
+        RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
+                                                _lazy_read_ctx.partition_columns));
+        RETURN_IF_ERROR(
+                _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
             *eof = true;
@@ -1487,16 +1489,18 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         }
         *read_rows = rr;
 
+        RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
+                                                _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(
-                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+                _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
+            _convert_dict_cols_to_string_cols(block, nullptr);
             *eof = true;
             return Status::OK();
         }
 
-        _build_delete_row_filter(block, rr);
+        _build_delete_row_filter(block, _batch->numElements);
 
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();

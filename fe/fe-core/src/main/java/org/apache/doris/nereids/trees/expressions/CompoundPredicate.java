@@ -23,21 +23,16 @@ import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
+import java.util.List;
+
 /**
  * Compound predicate expression.
  * Such as &&,||,AND,OR.
  */
 public abstract class CompoundPredicate extends BinaryOperator {
 
-    /**
-     * Desc: Constructor for CompoundPredicate.
-     *
-     * @param left  left child of comparison predicate
-     * @param right right child of comparison predicate
-     * @param symbol symbol used in sql
-     */
-    public CompoundPredicate(Expression left, Expression right, String symbol) {
-        super(left, right, symbol);
+    public CompoundPredicate(List<Expression> children, String symbol) {
+        super(children, symbol);
     }
 
     @Override

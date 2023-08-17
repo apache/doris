@@ -35,6 +35,7 @@ import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -851,10 +852,10 @@ nonterminal List<AllPartitionDesc> all_partition_desc_list;
 nonterminal PartitionKeyDesc fixed_multi_partition_key_desc;
 nonterminal MultiPartitionDesc multi_partition_desc;
 
-nonterminal List<AccessPrivilege> privilege_list;
+nonterminal List<AccessPrivilegeWithCols> privilege_list;
 nonterminal List<String> string_list;
 nonterminal List<Long> integer_list, cancel_rollup_job_id_list;
-nonterminal AccessPrivilege privilege_type;
+nonterminal AccessPrivilegeWithCols privilege_type;
 
 nonterminal DataDescription data_desc, mysql_data_desc;
 nonterminal List<DataDescription> data_desc_list;
@@ -7108,16 +7109,17 @@ column_slice ::=
   ;
 
 privilege_type ::=
-    ident:name
+    ident:name opt_col_list:cols
     {:
-        RESULT = AccessPrivilege.fromName(name);
-        if (RESULT == null) {
+        AccessPrivilege accessPrivilege = AccessPrivilege.fromName(name);
+        if (accessPrivilege == null) {
             throw new AnalysisException("Unknown privilege type " + name);
         }
+        RESULT = new AccessPrivilegeWithCols(accessPrivilege, cols);
     :}
     | KW_ALL:id
     {:
-        RESULT = AccessPrivilege.ALL;
+        RESULT = new AccessPrivilegeWithCols(AccessPrivilege.ALL);
     :}
     ;
 

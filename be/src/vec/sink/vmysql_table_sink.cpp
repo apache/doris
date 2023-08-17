@@ -40,28 +40,24 @@ VMysqlTableSink::VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc
 
 Status VMysqlTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(VTableSink::init(t_sink));
-    const TMysqlTableSink& t_mysql_sink = t_sink.mysql_table_sink;
-    _conn_info.host = t_mysql_sink.host;
-    _conn_info.port = t_mysql_sink.port;
-    _conn_info.user = t_mysql_sink.user;
-    _conn_info.passwd = t_mysql_sink.passwd;
-    _conn_info.db = t_mysql_sink.db;
-    _table_name = t_mysql_sink.table;
-    _conn_info.charset = t_mysql_sink.charset;
+    // create writer
+    _writer.reset(new VMysqlTableWriter(t_sink, _output_vexpr_ctxs));
     return Status::OK();
 }
 
 Status VMysqlTableSink::open(RuntimeState* state) {
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VTableSink::open(state));
-    // create writer
-    _writer.reset(new VMysqlTableWriter(_output_vexpr_ctxs));
-    RETURN_IF_ERROR(_writer->open(_conn_info, _table_name));
+    if (state->enable_pipeline_exec()) {
+        _writer->start_writer();
+    } else {
+        RETURN_IF_ERROR(_writer->open());
+    }
     return Status::OK();
 }
 
 Status VMysqlTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    return _writer->append(block);
+    return _writer->append_block(*block);
 }
 
 Status VMysqlTableSink::close(RuntimeState* state, Status exec_status) {
