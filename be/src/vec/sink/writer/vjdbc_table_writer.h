@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,49 +19,30 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <mysql/mysql.h>
 #include <stddef.h>
 
 #include <string>
 #include <vector>
 
-#include "async_result_writer.h"
 #include "common/status.h"
-#include "vec/exprs/vexpr_fwd.h"
+#include "vec/exec/vjdbc_connector.h"
+#include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
 namespace vectorized {
 
-struct MysqlConnInfo {
-    std::string host;
-    std::string user;
-    std::string passwd;
-    std::string db;
-    std::string table_name;
-    int port;
-    std::string charset;
-
-    std::string debug_string() const;
-};
-
 class Block;
 
-class VMysqlTableWriter final : public AsyncResultWriter {
+class VJdbcTableWriter final : public AsyncResultWriter, public JdbcConnector {
 public:
-    VMysqlTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
-    ~VMysqlTableWriter() override;
+    VJdbcTableWriter(const JdbcConnectorParam& param, const VExprContextSPtrs& output_exprs);
 
-    // connect to mysql server
-    Status open() override;
+    // connect to jdbc server
+    Status open(RuntimeState* state) override { return JdbcConnector::open(state, false); }
 
     Status append_block(vectorized::Block& block) override;
 
-private:
-    Status insert_row(vectorized::Block& block, size_t row);
-    MysqlConnInfo _conn_info;
-    const VExprContextSPtrs& _vec_output_expr_ctxs;
-    fmt::memory_buffer _insert_stmt_buffer;
-    MYSQL* _mysql_conn;
+    Status close() override { return JdbcConnector::close(); }
 };
 } // namespace vectorized
 } // namespace doris

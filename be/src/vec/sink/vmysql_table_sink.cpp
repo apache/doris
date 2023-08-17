@@ -49,9 +49,9 @@ Status VMysqlTableSink::open(RuntimeState* state) {
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VTableSink::open(state));
     if (state->enable_pipeline_exec()) {
-        _writer->start_writer();
+        _writer->start_writer(state);
     } else {
-        RETURN_IF_ERROR(_writer->open());
+        RETURN_IF_ERROR(_writer->open(state));
     }
     return Status::OK();
 }
@@ -60,9 +60,12 @@ Status VMysqlTableSink::send(RuntimeState* state, Block* block, bool eos) {
     return _writer->append_block(*block);
 }
 
-Status VMysqlTableSink::close(RuntimeState* state, Status exec_status) {
-    RETURN_IF_ERROR(VTableSink::close(state, exec_status));
+Status VMysqlTableSink::try_close(RuntimeState* state, Status exec_status) {
+    if (state->is_cancelled() || !exec_status.ok()) {
+        _writer->force_close();
+    }
     return Status::OK();
 }
+
 } // namespace vectorized
 } // namespace doris

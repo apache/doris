@@ -65,11 +65,5 @@ Status VTableSink::open(RuntimeState* state) {
 Status VTableSink::send(RuntimeState* state, Block* block, bool eos) {
     return Status::OK();
 }
-Status VTableSink::close(RuntimeState* state, Status exec_status) {
-    if (_closed) {
-        return Status::OK();
-    }
-    return Status::OK();
-}
 } // namespace vectorized
 } // namespace doris
