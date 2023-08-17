@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vjdbc_table_writer.h"
+#include "vodbc_table_writer.h"
 
 #include <gen_cpp/DataSinks_types.h>
 #include <stdint.h>
@@ -30,31 +30,22 @@
 namespace doris {
 namespace vectorized {
 
-JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink& t_sink) {
-    const TJdbcTableSink& t_jdbc_sink = t_sink.jdbc_table_sink;
+ODBCConnectorParam VOdbcTableWriter::create_connect_param(const doris::TDataSink& t_sink) {
+    const TOdbcTableSink& t_odbc_sink = t_sink.odbc_table_sink;
 
-    JdbcConnectorParam jdbc_param;
+    ODBCConnectorParam odbc_param;
+    odbc_param.connect_string = t_odbc_sink.connect_string;
+    odbc_param.table_name = t_odbc_sink.table;
+    odbc_param.use_transaction = t_odbc_sink.use_transaction;
 
-    jdbc_param.jdbc_url = t_jdbc_sink.jdbc_table.jdbc_url;
-    jdbc_param.user = t_jdbc_sink.jdbc_table.jdbc_user;
-    jdbc_param.passwd = t_jdbc_sink.jdbc_table.jdbc_password;
-    jdbc_param.driver_class = t_jdbc_sink.jdbc_table.jdbc_driver_class;
-    jdbc_param.driver_path = t_jdbc_sink.jdbc_table.jdbc_driver_url;
-    jdbc_param.driver_checksum = t_jdbc_sink.jdbc_table.jdbc_driver_checksum;
-    jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
-    jdbc_param.table_type = t_jdbc_sink.table_type;
-    jdbc_param.query_string = t_jdbc_sink.insert_sql;
-    jdbc_param.table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
-    jdbc_param.use_transaction = t_jdbc_sink.use_transaction;
-
-    return jdbc_param;
+    return odbc_param;
 }
 
-VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
+VOdbcTableWriter::VOdbcTableWriter(const doris::TDataSink& t_sink,
                                    const VExprContextSPtrs& output_expr_ctxs)
-        : AsyncResultWriter(output_expr_ctxs), JdbcConnector(create_connect_param(t_sink)) {}
+        : AsyncResultWriter(output_expr_ctxs), ODBCConnector(create_connect_param(t_sink)) {}
 
-Status VJdbcTableWriter::append_block(vectorized::Block& block) {
+Status VOdbcTableWriter::append_block(vectorized::Block& block) {
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();
@@ -62,8 +53,8 @@ Status VJdbcTableWriter::append_block(vectorized::Block& block) {
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
     while (start_send_row < num_rows) {
-        RETURN_IF_ERROR(append(&output_block, _vec_output_expr_ctxs, start_send_row, &num_row_sent,
-                               _conn_param.table_type));
+        RETURN_IF_ERROR(
+                append(&output_block, _vec_output_expr_ctxs, start_send_row, &num_row_sent));
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }

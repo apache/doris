@@ -68,7 +68,6 @@ public:
     RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
-    const RowDescriptor& row_desc() const { return _row_desc; }
 
 private:
     Status prepare_exprs(RuntimeState* state);
@@ -90,7 +89,6 @@ private:
     std::string _header;
     std::string _header_type;
 
-    RowDescriptor _row_desc;
     RuntimeProfile* _profile;
 };
 } // namespace vectorized
