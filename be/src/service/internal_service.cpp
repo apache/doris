@@ -87,6 +87,7 @@
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -343,6 +344,59 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
     if (!ret) {
         offer_failed(result, done, _light_work_pool);
     }
+}
+
+void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* controller,
+                                            const POpenStreamSinkRequest* request,
+                                            POpenStreamSinkResponse* response,
+                                            google::protobuf::Closure* done) {
+    brpc::ClosureGuard done_guard(done);
+    LOG(INFO) << "OOXXOO: open stream sink, backend_id = " << request->backend_id();
+    std::unique_ptr<PStatus> status = std::make_unique<PStatus>();
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+    brpc::StreamOptions stream_options;
+
+    for (const auto& req : request->tablets()) {
+        TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+        TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
+        if (tablet == nullptr) {
+            cntl->SetFailed("Tablet not found");
+            status->set_status_code(TStatusCode::NOT_FOUND);
+            response->set_allocated_status(status.get());
+            response->release_status();
+            return;
+        }
+        auto resp = response->add_tablet_schemas();
+        resp->set_index_id(req.index_id());
+        resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
+        tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+    }
+
+    ExecEnv* env = ExecEnv::GetInstance();
+
+    auto load_stream_mgr = env->get_load_stream_mgr();
+    LoadStreamSharedPtr load_stream;
+    auto st = load_stream_mgr->try_open_load_stream(request, &load_stream);
+
+    stream_options.handler = load_stream.get();
+    // TODO : set idle timeout
+    // stream_options.idle_timeout_ms =
+
+    StreamId streamid;
+    if (brpc::StreamAccept(&streamid, *cntl, &stream_options) != 0) {
+        cntl->SetFailed("Fail to accept stream");
+        status->set_status_code(TStatusCode::CANCELLED);
+        response->set_allocated_status(status.get());
+        response->release_status();
+        return;
+    }
+
+    load_stream->add_rpc_stream();
+    LOG(INFO) << "OOXXOO: get streamid =" << streamid;
+
+    status->set_status_code(TStatusCode::OK);
+    response->set_allocated_status(status.get());
+    response->release_status();
 }
 
 void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcController* controller,
