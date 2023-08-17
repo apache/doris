@@ -35,17 +35,17 @@ suite("test_truncate_char_or_varchar_columns", "p2,external,hive,external_remote
         // test parquet format
         def q01_parquet = {
             qt_q01 """ select * from multi_catalog.test_truncate_char_or_varchar_columns_parquet order by id """
-            qt_q02 """ select city, concat("at ", city, " in ", country) from regression.multi_catalog.test_truncate_char_or_varchar_columns_parquet order by id """
+            qt_q02 """ select city, concat("at ", city, " in ", country) from ${catalog_name}.multi_catalog.test_truncate_char_or_varchar_columns_parquet order by id """
         }
         // test orc format
         def q01_orc = {
             qt_q01 """ select * from multi_catalog.test_truncate_char_or_varchar_columns_orc order by id """
-            qt_q02 """ select city, concat("at ", city, " in ", country) from regression.multi_catalog.test_truncate_char_or_varchar_columns_orc order by id """
+            qt_q02 """ select city, concat("at ", city, " in ", country) from ${catalog_name}.multi_catalog.test_truncate_char_or_varchar_columns_orc order by id """
         }
         // test text format
         def q01_text = {
             qt_q01 """ select * from multi_catalog.test_truncate_char_or_varchar_columns_text order by id """
-            qt_q02 """ select city, concat("at ", city, " in ", country) from regression.multi_catalog.test_truncate_char_or_varchar_columns_text order by id """
+            qt_q02 """ select city, concat("at ", city, " in ", country) from ${catalog_name}.multi_catalog.test_truncate_char_or_varchar_columns_text order by id """
         }
         sql """ use `multi_catalog`; """
         q01_parquet()
@@ -57,17 +57,17 @@ suite("test_truncate_char_or_varchar_columns", "p2,external,hive,external_remote
         // test parquet format
         def q02_parquet = {
             qt_q01 """ select * from multi_catalog.test_truncate_char_or_varchar_columns_parquet order by id """
-            qt_q02 """ select city, concat("at ", city, " in ", country) from regression.multi_catalog.test_truncate_char_or_varchar_columns_parquet order by id """
+            qt_q02 """ select city, concat("at ", city, " in ", country) from ${catalog_name}.multi_catalog.test_truncate_char_or_varchar_columns_parquet order by id """
         }
         // test orc format
         def q02_orc = {
             qt_q01 """ select * from multi_catalog.test_truncate_char_or_varchar_columns_orc order by id """
-            qt_q02 """ select city, concat("at ", city, " in ", country) from regression.multi_catalog.test_truncate_char_or_varchar_columns_orc order by id """
+            qt_q02 """ select city, concat("at ", city, " in ", country) from ${catalog_name}.multi_catalog.test_truncate_char_or_varchar_columns_orc order by id """
         }
         // test text format
         def q02_text = {
             qt_q01 """ select * from multi_catalog.test_truncate_char_or_varchar_columns_text order by id """
-            qt_q02 """ select city, concat("at ", city, " in ", country) from regression.multi_catalog.test_truncate_char_or_varchar_columns_text order by id """
+            qt_q02 """ select city, concat("at ", city, " in ", country) from ${catalog_name}.multi_catalog.test_truncate_char_or_varchar_columns_text order by id """
         }
         sql """ use `multi_catalog`; """
         q02_parquet()

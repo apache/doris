@@ -777,11 +777,10 @@ bool HashJoinNode::_is_hash_join_early_start_probe_eos(RuntimeState* state) cons
 }
 
 void HashJoinNode::_probe_side_open_thread(RuntimeState* state, std::promise<Status>* promise) {
-    Defer defer {[&]() { _probe_open_finish = true; }};
-
     SCOPED_ATTACH_TASK(state);
     auto st = child(0)->open(state);
     if (!st.ok()) {
+        _probe_open_finish = true;
         promise->set_value(st);
         return;
     }
@@ -796,17 +795,20 @@ void HashJoinNode::_probe_side_open_thread(RuntimeState* state, std::promise<Sta
                               _children[0], std::placeholders::_1, std::placeholders::_2,
                               std::placeholders::_3));
             if (!st.ok()) {
+                _probe_open_finish = true;
                 promise->set_value(st);
                 return;
             }
 
             st = push(state, &_probe_block, _probe_eos);
             if (!st.ok()) {
+                _probe_open_finish = true;
                 promise->set_value(st);
                 return;
             }
         }
     }
+    _probe_open_finish = true;
     promise->set_value(Status::OK());
 }
 
