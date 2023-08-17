@@ -143,7 +143,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         result = ParseResult {};
     }
     if (!result) {
-        LOG(INFO) << "failed to parse " << std::string_view(src, length) << ", length= " << length;
+        VLOG_DEBUG << "failed to parse " << std::string_view(src, length) << ", length= " << length;
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse object {}",
                                std::string_view(src, length));
     }
