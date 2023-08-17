@@ -42,7 +42,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             .build();
 
     private final List<Column> schema;
-    private final  Set<String> bfColumns;
+    private final Set<String> bfColumns;
 
     public IndexSchemaProcNode(List<Column> schema, Set<String> bfColumns) {
         this.schema = schema;
@@ -68,7 +68,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             }
             String extraStr = StringUtils.join(extras, ",");
 
-            List<String> rowList = Arrays.asList(column.getName(),
+            List<String> rowList = Arrays.asList(column.getDisplayName(),
                                                  column.getOriginType().toString(),
                                                  column.isAllowNull() ? "Yes" : "No",
                                                  ((Boolean) column.isKey()).toString(),
