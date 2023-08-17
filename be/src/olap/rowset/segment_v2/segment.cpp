@@ -417,12 +417,12 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
     if (node != nullptr && node->is_scalar() && node->children.empty()) {
         // Direct read extracted columns
         const auto* node = _sub_column_tree.find_leaf(tablet_column.path_info());
-        auto cache_iter = new CachedStreamIterator(stream_cache, tablet_column.path_info());
+        auto cache_iter = new CachedStreamIterator(tablet_column.path_info());
         RETURN_IF_ERROR(add_stream(cache_iter, node));
         iter->reset(cache_iter);
     } else if (node != nullptr && !node->children.empty()) {
         // None leave node need merge with root
-        auto* stream_iter = new CachedStreamIterator(stream_cache, tablet_column.path_info());
+        auto* stream_iter = new CachedStreamIterator(tablet_column.path_info());
         std::vector<const SubcolumnColumnReaders::Node*> leaves;
         vectorized::PathsInData leaves_paths;
         SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
@@ -447,7 +447,7 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
             RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
             return Status::OK();
         }
-        auto cache_iter = new CachedStreamIterator(stream_cache, tablet_column.path_info());
+        auto cache_iter = new CachedStreamIterator(tablet_column.path_info());
         RETURN_IF_ERROR(add_stream(cache_iter, node));
         iter->reset(cache_iter);
     }
