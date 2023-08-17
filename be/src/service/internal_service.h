@@ -184,6 +184,11 @@ public:
     void glob(google::protobuf::RpcController* controller, const PGlobRequest* request,
               PGlobResponse* response, google::protobuf::Closure* done) override;
 
+    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
