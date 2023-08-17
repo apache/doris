@@ -169,38 +169,61 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 NullableMode.DEPEND_ON_ARGUMENT);
     }
 
+    private OlapTable getOlapTableFromSlotDesc(SlotDescriptor slotDesc) {
+        if (slotDesc != null && slotDesc.isScanSlot()) {
+            TupleDescriptor slotParent = slotDesc.getParent();
+            return (OlapTable) slotParent.getTable();
+        }
+        return null;
+    }
+
+    private OlapTable getOlapTableDirectly(SlotRef left) {
+        if (left.getTableDirect() instanceof OlapTable) {
+            return (OlapTable) left.getTableDirect();
+        }
+        return null;
+    }
+
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
         String invertedIndexParser = null;
         String invertedIndexParserMode = null;
         SlotRef left = (SlotRef) match.left().accept(this, context);
-        SlotDescriptor slotDesc = left.getDesc();
-        if (slotDesc != null && slotDesc.isScanSlot()) {
-            TupleDescriptor slotParent = slotDesc.getParent();
-            OlapTable olapTbl = (OlapTable) slotParent.getTable();
-            if (olapTbl == null) {
-                throw new AnalysisException("slotRef in matchExpression failed to get OlapTable");
-            }
-            List<Index> indexes = olapTbl.getIndexes();
-            for (Index index : indexes) {
-                if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
-                    List<String> columns = index.getColumns();
-                    if (left.getColumnName().equals(columns.get(0))) {
-                        invertedIndexParser = index.getInvertedIndexParser();
-                        invertedIndexParserMode = index.getInvertedIndexParserMode();
-                        break;
-                    }
+
+        if (left == null) {
+            throw new AnalysisException("Left slot reference is null");
+        }
+        OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
+                                    .orElse(getOlapTableDirectly(left));
+
+        if (olapTbl == null) {
+            throw new AnalysisException("slotRef in matchExpression failed to get OlapTable");
+        }
+
+        List<Index> indexes = olapTbl.getIndexes();
+        if (indexes == null) {
+            return null; // or throw an exception if this is unexpected
+        }
+
+        for (Index index : indexes) {
+            if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
+                    invertedIndexParser = index.getInvertedIndexParser();
+                    invertedIndexParserMode = index.getInvertedIndexParserMode();
+                    break;
                 }
             }
         }
+
         MatchPredicate.Operator op = match.op();
         return new MatchPredicate(op,
-                match.left().accept(this, context),
-                match.right().accept(this, context),
-                match.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT,
-                invertedIndexParser,
-                invertedIndexParserMode);
+            match.left().accept(this, context),
+            match.right().accept(this, context),
+            match.getDataType().toCatalogDataType(),
+            NullableMode.DEPEND_ON_ARGUMENT,
+            invertedIndexParser,
+            invertedIndexParserMode);
     }
 
     @Override
