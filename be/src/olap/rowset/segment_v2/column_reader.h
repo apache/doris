@@ -489,8 +489,8 @@ private:
 // Cache the sub column iterators and columns to reduce data read amplification
 class CachedStreamIterator : public ColumnIterator {
 public:
-    CachedStreamIterator(SubstreamCache* stream_cache, const vectorized::PathInData& path)
-            : _stream_cache(stream_cache), _path(path) {}
+    CachedStreamIterator(const vectorized::PathInData& path)
+            : _path(path) {}
 
     ~CachedStreamIterator() override = default;
 
@@ -523,7 +523,6 @@ private:
         _rows_read += nrows;
         return Status::OK();
     }
-    SubstreamCache* _stream_cache;
     vectorized::PathInData _path;
     size_t _rows_read = 0;
     // could duplicate with nodes under _path, since node_func is idempotent
