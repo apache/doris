@@ -383,6 +383,16 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_EQ(Status::OK(), success_res);
 
     // 验证存储在header中的过滤条件正确
+    EXPECT_EQ(size_t(7), del_pred.sub_predicates_size());
+    EXPECT_STREQ("k1='1'", del_pred.sub_predicates(0).c_str());
+    EXPECT_STREQ("k2>>'3'", del_pred.sub_predicates(1).c_str());
+    EXPECT_STREQ("k3<='5'", del_pred.sub_predicates(2).c_str());
+    EXPECT_STREQ("k4 IS NULL", del_pred.sub_predicates(3).c_str());
+    EXPECT_STREQ("k5='7'", del_pred.sub_predicates(4).c_str());
+    EXPECT_STREQ("k12!='9'", del_pred.sub_predicates(5).c_str());
+    EXPECT_STREQ("k$1>>'1'", del_pred.sub_predicates(6).c_str());
+
+    // check sub predicate v2
     EXPECT_EQ(size_t(7), del_pred.sub_predicates_v2_size());
     EXPECT_STREQ("k1", del_pred.sub_predicates_v2(0).column_name().c_str());
     EXPECT_STREQ("k2", del_pred.sub_predicates_v2(1).column_name().c_str());
