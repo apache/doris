@@ -36,8 +36,10 @@ suite("test_nereids_authentication", "query") {
 
     def tableName1 = "accessible_table";
     def tableName2 = "inaccessible_table";
+    def tableName3 = "col_table";
     create_table.call(tableName1);
     create_table.call(tableName2);
+    create_table.call(tableName3);
 
     def user='nereids_user'
     try_sql "DROP USER ${user}"
@@ -80,4 +82,20 @@ suite("test_nereids_authentication", "query") {
         sql "SELECT * FROM ${tableName1}, ${tableName2} WHERE ${tableName1}.`key` = ${tableName2}.`key`"
     }
     assertEquals(result.size(), 0)
+
+    sql "GRANT SELECT_PRIV(value) ON internal.${dbName}.${tableName3} TO ${user}"
+    connect(user=user, password='Doris_123456', url=url) {
+        try {
+            sql "SELECT * FROM ${tableName3}"
+            fail()
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains('Permission denied'))
+        }
+    }
+    connect(user=user, password='Doris_123456', url=url) {
+        sql "SELECT value FROM ${tableName3}"
+    }
+    assertEquals(result.size(), 0)
+
 }
