@@ -399,4 +399,16 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PFetchRemoteSchemaResponse> fetchRemoteTabletSchemaAsync(
+            TNetworkAddress address, InternalService.PFetchRemoteSchemaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.fetchRemoteTabletSchemaAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch remote tablet schema catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
 }

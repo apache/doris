@@ -2249,4 +2249,23 @@ public class OlapTable extends Table {
             }
         }
     }
+
+    public List<Tablet> getAllTablets() throws AnalysisException {
+        List<Tablet> tablets = Lists.newArrayList();
+        for (Partition partition : getPartitions()) {
+            for (Tablet tablet : partition.getBaseIndex().getTablets()) {
+                tablets.add(tablet);
+            }
+        }
+        return tablets;
+    }
+
+    public boolean hasVariantColumns() {
+        for (Column column : getBaseSchema()) {
+            if (column.getType().isVariantType()) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

@@ -4344,9 +4344,9 @@ opt_explain_options ::=
 
 // Describe statement
 describe_stmt ::=
-    describe_command table_name:table
+    describe_command table_name:table opt_partition_names:partitionNames
     {:
-        RESULT = new DescribeStmt(table, false);
+        RESULT = new DescribeStmt(table, false, partitionNames);
     :}
     | KW_SHOW KW_FIELDS KW_FROM table_name:table
     {:

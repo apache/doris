@@ -25,6 +25,7 @@
 #include <butil/errno.h>
 #include <butil/iobuf.h>
 #include <fcntl.h>
+#include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Status_types.h>
@@ -89,6 +90,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
+#include "service/backend_options.h"
 #include "service/point_query_executor.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
@@ -108,6 +110,7 @@
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -722,6 +725,109 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         }
     }
     response->mutable_status()->set_status_code(TStatusCode::OK);
+}
+
+template <class RPCResponse>
+struct AsyncRPCContext {
+    RPCResponse response;
+    brpc::Controller cntl;
+    brpc::CallId cid;
+};
+
+void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                                      const PFetchRemoteSchemaRequest* request,
+                                                      PFetchRemoteSchemaResponse* response,
+                                                      google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+        auto merge_schema =
+                [](const std::vector<TabletSchemaSPtr>& input_schema) -> TabletSchemaSPtr {
+            TabletSchemaSPtr merged_schema = std::make_shared<TabletSchema>();
+            vectorized::schema_util::get_least_common_schema(input_schema, merged_schema);
+            return merged_schema;
+        };
+
+        brpc::ClosureGuard closure_guard(done);
+        Status st = Status::OK();
+        if (request->is_coordinator()) {
+            // Spawn rpc request to none coordinator nodes, and finally merge them all
+            PFetchRemoteSchemaRequest remote_request(*request);
+            // set it none coordinator to get merged schema
+            remote_request.set_is_coordinator(false);
+            using PFetchRemoteTabletSchemaRpcContext = AsyncRPCContext<PFetchRemoteSchemaResponse>;
+            std::vector<PFetchRemoteTabletSchemaRpcContext> rpc_contexts(
+                    request->tablet_location_size());
+            for (int i = 0; i < request->tablet_location_size(); ++i) {
+                std::string host = request->tablet_location(i).host();
+                int32_t brpc_port = request->tablet_location(i).brpc_port();
+                std::shared_ptr<PBackendService_Stub> stub(
+                        ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                                host, brpc_port));
+                stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
+                                                 &rpc_contexts[i].response, brpc::DoNothing());
+            }
+            std::vector<TabletSchemaSPtr> schemas;
+            for (auto& rpc_context : rpc_contexts) {
+                brpc::Join(rpc_context.cntl.call_id());
+                if (rpc_context.cntl.Failed()) {
+                    LOG(WARNING) << "fetch_remote_tablet_schema rpc err:"
+                                 << rpc_context.cntl.ErrorText();
+                    ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                            rpc_context.cntl.remote_side());
+                    st = Status::InternalError("fetch_remote_tablet_schema rpc err: {}",
+                                               rpc_context.cntl.ErrorText());
+                    break;
+                }
+                if (rpc_context.response.status().status_code() != 0) {
+                    st = Status::create(rpc_context.response.status());
+                    break;
+                }
+                if (rpc_context.response.has_merged_schema()) {
+                    TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
+                    schema->init_from_pb(rpc_context.response.merged_schema());
+                    schemas.push_back(schema);
+                }
+            }
+            if (!schemas.empty()) {
+                // merge all
+                TabletSchemaSPtr merged_schema = merge_schema(schemas);
+                merged_schema->to_schema_pb(response->mutable_merged_schema());
+            }
+            st.to_protobuf(response->mutable_status());
+            return;
+        }
+
+        // This is not a coordinator, get it's tablet and merge schema
+        std::vector<int64_t> target_tablets;
+        for (int i = 0; i < request->tablet_location_size(); ++i) {
+            const auto& location = request->tablet_location(i);
+            auto backend = BackendOptions::get_local_backend();
+            // If this is the target backend
+            if (backend.host == location.host() && config::brpc_port == location.brpc_port()) {
+                target_tablets.assign(location.tablet_id().begin(), location.tablet_id().end());
+                break;
+            }
+        }
+        if (!target_tablets.empty()) {
+            std::vector<TabletSchemaSPtr> tablet_schemas;
+            for (int64_t tablet_id : target_tablets) {
+                TabletSharedPtr tablet =
+                        StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, false);
+                if (tablet == nullptr) {
+                    // just ignore
+                    continue;
+                }
+                tablet_schemas.push_back(tablet->tablet_schema());
+            }
+
+            // merge all
+            TabletSchemaSPtr merged_schema = merge_schema(tablet_schemas);
+            merged_schema->to_schema_pb(response->mutable_merged_schema());
+        }
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _heavy_work_pool);
+    }
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
