@@ -84,9 +84,13 @@ public:
 private:
     Status _create_group_commit_load(int64_t table_id,
                                      std::shared_ptr<LoadBlockQueue>& load_block_queue);
-    Status _exec_plan_fragment(int64_t db_id, int64_t table_id, int64_t txn_id, bool is_pipeline,
+    Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
+                               int64_t txn_id, bool is_pipeline,
                                const TExecPlanFragmentParams& params,
                                const TPipelineFragmentParams& pipeline_params);
+    Status _finish_group_commit_load(int64_t db_id, int64_t table_id, const std::string& label,
+                                     int64_t txn_id, const TUniqueId& instance_id, Status& status,
+                                     bool prepare_failed, RuntimeState* state);
 
     ExecEnv* _exec_env;
     int64_t _db_id;

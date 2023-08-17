@@ -223,75 +223,93 @@ Status GroupCommitTable::_create_group_commit_load(
     }
     VLOG_DEBUG << "create plan fragment, db_id=" << db_id << ", table=" << table_id
                << ", schema version=" << schema_version << ", label=" << label
-               << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id);
+               << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id)
+               << ", is_pipeline=" << is_pipeline;
     {
         load_block_queue =
                 std::make_shared<LoadBlockQueue>(instance_id, label, txn_id, schema_version);
         std::unique_lock l(_lock);
         load_block_queues.emplace(instance_id, load_block_queue);
     }
-    st = _exec_plan_fragment(db_id, table_id, txn_id, is_pipeline, params, pipeline_params);
+    st = _exec_plan_fragment(db_id, table_id, label, txn_id, is_pipeline, params, pipeline_params);
     if (!st.ok()) {
-        LOG(WARNING) << "execute plan fragment error, st=" << st
-                     << ", instance_id=" << print_id(instance_id);
-        std::unique_lock l(_lock);
-        load_block_queues.erase(instance_id);
-        // should notify all blocks
-        load_block_queue->cancel(st);
-        // TODO abort txn
+        _finish_group_commit_load(db_id, table_id, label, txn_id, instance_id, st, true, nullptr);
     }
     return st;
 }
 
-Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id, int64_t txn_id,
+Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_id,
+                                                   const std::string& label, int64_t txn_id,
+                                                   const TUniqueId& instance_id, Status& status,
+                                                   bool prepare_failed, RuntimeState* state) {
+    {
+        std::lock_guard<doris::Mutex> l(_lock);
+        if (prepare_failed) {
+            auto it = load_block_queues.find(instance_id);
+            if (it != load_block_queues.end()) {
+                it->second->cancel(status);
+            }
+        }
+        load_block_queues.erase(instance_id);
+    }
+    TFinishGroupCommitRequest request;
+    request.__set_db_id(db_id);
+    request.__set_table_id(table_id);
+    request.__set_txn_id(txn_id);
+    request.__set_status(status.to_thrift());
+    if (state) {
+        request.__set_commit_infos(state->tablet_commit_infos());
+    }
+    TFinishGroupCommitResult result;
+    // plan this load
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    Status st;
+    st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&result, &request](FrontendServiceConnection& client) {
+                client->finishGroupCommit(result, request);
+            },
+            10000L);
+    if (!st.ok()) {
+        LOG(WARNING) << "request finish error, db_id=" << db_id << ", table_id=" << table_id
+                     << ", label=" << label << ", txn_id=" << txn_id
+                     << ", instance_id=" << print_id(instance_id)
+                     << ", executor status=" << status.to_string()
+                     << ", request commit status=" << st.to_string();
+        return st;
+    }
+    st = Status::create(result.status);
+    // TODO handle execute and commit error
+    std::stringstream ss;
+    ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label
+       << ", txn_id=" << txn_id << ", instance_id=" << print_id(instance_id);
+    if (prepare_failed) {
+        ss << ", prepare status=" << status.to_string();
+    } else {
+        ss << ", execute status=" << status.to_string();
+    }
+    ss << ", commit status=" << st.to_string();
+    if (state && !(state->get_error_log_file_path().empty())) {
+        ss << ", error_url=" << state->get_error_log_file_path();
+    }
+    LOG(INFO) << ss.str();
+    return st;
+}
+
+Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
+                                             const std::string& label, int64_t txn_id,
                                              bool is_pipeline,
                                              const TExecPlanFragmentParams& params,
                                              const TPipelineFragmentParams& pipeline_params) {
-    Status st;
-    auto finish_cb = [db_id, table_id, txn_id, this](RuntimeState* state, Status* status) {
-        auto& instance_id = state->fragment_instance_id();
-        {
-            std::lock_guard<doris::Mutex> l(_lock);
-            load_block_queues.erase(instance_id);
-        }
-        TFinishGroupCommitRequest request;
-        request.__set_db_id(db_id);
-        request.__set_table_id(table_id);
-        request.__set_txn_id(txn_id);
-        request.__set_status(status->to_thrift());
-        request.__set_commit_infos(state->tablet_commit_infos());
-        TFinishGroupCommitResult result;
-        // plan this load
-        TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-        Status st;
-        st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
-                [&result, &request](FrontendServiceConnection& client) {
-                    client->finishGroupCommit(result, request);
-                },
-                10000L);
-        if (!st.ok()) {
-            LOG(WARNING) << "request commit error, table_id=" << table_id
-                         << ", executor status=" << status->to_string()
-                         << ", request commit status=" << st.to_string()
-                         << ", instance_id=" << print_id(instance_id)
-                         << ", rows=" << state->num_rows_load_total();
-            return;
-        }
-        st = Status::create(result.status);
-        // TODO handle execute and commit error
-        LOG(INFO) << "commit group commit, table_id=" << table_id
-                  << ", instance_id=" << print_id(instance_id) << ", txn_id=" << txn_id
-                  << ", execute status=" << status->to_string()
-                  << ", commit status=" << st.to_string()
-                  << ", url=" << state->get_error_log_file_path();
+    auto finish_cb = [db_id, table_id, label, txn_id, this](RuntimeState* state, Status* status) {
+        _finish_group_commit_load(db_id, table_id, label, txn_id, state->fragment_instance_id(),
+                                  *status, false, state);
     };
     if (is_pipeline) {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
+        return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params, finish_cb);
     } else {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(params, finish_cb);
+        return _exec_env->fragment_mgr()->exec_plan_fragment(params, finish_cb);
     }
-    return st;
 }
 
 Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
