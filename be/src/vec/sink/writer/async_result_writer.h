@@ -20,6 +20,7 @@
 #include <queue>
 
 #include "runtime/result_writer.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
@@ -44,11 +45,18 @@ class Block;
  */
 class AsyncResultWriter : public ResultWriter {
 public:
+    AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs);
+
     Status close() override { return Status::OK(); }
+
+    void force_close();
 
     Status init(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status open() { return Status::OK(); }
+    virtual Status open(RuntimeState* state) {
+        _state = state;
+        return Status::OK();
+    }
 
     Status write(std::unique_ptr<Block> block) { return append_block(*block); }
 
@@ -59,24 +67,29 @@ public:
 
     [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
 
-    void process_block();
+    void process_block(RuntimeState* state);
 
     // sink the block date to date queue
-    Status sink(RuntimeState* state, Block* block, bool eos);
+    Status sink(Block* block, bool eos);
 
     std::unique_ptr<Block> get_block_from_queue();
 
     // Add the IO thread task process block() to thread pool to dispose the IO
-    void start_writer();
+    void start_writer(RuntimeState* state);
+
+protected:
+    Status _projection_block(Block& input_block, Block* output_block);
+    const VExprContextSPtrs& _vec_output_expr_ctxs;
 
 private:
     static constexpr auto QUEUE_SIZE = 3;
-    bool _is_open = false;
+    RuntimeState* _state = nullptr;
     std::mutex _m;
     std::condition_variable _cv;
     std::deque<std::unique_ptr<Block>> _data_queue;
     Status _writer_status = Status::OK();
     bool _eos = false;
+    bool _close = false;
     bool _writer_thread_closed = false;
 };
 
