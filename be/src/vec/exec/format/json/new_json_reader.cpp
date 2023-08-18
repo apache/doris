@@ -1054,6 +1054,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         file_buf->reset(new uint8_t[file_size]);
         Slice result(file_buf->get(), file_size);
         RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, read_size, _io_ctx));
+        _current_offset += *read_size;
         break;
     }
     case TFileType::FILE_STREAM: {
