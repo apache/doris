@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -128,7 +129,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     throw new AnalysisException("Index " + idxId + " does not exist");
                 }
                 bfColumns = olapTable.getCopiedBfColumns();
-                if (olapTable.hasVariantColumns()) {
+                if (olapTable.hasVariantColumns() && SessionVariable.enableExtendVariantColumn()) {
                     return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
                 }
             } else {
