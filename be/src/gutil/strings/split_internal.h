@@ -182,7 +182,7 @@ namespace base {
 
 // Types small_ and big_ are guaranteed such that sizeof(small_) <
 // sizeof(big_)
-typedef char small_;
+using small_ = char;
 
 struct big_ {
     char dummy[2];

@@ -309,6 +309,11 @@ public:
     void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
                                  const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) {
+        for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
+            column_holder.then_ptrs[i]->reset(
+                    column_holder.then_ptrs[i].value()->convert_to_full_column_if_const());
+        }
+
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
