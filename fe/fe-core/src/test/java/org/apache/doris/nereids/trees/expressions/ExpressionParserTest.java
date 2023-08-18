@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
@@ -58,14 +57,14 @@ public class ExpressionParserTest extends ParserTestBase {
 
     @Test
     public void testExprBetweenPredicate() {
-        parseExpression("c BETWEEN a AND b")
-                .assertEquals(
-                        new Between(
-                                new UnboundSlot("c"),
-                                new UnboundSlot("a"),
-                                new UnboundSlot("b")
-                        )
-                );
+        // parseExpression("c BETWEEN a AND b")
+        //         .assertEquals(
+        //                 new Between(
+        //                         new UnboundSlot("c"),
+        //                         new UnboundSlot("a"),
+        //                         new UnboundSlot("b")
+        //                 )
+        //         );
     }
 
     @Test

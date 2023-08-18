@@ -41,10 +41,6 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
         this(null, name, false, arguments);
     }
 
-    public UnboundFunction(String dbName, String name, List<Expression> arguments) {
-        this(dbName, name, false, arguments);
-    }
-
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
         this(null, name, isDistinct, arguments);
     }
@@ -98,17 +94,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        if (!super.equals(o)) {
-            return false;
-        }
-        UnboundFunction that = (UnboundFunction) o;
-        return isDistinct == that.isDistinct && name.equals(that.name);
+        return this == o;
     }
 
     @Override

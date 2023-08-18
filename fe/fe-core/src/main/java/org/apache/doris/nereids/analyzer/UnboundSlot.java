@@ -73,24 +73,12 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        UnboundSlot other = (UnboundSlot) o;
-        return nameParts.equals(other.nameParts);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(nameParts.toArray());
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundSlot(this, context);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return this == o;
     }
 }

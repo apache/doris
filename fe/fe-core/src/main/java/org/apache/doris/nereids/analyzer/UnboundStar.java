@@ -57,27 +57,12 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        if (!super.equals(o)) {
-            return false;
-        }
-        UnboundStar that = (UnboundStar) o;
-        return qualifier.equals(that.qualifier);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), qualifier);
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundStar(this, context);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return this == o;
     }
 }

@@ -89,4 +89,9 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     public Optional<String> getAlias() {
         return alias;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        return this == o;
+    }
 }
