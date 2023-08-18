@@ -51,9 +51,9 @@ public class ReplaceLimitNode implements RewriteRuleFactory {
                 //limit->proj->sort ==> proj->topN
                 logicalLimit(logicalProject(logicalSort()))
                         .then(limit -> {
-                            LogicalProject project = limit.child();
-                            LogicalSort sort = limit.child().child();
-                            LogicalTopN topN = new LogicalTopN(sort.getOrderKeys(),
+                            LogicalProject<LogicalSort<Plan>> project = limit.child();
+                            LogicalSort<Plan> sort = limit.child().child();
+                            LogicalTopN<Plan> topN = new LogicalTopN<>(sort.getOrderKeys(),
                                     limit.getLimit(),
                                     limit.getOffset(),
                                     sort.child(0));

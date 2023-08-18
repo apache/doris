@@ -21,8 +21,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 
-import java.util.ArrayList;
-import java.util.List;
+import com.google.common.collect.ImmutableList;
 
 /**
  * Default implementation for plan rewriting, delegating to child plans and rewrite current root
@@ -45,8 +44,8 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
     }
 
     /** visitChildren */
-    public static final <P extends Plan, C> P visitChildren(DefaultPlanRewriter<C> rewriter, P plan, C context) {
-        List<Plan> newChildren = new ArrayList<>();
+    public static <P extends Plan, C> P visitChildren(DefaultPlanRewriter<C> rewriter, P plan, C context) {
+        ImmutableList.Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(plan.arity());
         boolean hasNewChildren = false;
         for (Plan child : plan.children()) {
             Plan newChild = child.accept(rewriter, context);
@@ -55,6 +54,6 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
             }
             newChildren.add(newChild);
         }
-        return hasNewChildren ? (P) plan.withChildren(newChildren) : plan;
+        return hasNewChildren ? (P) plan.withChildren(newChildren.build()) : plan;
     }
 }
