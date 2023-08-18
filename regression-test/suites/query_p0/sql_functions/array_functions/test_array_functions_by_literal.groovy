@@ -19,6 +19,24 @@ suite("test_array_functions_by_literal") {
     // array_nested function
     qt_sql "select a from (select array(1, 1, 2, 2, 2, 2) as a) t"
 
+    // array with decimal and other types
+    qt_sql_1 """select array(1.0,2.0,null, null,2.0);"""
+    qt_sql_1 """select array('a',2.0,null, null,2.0);"""
+    qt_sql_1 """select array(1,2.0,null, null,2.0);"""
+    qt_sql_2 """select array_sort(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_3 """select array_min(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_4 """select array_max(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_5 """select array_avg(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_6 """select array_sum(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_7 """select array_product(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_8 """select array_distinct(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_9 """select array_intersect(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
+    qt_sql_10 """select array_except(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
+    qt_sql_11 """select array_union(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
+    qt_sql_14 """select array_popfront(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_15 """select array_popback(array(1.0,2.0,null, null,2.0));"""
+    qt_sql_16 """select array_concat(array(1.0,2.0,null, null,2.0), array(1.0,2.0,null, null,2.0));"""
+
 
     // array_contains function
     qt_sql "select array_contains([1,2,3], 1)"
