@@ -62,6 +62,7 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/core/future_block.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -333,15 +334,12 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             if (!eos || block->rows() > 0) {
                 auto st = _sink->send(runtime_state(), block.get());
                 if (UNLIKELY(!st.ok() || block->rows() == 0)) {
-                    auto block_ptr = block.get();
                     // Used for group commit insert
-                    if (typeid(*block_ptr) == typeid(doris::vectorized::FutureBlock)) {
+                    if (_group_commit) {
                         auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
                         std::unique_lock<doris::Mutex> l(*(future_block->lock));
-                        if (!std::get<0>(*(future_block->block_status))) {
-                            auto block_status = std::make_tuple<bool, Status, int64_t, int64_t>(
-                                    true, Status(st), 0, 0);
-                            block_status.swap(*(future_block->block_status));
+                        if (!future_block->is_handled()) {
+                            future_block->set_result(st, 0, 0);
                             future_block->cv->notify_all();
                         }
                     }

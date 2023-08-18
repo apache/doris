@@ -21,12 +21,15 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 // Used to generate a plan fragment for a group commit load.
 // we only support OlapTable now.
@@ -43,6 +46,11 @@ public class GroupCommitLoadPlanner extends StreamLoadPlanner {
             throws AnalysisException, DdlException {
         return new GroupCommitScanNode(new PlanNodeId(0), scanTupleDesc, db.getId(), destTable.getId(),
                 taskInfo.getTxnId());
+    }
+
+    @Override
+    protected OlapTableSink getOlapTableSink(List<Long> partitionIds) {
+        return new GroupCommitOlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
     }
 }
 

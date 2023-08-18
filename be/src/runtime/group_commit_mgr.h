@@ -25,6 +25,7 @@
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "vec/core/block.h"
+#include "vec/core/future_block.h"
 
 namespace doris {
 class ExecEnv;
@@ -51,7 +52,7 @@ public:
 
     Status add_block(std::shared_ptr<vectorized::FutureBlock> block);
     Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
-    void remove_block_id(const UniqueId& unique_id);
+    void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
 
     UniqueId load_instance_id;
@@ -65,7 +66,8 @@ private:
 
     std::shared_ptr<doris::Mutex> _mutex;
     std::shared_ptr<doris::ConditionVariable> _cv;
-    std::set<UniqueId> _block_unique_ids;
+    // the set of load ids of all blocks in this queue
+    std::set<UniqueId> _load_ids;
     std::list<std::shared_ptr<vectorized::FutureBlock>> _block_queue;
 
     Status _status = Status::OK();
@@ -75,9 +77,9 @@ class GroupCommitTable {
 public:
     GroupCommitTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
             : _exec_env(exec_env), _db_id(db_id), _table_id(table_id) {};
-    Status _get_first_block_load_queue(int64_t table_id,
-                                       std::shared_ptr<vectorized::FutureBlock> block,
-                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status get_first_block_load_queue(int64_t table_id,
+                                      std::shared_ptr<vectorized::FutureBlock> block,
+                                      std::shared_ptr<LoadBlockQueue>& load_block_queue);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
@@ -96,7 +98,8 @@ private:
     int64_t _db_id;
     int64_t _table_id;
     doris::Mutex _lock;
-    std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> load_block_queues;
+    // fragment_instance_id to load_block_queue
+    std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
 
     doris::Mutex _request_fragment_mutex;
 };

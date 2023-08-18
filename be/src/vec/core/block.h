@@ -37,7 +37,6 @@
 #include "common/exception.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "util/lock.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -71,14 +70,13 @@ class MutableBlock;
 class Block {
     ENABLE_FACTORY_CREATOR(Block);
 
-protected:
+private:
     using Container = ColumnsWithTypeAndName;
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     Container data;
     IndexByName index_by_name;
     std::vector<bool> row_same_bit;
 
-private:
     int64_t _decompress_time_ns = 0;
     int64_t _decompressed_bytes = 0;
 
@@ -645,25 +643,5 @@ struct IteratorRowRef {
 using BlockView = std::vector<IteratorRowRef>;
 using BlockUPtr = std::unique_ptr<Block>;
 
-class FutureBlock : public Block {
-    ENABLE_FACTORY_CREATOR(FutureBlock);
-
-public:
-    FutureBlock() : Block() {};
-    void swap_future_block(std::shared_ptr<FutureBlock> other);
-    void set_info(int64_t block_schema_version, const TUniqueId& block_unique_id, bool first,
-                  bool block_eos);
-
-    int64_t schema_version;
-    TUniqueId unique_id;
-    bool first = false;
-    bool eos = false;
-
-    std::shared_ptr<doris::Mutex> lock = std::make_shared<doris::Mutex>();
-    std::shared_ptr<doris::ConditionVariable> cv = std::make_shared<doris::ConditionVariable>();
-    // if_handled, status, total_rows, loaded_rows
-    std::shared_ptr<std::tuple<bool, Status, int64_t, int64_t>> block_status =
-            std::make_shared<std::tuple<bool, Status, int64_t, int64_t>>(false, Status::OK(), 0, 0);
-};
 } // namespace vectorized
 } // namespace doris

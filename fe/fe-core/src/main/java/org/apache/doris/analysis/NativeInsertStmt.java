@@ -156,7 +156,7 @@ public class NativeInsertStmt extends InsertStmt {
     // Used for group commit insert
     private boolean isGroupCommit = false;
     private int baseSchemaVersion = -1;
-    private TUniqueId pipeId = null;
+    private TUniqueId loadId = null;
     private ByteString planBytes = null;
     private ByteString tableBytes = null;
     private ByteString rangeBytes = null;
@@ -1011,15 +1011,15 @@ public class NativeInsertStmt extends InsertStmt {
                 .flatMap(Collection::stream).collect(Collectors.toList());
         Preconditions.checkState(scanRangeParams.size() == 1);
         // save plan message to be reused for prepare stmt
-        pipeId = queryId;
+        loadId = queryId;
         planBytes = ByteString.copyFrom(new TSerializer().serialize(plan));
         tableBytes = ByteString.copyFrom(new TSerializer().serialize(descTable.toThrift()));
         rangeBytes = ByteString.copyFrom(new TSerializer().serialize(scanRangeParams.get(0)));
         baseSchemaVersion = olapTable.getBaseSchemaVersion();
     }
 
-    public TUniqueId getPipeId() {
-        return pipeId;
+    public TUniqueId getLoadId() {
+        return loadId;
     }
 
     public ByteString getPlanBytes() {

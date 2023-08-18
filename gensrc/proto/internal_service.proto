@@ -711,7 +711,7 @@ message PGroupCommitInsertRequest {
     // TScanRangeParams
     optional bytes scan_range_params = 6;
 
-    optional PUniqueId pipe_id = 7;
+    optional PUniqueId load_id = 7;
     repeated PDataRow data = 8;
 }
 

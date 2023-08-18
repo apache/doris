@@ -89,7 +89,7 @@ public class StreamLoadPlanner {
     private DescriptorTable descTable;
 
     private ScanNode scanNode;
-    private TupleDescriptor tupleDesc;
+    protected TupleDescriptor tupleDesc;
 
     public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
@@ -233,8 +233,7 @@ public class StreamLoadPlanner {
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
-                Config.enable_single_replica_load);
+        OlapTableSink olapTableSink = getOlapTableSink(partitionIds);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
@@ -421,8 +420,7 @@ public class StreamLoadPlanner {
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
-                Config.enable_single_replica_load);
+        OlapTableSink olapTableSink = getOlapTableSink(partitionIds);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
@@ -511,6 +509,10 @@ public class StreamLoadPlanner {
                 fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns(),
                 taskInfo.isPartialUpdate());
         return fileScanNode;
+    }
+
+    protected OlapTableSink getOlapTableSink(List<Long> partitionIds) {
+        return new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
     }
 
     // get all specified partition ids.

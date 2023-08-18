@@ -798,6 +798,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
                         .get_data();
         RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     }
+
     erase_useless_column(block, column_to_keep);
     return Status::OK();
 }
@@ -1109,27 +1110,6 @@ std::string MutableBlock::dump_names() const {
         out += *it;
     }
     return out;
-}
-
-void FutureBlock::set_info(int64_t block_schema_version, const TUniqueId& block_unique_id,
-                           bool first, bool block_eos) {
-    this->schema_version = block_schema_version;
-    this->unique_id = block_unique_id;
-    this->first = first;
-    this->eos = block_eos;
-}
-
-void FutureBlock::swap_future_block(std::shared_ptr<FutureBlock> other) {
-    data.swap(other->data);
-    index_by_name.swap(other->index_by_name);
-    row_same_bit.swap(other->row_same_bit);
-    schema_version = other->schema_version;
-    unique_id = other->unique_id;
-    first = other->first;
-    eos = other->eos;
-    lock = other->lock;
-    cv = other->cv;
-    block_status = other->block_status;
 }
 
 } // namespace doris::vectorized

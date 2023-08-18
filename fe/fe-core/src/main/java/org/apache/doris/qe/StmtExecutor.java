@@ -1793,7 +1793,7 @@ public class StmtExecutor {
                     InternalService.PDataRow data = getRowStringValue(exprList);
                     rows.add(data);
                 }
-                TUniqueId pipeId = nativeInsertStmt.getPipeId();
+                TUniqueId loadId = nativeInsertStmt.getLoadId();
                 PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                         .setDbId(insertStmt.getTargetTable().getDatabase().getId())
                         .setTableId(insertStmt.getTargetTable().getId())
@@ -1801,7 +1801,7 @@ public class StmtExecutor {
                         .setBaseSchemaVersion(nativeInsertStmt.getBaseSchemaVersion())
                         .setPlanNode(nativeInsertStmt.getPlanBytes())
                         .setScanRangeParams(nativeInsertStmt.getRangeBytes())
-                        .setPipeId(Types.PUniqueId.newBuilder().setHi(pipeId.hi).setLo(pipeId.lo)
+                        .setLoadId(Types.PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo)
                                 .build()).addAllData(rows)
                         .build();
                 Future<PGroupCommitInsertResponse> future = BackendServiceProxy.getInstance()
