@@ -270,7 +270,6 @@ public class HiveMetaStoreCache {
             FileInputFormat.setInputPaths(jobConf, finalLocation);
             try {
                 InputFormat<?, ?> inputFormat = HiveUtil.getInputFormat(jobConf, key.inputFormat, false);
-                HiveSplit[] hiveSplits;
                 InputSplit[] splits;
                 String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
                 if (!Strings.isNullOrEmpty(remoteUser)) {
@@ -287,7 +286,7 @@ public class HiveMetaStoreCache {
                     LOG.warn("Splits for location {} is null", finalLocation);
                     return ImmutableList.copyOf(new HiveSplit[0]);
                 }
-                hiveSplits = new HiveSplit[splits.length];
+                List<HiveSplit> hiveSplits = Lists.newArrayList();
                 List<String> pValues;
                 // handle default hive partition case, replace the default partition value with null_string.
                 if (key.hasDefaultPartitionValue) {
@@ -303,9 +302,15 @@ public class HiveMetaStoreCache {
                     pValues = key.partitionValues;
                 }
                 for (int i = 0; i < splits.length; i++) {
+                    if (splits[i].getLength() == 0) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("get empty file {}, skip it", splits[i].toString());
+                        }
+                        continue;
+                    }
                     FileSplit fileSplit = (FileSplit) splits[i];
-                    hiveSplits[i] = new HiveSplit(fileSplit.getPath(), fileSplit.getStart(), fileSplit.getLength(),
-                        fileSplit.getLength(), null, pValues);
+                    hiveSplits.add(new HiveSplit(fileSplit.getPath(), fileSplit.getStart(), fileSplit.getLength(),
+                            fileSplit.getLength(), null, pValues));
                 }
                 return ImmutableList.copyOf(hiveSplits);
             } catch (Exception e) {
