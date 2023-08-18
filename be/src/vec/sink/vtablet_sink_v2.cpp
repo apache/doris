@@ -105,8 +105,8 @@ int StreamSinkHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* con
                 }
                 _sink->_tablet_failure_map[tablet_id].push_back(backend_id);
                 if (_sink->_tablet_failure_map[tablet_id].size() * 2 >= replica) {
-                    _sink->_cancel(Status::Cancelled(fmt::format(
-                            "Failed to meet num replicas requirements for tablet {}", tablet_id)));
+                    _sink->_cancel(Status::Cancelled(
+                            "Failed to meet num replicas requirements for tablet {}", tablet_id));
                     break;
                 }
             }
@@ -256,9 +256,8 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
         opt.handler = new StreamSinkHandler(this);
         brpc::StreamId stream;
         brpc::Controller cntl;
-        if (StreamCreate(&stream, cntl, &opt) != 0) {
-            LOG(ERROR) << "Failed to create stream";
-            return Status::RpcError("Failed to create stream");
+        if (int ret = StreamCreate(&stream, cntl, &opt)) {
+            return Status::RpcError("Failed to create stream, code = {}", ret);
         }
         LOG(INFO) << "Created stream " << stream << " for backend " << node_info.id << " ("
                   << node_info.host << ":" << node_info.brpc_port << ")";
@@ -305,8 +304,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
         request.release_id();
         request.release_schema();
         if (cntl.Failed()) {
-            LOG(ERROR) << "Fail to connect stream, " << cntl.ErrorText();
-            return Status::RpcError("Failed to connect stream");
+            return Status::RpcError("Failed to connect stream: {}", cntl.ErrorText());
         }
         stream_pool.push_back(stream);
     }
@@ -334,8 +332,7 @@ void VOlapTableSinkV2::_generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
 Status VOlapTableSinkV2::_select_streams(int64_t tablet_id, std::vector<brpc::StreamId>& streams) {
     auto location = _location->find_tablet(tablet_id);
     if (location == nullptr) {
-        LOG(WARNING) << "unknown tablet, tablet_id=" << tablet_id;
-        return Status::InternalError("unknown tablet");
+        return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
     }
     for (auto& node_id : location->node_ids) {
         streams.push_back(_stream_pool_for_node->at(node_id)[_stream_index]);
