@@ -164,7 +164,7 @@ Status MemTableWriter::flush_memtable_and_wait(bool need_wait) {
 Status MemTableWriter::wait_flush() {
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (!_is_init) {
+        if (!_is_init || _is_closed) {
             // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
             // as described in flush_memtable_and_wait()
             return Status::OK();
