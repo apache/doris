@@ -1846,6 +1846,24 @@ public:
         return *this;
     }
 
+    bool operator==(const BitmapValue& rhs) const {
+        if (_type != rhs._type) return false;
+
+        switch (_type) {
+        case BitmapValue::BitmapDataType::EMPTY:
+            return true;
+        case BitmapValue::BitmapDataType::SINGLE:
+            return _sv == rhs._sv;
+        case BitmapValue::BitmapDataType::BITMAP:
+            return _bitmap == rhs._bitmap;
+        case BitmapValue::BitmapDataType::SET:
+            return _set == rhs._set;
+        default:
+            CHECK(false) << _type;
+        }
+        return false;
+    }
+
     // check if value x is present
     bool contains(uint64_t x) const {
         switch (_type) {
