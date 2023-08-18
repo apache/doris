@@ -677,6 +677,10 @@ Translated with www.DeepL.com/Translator (free version)
 
   Because the maximum length of the char or varchar column in the schema of the table is inconsistent with the schema in the underlying parquet or orc file. At this time, if the option is turned on, it will be truncated according to the maximum length in the schema of the table.
 
+* `extend_variant_column`
+
+  Controls whether to extend variant column in desc table_name. The default value is false.
+
 ***
 
 #### Supplementary instructions on statement execution timeout control

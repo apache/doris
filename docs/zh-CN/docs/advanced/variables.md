@@ -664,6 +664,10 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
   因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。
 
+* `extend_variant_column`
+
+  是否展示 variant 的拆解列。默认为 false。
+
 ***
 
 #### 关于语句执行超时控制的补充说明
