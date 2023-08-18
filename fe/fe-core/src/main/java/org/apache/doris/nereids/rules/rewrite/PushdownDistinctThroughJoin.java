@@ -19,11 +19,14 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -40,7 +43,12 @@ public class PushdownDistinctThroughJoin extends DefaultPlanRewriter<JobContext>
 
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, JobContext context) {
+        if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
+                || !ConnectContext.get().getSessionVariable().isEnableDistinctPushDown()) {
+            return agg;
+        }
         agg = visitChildren(this, agg, context);
+
         if (agg.hasPushed() || !agg.isDistinct() || isLeaf(agg.child())) {
             return agg;
         }
@@ -80,6 +88,9 @@ public class PushdownDistinctThroughJoin extends DefaultPlanRewriter<JobContext>
     }
 
     private Plan withDistinct(Plan plan) {
+        if (PlanUtils.skipProjectFilterLimit(plan) instanceof Relation) {
+            return plan;
+        }
         return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), true, true, plan);
     }
 
