@@ -177,7 +177,10 @@ public class FetchRemoteTabletSchemaUtil {
             boolean isNullable = column.getIsNullable();
             String defaultValue = column.getDefaultValue().toString("UTF-8");
             if (defaultValue.equals("")) {
-                defaultValue = "NULL";
+                defaultValue = null;
+            }
+            if (isKey) {
+                aggType = null;
             }
             do {
                 if (type.isArrayType()) {

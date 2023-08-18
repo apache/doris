@@ -689,6 +689,10 @@ Translated with www.DeepL.com/Translator (free version)
   Whether to enable partial columns update semantics for native insert into statement, default is false.
   </version>
 
+* `describe_extend_variant_column`
+
+  Controls whether to extend variant column in desc table_name. The default value is false.
+
 ***
 
 #### Supplementary instructions on statement execution timeout control

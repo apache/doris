@@ -676,6 +676,10 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
   是否在对insert into语句启用部分列更新的语义，默认为 false
   </version>
 
+* `describe_extend_variant_column`
+
+  是否展示 variant 的拆解列。默认为 false。
+
 ***
 
 #### 关于语句执行超时控制的补充说明
