@@ -233,6 +233,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
     public static final String ENABLE_DISTINCT_PUSHDOWN = "enable_distinct_pushdown";
+
+    public static final String ENABLE_CASEWHEN_TRANSFORMATION = "enable_casewhen_transformation";
     public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
 
     public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
@@ -911,6 +913,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_DISTINCT_PUSHDOWN)
     public boolean enableDistinctPushDown = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_CASEWHEN_TRANSFORMATION)
+    public boolean enableCaseWhenTransformation = false;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
     public boolean enableNereidsTimeout = true;
@@ -2463,6 +2468,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableDistinctPushDown() {
         return enableDistinctPushDown;
+    }
+
+    public boolean isEnableCaseWhenTransformation() {
+        return enableCaseWhenTransformation;
     }
 
     public void disableNereidsPlannerOnce() throws DdlException {

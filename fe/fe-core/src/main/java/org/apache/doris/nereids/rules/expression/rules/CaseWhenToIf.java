@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * Rewrite rule to convert CASE WHEN to IF.
@@ -37,6 +38,10 @@ public class CaseWhenToIf extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
         Expression expr = caseWhen;
+        if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null
+                || !ConnectContext.get().getSessionVariable().isEnableCaseWhenTransformation()) {
+            return expr;
+        }
         if (caseWhen.getWhenClauses().size() == 1) {
             WhenClause whenClause = caseWhen.getWhenClauses().get(0);
             Expression operand = whenClause.getOperand();
