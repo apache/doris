@@ -1829,7 +1829,7 @@ public class Config extends ConfigBase {
     public static boolean enable_query_hive_views = false;
 
     /**
-     * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
+     * If set to true, doris will automatically synchronize hms metadata to the cache in fe. test
      */
     @ConfField(masterOnly = true)
     public static boolean enable_hms_events_incremental_sync = false;
