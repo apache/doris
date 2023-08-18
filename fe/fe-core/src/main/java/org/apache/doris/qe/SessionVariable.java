@@ -378,6 +378,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
 
     public static final String JDBC_CLICKHOUSE_QUERY_FINAL = "jdbc_clickhouse_query_final";
+    public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -713,6 +714,13 @@ public class SessionVariable implements Serializable, Writable {
     public int getBeNumberForTest() {
         return beNumberForTest;
     }
+
+    public void setBeNumberForTest(int beNumberForTest) {
+        this.beNumberForTest = beNumberForTest;
+    }
+
+    @VariableMgr.VarAttr(name = DESCRIBE_EXTEND_VARIANT_COLUMN, needForward = true)
+    public boolean enableDescribeExtendVariantColumn = false;
 
     @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
     private int beNumberForTest = -1;
@@ -2455,6 +2463,22 @@ public class SessionVariable implements Serializable, Writable {
             return true;
         }
         return connectContext.getSessionVariable().enableAggState;
+    }
+
+    public boolean getEnableDescribeExtendVariantColumn() {
+        return enableDescribeExtendVariantColumn;
+    }
+
+    public void setEnableDescribeExtendVariantColumn(boolean enableDescribeExtendVariantColumn) {
+        this.enableDescribeExtendVariantColumn = enableDescribeExtendVariantColumn;
+    }
+
+    public static boolean enableDescribeExtendVariantColumn() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        return connectContext.getSessionVariable().enableDescribeExtendVariantColumn;
     }
 }
 

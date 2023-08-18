@@ -683,6 +683,10 @@ Translated with www.DeepL.com/Translator (free version)
   
   It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
 
+* `describe_extend_variant_column`
+
+  Controls whether to extend variant column in desc table_name. The default value is false.
+
 ***
 
 #### Supplementary instructions on statement execution timeout control
