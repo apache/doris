@@ -226,6 +226,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.IntSupplier;
@@ -699,22 +703,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     public TListTableMetadataNameIdsResult listTableMetadataNameIds(TGetTablesParams params) throws TException {
 
-
-        long timeoutTs = System.currentTimeMillis() + Config.query_metadata_name_ids_timeout * 1000L;
-
         LOG.debug("get list simple table request: {}", params);
+
         TListTableMetadataNameIdsResult result = new TListTableMetadataNameIdsResult();
         List<TTableMetadataNameIds> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
-        PatternMatcher matcher = null;
-        if (params.isSetPattern()) {
-            try {
-                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
-            } catch (PatternMatcherException e) {
-                throw new TException("Pattern is in bad format " + params.getPattern());
-            }
-        }
 
         UserIdentity currentUser;
         if (params.isSetCurrentUserIdent()) {
@@ -723,15 +716,32 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
 
-        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String catalogName;
         if (params.isSetCatalog()) {
             catalogName = params.catalog;
+        } else {
+            catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-        if (catalog != null) {
-            DatabaseIf db = catalog.getDbNullable(params.db);
-            if (db != null) {
-                try {
+
+        PatternMatcher matcher = null;
+        if (params.isSetPattern()) {
+            try {
+                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
+                    CaseSensibility.TABLE.getCaseSensibility());
+            } catch (PatternMatcherException e) {
+                throw new TException("Pattern is in bad format " + params.getPattern());
+            }
+        }
+        PatternMatcher finalMatcher = matcher;
+
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> future = executor.submit(() -> {
+
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+            if (catalog != null) {
+                DatabaseIf db = catalog.getDbNullable(params.db);
+                if (db != null) {
                     List<TableIf> tables = db.getTables();
                     for (TableIf table : tables) {
                         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
@@ -740,7 +750,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         table.readLock();
                         try {
-                            if (matcher != null && !matcher.match(table.getName())) {
+                            if (finalMatcher != null && !finalMatcher.match(table.getName())) {
                                 continue;
                             }
                             TTableMetadataNameIds status = new TTableMetadataNameIds();
@@ -751,16 +761,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         } finally {
                             table.readUnlock();
                         }
-
-                        long currentTs = System.currentTimeMillis();
-                        if (currentTs >= timeoutTs) { //limit query time
-                            break;
-                        }
                     }
-                } catch (Exception e) {
-                    LOG.warn("failed to get tables for db {} in catalog {}", db.getFullName(), catalogName, e);
                 }
             }
+        });
+        try {
+            if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+                future.get();
+            } else {
+                future.get(Config.query_metadata_name_ids_timeout, TimeUnit.SECONDS);
+            }
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            LOG.info("From catalog:{},db:{} get tables timeout.", catalogName, params.db);
+        } catch (InterruptedException | ExecutionException e) {
+            future.cancel(true);
+        } finally {
+            executor.shutdown();
         }
         return result;
     }
