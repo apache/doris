@@ -449,11 +449,26 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        std::lock_guard<std::mutex> rwlock(_tablet->get_rowset_update_lock());
-        std::shared_lock<std::shared_mutex> wrlock(_tablet->get_header_lock());
-        for (auto rowset_ptr : _output_rowsets) {
-            RETURN_IF_ERROR(_tablet->update_delete_bitmap_without_lock(rowset_ptr));
+        std::lock_guard<std::mutex> wlock(_tablet->get_rowset_update_lock());
+        std::shared_lock<std::shared_mutex> rlock(_tablet->get_header_lock());
+        DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
+        for (auto i = 0; i < _input_rowsets.size(); ++i) {
+            RowsetId input_rowset_id = _input_rowsets[i]->rowset_id();
+            RowsetId output_rowset_id = _output_rowsets[i]->rowset_id();
+            for (const auto& [k, v] : _tablet->tablet_meta()->delete_bitmap().delete_bitmap) {
+                RowsetId rs_id = std::get<0>(k);
+                if (rs_id == input_rowset_id) {
+                    DeleteBitmap::BitmapKey output_rs_key = {output_rowset_id, std::get<1>(k),
+                                                             std::get<2>(k)};
+                    auto res = delete_bitmap->set(output_rs_key, v);
+                    DCHECK(res > 0) << "delete_bitmap set failed, res=" << res;
+                }
+            }
         }
+        _tablet->tablet_meta()->delete_bitmap().merge(*delete_bitmap);
+
+        // modify_rowsets will remove the delete_bimap for input rowsets,
+        // should call it after merge delete_bitmap
         RETURN_IF_ERROR(_tablet->modify_rowsets(_output_rowsets, _input_rowsets, true));
     } else {
         std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
