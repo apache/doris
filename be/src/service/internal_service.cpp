@@ -360,7 +360,8 @@ void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* con
         TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
         TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
         if (tablet == nullptr) {
-            cntl->SetFailed("Tablet not found");
+            cntl->SetFailed(fmt::format("Tablet {} not found on backend {}", req.tablet_id(),
+                                        request->backend_id()));
             status->set_status_code(TStatusCode::NOT_FOUND);
             response->set_allocated_status(status.get());
             response->release_status();
