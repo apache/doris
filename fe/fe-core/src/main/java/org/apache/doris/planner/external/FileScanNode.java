@@ -175,6 +175,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {
                     expr = column.getDefaultValueExpr();
+                    expr.analyze(analyzer);
                 } else {
                     expr = new StringLiteral(column.getDefaultValue());
                 }
