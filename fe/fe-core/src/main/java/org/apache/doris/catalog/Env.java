@@ -3755,7 +3755,7 @@ public class Env {
         return timerJobManager;
     }
 
-    public TransientTaskManager getMemoryTaskManager() {
+    public TransientTaskManager getTransientTaskManager() {
         return transientTaskManager;
     }
 
