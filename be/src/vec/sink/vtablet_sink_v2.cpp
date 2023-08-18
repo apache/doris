@@ -233,8 +233,8 @@ Status VOlapTableSinkV2::prepare(RuntimeState* state) {
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("VOlapTableSinkV2"));
-    _mem_tracker =
-            std::make_shared<MemTracker>("VOlapTableSinkV2:" + std::to_string(state->load_job_id()));
+    _mem_tracker = std::make_shared<MemTracker>("VOlapTableSinkV2:" +
+                                                std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -298,7 +298,8 @@ Status VOlapTableSinkV2::_init_stream_pools() {
 Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool& stream_pool) {
     DCHECK_GT(config::stream_cnt_per_sink, 0);
     stream_pool.reserve(config::stream_cnt_per_sink);
-    for (int i = 0; i < config::stream_cnt_per_sink; ++i) {
+    int fail_cnt = 0;
+    while (stream_pool.size() < config::stream_cnt_per_sink) {
         brpc::StreamOptions opt;
         opt.max_buf_size = 20 << 20; // 20MB
         opt.idle_timeout_ms = 30000;
@@ -351,6 +352,9 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
         request.release_schema();
         if (cntl.Failed()) {
             LOG(ERROR) << "Fail to connect stream, " << cntl.ErrorText();
+            if (fail_cnt++ < 3 * config::stream_cnt_per_sink) {
+                continue;
+            }
             return Status::RpcError("Failed to connect stream");
         }
         stream_pool.push_back(stream);
