@@ -262,7 +262,7 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    : multipartIdentifier specifiedPartition? tabletList? tableAlias relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
@@ -281,6 +281,10 @@ tableAlias
 
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
+    ;
+
+tabletList
+    : TABLET LEFT_PAREN tabletIdList+=INTEGER_VALUE (COMMA tabletIdList+=INTEGER_VALUE)*  RIGHT_PAREN
     ;
 
 // -----------------Expression-----------------

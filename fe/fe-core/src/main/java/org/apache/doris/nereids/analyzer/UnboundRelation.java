@@ -46,28 +46,32 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     private final List<String> nameParts;
     private final List<String> partNames;
+    private final List<Long> tabletIds;
     private final boolean isTempPart;
     private final List<String> hints;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of());
+        this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of(),
+                ImmutableList.of());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of());
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of(),
+                ImmutableList.of());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
-            List<String> hints) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, hints);
+            List<Long> tabletIds, List<String> hints) {
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, tabletIds, hints);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
-            List<String> hints) {
+            List<Long> tabletIds, List<String> hints) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
+        this.tabletIds = ImmutableList.copyOf(Objects.requireNonNull(tabletIds, "tabletIds should not null"));
         this.isTempPart = isTempPart;
         this.hints = ImmutableList.copyOf(Objects.requireNonNull(hints, "hints should not be null."));
     }
@@ -90,14 +94,14 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundRelation(relationId, nameParts,
                 groupExpression, Optional.of(getLogicalProperties()),
-                partNames, isTempPart, hints);
+                partNames, isTempPart, tabletIds, hints);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(relationId, nameParts, groupExpression, logicalProperties, partNames,
-                isTempPart, hints);
+                isTempPart, tabletIds, hints);
     }
 
     @Override
@@ -134,6 +138,10 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     public boolean isTempPart() {
         return isTempPart;
+    }
+
+    public List<Long> getTabletIds() {
+        return tabletIds;
     }
 
     public List<String> getHints() {
