@@ -37,5 +37,5 @@ suite("view_p0") {
     """
     
     qt_sql "select * from test_varchar_view;"
-    
+    qt_sql "select cast( id as varchar(*)) from test_view_table;"
 }
