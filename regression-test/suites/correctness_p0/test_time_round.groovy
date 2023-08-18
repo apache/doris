@@ -17,7 +17,7 @@
 
 
 suite("test_time_round") {
-
+    sql """ drop TABLE IF EXISTS dbround"""
     sql """ CREATE TABLE IF NOT EXISTS dbround (
               `id` INT NULL COMMENT "",
               `dt` datetime NULL COMMENT "",
