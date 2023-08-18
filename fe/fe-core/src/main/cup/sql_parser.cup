@@ -3823,12 +3823,12 @@ show_param ::=
     /* show table status */
     | KW_TABLE KW_STATUS opt_db:db opt_wild_where
     {:
-        RESULT = new ShowTableStatusStmt(db, null, parser.wild, parser.where);
+        RESULT = new ShowTableStatusStmt(null, db, parser.wild, parser.where);
     :}
     /* show table status */
     | KW_TABLE KW_STATUS from_or_in ident:ctl DOT ident:db opt_wild_where
     {:
-        RESULT = new ShowTableStatusStmt(db, ctl, parser.wild, parser.where);
+        RESULT = new ShowTableStatusStmt(ctl, db, parser.wild, parser.where);
     :}
     /* show tables */
     | opt_full KW_TABLES opt_db:db opt_wild_where
@@ -6278,6 +6278,8 @@ type ::=
   {: ScalarType type = ScalarType.createVarcharType(lenStr);
      RESULT = type;
   :}
+  | KW_VARCHAR LPAREN STAR RPAREN
+  {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN

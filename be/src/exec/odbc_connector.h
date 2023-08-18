@@ -39,6 +39,10 @@ struct ODBCConnectorParam {
 
     // only use in query
     std::string query_string;
+
+    // only use in insert
+    std::string table_name;
+    bool use_transaction = false;
     const TupleDescriptor* tuple_desc;
 };
 
@@ -63,7 +67,7 @@ public:
     explicit ODBCConnector(const ODBCConnectorParam& param);
     ~ODBCConnector() override;
 
-    Status open(RuntimeState* state, bool read = false) override;
+    Status open(RuntimeState* state, bool read = false);
     // query for ODBC table
     Status query() override;
 
@@ -82,6 +86,10 @@ public:
     Status begin_trans() override; // should be call after connect and before query or init_to_write
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
+
+    Status append(vectorized::Block* block, const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
+                  uint32_t start_send_row, uint32_t* num_rows_sent,
+                  TOdbcTableType::type table_type = TOdbcTableType::MYSQL) override;
 
     const DataBinding& get_column_data(int i) const { return *_columns_data.at(i).get(); }
     Status init_to_write(RuntimeProfile* profile);

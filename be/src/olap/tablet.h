@@ -549,7 +549,7 @@ public:
     int64_t binlog_max_bytes() const { return _tablet_meta->binlog_config().max_bytes(); }
 
     void set_binlog_config(BinlogConfig binlog_config);
-    void add_sentinel_mark_to_delete_bitmap(DeleteBitmapPtr delete_bitmap,
+    void add_sentinel_mark_to_delete_bitmap(DeleteBitmap* delete_bitmap,
                                             const RowsetIdUnorderedSet& rowsetids);
 
 private:

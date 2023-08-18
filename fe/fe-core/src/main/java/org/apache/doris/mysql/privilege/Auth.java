@@ -1117,11 +1117,16 @@ public class Auth implements Writable {
                     .collect(Collectors.joining(",")));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
-            // ============== Password ==============
-            userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
-            // ============== Roles ==============
-            userAuthInfo.add(Joiner.on(",").join(userRoleManager
-                    .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
+            if (user == null) {
+                userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(FeConstants.null_string);
+            } else {
+                // ============== Password ==============
+                userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+                // ============== Roles ==============
+                userAuthInfo.add(Joiner.on(",").join(userRoleManager
+                        .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
+            }
         }
         // ==============GlobalPrivs==============
         PrivBitSet globalPrivs = new PrivBitSet();

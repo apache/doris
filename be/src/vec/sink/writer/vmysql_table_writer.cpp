@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/vmysql_table_writer.h"
+#include "vmysql_table_writer.h"
 
 #include <gen_cpp/DataSinks_types.h>
 #include <glog/logging.h>
@@ -62,7 +62,7 @@ std::string MysqlConnInfo::debug_string() const {
 
 VMysqlTableWriter::VMysqlTableWriter(const TDataSink& t_sink,
                                      const VExprContextSPtrs& output_expr_ctxs)
-        : _vec_output_expr_ctxs(output_expr_ctxs) {
+        : AsyncResultWriter(output_expr_ctxs) {
     const auto& t_mysql_sink = t_sink.mysql_table_sink;
     _conn_info.host = t_mysql_sink.host;
     _conn_info.port = t_mysql_sink.port;
@@ -79,7 +79,8 @@ VMysqlTableWriter::~VMysqlTableWriter() {
     }
 }
 
-Status VMysqlTableWriter::open() {
+Status VMysqlTableWriter::open(RuntimeState* state) {
+    AsyncResultWriter::open(state);
     _mysql_conn = mysql_init(nullptr);
     if (_mysql_conn == nullptr) {
         return Status::InternalError("Call mysql_init failed.");
@@ -108,15 +109,9 @@ Status VMysqlTableWriter::open() {
 }
 
 Status VMysqlTableWriter::append_block(vectorized::Block& block) {
-    Status status = Status::OK();
-    if (block.rows() == 0) {
-        return status;
-    }
     Block output_block;
-    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, block, &output_block));
+    RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();
-    materialize_block_inplace(output_block);
     for (int i = 0; i < num_rows; ++i) {
         RETURN_IF_ERROR(insert_row(output_block, i));
     }

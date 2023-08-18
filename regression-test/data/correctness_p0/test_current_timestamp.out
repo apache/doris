@@ -12,28 +12,28 @@
 4
 
 -- !stream_load_csv1 --
-4
+5
 
 -- !stream_load_csv2 --
-4
+5
 
 -- !stream_load_csv3 --
-4
+5
 
 -- !stream_load_csv4 --
-4
+5
 
 -- !stream_load_json1 --
-2
+3
 
 -- !stream_load_json2 --
-2
+3
 
 -- !stream_load_json3 --
-2
+3
 
 -- !stream_load_json4 --
-2
+3
 
 -- !stream_load_json5 --
 9	apache

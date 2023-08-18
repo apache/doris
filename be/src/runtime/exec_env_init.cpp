@@ -107,10 +107,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         return Status::OK();
     }
     _store_paths = store_paths;
-    // path_name => path_index
-    for (int i = 0; i < store_paths.size(); i++) {
-        _store_path_map[store_paths[i].path] = i;
-    }
 
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();

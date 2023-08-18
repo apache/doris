@@ -654,11 +654,17 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     // all compaction input rowsets.
                     continue;
                 } else {
-                    DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
+                    DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
                     _tablet->calc_compaction_output_rowset_delete_bitmap(
                             _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
-                            &location_map, *it.delete_bitmap.get(), &output_delete_bitmap);
-                    it.delete_bitmap->merge(output_delete_bitmap);
+                            &location_map, *it.delete_bitmap.get(), &txn_output_delete_bitmap);
+                    if (config::enable_merge_on_write_correctness_check) {
+                        RowsetIdUnorderedSet rowsetids;
+                        rowsetids.insert(_output_rowset->rowset_id());
+                        _tablet->add_sentinel_mark_to_delete_bitmap(&txn_output_delete_bitmap,
+                                                                    rowsetids);
+                    }
+                    it.delete_bitmap->merge(txn_output_delete_bitmap);
                     // Step3: write back updated delete bitmap and tablet info.
                     it.rowset_ids.insert(_output_rowset->rowset_id());
                     StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(

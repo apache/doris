@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -14,27 +15,34 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/Names.h
-// and modified by Doris
 
 #pragma once
 
-#include <set>
+#include <fmt/format.h>
+#include <stddef.h>
+
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
-namespace doris::vectorized {
+#include "common/status.h"
+#include "vec/exec/vjdbc_connector.h"
+#include "vec/sink/writer/async_result_writer.h"
 
-using Names = std::vector<std::string>;
-using NameSet = std::unordered_set<std::string>;
-using NameOrderedSet = std::set<std::string>;
-using NameToNameMap = std::unordered_map<std::string, std::string>;
-using NameToNameSetMap = std::unordered_map<std::string, NameSet>;
+namespace doris {
+namespace vectorized {
 
-using NameWithAlias = std::pair<std::string, std::string>;
-using NamesWithAliases = std::vector<NameWithAlias>;
+class Block;
 
-} // namespace doris::vectorized
+class VJdbcTableWriter final : public AsyncResultWriter, public JdbcConnector {
+public:
+    VJdbcTableWriter(const JdbcConnectorParam& param, const VExprContextSPtrs& output_exprs);
+
+    // connect to jdbc server
+    Status open(RuntimeState* state) override { return JdbcConnector::open(state, false); }
+
+    Status append_block(vectorized::Block& block) override;
+
+    Status close() override { return JdbcConnector::close(); }
+};
+} // namespace vectorized
+} // namespace doris

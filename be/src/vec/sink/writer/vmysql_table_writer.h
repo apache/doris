@@ -24,9 +24,8 @@
 #include <string>
 #include <vector>
 
-#include "async_result_writer.h"
 #include "common/status.h"
-#include "vec/exprs/vexpr_fwd.h"
+#include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
 namespace vectorized {
@@ -51,14 +50,13 @@ public:
     ~VMysqlTableWriter() override;
 
     // connect to mysql server
-    Status open() override;
+    Status open(RuntimeState* state) override;
 
     Status append_block(vectorized::Block& block) override;
 
 private:
     Status insert_row(vectorized::Block& block, size_t row);
     MysqlConnInfo _conn_info;
-    const VExprContextSPtrs& _vec_output_expr_ctxs;
     fmt::memory_buffer _insert_stmt_buffer;
     MYSQL* _mysql_conn;
 };
