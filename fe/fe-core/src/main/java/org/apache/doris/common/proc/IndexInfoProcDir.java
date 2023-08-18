@@ -129,7 +129,8 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     throw new AnalysisException("Index " + idxId + " does not exist");
                 }
                 bfColumns = olapTable.getCopiedBfColumns();
-                if (olapTable.hasVariantColumns() && SessionVariable.enableExtendVariantColumn()) {
+                if (olapTable.hasVariantColumns()
+                                    && SessionVariable.enableDescribeExtendVariantColumn()) {
                     return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
                 }
             } else {
