@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/core/future_block.h"
+
 #include <tuple>
 
 namespace doris::vectorized {

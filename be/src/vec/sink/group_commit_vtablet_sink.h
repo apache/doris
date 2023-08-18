@@ -24,9 +24,8 @@ namespace stream_load {
 
 class GroupCommitVOlapTableSink : public VOlapTableSink {
 public:
-
     GroupCommitVOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                   const std::vector<TExpr>& texprs, Status* status);
+                              const std::vector<TExpr>& texprs, Status* status);
 
     void handle_block(vectorized::Block* input_block, int64_t rows, int64_t filter_rows) override;
 };

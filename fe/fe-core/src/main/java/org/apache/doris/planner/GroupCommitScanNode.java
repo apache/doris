@@ -29,15 +29,12 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
 public class GroupCommitScanNode extends FileScanNode {
-    private static final Logger LOG = LogManager.getLogger(GroupCommitScanNode.class);
 
-    long tableId = -1;
+    long tableId;
 
     public GroupCommitScanNode(PlanNodeId id, TupleDescriptor desc, long dbId, long tableId, long txnId) {
         super(id, desc, "GROUP_COMMIT_SCAN_NODE",
@@ -46,13 +43,7 @@ public class GroupCommitScanNode extends FileScanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-    }
-
-    @Override
     protected void createScanRangeLocations() throws UserException {
-
     }
 
     @Override
@@ -79,6 +70,6 @@ public class GroupCommitScanNode extends FileScanNode {
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
-        return "AutoBatchLoadScanNode";
+        return "GroupCommitScanNode";
     }
 }
