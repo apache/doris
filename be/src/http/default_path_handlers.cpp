@@ -380,7 +380,6 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
 }
 
 void add_default_path_handlers(WebPageHandler* web_page_handler) {
-    // test
     // TODO(yingchun): logs_handler is not implemented yet, so not show it on navigate bar
     web_page_handler->register_page("/logs", "Logs", logs_handler, false /* is_on_nav_bar */);
     if (!config::hide_webserver_config_page) {
