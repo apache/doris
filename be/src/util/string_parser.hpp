@@ -158,7 +158,7 @@ public:
         return string_to_bool_internal(s + i, len - i, result);
     }
 
-    template <PrimitiveType P, typename T>
+    template <PrimitiveType P, typename T = PrimitiveTypeTraits<P>::CppType::NativeType>
     static inline T string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                       ParseResult* result);
 
@@ -568,7 +568,7 @@ inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
     return 39;
 }
 
-template <PrimitiveType P, typename T = PrimitiveTypeTraits<P>::CppType::NativeType>
+template <PrimitiveType P, typename T>
 T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                   ParseResult* result) {
     // Special cases:
