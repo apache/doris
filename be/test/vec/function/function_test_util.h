@@ -17,11 +17,9 @@
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <gtest/gtest.h>
 #include <stdint.h>
 #include <time.h>
 
-#include <exception>
 #include <memory>
 #include <string>
 #include <utility>
@@ -276,15 +274,6 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     func->open(fn_ctx, FunctionContext::THREAD_LOCAL);
 
     block.insert({nullptr, return_type, "result"});
-    try {
-        auto result = block.columns() - 1;
-        auto st = func->execute(fn_ctx, block, arguments, result, row_size);
-        if (expect_fail) {
-            EXPECT_NE(Status::OK(), st);
-            return st;
-        } else {
-            EXPECT_EQ(Status::OK(), st);
-        }
 
     auto result = block.columns() - 1;
     auto st = func->execute(fn_ctx, block, arguments, result, row_size);
@@ -322,24 +311,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     // zero size result means invalid
                     EXPECT_EQ(0, s.size) << " invalid result size should be 0 at row " << i;
                 } else {
-                    Field field;
-                    column->get(i, field);
-
-                    const auto& expect_data =
-                            any_cast<typename ReturnType::FieldType>(data_set[i].second);
-
-                    if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
-                        const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
-                        EXPECT_EQ(expect_data.value, column_data.value) << " at row " << i;
-                    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
-                                         std::is_same_v<ReturnType, DataTypeFloat64> ||
-                                         std::is_same_v<ReturnType, DataTypeTime>) {
-                        const auto& column_data = field.get<DataTypeFloat64::FieldType>();
-                        EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
-                    } else {
-                        const auto& column_data = field.get<typename ReturnType::FieldType>();
-                        EXPECT_EQ(expect_data, column_data) << " at row " << i;
-                    }
+                    // convert jsonb binary value to json string to compare with expected json text
+                    EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
+                            << " at row " << i;
                 }
             } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
                 const auto* expect_data =
@@ -370,12 +344,16 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     const auto& column_data = field.get<typename ReturnType::FieldType>();
                     EXPECT_EQ(expect_data, column_data) << " at row " << i;
                 }
-            } else {
-                check_column_data();
             }
+        };
+
+        if constexpr (nullable) {
+            bool is_null = data_set[i].second.type() == &typeid(Null);
+            EXPECT_EQ(is_null, column->is_null_at(i)) << " at row " << i;
+            if (!is_null) check_column_data();
+        } else {
+            check_column_data();
         }
-    } catch (const std::exception& e) {
-        EXPECT_TRUE(false) << e.what();
     }
 
     return Status::OK();
