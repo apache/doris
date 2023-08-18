@@ -141,7 +141,7 @@ private:
 
     void _generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
                                    const VOlapTablePartition* partition, uint32_t tablet_index,
-                                   int row_idx, size_t row_cnt);
+                                   int row_idx);
 
     Status _write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
                            const Rows& rows, const std::vector<brpc::StreamId>& streams);

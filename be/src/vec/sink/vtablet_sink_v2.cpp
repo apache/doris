@@ -316,8 +316,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
 
 void VOlapTableSinkV2::_generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
                                                  const VOlapTablePartition* partition,
-                                                 uint32_t tablet_index, int row_idx,
-                                                 size_t row_cnt) {
+                                                 uint32_t tablet_index, int row_idx) {
     // Generate channel payload for sinking data to each tablet
     for (const auto& index : partition->indexes) {
         auto tablet_id = index.tablets[tablet_index];
@@ -328,7 +327,7 @@ void VOlapTableSinkV2::_generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
             rows_for_tablet.insert({tablet_id, rows});
         }
         rows_for_tablet[tablet_id].row_idxes.push_back(row_idx);
-        _number_output_rows += row_cnt;
+        _number_output_rows++;
     }
 }
 
@@ -389,7 +388,7 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
         if (is_continue) {
             continue;
         }
-        _generate_rows_for_tablet(rows_for_tablet, partition, tablet_index, i, 1);
+        _generate_rows_for_tablet(rows_for_tablet, partition, tablet_index, i);
     }
     _row_distribution_watch.stop();
 
