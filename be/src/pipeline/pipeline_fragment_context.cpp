@@ -215,7 +215,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     }
 
     LOG_INFO("PipelineFragmentContext::prepare")
-            .tag("query_id", UniqueId(_query_id.hi, _query_id.hi))
+            .tag("query_id", UniqueId(_query_id.hi, _query_id.lo))
             .tag("instance_id", UniqueId(local_params.fragment_instance_id.hi,
                                          local_params.fragment_instance_id.lo))
             .tag("backend_num", local_params.backend_num)
@@ -229,7 +229,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
-    // TODO should be combine with plan_fragment_executor.prepare funciton
+    // TODO should be combined with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(get_runtime_state());
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(local_params.backend_num);

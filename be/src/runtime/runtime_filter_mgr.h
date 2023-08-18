@@ -185,10 +185,10 @@ public:
     // add a query-id -> entity
     // If a query-id -> entity already exists
     // add_entity will return a exists entity
-    [[nodiscard]] Status add_entity(const TExecPlanFragmentParams& params,
+    Status add_entity(const TExecPlanFragmentParams& params,
                                     std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                                     RuntimeState* state);
-    [[nodiscard]] Status add_entity(const TPipelineFragmentParams& params,
+    Status add_entity(const TPipelineFragmentParams& params,
                                     const TPipelineInstanceParams& local_params,
                                     std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                                     RuntimeState* state);
