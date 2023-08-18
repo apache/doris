@@ -26,7 +26,33 @@ import java.util.Map;
 import java.util.UUID;
 import java.time.format.DateTimeFormatter;
 
-suite("test_pk_uk_case") {
+suite("test_pk_uk_index_change", "inverted_index") {
+    def timeout = 60000
+    def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
+    def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}";"""
+            def expected_finished_num = alter_res.size();
+            def finished_num = 0;
+            for (int i = 0; i < expected_finished_num; i++) {
+                logger.info(table_name + " build index job state: " + alter_res[i][7] + i
+                            + " expected_finished_num=" + expected_finished_num)
+                if (alter_res[i][7] == "FINISHED") {
+                    ++finished_num;
+                }
+            }
+            if (finished_num == expected_finished_num) {
+                logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
+                break
+            }
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
+    }
+    
     def tableNamePk = "primary_key_pk_uk"
     def tableNameUk = "unique_key_pk_uk"
 
@@ -53,7 +79,14 @@ suite("test_pk_uk_case") {
         L_RECEIPTDATE DATE NOT NULL,
         L_SHIPINSTRUCT CHAR(60) NOT NULL,
         L_SHIPMODE     CHAR(60) NOT NULL,
-        L_COMMENT      VARCHAR(60) NOT NULL
+        L_COMMENT      VARCHAR(60) NOT NULL,
+        INDEX L_ORDERKEY_idx(L_ORDERKEY) USING INVERTED COMMENT 'L_ORDERKEY index',
+        INDEX L_PARTKEY_idx(L_PARTKEY) USING INVERTED COMMENT 'L_PARTKEY index',
+        INDEX L_SUPPKEY_idx(L_SUPPKEY) USING INVERTED COMMENT 'L_SUPPKEY index',
+        INDEX L_LINENUMBER_idx(L_LINENUMBER) USING INVERTED COMMENT 'L_LINENUMBER index',
+        INDEX L_QUANTITY_idx(L_QUANTITY) USING INVERTED COMMENT 'L_QUANTITY index',
+        INDEX L_RETURNFLAG_idx(L_RETURNFLAG) USING INVERTED COMMENT 'L_RETURNFLAG index',
+        INDEX L_SHIPDATE_idx(L_SHIPDATE) USING INVERTED COMMENT 'L_SHIPDATE index'
         )
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
@@ -88,7 +121,7 @@ suite("test_pk_uk_case") {
         PROPERTIES (
         "replication_num" = "1",
         "enable_unique_key_merge_on_write" = "false"
-        )
+        )       
     """
 
     Random rd = new Random()
@@ -96,11 +129,11 @@ suite("test_pk_uk_case") {
     def part_key = rd.nextInt(1000)
     def sub_key = 13
     def line_num = 29
-    def decimal = 111.11
+    def decimal = rd.nextInt(1000) + 0.11
     def city = RandomStringUtils.randomAlphabetic(10)
     def name = UUID.randomUUID().toString()
     def date = DateTimeFormatter.ofPattern("yyyy-MM-dd").format(LocalDateTime.now())
-    for (int idx = 0; idx < 10; idx++) {
+    for (int idx = 0; idx < 5; idx++) {
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
         city = RandomStringUtils.randomAlphabetic(10)
@@ -184,7 +217,15 @@ suite("test_pk_uk_case") {
             ($order_key, $part_key, $sub_key, $line_num, $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
         """
 
-        sql "sync"
+        if (idx > 0) {
+            // alter add inverted index
+            sql """ ALTER TABLE ${tableNamePk}
+                    ADD INDEX L_ORDERKEY_idx (L_ORDERKEY) USING INVERTED COMMENT 'L_ORDERKEY index';
+            """
+            // build inverted index
+            sql """ BUILD INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
+            wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+        }
 
         // count(*)
         result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
@@ -253,5 +294,9 @@ suite("test_pk_uk_case") {
             sql "DELETE FROM ${tableNamePk} where L_ORDERKEY < $order_key and L_PARTKEY < $part_key"
             sql "DELETE FROM ${tableNameUk} where L_ORDERKEY < $order_key and L_PARTKEY < $part_key"
         }
+
+        // drop inverted index
+        sql """ DROP INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
+        wait_for_build_index_on_partition_finish(tableNamePk, timeout)
     }
 }

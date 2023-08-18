@@ -108,7 +108,7 @@ public:
 
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
 
-    int64_t get_scanner_wait_worker_timer() { return _scanner_wait_worker_timer; }
+    int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
     void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
 
@@ -117,13 +117,11 @@ public:
     bool is_open() { return _is_open; }
     void set_opened() { _is_open = true; }
 
-    int queue_id() { return _state->exec_env()->store_path_to_index("xxx"); }
-
     virtual doris::TabletStorageType get_storage_type() {
         return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
-    bool need_to_close() { return _need_to_close; }
+    bool need_to_close() const { return _need_to_close; }
 
     void mark_to_need_to_close() {
         // If the scanner is failed during init or open, then not need update counters
@@ -156,7 +154,6 @@ protected:
         _conjuncts.clear();
     }
 
-protected:
     RuntimeState* _state;
     VScanNode* _parent;
     // Set if scan node has sort limit info
