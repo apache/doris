@@ -34,6 +34,7 @@ class TGetTablesParams;
 class TGetTablesResult;
 class TListPrivilegesResult;
 class TListTableStatusResult;
+class TListTableMetadataNameIdsResult;
 class TShowVariableRequest;
 class TShowVariableResult;
 
