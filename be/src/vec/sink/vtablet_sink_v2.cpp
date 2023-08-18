@@ -274,14 +274,17 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
         request.set_txn_id(_txn_id);
         request.set_backend_id(node_info.id);
         request.set_allocated_schema(_schema->to_protobuf());
-        for (const auto& partition : _vpartition->get_partitions()) {
-            for (const auto& index : partition->indexes) {
-                auto tablet_id = index.tablets[0];
-                auto nodes = _location->find_tablet(tablet_id)->node_ids;
-                if (std::find(nodes.begin(), nodes.end(), node_info.id) != nodes.end()) {
-                    auto req = request.add_tablets();
-                    req->set_tablet_id(tablet_id);
-                    req->set_index_id(index.index_id);
+        if (i == 0) {
+            // get tablet schema from each backend only in the 1st stream
+            for (const auto& partition : _vpartition->get_partitions()) {
+                for (const auto& index : partition->indexes) {
+                    auto tablet_id = index.tablets[0];
+                    auto nodes = _location->find_tablet(tablet_id)->node_ids;
+                    if (std::find(nodes.begin(), nodes.end(), node_info.id) != nodes.end()) {
+                        auto req = request.add_tablets();
+                        req->set_tablet_id(tablet_id);
+                        req->set_index_id(index.index_id);
+                    }
                 }
             }
         }
