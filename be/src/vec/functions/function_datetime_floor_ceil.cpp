@@ -199,6 +199,24 @@ public:
                             sources->get_data(), arg1.get<Int32>(), arg2.get<NativeType>(),
                             col_to->get_data(), null_map->get_data());
 
+                } else if (arg1_const && !arg2_const) {
+                    Field arg1;
+                    arg1_col->get(0, arg1);
+                    const auto arg2_column =
+                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    // time_round(datetime,const(period) , origin)
+                    Impl::template vector_const_vector<NativeType, DeltaValueType>(
+                            sources->get_data(), arg1.get<Int32>(), arg2_column->get_data(),
+                            col_to->get_data(), null_map->get_data());
+                } else if (!arg1_const && arg2_const) {
+                    Field arg2;
+                    arg2_col->get(0, arg2);
+                    const auto arg1_column =
+                            check_and_get_column<ColumnVector<DeltaValueType>>(*arg1_col);
+                    // time_round(datetime, period , const(origin))
+                    Impl::template vector_vector_const<NativeType, DeltaValueType>(
+                            sources->get_data(), arg1_column->get_data(), arg2.get<NativeType>(),
+                            col_to->get_data(), null_map->get_data());
                 } else {
                     const auto arg1_column =
                             check_and_get_column<ColumnVector<DeltaValueType>>(*arg1_col);
@@ -383,6 +401,51 @@ struct FloorCeilImpl {
                     Impl::template time_round<Int64, VecDateTimeValue>(dates[i], period,
                                                                        origin_date, res[i]);
                 }
+            }
+        }
+    }
+
+    template <typename NativeType, typename DeltaType>
+    static void vector_const_vector(const PaddedPODArray<NativeType>& dates, const DeltaType period,
+                                    const PaddedPODArray<NativeType>& origin_dates,
+                                    PaddedPODArray<NativeType>& res, NullMap& null_map) {
+        if (period < 1) {
+            null_map.resize_fill(dates.size(), true);
+            return;
+        }
+        for (int i = 0; i < dates.size(); ++i) {
+            if constexpr (std::is_same_v<NativeType, UInt32>) {
+                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
+                        dates[i], period, origin_dates[i], res[i]);
+            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
+                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                        dates[i], period, origin_dates[i], res[i]);
+            } else {
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], period,
+                                                                   origin_dates[i], res[i]);
+            }
+        }
+    }
+
+    template <typename NativeType, typename DeltaType>
+    static void vector_vector_const(const PaddedPODArray<NativeType>& dates,
+                                    const PaddedPODArray<DeltaType>& periods,
+                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
+                                    NullMap& null_map) {
+        for (int i = 0; i < dates.size(); ++i) {
+            if (periods[i] < 1) {
+                null_map[i] = true;
+                continue;
+            }
+            if constexpr (std::is_same_v<NativeType, UInt32>) {
+                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(
+                        dates[i], periods[i], origin_date, res[i]);
+            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
+                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                        dates[i], periods[i], origin_date, res[i]);
+            } else {
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], periods[i],
+                                                                   origin_date, res[i]);
             }
         }
     }
