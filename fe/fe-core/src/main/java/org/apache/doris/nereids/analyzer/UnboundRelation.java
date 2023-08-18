@@ -65,6 +65,9 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
         this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, tabletIds, hints);
     }
 
+    /**
+     * constructor of UnboundRelation
+     */
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
             List<Long> tabletIds, List<String> hints) {
