@@ -617,13 +617,14 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
                         config::enable_delete_when_cumu_compaction)) ||
                       read_params.reader_type == ReaderType::READER_CHECKSUM);
     if (_filter_delete) {
-        // for compaction, keep delete sub pred v1
+        // note(tsy): for compaction, keep delete sub pred v1 temporarily
         return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
                                     read_params.version.second, false);
     }
-    // for query, use delete sub pred v2
-    return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
-                                read_params.version.second, true);
+    // note(tsy): for query, use session var to enable delete sub pred v2
+    return _delete_handler.init(
+            _tablet_schema, read_params.delete_predicates, read_params.version.second,
+            read_params.runtime_state->query_options().enable_delete_sub_predicate_v2);
 }
 
 Status TabletReader::init_reader_params_and_create_block(
