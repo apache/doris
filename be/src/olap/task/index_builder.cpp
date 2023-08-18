@@ -449,8 +449,8 @@ Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        std::lock_guard<std::mutex> wlock(_tablet->get_rowset_update_lock());
-        std::shared_lock<std::shared_mutex> rlock(_tablet->get_header_lock());
+        std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
         for (auto i = 0; i < _input_rowsets.size(); ++i) {
             RowsetId input_rowset_id = _input_rowsets[i]->rowset_id();
