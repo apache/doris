@@ -1278,16 +1278,24 @@ public class FileSystemManager {
                         "errors while get file pos from output stream");
             }
             if (currentStreamOffset != offset) {
-                throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET,
+                // it's ok, it means that last pwrite succeed finally
+                if (currentStreamOffset == offset + data.length) {
+                    logger.warn("invalid offset, but current outputstream offset is "
+                        + currentStreamOffset + ", data length is " + data.length + ", the sum is equal to request offset "
+                        + offset + ", so just skip it");
+                } else {
+                    throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET,
                         "current outputstream offset is {} not equal to request {}",
                         currentStreamOffset, offset);
-            }
-            try {
-                fsDataOutputStream.write(data);
-            } catch (IOException e) {
-                logger.error("errors while write data to output stream", e);
-                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
+                }
+            } else {
+                try {
+                    fsDataOutputStream.write(data);
+                } catch (IOException e) {
+                    logger.error("errors while write data to output stream", e);
+                    throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                         e, "errors while write data to output stream");
+                }
             }
         }
     }
