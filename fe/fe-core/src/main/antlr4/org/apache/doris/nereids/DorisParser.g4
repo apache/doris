@@ -452,8 +452,7 @@ unitIdentifier
     ;
 
 dataType
-    : identifier (LEFT_PAREN INTEGER_VALUE
-      (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                      #primitiveDataType
+    : identifier (LEFT_PAREN (ASTERISK | INTEGER_VALUE (COMMA INTEGER_VALUE)*) RIGHT_PAREN)?     #primitiveDataType
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
