@@ -21,6 +21,8 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/core/materialize_block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class ObjectPool;
@@ -29,7 +31,10 @@ class TExpr;
 
 namespace vectorized {
 
-Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
+AsyncResultWriter::AsyncResultWriter(const doris::vectorized::VExprContextSPtrs& output_expr_ctxs)
+        : _vec_output_expr_ctxs(output_expr_ctxs) {};
+
+Status AsyncResultWriter::sink(Block* block, bool eos) {
     auto rows = block->rows();
     auto status = Status::OK();
     std::unique_ptr<Block> add_block;
@@ -40,19 +45,14 @@ Status AsyncResultWriter::sink(RuntimeState* state, Block* block, bool eos) {
     std::lock_guard l(_m);
     // if io task failed, just return error status to
     // end the query
-    if (_writer_status.ok()) {
+    if (!_writer_status.ok()) {
         return _writer_status;
     }
 
     _eos = eos;
     if (rows) {
-        if (!_data_queue.empty() && ((*_data_queue.end())->rows() + rows) <= state->batch_size()) {
-            RETURN_IF_ERROR(
-                    MutableBlock::build_mutable_block(_data_queue.end()->get()).merge(*block));
-        } else {
-            RETURN_IF_ERROR(MutableBlock::build_mutable_block(add_block.get()).merge(*block));
-            _data_queue.emplace_back(std::move(add_block));
-        }
+        RETURN_IF_ERROR(MutableBlock::build_mutable_block(add_block.get()).merge(*block));
+        _data_queue.emplace_back(std::move(add_block));
     } else if (_eos && _data_queue.empty()) {
         status = Status::EndOfFile("Run out of sink data");
     }
@@ -69,27 +69,24 @@ std::unique_ptr<Block> AsyncResultWriter::get_block_from_queue() {
     return block;
 }
 
-void AsyncResultWriter::start_writer() {
+void AsyncResultWriter::start_writer(RuntimeState* state) {
     ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this]() { this->process_block(); });
+            [this, state]() { this->process_block(state); });
 }
 
-void AsyncResultWriter::process_block() {
-    if (!_is_open) {
-        _writer_status = open();
-        _is_open = true;
-    }
-
+void AsyncResultWriter::process_block(RuntimeState* state) {
+    _writer_status = open(state);
     if (_writer_status.ok()) {
         while (true) {
             {
                 std::unique_lock l(_m);
-                while (!_eos && _data_queue.empty()) {
+                while (!_eos && _data_queue.empty() && !_close) {
                     _cv.wait(l);
                 }
             }
 
-            if (_eos && _data_queue.empty()) {
+            if ((_eos && _data_queue.empty()) || _close) {
+                _data_queue.clear();
                 break;
             }
 
@@ -102,6 +99,24 @@ void AsyncResultWriter::process_block() {
         }
     }
     _writer_thread_closed = true;
+}
+
+Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_block,
+                                            doris::vectorized::Block* output_block) {
+    Status status = Status::OK();
+    if (input_block.rows() == 0) {
+        return status;
+    }
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _vec_output_expr_ctxs, input_block, output_block));
+    materialize_block_inplace(*output_block);
+    return status;
+}
+
+void AsyncResultWriter::force_close() {
+    std::lock_guard l(_m);
+    _close = true;
+    _cv.notify_one();
 }
 
 } // namespace vectorized

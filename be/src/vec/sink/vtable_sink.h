@@ -46,9 +46,6 @@ public:
     Status open(RuntimeState* state) override;
 
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
-    // Flush all buffered data and close all existing channels to destination
-    // hosts. Further send() calls are illegal after calling close().
-    Status close(RuntimeState* state, Status exec_status) override;
 
     RuntimeProfile* profile() override { return _profile; }
 
@@ -63,9 +60,6 @@ protected:
     const std::vector<TExpr>& _t_output_expr;
     VExprContextSPtrs _output_vexpr_ctxs;
     RuntimeProfile* _profile;
-    std::string _table_name;
-    // whether use transaction
-    bool _use_transaction;
 };
 } // namespace vectorized
 } // namespace doris

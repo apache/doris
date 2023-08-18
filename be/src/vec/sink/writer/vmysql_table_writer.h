@@ -14,46 +14,51 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
-#include <memory>
+
+#include <fmt/format.h>
+#include <mysql/mysql.h>
+#include <stddef.h>
+
+#include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "vec/sink/vtable_sink.h"
-#include "vec/sink/writer/vmysql_table_writer.h"
+#include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
-class ObjectPool;
-class RowDescriptor;
-class RuntimeState;
-class TDataSink;
-class TExpr;
-
 namespace vectorized {
+
+struct MysqlConnInfo {
+    std::string host;
+    std::string user;
+    std::string passwd;
+    std::string db;
+    std::string table_name;
+    int port;
+    std::string charset;
+
+    std::string debug_string() const;
+};
+
 class Block;
 
-// This class is a sinker, which put input data to mysql table
-class VMysqlTableSink : public VTableSink {
+class VMysqlTableWriter final : public AsyncResultWriter {
 public:
-    VMysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                    const std::vector<TExpr>& t_exprs);
+    VMysqlTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    ~VMysqlTableWriter() override;
 
-    Status init(const TDataSink& thrift_sink) override;
-
+    // connect to mysql server
     Status open(RuntimeState* state) override;
 
-    Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
-
-    Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
-        return _writer->sink(block, eos);
-    }
-
-    Status try_close(RuntimeState* state, Status exec_status) override;
-
-    bool is_close_done() override { return !_writer->is_pending_finish(); }
+    Status append_block(vectorized::Block& block) override;
 
 private:
-    std::unique_ptr<VMysqlTableWriter> _writer;
+    Status insert_row(vectorized::Block& block, size_t row);
+    MysqlConnInfo _conn_info;
+    fmt::memory_buffer _insert_stmt_buffer;
+    MYSQL* _mysql_conn;
 };
 } // namespace vectorized
 } // namespace doris
