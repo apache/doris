@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,10 +45,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.stream.Collectors;
@@ -115,7 +115,7 @@ public class Memo {
     public void removePhysicalExpression() {
         groupExpressions.entrySet().removeIf(entry -> entry.getValue().getPlan() instanceof PhysicalPlan);
 
-        Iterator<Entry<GroupId, Group>> iterator = groups.entrySet().iterator();
+        Iterator<Map.Entry<GroupId, Group>> iterator = groups.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<GroupId, Group> entry = iterator.next();
             Group group = entry.getValue();
@@ -201,6 +201,20 @@ public class Memo {
 
     /**
      * Add plan to Memo.
+     */
+    public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite, HashMap<Long, Group> planTable) {
+        CopyInResult result;
+        if (rewrite) {
+            result = doRewrite(plan, target);
+        } else {
+            result = doCopyIn(skipProject(plan, target), target, planTable);
+        }
+        maybeAddStateId(result);
+        return result;
+    }
+
+    /**
+     * Add plan to Memo.
      *
      * @param plan {@link Plan} or {@link Expression} to be added
      * @param target target group to add node. null to generate new Group
@@ -214,7 +228,7 @@ public class Memo {
         if (rewrite) {
             result = doRewrite(plan, target);
         } else {
-            result = doCopyIn(skipProject(plan, target), target);
+            result = doCopyIn(skipProject(plan, target), target, null);
         }
         maybeAddStateId(result);
         return result;
@@ -402,7 +416,7 @@ public class Memo {
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
-    private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup) {
+    private CopyInResult doCopyIn(Plan plan, @Nullable Group targetGroup, @Nullable HashMap<Long, Group> planTable) {
         Preconditions.checkArgument(!(plan instanceof GroupPlan), "plan can not be GroupPlan");
         // check logicalproperties, must same output in a Group.
         if (targetGroup != null && !plan.getLogicalProperties().equals(targetGroup.getLogicalProperties())) {
@@ -425,12 +439,12 @@ public class Memo {
             } else if (child.getGroupExpression().isPresent()) {
                 childrenGroups.add(child.getGroupExpression().get().getOwnerGroup());
             } else {
-                childrenGroups.add(doCopyIn(child, null).correspondingExpression.getOwnerGroup());
+                childrenGroups.add(doCopyIn(child, null, planTable).correspondingExpression.getOwnerGroup());
             }
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
-        return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties());
+        return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties(), planTable);
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 
@@ -474,12 +488,12 @@ public class Memo {
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
-    private CopyInResult insertGroupExpression(
-            GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
+    private CopyInResult insertGroupExpression(GroupExpression groupExpression, Group target,
+            LogicalProperties logicalProperties, HashMap<Long, Group> planTable) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergeGroup(existedGroupExpression.getOwnerGroup(), target);
+                mergeGroup(target, existedGroupExpression.getOwnerGroup(), planTable);
             }
             // When we create a GroupExpression, we will add it into ParentExpression of childGroup.
             // But if it already exists, we should remove it from ParentExpression of childGroup.
@@ -506,7 +520,7 @@ public class Memo {
      * @param source source group
      * @param destination destination group
      */
-    public void mergeGroup(Group source, Group destination) {
+    public void mergeGroup(Group source, Group destination, HashMap<Long, Group> planTable) {
         if (source.equals(destination)) {
             return;
         }
@@ -516,9 +530,9 @@ public class Memo {
                 // cycle, we should not merge
                 return;
             }
-            // PhysicalEnforcer don't exist in memo, so we need skip them.
-            if (parent.getPlan() instanceof PhysicalDistribute) {
-                // TODO: SortEnforcer.
+            Group parentOwnerGroup = parent.getOwnerGroup();
+            HashSet<GroupExpression> enforcers = new HashSet<>(parentOwnerGroup.getEnforcers());
+            if (enforcers.contains(parent)) {
                 continue;
             }
             needReplaceChild.add(parent);
@@ -545,23 +559,26 @@ public class Memo {
                     reinsertGroupExpr.mergeTo(existGroupExpr);
                 } else {
                     // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
-                    mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup());
+                    mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup(), planTable);
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
             }
         }
-        source.mergeTo(destination);
-        groups.remove(source.getGroupId());
-    }
+        // replace source with destination in groups of planTable
+        if (planTable != null) {
+            planTable.forEach((bitset, group) -> {
+                if (group.equals(source)) {
+                    planTable.put(bitset, destination);
+                }
+            });
+        }
 
-    /**
-     * Add enforcer expression into the target group.
-     */
-    public void addEnforcerPlan(GroupExpression groupExpression, Group group) {
-        Preconditions.checkArgument(groupExpression != null);
-        groupExpression.setOwnerGroup(group);
-        // Don't add groupExpression into group's physicalExpressions, it will cause dead loop;
+        source.mergeTo(destination);
+        if (source == root) {
+            root = destination;
+        }
+        groups.remove(source.getGroupId());
     }
 
     private CopyInResult rewriteByExistedPlan(Group targetGroup, Plan existedPlan) {
