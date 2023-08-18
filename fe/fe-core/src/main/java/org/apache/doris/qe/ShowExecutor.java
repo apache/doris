@@ -861,7 +861,8 @@ public class ShowExecutor {
 
                 // check tbl privs
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+                        .checkTblPriv(ConnectContext.get(), showStmt.getCatalog(),
+                                db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 List<String> row = Lists.newArrayList();
