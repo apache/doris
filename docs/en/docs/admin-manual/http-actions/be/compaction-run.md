@@ -46,7 +46,7 @@ Used to manually trigger the comparison and show status.
     - ID of table. Note that table_id=xxx will take effect only when compact_type=full is specified, and only one tablet_id and table_id can be specified, and cannot be specified at the same time. After specifying table_id, full_compaction will be automatically executed for all tablets under this table.
 
 * `compact_type`
-    - The value is `base` or `cumulative`
+    - The value is `base` or `cumulative` or `full`. For usage scenarios of full_compaction, please refer to [Data Recovery](../../data-admin/data-recovery.md).
 
 ## Request body
 

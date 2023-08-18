@@ -26,7 +26,7 @@ under the License.
 
 # 数据恢复
 
-对于Merge on Write表，系统可能会在计算delete bitmap时出现错误，导致重复主键结果出现，此时可以利用full compaction功能进行数据的修复。本功能对于非Merge on Write表无效。
+对于Unique Key Merge on Write表，在某些Doris的版本中存在bug，可能会导致系统在计算delete bitmap时出现错误，导致出现重复主键，此时可以利用full compaction功能进行数据的修复。本功能对于非Unique Key Merge on Write表无效。
 
 该功能需要 Doris 版本 2.0+。
 

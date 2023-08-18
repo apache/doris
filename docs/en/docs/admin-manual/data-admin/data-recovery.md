@@ -26,7 +26,7 @@ under the License.
 
 # Data Recovery
 
-For the Merge on Write table, the system may make an error when calculating the delete bitmap, resulting in duplicate primary key results. In this case, the full compaction function can be used to repair the data. This function is invalid for non-Merge on Write tables.
+For the Unique Key Merge on Write table, there are bugs in some Doris versions, which may cause errors when the system calculates the delete bitmap, resulting in duplicate primary keys. At this time, the full compaction function can be used to repair the data. This function is invalid for non-Unique Key Merge on Write tables.
 
 This feature requires Doris version 2.0+.
 

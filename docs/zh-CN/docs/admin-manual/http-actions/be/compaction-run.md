@@ -46,7 +46,7 @@ under the License.
     - table的id。注意，table_id=xxx只有在compact_type=full时指定才会生效，并且tablet_id和table_id只能指定一个，不能够同时指定，指定table_id后会自动对此table下所有tablet执行full_compaction。
 
 * `compact_type`
-    - 取值为`base`或`cumulative`或`full`。full_compaction的使用场景请参考xxx。
+    - 取值为`base`或`cumulative`或`full`。full_compaction的使用场景请参考[数据恢复](../../data-admin/data-recovery.md)。
 
 ## Request body
 
