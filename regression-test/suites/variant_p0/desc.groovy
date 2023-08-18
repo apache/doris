@@ -93,6 +93,7 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         def table_name = "sparse_columns"
         create_table table_name
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        sql """set describe_extend_variant_column = true"""
         sql """insert into  sparse_columns select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_1 """desc ${table_name}"""
@@ -149,6 +150,7 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         qt_sql_7 """desc ${table_name}"""
         qt_sql_7_1 """desc ${table_name} partition p2"""
         qt_sql_7_2 """desc ${table_name} partition p3"""
+        qt_sql_7_3 """desc ${table_name} partition (p2, p3)"""
         sql "truncate table ${table_name}"
 
         // more variant
@@ -166,6 +168,24 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         """
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}', '{"a": 11245, "xxxx" : "kaana"}', '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
         qt_sql_8 """desc ${table_name}"""
+        sql "truncate table ${table_name}"
+
+        // describe_extend_variant_column = false
+        sql """set describe_extend_variant_column = false"""
+        table_name = "no_extend_variant_column"
+        sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                k bigint,
+                v variant
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 5
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        """
+        sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        qt_sql_9 """desc ${table_name}"""
+        sql """set describe_extend_variant_column = true"""
+        qt_sql_9_1 """desc ${table_name}"""
         sql "truncate table ${table_name}"
     } finally {
         // reset flags
