@@ -29,7 +29,7 @@ public class StatsDeriveResultTest {
     public void testUpdateRowCountByLimit() {
         StatsDeriveResult stats = new StatsDeriveResult(100);
         ColumnStatistic a = new ColumnStatistic(100, 10,  null, 1, 5, 10,
-                1, 100, 0.5, null, null, false, null,
+                1, 100, null, null, false, null,
                 new Date().toString(), null);
         Id id = new Id(1);
         stats.addColumnStats(id, a);
@@ -43,7 +43,6 @@ public class StatsDeriveResultTest {
         Assertions.assertEquals(1, resColStats.dataSize);
         Assertions.assertEquals(1, resColStats.minValue);
         Assertions.assertEquals(100, resColStats.maxValue);
-        Assertions.assertEquals(0, resColStats.selectivity);
         Assertions.assertEquals(false, resColStats.isUnKnown);
 
         res = stats.updateByLimit(1);
@@ -54,7 +53,6 @@ public class StatsDeriveResultTest {
         Assertions.assertEquals(1, resColStats.dataSize);
         Assertions.assertEquals(1, resColStats.minValue);
         Assertions.assertEquals(100, resColStats.maxValue);
-        Assertions.assertEquals(0.05, resColStats.selectivity);
         Assertions.assertEquals(false, resColStats.isUnKnown);
     }
 }
