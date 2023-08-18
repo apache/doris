@@ -24,7 +24,7 @@ defaultDb = "regression_test"
 // init cmd like: select @@session.tx_read_only
 // at each time we connect.
 // add allowLoadLocalInfile so that the jdbc can execute mysql load data from client.
-jdbcUrl = "jdbc:mysql://127.0.0.1:10630/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
@@ -35,7 +35,7 @@ syncerAddress = "127.0.0.1:9190"
 feSyncerUser = "root"
 feSyncerPassword = ""
 
-feHttpAddress = "127.0.0.1:10622"
+feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
@@ -130,12 +130,9 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
-// s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-// s3BucketName = "doris-build-hk-1308700295"
-// s3Region = "ap-hongkong"
-s3Endpoint = "cos.ap-beijing.myqcloud.com"
-s3BucketName = "doris-build-1308700295"
-s3Region = "ap-beijing"
+s3Endpoint = "cos.ap-hongkong.myqcloud.com"
+s3BucketName = "doris-build-hk-1308700295"
+s3Region = "ap-hongkong"
 
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.
