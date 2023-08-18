@@ -51,6 +51,8 @@ public abstract class TableValuedFunctionIf {
                 return new HdfsTableValuedFunction(params);
             case StreamTableValuedFunction.NAME:
                 return new StreamTableValuedFunction(params);
+            case LocalTableValuedFunction.NAME:
+                return new LocalTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:
                 return new IcebergTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:

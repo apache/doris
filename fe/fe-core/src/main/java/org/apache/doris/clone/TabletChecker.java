@@ -281,7 +281,7 @@ public class TabletChecker extends MasterDaemon {
                 continue;
             }
 
-            if (db.isInfoSchemaDb()) {
+            if (db.isMysqlCompatibleDatabase()) {
                 continue;
             }
 

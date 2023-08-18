@@ -87,7 +87,6 @@ BetaRowsetWriter::~BetaRowsetWriter() {
         if (!fs) {
             return;
         }
-        DCHECK_LE(_segment_start_id + _num_segment, _segment_creator.next_segment_id());
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
             std::string seg_path =
                     BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, i);

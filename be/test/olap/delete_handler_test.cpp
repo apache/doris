@@ -290,15 +290,16 @@ protected:
         // 1. Prepare for query split key.
         // create base tablet
         Status res = Status::OK();
+        RuntimeProfile profile("CreateTablet");
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_tablet(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_NE(tablet.get(), nullptr);
         _tablet_path = tablet->tablet_path();
 
         set_create_duplicate_tablet_request(&_create_dup_tablet);
-        res = k_engine->create_tablet(_create_dup_tablet);
+        res = k_engine->create_tablet(_create_dup_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(_create_dup_tablet.tablet_id);
         EXPECT_TRUE(dup_tablet.get() != NULL);
@@ -432,7 +433,6 @@ TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     DeletePredicatePB del_pred;
     Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
-    ;
     EXPECT_EQ(Status::Error<DELETE_INVALID_PARAMETERS>(""), failed_res);
 }
 
@@ -449,7 +449,6 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     DeletePredicatePB del_pred;
     Status failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
                                                                  conditions, &del_pred);
-    ;
     EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), failed_res);
 
     // 'v'是value列
@@ -460,10 +459,9 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    failed_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
-                                                          &del_pred);
-    ;
-    EXPECT_EQ(Status::Error<DELETE_INVALID_CONDITION>(""), failed_res);
+    Status success_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(),
+                                                                  conditions, &del_pred);
+    EXPECT_EQ(Status::OK(), success_res);
 
     // value column in duplicate model can be deleted;
     conditions.clear();
@@ -473,9 +471,8 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    Status success_res = DeleteHandler::generate_delete_predicate(*dup_tablet->tablet_schema(),
-                                                                  conditions, &del_pred);
-    ;
+    success_res = DeleteHandler::generate_delete_predicate(*dup_tablet->tablet_schema(), conditions,
+                                                           &del_pred);
     EXPECT_EQ(Status::OK(), success_res);
 }
 
@@ -499,9 +496,10 @@ protected:
 
         // 1. Prepare for query split key.
         // create base tablet
+        RuntimeProfile profile("CreateTablet");
         Status res = Status::OK();
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_tablet(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_TRUE(tablet.get() != nullptr);
@@ -873,9 +871,10 @@ protected:
 
         // 1. Prepare for query split key.
         // create base tablet
+        RuntimeProfile profile("CreateTablet");
         Status res = Status::OK();
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_tablet(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet, &profile);
         EXPECT_EQ(Status::OK(), res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id);
         EXPECT_TRUE(tablet != nullptr);

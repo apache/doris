@@ -100,6 +100,7 @@
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
+#include "vec/exec/scan/new_jdbc_scan_node.h"
 #include "vec/exec/scan/new_odbc_scan_node.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vmeta_scan_node.h"
@@ -156,7 +157,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             _exec_status = Status::Cancelled(msg);
         }
-        _runtime_state->set_is_cancelled(true);
+        _runtime_state->set_is_cancelled(true, msg);
 
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
 
@@ -171,7 +172,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+            stream_load_ctx->pipe->cancel(msg);
         }
         _cancel_reason = reason;
         _cancel_msg = msg;
@@ -284,11 +285,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             typeid(*node) == typeid(vectorized::NewFileScanNode) ||
             typeid(*node) == typeid(vectorized::NewOdbcScanNode) ||
             typeid(*node) == typeid(vectorized::NewEsScanNode) ||
-            typeid(*node) == typeid(vectorized::VMetaScanNode)
-#ifdef LIBJVM
-            || typeid(*node) == typeid(vectorized::NewJdbcScanNode)
-#endif
-        ) {
+            typeid(*node) == typeid(vectorized::VMetaScanNode) ||
+            typeid(*node) == typeid(vectorized::NewJdbcScanNode)) {
             auto* scan_node = static_cast<vectorized::VScanNode*>(scan_nodes[i]);
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges, scan_node->id(),
                                                  no_scan_ranges);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -178,7 +179,7 @@ class SlotBinder extends SubExprAnalyzer {
                         case 1: // bound slot is `table`.`column`
                             return false;
                         case 2:// bound slot is `db`.`table`.`column`
-                            return qualifierStar.get(0).equalsIgnoreCase(boundSlotQualifier.get(0))
+                            return compareDbNameIgnoreClusterName(qualifierStar.get(0), boundSlotQualifier.get(0))
                                     && qualifierStar.get(1).equalsIgnoreCase(boundSlotQualifier.get(1));
                         default:
                             throw new AnalysisException("Not supported qualifier: "
@@ -193,6 +194,18 @@ class SlotBinder extends SubExprAnalyzer {
         return new BoundStar(slots);
     }
 
+    private boolean compareDbNameIgnoreClusterName(String unBoundDbName, String boundedDbName) {
+        if (unBoundDbName.equalsIgnoreCase(boundedDbName)) {
+            return true;
+        }
+        // boundedDbName example
+        int idx = boundedDbName.indexOf(ClusterNamespace.CLUSTER_DELIMITER);
+        if (idx > -1) {
+            return unBoundDbName.equalsIgnoreCase(boundedDbName.substring(idx + 1));
+        }
+        return false;
+    }
+
     private List<Slot> bindSlot(UnboundSlot unboundSlot, List<Slot> boundSlots) {
         return boundSlots.stream().distinct().filter(boundSlot -> {
             List<String> nameParts = unboundSlot.getNameParts();
@@ -205,14 +218,14 @@ class SlotBinder extends SubExprAnalyzer {
                 return nameParts.get(0).equalsIgnoreCase(boundSlot.getName());
             }
             if (namePartsSize == 2) {
-                String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 1);
-                return qualifierDbName.equalsIgnoreCase(nameParts.get(0))
+                String qualifierTableName = boundSlot.getQualifier().get(qualifierSize - 1);
+                return qualifierTableName.equalsIgnoreCase(nameParts.get(0))
                         && boundSlot.getName().equalsIgnoreCase(nameParts.get(1));
             } else if (nameParts.size() == 3) {
-                String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 1);
-                String qualifierClusterName = boundSlot.getQualifier().get(qualifierSize - 2);
-                return qualifierClusterName.equalsIgnoreCase(nameParts.get(0))
-                        && qualifierDbName.equalsIgnoreCase(nameParts.get(1))
+                String qualifierTableName = boundSlot.getQualifier().get(qualifierSize - 1);
+                String qualifierDbName = boundSlot.getQualifier().get(qualifierSize - 2);
+                return compareDbNameIgnoreClusterName(nameParts.get(0), qualifierDbName)
+                        && qualifierTableName.equalsIgnoreCase(nameParts.get(1))
                         && boundSlot.getName().equalsIgnoreCase(nameParts.get(2));
             }
             //TODO: handle name parts more than three.

@@ -124,6 +124,10 @@ public class TableProperty implements Writable {
                 buildInMemory();
                 buildStoragePolicy();
                 buildIsBeingSynced();
+                buildCompactionPolicy();
+                buildTimeSeriesCompactionGoalSizeMbytes();
+                buildTimeSeriesCompactionFileCountThreshold();
+                buildTimeSeriesCompactionTimeThresholdSeconds();
                 break;
             default:
                 break;

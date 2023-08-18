@@ -228,4 +228,8 @@ suite("test_case_function_null", "query,p0") {
             END)
         FROM case_null2;
     """
+
+
+    qt_sql_case3 """SELECT COUNT(CASE (NOT (NOT true))  WHEN (((- 47960023)) IS NOT NULL) THEN NULL ELSE NULL END) from case_null1;"""
+
 }

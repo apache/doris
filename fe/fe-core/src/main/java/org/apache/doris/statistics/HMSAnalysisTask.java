@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
@@ -290,5 +291,14 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("update_time", TimeUtils.DATETIME_FORMAT.format(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(timestamp) * 1000),
                         ZoneId.systemDefault())));
+    }
+
+    @Override
+    protected void afterExecution() {
+        if (isTableLevelTask) {
+            Env.getCurrentEnv().getStatisticsCache().refreshTableStatsSync(catalog.getId(), db.getId(), tbl.getId());
+        } else {
+            Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+        }
     }
 }

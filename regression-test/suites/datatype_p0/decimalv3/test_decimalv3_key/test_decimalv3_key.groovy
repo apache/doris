@@ -14,27 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/Names.h
-// and modified by Doris
 
-#pragma once
+suite("test_decimalv3_key") {
 
-#include <set>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
+    sql "drop table if exists d_table"
 
-namespace doris::vectorized {
+    sql """
+    create table d_table (
+      k1 decimal null,
+      k2 decimal not null
+    )
+    duplicate key (k1)
+    distributed BY hash(k1) buckets 3
+    properties("replication_num" = "1");
+    """
 
-using Names = std::vector<std::string>;
-using NameSet = std::unordered_set<std::string>;
-using NameOrderedSet = std::set<std::string>;
-using NameToNameMap = std::unordered_map<std::string, std::string>;
-using NameToNameSetMap = std::unordered_map<std::string, NameSet>;
+    sql """
+    insert into d_table values(999999999,999999999);
+    """
 
-using NameWithAlias = std::pair<std::string, std::string>;
-using NamesWithAliases = std::vector<NameWithAlias>;
-
-} // namespace doris::vectorized
+    qt_test "select count(*) from d_table;"
+}

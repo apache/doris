@@ -19,8 +19,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/sink/vmysql_table_writer.h"
 #include "vec/sink/vtable_sink.h"
+#include "vec/sink/writer/vmysql_table_writer.h"
 
 namespace doris {
 class ObjectPool;
@@ -44,10 +44,15 @@ public:
 
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
-    Status close(RuntimeState* state, Status exec_status) override;
+    Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
+        return _writer->sink(block, eos);
+    }
+
+    Status try_close(RuntimeState* state, Status exec_status) override;
+
+    bool is_close_done() override { return !_writer->is_pending_finish(); }
 
 private:
-    MysqlConnInfo _conn_info;
     std::unique_ptr<VMysqlTableWriter> _writer;
 };
 } // namespace vectorized

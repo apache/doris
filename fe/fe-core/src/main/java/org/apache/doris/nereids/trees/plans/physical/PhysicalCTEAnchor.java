@@ -77,18 +77,16 @@ public class PhysicalCTEAnchor<
         if (this == o) {
             return true;
         }
-
-        if (!super.equals(o)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
-
-        PhysicalCTEAnchor that = (PhysicalCTEAnchor) o;
-        return Objects.equals(cteId, that.cteId);
+        PhysicalCTEAnchor<?, ?> that = (PhysicalCTEAnchor<?, ?>) o;
+        return cteId.equals(that.cteId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), cteId);
+        return Objects.hash(cteId);
     }
 
     @Override

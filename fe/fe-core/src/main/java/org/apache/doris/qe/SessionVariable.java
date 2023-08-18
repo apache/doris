@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
@@ -296,6 +297,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
 
+    // Optimize when probe side has no data for some hash join types
+    public static final String ENABLE_HASH_JOIN_EARLY_START_PROBE = "enable_hash_join_early_start_probe";
+
     // support unicode in label, table, column, common name check
     public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
 
@@ -364,6 +368,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
+
+    public static final String TRUNCATE_CHAR_OR_VARCHAR_COLUMNS = "truncate_char_or_varchar_columns";
 
     public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
 
@@ -634,7 +640,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
+    @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML, needForward = true)
     public boolean enableNereidsDML = false;
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CONSISTENCY_DML, needForward = true)
@@ -934,6 +940,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_HASH_JOIN_EARLY_START_PROBE, fuzzy = true)
+    public boolean enableHashJoinEarlyStartProbe = false;
+
     @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
     public boolean enableUnicodeNameSupport = false;
 
@@ -1091,6 +1100,19 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_DELETE_SUB_PREDICATE_V2)
     public boolean enableDeleteSubPredicateV2 = true;
 
+    @VariableMgr.VarAttr(name = TRUNCATE_CHAR_OR_VARCHAR_COLUMNS,
+            description = {"是否按照表的 schema 来截断 char 或者 varchar 列。默认为 false。\n"
+                    + "因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致"
+                    + "的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。",
+                    "Whether to truncate char or varchar columns according to the table's schema. "
+                            + "The default is false.\n"
+                    + "Because the maximum length of the char or varchar column in the schema of the table"
+                            + " is inconsistent with the schema in the underlying parquet or orc file."
+                    + " At this time, if the option is turned on, it will be truncated according to the maximum length"
+                            + " in the schema of the table."},
+            needForward = true)
+    public boolean truncateCharOrVarcharColumns = false;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -1105,6 +1127,7 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+        this.enableHashJoinEarlyStartProbe = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -1934,9 +1957,17 @@ public class SessionVariable implements Serializable, Writable {
         return nthOptimizedPlan;
     }
 
-    public Set<String> getDisableNereidsRules() {
+    public Set<String> getDisableNereidsRuleNames() {
         return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    public Set<Integer> getDisableNereidsRules() {
+        return Arrays.stream(disableNereidsRules.split(",[\\s]*"))
+                .filter(rule -> !rule.isEmpty())
+                .map(rule -> rule.toUpperCase(Locale.ROOT))
+                .map(rule -> RuleType.valueOf(rule).type())
                 .collect(ImmutableSet.toImmutableSet());
     }
 
@@ -2065,6 +2096,14 @@ public class SessionVariable implements Serializable, Writable {
         return externalTableAnalyzePartNum;
     }
 
+    public boolean isTruncateCharOrVarcharColumns() {
+        return truncateCharOrVarcharColumns;
+    }
+
+    public void setTruncateCharOrVarcharColumns(boolean truncateCharOrVarcharColumns) {
+        this.truncateCharOrVarcharColumns = truncateCharOrVarcharColumns;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2089,6 +2128,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
+        tResult.setEnableHashJoinEarlyStartProbe(enableHashJoinEarlyStartProbe);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
@@ -2150,6 +2190,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInsertStrict(enableInsertStrict);
         tResult.setEnableDeleteSubPredicateV2(enableDeleteSubPredicateV2);
+        tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
 
         return tResult;
     }
@@ -2463,3 +2504,4 @@ public class SessionVariable implements Serializable, Writable {
         return connectContext.getSessionVariable().enableAggState;
     }
 }
+

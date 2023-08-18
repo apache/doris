@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -455,6 +457,13 @@ public class HMSExternalTable extends ExternalTable {
             // Do not use "getColumn()", which will cause dead loop
             for (Column column : schema) {
                 if (partitionKey.equals(column.getName())) {
+                    // For partition column, if it is string type, change it to varchar(65535)
+                    // to be same as doris managed table.
+                    // This is to avoid some unexpected behavior such as different partition pruning result
+                    // between doris managed table and external table.
+                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+                    }
                     partitionColumns.add(column);
                     break;
                 }
@@ -600,4 +609,5 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 }
+
 

@@ -96,17 +96,23 @@ public class AnalysisManager extends Daemon implements Writable {
 
     private static final Logger LOG = LogManager.getLogger(AnalysisManager.class);
 
-    private ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
+    // Tracking running manually submitted async tasks, keep in mem only
+    private final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
 
     private StatisticsCache statisticsCache;
 
     private AnalysisTaskExecutor taskExecutor;
 
+    // Store task information in metadata.
     private final Map<Long, AnalysisInfo> analysisTaskInfoMap = Collections.synchronizedMap(new TreeMap<>());
+
+    // Store job information in metadata
     private final Map<Long, AnalysisInfo> analysisJobInfoMap = Collections.synchronizedMap(new TreeMap<>());
 
+    // Tracking system submitted job, keep in mem only
     private final Map<Long, AnalysisInfo> systemJobInfoMap = new ConcurrentHashMap<>();
 
+    // Tracking and control sync analyze tasks, keep in mem only
     private final ConcurrentMap<ConnectContext, SyncTaskCollection> ctxToSyncTask = new ConcurrentHashMap<>();
 
     private final Function<TaskStatusWrapper, Void> userJobStatusUpdater = w -> {
@@ -127,6 +133,10 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         info.lastExecTimeInMs = time;
         AnalysisInfo job = analysisJobInfoMap.get(info.jobId);
+        // Job may get deleted during execution.
+        if (job == null) {
+            return null;
+        }
         // Synchronize the job state change in job level.
         synchronized (job) {
             job.lastExecTimeInMs = time;
@@ -276,10 +286,9 @@ public class AnalysisManager extends Daemon implements Writable {
                 TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
                         table.getName());
                 // columnNames null means to add all visitable columns.
+                // Will get all the visible columns in analyzeTblStmt.check()
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
-                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType())).map(
-                        Column::getName).collect(
-                        Collectors.toList()), db.getId(), table);
+                        null, db.getId(), table);
                 try {
                     analyzeTblStmt.check();
                 } catch (AnalysisException analysisException) {
@@ -333,8 +342,6 @@ public class AnalysisManager extends Daemon implements Writable {
         if (!isSync) {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
-        }
-        if (!isSync) {
             try {
                 updateTableStats(jobInfo);
             } catch (Throwable e) {
@@ -808,6 +815,8 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         if (dropStatsStmt.dropTableRowCount()) {
             StatisticsRepository.dropExternalTableStatistics(tblId);
+            // Table cache key doesn't care about catalog id and db id, because the table id is globally unique.
+            Env.getCurrentEnv().getStatisticsCache().invalidateTableStats(-1, -1, tblId);
         }
     }
 

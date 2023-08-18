@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.planner.external.jdbc.JdbcScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.statistics.query.StatsDelta;
@@ -212,5 +213,11 @@ public class OdbcScanNode extends ExternalScanNode {
         return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(tbl.getQualifiedDbName()).getId(),
                 tbl.getId(), -1L);
+    }
+
+    @Override
+    public int getNumInstances() {
+        return ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
+            ? ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() : 1;
     }
 }

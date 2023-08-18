@@ -123,7 +123,7 @@ public:
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
     MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
-    MemTracker* page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker.get(); }
+    std::shared_ptr<MemTracker> page_no_cache_mem_tracker() { return _page_no_cache_mem_tracker; }
     MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
@@ -168,7 +168,7 @@ public:
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
-    size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
+
     StorageEngine* storage_engine() { return _storage_engine; }
     void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
 
@@ -199,8 +199,7 @@ private:
 
     bool _is_init;
     std::vector<StorePath> _store_paths;
-    // path => store index
-    std::map<std::string, size_t> _store_path_map;
+
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
     doris::vectorized::VDataStreamMgr* _vstream_mgr = nullptr;

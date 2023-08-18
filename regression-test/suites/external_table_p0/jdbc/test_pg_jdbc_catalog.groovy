@@ -27,7 +27,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         String ex_schema_name = "doris_test";
         String ex_schema_name2 = "catalog_pg_test";
         String pg_port = context.config.otherConfigs.get("pg_14_port");
-        String inDorisTable = "doris_in_tb";
+        String inDorisTable = "test_pg_jdbc_doris_in_tb";
         String test_insert = "test_insert";
 
         sql """create database if not exists ${internal_db_name}; """
@@ -42,10 +42,10 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver"
         );"""
-
-        sql  """ drop table if exists ${inDorisTable} """
+        sql """use ${internal_db_name}"""
+        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
-              CREATE TABLE ${inDorisTable} (
+              CREATE TABLE ${internal_db_name}.${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字"
                 ) DISTRIBUTED BY HASH(id) BUCKETS 10

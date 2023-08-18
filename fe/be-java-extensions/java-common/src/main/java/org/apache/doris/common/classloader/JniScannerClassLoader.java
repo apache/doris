@@ -25,8 +25,8 @@ public class JniScannerClassLoader extends URLClassLoader {
 
     private final String scannerName;
 
-    public JniScannerClassLoader(String scannerName, List<URL> urls) {
-        super(urls.toArray(new URL[0]), ClassLoader.getSystemClassLoader());
+    public JniScannerClassLoader(String scannerName, List<URL> urls, ClassLoader parent) {
+        super(urls.toArray(new URL[0]), parent);
         this.scannerName = scannerName;
     }
 

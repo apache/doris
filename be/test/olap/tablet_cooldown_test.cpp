@@ -338,10 +338,12 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
 void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replica_id,
                   int32_t schema_hash, int64_t tablet_id, int64_t txn_id, int64_t partition_id) {
     // create tablet
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(tablet_id, schema_hash, &request);
     request.__set_replica_id(replica_id);
-    Status st = engine->create_tablet(request);
+    Status st = engine->create_tablet(request, profile.get());
     ASSERT_EQ(Status::OK(), st);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -368,7 +370,6 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
     write_req.table_schema_param = &param;
 
     DeltaWriter* delta_writer = nullptr;
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter::open(&write_req, &delta_writer, profile.get());
     ASSERT_NE(delta_writer, nullptr);

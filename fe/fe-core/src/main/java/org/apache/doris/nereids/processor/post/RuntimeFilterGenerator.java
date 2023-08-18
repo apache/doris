@@ -466,7 +466,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             Map<EqualTo, PhysicalHashJoin> equalCondToJoinMap = entry.getValue();
             for (Map.Entry<EqualTo, PhysicalHashJoin> innerEntry : equalCondToJoinMap.entrySet()) {
                 EqualTo equalTo = innerEntry.getKey();
-                PhysicalHashJoin join = innerEntry.getValue();
+                PhysicalHashJoin<? extends Plan, ? extends Plan> join = innerEntry.getValue();
                 Preconditions.checkState(join != null);
                 TRuntimeFilterType type = TRuntimeFilterType.IN_OR_BLOOM;
                 if (ctx.getSessionVariable().getEnablePipelineEngine()) {
