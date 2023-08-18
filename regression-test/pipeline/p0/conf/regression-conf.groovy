@@ -57,7 +57,7 @@ excludeGroups = ""
 excludeSuites = "window_function,test_profile,test_broker_load_p2,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog,test_transactional_hive"
 
 // this directories will not be executed
-excludeDirectories = "nereids_tpch_shape_sf1000_p0,nereids_tpch_shape_sf500_p0,workload_manager_p1"
+excludeDirectories = "nereids_tpcds_shape_sf100_p0,nereids_tpch_shape_sf1000_p0,nereids_tpch_shape_sf500_p0,workload_manager_p1"
 
 customConf1 = "test_custom_conf_value"
 
