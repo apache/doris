@@ -177,4 +177,10 @@ suite("nereids_insert_unique") {
             select * except(kaint) from src where id is not null'''
     sql 'sync'
     qt_lsc4 'select * from uni_light_sc_mow_not_null_t order by id, kint'
+
+    sql 'alter table uni_light_sc_t rename column ktinyint ktint'
+    sql 'alter table uni_light_sc_mow_t rename column ktinyint ktint'
+    sql 'alter table uni_light_sc_not_null_t rename column ktinyint ktint'
+    sql 'alter table uni_light_sc_mow_not_null_t rename column ktinyint ktint'
+
 }
