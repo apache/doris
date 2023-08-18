@@ -93,9 +93,10 @@ DeltaWriter::~DeltaWriter() {
 }
 
 Status DeltaWriter::init() {
-    _rowset_builder.init();
-    _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
-                           _rowset_builder.tablet()->enable_unique_key_merge_on_write());
+    RETURN_IF_ERROR(_rowset_builder.init());
+    RETURN_IF_ERROR(
+            _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
+                                   _rowset_builder.tablet()->enable_unique_key_merge_on_write()));
     _is_init = true;
     return Status::OK();
 }
