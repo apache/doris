@@ -915,7 +915,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableDistinctPushDown = false;
 
     @VariableMgr.VarAttr(name = ENABLE_CASEWHEN_TRANSFORMATION)
-    public boolean enableCaseWhenTransformation = false;
+    public boolean enableCaseWhenTransformation = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
     public boolean enableNereidsTimeout = true;
