@@ -216,7 +216,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     LOG_INFO("PipelineFragmentContext::prepare")
             .tag("query_id", UniqueId(_query_id.hi, _query_id.hi))
-            .tag("instance_id", UniqueId(local_params.fragment_instance_id.hi, local_params.fragment_instance_id.lo))
+            .tag("instance_id", UniqueId(local_params.fragment_instance_id.hi,
+                                         local_params.fragment_instance_id.lo))
             .tag("backend_num", local_params.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
@@ -309,10 +310,10 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
 
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-            DataSink::create_data_sink(_runtime_state->obj_pool(), request.fragment.output_sink,
-                                       request.fragment.output_exprs, request, idx, _root_plan->row_desc(),
-                                       _runtime_state.get(), &_sink, *desc_tbl));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
+                _runtime_state->obj_pool(), request.fragment.output_sink,
+                request.fragment.output_exprs, request, idx, _root_plan->row_desc(),
+                _runtime_state.get(), &_sink, *desc_tbl));
     }
 
     _root_pipeline = fragment_context->add_pipeline();
@@ -333,7 +334,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     return Status::OK();
 }
 
-Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFragmentParams& request) {
+Status PipelineFragmentContext::_build_pipeline_tasks(
+        const doris::TPipelineFragmentParams& request) {
     _total_tasks = 0;
     for (PipelinePtr& pipeline : _pipelines) {
         // if sink

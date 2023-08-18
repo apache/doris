@@ -770,7 +770,8 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
 }
 
 // Fragment execution of non-pipeline version.
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+                                       const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
@@ -795,15 +796,19 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, co
 
     std::shared_ptr<QueryContext> query_ctx;
     const bool pipeline_engine_enabled = params.query_options.__isset.enable_pipeline_engine &&
-                                   params.query_options.enable_pipeline_engine;
+                                         params.query_options.enable_pipeline_engine;
 
-    RETURN_IF_ERROR(_get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
+    RETURN_IF_ERROR(
+        _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
+
     query_ctx->fragment_ids.push_back(fragment_instance_id);
 
-    auto exec_state = std::make_shared<FragmentExecState>(query_ctx->query_id, params.params.fragment_instance_id,
-                                                          params.backend_num, _exec_env, query_ctx,
-                                                          std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback),
-                                                                                      this, std::placeholders::_1));
+    auto exec_state = std::make_shared<FragmentExecState>(
+            query_ctx->query_id, params.params.fragment_instance_id, params.backend_num, _exec_env,
+            query_ctx,
+            std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
+                            std::placeholders::_1));
+
     if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
         // set need_wait_execution_trigger means this instance will not actually be executed
         // until the execPlanFragmentStart RPC trigger to start it.
@@ -820,7 +825,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, co
 
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    RETURN_IF_ERROR(_runtimefilter_controller.add_entity(params, &handler, exec_state->executor()->runtime_state()));
+    RETURN_IF_ERROR(_runtimefilter_controller.add_entity(params, &handler,
+                                                         exec_state->executor()->runtime_state()));
     exec_state->set_merge_controller_handler(handler);
 
     {
@@ -829,9 +835,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, co
         _cv.notify_all();
     }
 
-    auto st = _thread_pool->submit_func([this, exec_state, cb, parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
-                                        OpentelemetryScope scope {parent_span};
-                                        _exec_actual(exec_state, cb);});
+    auto st = _thread_pool->submit_func(
+            [this, exec_state, cb, parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
+                OpentelemetryScope scope {parent_span};
+                _exec_actual(exec_state, cb);
+            });
+
     if (!st.ok()) {
         // Remove the exec state added
         {
@@ -839,7 +848,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, co
             _fragment_map.erase(params.params.fragment_instance_id);
         }
 
-        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "push plan fragment to thread pool failed");
+        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                           "push plan fragment to thread pool failed");
         return Status::InternalError(
                 strings::Substitute("push plan fragment $0 to thread pool failed. err = $1, BE: $2",
                                     print_id(params.params.fragment_instance_id), st.to_string(),
@@ -850,7 +860,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, co
 }
 
 // Pipeline version of fragment execution.
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+                                       const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
@@ -888,10 +899,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, co
         _setup_shared_hashtable_for_broadcast_join(params, local_params, query_ctx.get());
 
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
-                std::make_shared<pipeline::PipelineFragmentContext>(query_ctx->query_id, fragment_instance_id, params.fragment_id,
-                                                                    local_params.backend_num, query_ctx, _exec_env, cb,
-                                                                    std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback),
-                                                                                                this, std::placeholders::_1));
+                std::make_shared<pipeline::PipelineFragmentContext>(
+                    query_ctx->query_id, fragment_instance_id, params.fragment_id,
+                    local_params.backend_num, query_ctx, _exec_env, cb,
+                    std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
+                                    std::placeholders::_1));
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params, i);
@@ -903,7 +915,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, co
 
         g_fragmentmgr_prepare_latency << (duration_ns / 1000);
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-        RETURN_IF_ERROR(_runtimefilter_controller.add_entity(params, local_params, &handler,context->get_runtime_state()));
+        RETURN_IF_ERROR(_runtimefilter_controller.add_entity(params, local_params, &handler,
+                                                             context->get_runtime_state()));
         context->set_merge_controller_handler(handler);
 
         {
@@ -1360,9 +1373,9 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFrag
     }
 }
 
-void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
-                                                             const TPipelineInstanceParams& local_params,
-                                                             QueryContext* query_ctx) {
+void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(
+        const TPipelineFragmentParams& params, const TPipelineInstanceParams& local_params,
+        QueryContext* query_ctx) {
     if (!params.query_options.__isset.enable_share_hash_table_for_broadcast_join ||
         !params.query_options.enable_share_hash_table_for_broadcast_join) {
         return;

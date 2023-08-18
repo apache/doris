@@ -186,12 +186,12 @@ public:
     // If a query-id -> entity already exists
     // add_entity will return a exists entity
     [[nodiscard]] Status add_entity(const TExecPlanFragmentParams& params,
-                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeState* state);
+                                    std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+                                    RuntimeState* state);
     [[nodiscard]] Status add_entity(const TPipelineFragmentParams& params,
-                      const TPipelineInstanceParams& local_params,
-                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeState* state);
+                                    const TPipelineInstanceParams& local_params,
+                                    std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+                                    RuntimeState* state);
     // thread safe
     // increase a reference count
     // if a query-id is not exist

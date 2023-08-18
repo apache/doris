@@ -74,7 +74,7 @@ class TRuntimeProfileTree;
 
 class ObjectPool;
 
-// Runtime profile is a group of profiling counters.  
+// Runtime profile is a group of profiling counters.
 // It supports to add named counters and is able to serialize and deserialize them.
 // The profiles support a tree structure to form a hierarchy of counters.
 // Runtime profiles supports measuring wall clock rate based counters.  There is a
@@ -100,7 +100,9 @@ public:
             _value.store(binary_cast<double, int64_t>(value), std::memory_order_relaxed);
         }
 
-        [[nodiscard]] virtual int64_t value() const { return _value.load(std::memory_order_relaxed); }
+        [[nodiscard]] virtual int64_t value() const {
+            return _value.load(std::memory_order_relaxed);
+        }
 
         [[nodiscard]] virtual double double_value() const {
             return binary_cast<int64_t, double>(_value.load(std::memory_order_relaxed));
@@ -148,7 +150,9 @@ public:
             UpdateMax(v);
         }
 
-        [[nodiscard]] int64_t current_value() const { return current_value_.load(std::memory_order_relaxed); }
+        [[nodiscard]] int64_t current_value() const {
+            return current_value_.load(std::memory_order_relaxed);
+        }
 
     private:
         /// Set '_value' to 'v' if 'v' is larger than '_value'. The entire operation is

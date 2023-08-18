@@ -142,7 +142,7 @@ public:
 
     ~DataSinkOperatorBuilder() override = default;
 
-    bool is_sink() const override { return true; }
+    [[nodiscard]] bool is_sink() const override { return true; }
 
     const RowDescriptor& row_desc() override { return _sink->row_desc(); }
 
@@ -157,11 +157,11 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    std::string get_name() const { return _operator_builder->get_name(); }
+    [[nodiscard]] std::string get_name() const { return _operator_builder->get_name(); }
 
-    bool is_sink() const;
+    [[nodiscard]] bool is_sink() const;
 
-    bool is_source() const;
+    [[nodiscard]] bool is_source() const;
 
     virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
