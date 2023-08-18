@@ -360,7 +360,7 @@ public:
         return status;
     }
 
-    template <bool stacktrace = false, typename... Args>
+    template <bool stacktrace = true, typename... Args>
     Status static Error(int code, std::string_view msg, Args&&... args) {
         Status status;
         status._code = code;
