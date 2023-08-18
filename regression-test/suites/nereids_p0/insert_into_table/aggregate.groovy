@@ -100,4 +100,7 @@ suite("nereids_insert_aggregate") {
             select * except(kaint) from src where id is not null'''
     sql 'sync'
     qt_lsc2 'select * from agg_light_sc_not_null_t order by id, kint'
+
+    sql 'alter table agg_light_sc_t rename column ktinyint ktint'
+    sql 'alter table agg_light_sc_not_null_t rename column ktinyint ktint'
 }
