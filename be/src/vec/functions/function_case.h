@@ -289,8 +289,10 @@ public:
         std::vector<uint8_t> is_consts(column_holder.then_ptrs.size());
         std::vector<ColumnPtr> raw_columns(column_holder.then_ptrs.size());
         for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
-            std::tie(raw_columns[i], is_consts[i]) =
-                    unpack_if_const(column_holder.then_ptrs[i].value());
+            if (column_holder.then_ptrs[i].has_value()) {
+                std::tie(raw_columns[i], is_consts[i]) =
+                        unpack_if_const(column_holder.then_ptrs[i].value());
+            }
         }
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             if constexpr (!has_else) {
