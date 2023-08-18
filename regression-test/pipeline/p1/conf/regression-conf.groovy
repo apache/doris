@@ -47,7 +47,7 @@ testGroups = ""
 // empty suite will test all suite
 testSuites = ""
 // this suites will not be executed
-excludeSuites = "test_profile,test_broker_load,test_spark_load,test_refresh_mtmv"
+excludeSuites = "test_profile,test_broker_load_p2,test_spark_load,test_refresh_mtmv"
 // this dir will not be executed
 excludeDirectories = "workload_manager_p1"
 cacheDataPath="/data/regression/"
@@ -59,3 +59,4 @@ s3Region = "ap-hongkong"
 max_failure_num=0
 
 externalEnvIp="127.0.0.1"
+
