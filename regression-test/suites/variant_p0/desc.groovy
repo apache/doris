@@ -93,10 +93,7 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         def table_name = "sparse_columns"
         create_table table_name
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
-<<<<<<< HEAD
         sql """set extend_variant_column = true"""
-=======
->>>>>>> a0c28dc7d61711e23fa7fa264c009f430b307aa2
         sql """insert into  sparse_columns select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_1 """desc ${table_name}"""
@@ -153,10 +150,7 @@ suite("regression_test_variant_desc", "variant_type_desc"){
         qt_sql_7 """desc ${table_name}"""
         qt_sql_7_1 """desc ${table_name} partition p2"""
         qt_sql_7_2 """desc ${table_name} partition p3"""
-<<<<<<< HEAD
         qt_sql_7_3 """desc ${table_name} partition (p2, p3)"""
-=======
->>>>>>> a0c28dc7d61711e23fa7fa264c009f430b307aa2
         sql "truncate table ${table_name}"
 
         // more variant
