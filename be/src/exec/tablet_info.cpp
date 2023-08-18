@@ -138,7 +138,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         _tuple_desc->add_slot(slot_desc);
         string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
-        slots_map.emplace(std::make_pair(slot_desc->col_name(), data_type), slot_desc);
+        slots_map.emplace(std::make_pair(slot_desc->col_name(), std::move(data_type)), slot_desc);
     }
 
     for (auto& p_index : pschema.indexes()) {
