@@ -247,7 +247,7 @@ public class Config extends ConfigBase {
             "Num of thread to handle heartbeat events"})
     public static int heartbeat_mgr_threads_num = 8;
 
-    @ConfField(masterOnly = true, description = {"心跳线程池的队列大小",
+    @ConfField(masterOnly = true, description = {"心跳线程池的队列大小dd",
             "Queue size to store heartbeat task in heartbeat_mgr"})
     public static int heartbeat_mgr_blocking_queue_size = 1024;
 
