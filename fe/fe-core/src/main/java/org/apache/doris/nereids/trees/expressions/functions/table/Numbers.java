@@ -72,7 +72,7 @@ public class Numbers extends TableValuedFunction {
             Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
             ColumnStatistic columnStat = new ColumnStatisticBuilder()
                     .setCount(rowNum).setNdv(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8).setMinValue(0)
-                    .setMaxValue(rowNum - 1).setSelectivity(1.0 / rowNum)
+                    .setMaxValue(rowNum - 1)
                     .setMinExpr(new IntLiteral(0, Type.BIGINT))
                     .setMaxExpr(new IntLiteral(rowNum - 1, Type.BIGINT))
                     .build();
