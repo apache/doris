@@ -190,7 +190,7 @@ public class LoadScanProvider {
                         .filter(c -> c.getColumnName().equalsIgnoreCase(finalSequenceCol)).findAny();
                 // if `columnDescs.descs` is empty, that means it's not a partial update load, and user not specify
                 // column name.
-                if (foundCol.isPresent() || columnDescs.descs.isEmpty() || shouldAddSequenceColumn(columnDescs)) {
+                if (foundCol.isPresent() || shouldAddSequenceColumn(columnDescs)) {
                     columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                             new SlotRef(null, sequenceCol)));
                 } else if (!fileGroupInfo.isPartialUpdate()) {
