@@ -119,7 +119,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
     auto ptype = result.mutable_type();
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         ptype->set_id(PGenericType::DECIMAL128);
-    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I>) {
         ptype->set_id(PGenericType::DECIMAL128I);
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         ptype->set_id(PGenericType::INT32);
@@ -138,7 +138,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal<Int128I>> ||
+    if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal128I> ||
                   std::is_same_v<T, Decimal<Int16>> || std::is_same_v<T, Decimal<Int32>>) {
         column.resize(arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
@@ -161,7 +161,7 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
         Decimal128::NativeType val =
                 *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data);
         result.writeInt128(val);
-    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I>) {
         Decimal128I::NativeType val =
                 *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data);
         result.writeInt128(val);
@@ -182,7 +182,7 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, Decimal<Int128I>>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());

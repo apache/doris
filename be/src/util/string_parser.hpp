@@ -39,12 +39,12 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "vec/common/int_exp.h"
 #include "vec/data_types/data_type_decimal.h"
 
 namespace doris {
 namespace vectorized {
-struct Int128I;
 template <typename T>
 struct Decimal;
 } // namespace vectorized
@@ -568,7 +568,7 @@ inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
     return 39;
 }
 
-template <PrimitiveType P, typename T>
+template <PrimitiveType P, typename T = PrimitiveTypeTraits<P>::CppType::NativeType>
 T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                   ParseResult* result) {
     // Special cases:
@@ -667,11 +667,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     return 0;
                 }
                 *result = StringParser::PARSE_SUCCESS;
-                if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                    value *= get_scale_multiplier<__int128>(type_scale - scale);
-                } else {
-                    value *= get_scale_multiplier<T>(type_scale - scale);
-                }
+                value *= get_scale_multiplier<T>(type_scale - scale);
 
                 return is_negative ? T(-value) : T(value);
             }
@@ -718,11 +714,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     return 0;
                 }
                 *result = StringParser::PARSE_SUCCESS;
-                if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                    value *= get_scale_multiplier<__int128>(type_scale - scale);
-                } else {
-                    value *= get_scale_multiplier<T>(type_scale - scale);
-                }
+                value *= get_scale_multiplier<T>(type_scale - scale);
 
                 return is_negative ? T(-value) : T(value);
             }
@@ -735,11 +727,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
         //     scale must be set to 0 and the value set to 100 which means a precision of 3.
         precision += exponent - scale;
 
-        if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-            value *= get_scale_multiplier<__int128>(exponent - scale);
-        } else {
-            value *= get_scale_multiplier<T>(exponent - scale);
-        }
+        value *= get_scale_multiplier<T>(exponent - scale);
         scale = 0;
     } else {
         // Ex: 100e-4, the scale must be set to 4 but no adjustment to the value is needed,
@@ -762,12 +750,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
         *result = StringParser::PARSE_UNDERFLOW;
         int shift = scale - type_scale;
         if (shift > 0) {
-            T divisor;
-            if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-                divisor = get_scale_multiplier<__int128>(shift);
-            } else {
-                divisor = get_scale_multiplier<T>(shift);
-            }
+            T divisor = get_scale_multiplier<T>(shift);
             if (LIKELY(divisor > 0)) {
                 T remainder = value % divisor;
                 value /= divisor;
@@ -785,11 +768,7 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
     }
 
     if (type_scale > scale) {
-        if constexpr (std::is_same_v<T, vectorized::Int128I>) {
-            value *= get_scale_multiplier<__int128>(type_scale - scale);
-        } else {
-            value *= get_scale_multiplier<T>(type_scale - scale);
-        }
+        value *= get_scale_multiplier<T>(type_scale - scale);
     }
 
     return is_negative ? T(-value) : T(value);
