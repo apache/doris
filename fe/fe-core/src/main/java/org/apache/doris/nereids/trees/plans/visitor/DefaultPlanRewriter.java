@@ -36,9 +36,11 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
 
     @Override
     public Plan visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate, C context) {
-        PhysicalOlapScan olapScan = (PhysicalOlapScan) storageLayerAggregate.getRelation().accept(this, context);
-        if (olapScan != storageLayerAggregate.getRelation()) {
-            return storageLayerAggregate.withPhysicalOlapScan(olapScan);
+        if (storageLayerAggregate.getRelation() instanceof PhysicalOlapScan) {
+            PhysicalOlapScan olapScan = (PhysicalOlapScan) storageLayerAggregate.getRelation().accept(this, context);
+            if (olapScan != storageLayerAggregate.getRelation()) {
+                return storageLayerAggregate.withPhysicalOlapScan(olapScan);
+            }
         }
         return storageLayerAggregate;
     }
