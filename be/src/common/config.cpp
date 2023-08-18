@@ -725,6 +725,8 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
 // number of brpc stream per OlapTableSinkV2
 DEFINE_Int32(stream_cnt_per_sink, "5");
+// timeout for open stream sink rpc in ms
+DEFINE_Int64(open_stream_sink_timeout_ms, "500");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,

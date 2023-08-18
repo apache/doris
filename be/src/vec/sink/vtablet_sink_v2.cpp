@@ -287,6 +287,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
             }
         }
         POpenStreamSinkResponse response;
+        cntl.set_timeout_ms(config::open_stream_sink_timeout_ms);
         stub->open_stream_sink(&cntl, &request, &response, nullptr);
         for (const auto& resp : response.tablet_schemas()) {
             auto tablet_schema = std::make_shared<TabletSchema>();
