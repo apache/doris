@@ -113,6 +113,6 @@ suite("view_p0") {
     """
     qt_sql "select * from test_element_at_view;"
     
-    qt_sql "select /*+ SET_VAR(enable_fallback_to_original_planner = true) */  * from test_element_at_view;"
+    qt_sql "select /*+ SET_VAR(enable_fallback_to_original_planner = false) */  * from test_element_at_view;"
     
 }
