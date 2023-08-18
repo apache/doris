@@ -89,7 +89,8 @@ private:
                                            RowsetBinlogMetasPB* metas_pb);
     static Status _get_all_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,
                                                RowsetBinlogMetasPB* metas_pb);
-    static bool _get_tablet_id_and_rowset_id(const std::string& key, std::pair<TabletUid, RowsetId>* res);
+    static bool _get_tablet_id_and_rowset_id(const std::string& key,
+                                             std::pair<TabletUid, RowsetId>* res);
 };
 
 } // namespace doris

@@ -333,12 +333,12 @@ Status OlapMeta::iterate_with_write(
         std::function<bool(const std::string&, const std::string&, std::string*)> const& func) {
     const auto& traverse_func = [column_family_index, &func, this](const std::string& key,
                                                                    const std::string& value) {
-        std::string* overwrite_val = nullptr;
-        func(key, value, overwrite_val);
+        std::string overwrite_val;
+        func(key, value, &overwrite_val);
         if (overwrite_val == nullptr) {
             return true;
         }
-        return put(column_family_index, key, *overwrite_val).ok();
+        return put(column_family_index, key, overwrite_val).ok();
     };
     return iterate(column_family_index, seek_key, prefix, traverse_func);
 }
