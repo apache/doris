@@ -171,9 +171,8 @@ Status IndexStream::open_tablet(int64_t partition_id, int64_t tablet_id) {
         std::lock_guard lock_guard(_lock);
         auto it = _tablet_streams_map.find(tablet_id);
         if (it == _tablet_streams_map.end()) {
-            tablet_stream =
-                    std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _num_senders,
-                                                   _profile, partition_id);
+            tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id,
+                                                           _num_senders, _profile, partition_id);
             _tablet_streams_map[tablet_id] = tablet_stream;
             RETURN_IF_ERROR(tablet_stream->init(_schema.get(), _id, partition_id));
         }
@@ -202,7 +201,7 @@ void IndexStream::close(std::vector<int64_t>* success_tablet_ids,
     std::lock_guard lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
     for (auto& it : _tablet_streams_map) {
-        if (committing_partitions.contains(it.second->partition_id()) <= 0 ) {
+        if (committing_partitions.contains(it.second->partition_id()) <= 0) {
             // The tablet's partition is not in committing partition list
             // which means it is not written. So ignore it.
             continue;
