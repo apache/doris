@@ -1147,6 +1147,8 @@ struct TPlanNode {
   47: optional TTestExternalScanNode test_external_scan_node
 
   48: optional TPushAggOp push_down_agg_type_opt
+
+  49: optional i64 push_down_count
   
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
