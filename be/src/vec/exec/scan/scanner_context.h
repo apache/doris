@@ -167,8 +167,6 @@ private:
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
-    void _init_free_block(int pre_alloc_block_count, int real_block_size);
-
     RuntimeState* _state;
     VScanNode* _parent;
 
