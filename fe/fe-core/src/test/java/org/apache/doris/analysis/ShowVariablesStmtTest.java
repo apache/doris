@@ -20,22 +20,24 @@ package org.apache.doris.analysis;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class ShowVariablesStmtTest {
+    public class ShowVariablesStmtTest {
     @Test
     public void testNormal() {
         ShowVariablesStmt stmt = new ShowVariablesStmt(null, null);
         stmt.analyze(null);
         Assert.assertEquals("SHOW DEFAULT VARIABLES", stmt.toString());
-        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Variable_name", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Value", stmt.getMetaData().getColumn(1).getName());
+        Assert.assertEquals("Default_Value", stmt.getMetaData().getColumn(2).getName());
+        Assert.assertEquals("Changed", stmt.getMetaData().getColumn(3).getName());
         Assert.assertNull(stmt.getPattern());
         Assert.assertEquals(SetType.DEFAULT, stmt.getType());
 
         stmt = new ShowVariablesStmt(SetType.GLOBAL, "abc");
         stmt.analyze(null);
         Assert.assertEquals("SHOW GLOBAL VARIABLES LIKE 'abc'", stmt.toString());
-        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Variable_name", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Value", stmt.getMetaData().getColumn(1).getName());
         Assert.assertEquals("abc", stmt.getPattern());
