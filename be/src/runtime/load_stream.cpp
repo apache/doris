@@ -185,10 +185,23 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
     return tablet_stream->append_data(header, data);
 }
 
-void IndexStream::close(std::vector<int64_t>* success_tablet_ids,
-                        std::vector<int64_t>* failed_tablet_ids) {
+Status IndexStream::close(std::vector<int64_t>* success_tablet_ids,
+                        std::vector<int64_t>* failed_tablet_ids,
+                        std::vector<NeedCommitTabletInfo>* need_commit_tablet_info) {
     std::lock_guard lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
+    // open all need commit tablets
+    for (auto info : *need_commit_tablet_info) {
+        TabletStreamSharedPtr tablet_stream;
+        auto it = _tablet_streams_map.find(info.tablet_id());
+        if (it == _tablet_streams_map.end()) {
+            tablet_stream = std::make_shared<TabletStream>(_load_id, info.tablet_id(), _txn_id,
+                                                           _num_senders, _profile);
+            _tablet_streams_map[info.tablet_id()] = tablet_stream;
+            RETURN_IF_ERROR(tablet_stream->init(_schema.get(), _id, info.partition_id()));
+        }
+    }
+
     for (auto& it : _tablet_streams_map) {
         auto st = it.second->close();
         if (st.ok()) {
@@ -200,6 +213,7 @@ void IndexStream::close(std::vector<int64_t>* success_tablet_ids,
     }
     failed_tablet_ids->insert(failed_tablet_ids->end(), _failed_tablet_ids.begin(),
                               _failed_tablet_ids.end());
+    return Status::OK();
 }
 
 LoadStream::LoadStream(PUniqueId id) : _id(id) {
@@ -232,7 +246,8 @@ Status LoadStream::init(const POpenStreamSinkRequest* request) {
 }
 
 Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_tablet_ids,
-                         std::vector<int64_t>* failed_tablet_ids) {
+                         std::vector<int64_t>* failed_tablet_ids,
+                         std::vector<NeedCommitTabletInfo>* need_commit_tablet_info) {
     if (sender_id >= _senders_status.size()) {
         LOG(WARNING) << "out of range sender id " << sender_id << "  num "
                      << _senders_status.size();
@@ -257,29 +272,38 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
     }
     _senders_status[sender_id] = false;
     _num_working_senders--;
+    Status st = Status::OK();
     if (_num_working_senders == 0) {
         bthread::Mutex mutex;
         std::unique_lock<bthread::Mutex> lock(mutex);
         bthread::ConditionVariable cond;
-        bool ret = ExecEnv::GetInstance()->get_heavy_work_pool()->try_offer([this, &success_tablet_ids, &failed_tablet_ids, &cond]() {
-            for (auto& it : _index_streams_map) {
-                it.second->close(success_tablet_ids, failed_tablet_ids);
-            }
-            failed_tablet_ids->insert(failed_tablet_ids->end(), _failed_tablet_ids.begin(),
-                                      _failed_tablet_ids.end());
-            LOG(INFO) << "close load " << *this << ", failed_tablet_num=" << failed_tablet_ids->size()
-                      << ", success_tablet_num=" << success_tablet_ids->size();
-            cond.notify_one();
-        });
+        bool ret = ExecEnv::GetInstance()->get_heavy_work_pool()->try_offer(
+                [this, &success_tablet_ids, &failed_tablet_ids, &need_commit_tablet_info, &cond,
+                 &st]() {
+                    for (auto& it : _index_streams_map) {
+                        st = it.second->close(success_tablet_ids, failed_tablet_ids,
+                                              need_commit_tablet_info);
+                        if (!st.ok()) {
+                            return;
+                        }
+                    }
+                    failed_tablet_ids->insert(failed_tablet_ids->end(), _failed_tablet_ids.begin(),
+                                              _failed_tablet_ids.end());
+                    LOG(INFO) << "close load " << *this
+                              << ", failed_tablet_num=" << failed_tablet_ids->size()
+                              << ", success_tablet_num=" << success_tablet_ids->size();
+                    cond.notify_one();
+                });
         if (ret) {
             cond.wait(lock);
         } else {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>("there is not enough thread resource for close load");
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "there is not enough thread resource for close load");
         }
     }
 
     // do not return commit info for non-last one.
-    return Status::OK();
+    return st;
 }
 
 void LoadStream::_report_result(StreamId stream, Status& st,
@@ -388,7 +412,10 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
         case PStreamHeader::CLOSE_LOAD: {
             std::vector<int64_t> success_tablet_ids;
             std::vector<int64_t> failed_tablet_ids;
-            auto st = close(hdr.sender_id(), &success_tablet_ids, &failed_tablet_ids);
+            auto& need_commit_tablet_info = hdr.need_commit_tablet_info();
+            std::vector<NeedCommitTabletInfo> info(need_commit_tablet_info.begin(), need_commit_tablet_info.end());
+            auto st = close(hdr.sender_id(), &success_tablet_ids, &failed_tablet_ids,
+                            &info);
             _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
         } break;
         default:

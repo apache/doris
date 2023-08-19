@@ -295,6 +295,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
                     }
                 }
             }
+            _build_node_partition_tablet_mapping();
         }
         POpenStreamSinkResponse response;
         cntl.set_timeout_ms(config::open_stream_sink_timeout_ms);
@@ -321,6 +322,19 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
         stream_pool.push_back(stream);
     }
     return Status::OK();
+}
+
+void VOlapTableSinkV2::_build_node_partition_tablet_mapping() {
+    for (const auto& partition : _vpartition->get_partitions()) {
+        for (const auto& index : partition->indexes) {
+            for (const auto& tablet_id : index.tablets) {
+                auto nodes = _location->find_tablet(tablet_id)->node_ids;
+                for (auto& node : nodes) {
+                    _node_partition_tablet_mapping[node][partition->id].insert(tablet_id);
+                }
+            }
+        }
+    }
 }
 
 void VOlapTableSinkV2::_generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
@@ -582,6 +596,16 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
     header.set_sender_id(_sender_id);
     header.set_allocated_load_id(&_load_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
+    for (auto partition_id : _tablet_finder->partition_ids()) {
+        auto node = _node_id_for_stream.get()->at(stream);
+        auto partition_tablet_mapping = _node_partition_tablet_mapping.at(node);
+        auto tablet_ids = partition_tablet_mapping.at(partition_id);
+        for (auto& tablet_id : tablet_ids) {
+            NeedCommitTabletInfo* need_commit_tablet_info = header.add_need_commit_tablet_info();;
+            need_commit_tablet_info->set_tablet_id(tablet_id);
+            need_commit_tablet_info->set_partition_id(partition_id);
+        }
+    }
     size_t header_len = header.ByteSizeLong();
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
     buf.append(header.SerializeAsString());
