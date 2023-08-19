@@ -1123,6 +1123,8 @@ DECLARE_mBool(enable_merge_on_write_correctness_check);
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
 
+DECLARE_mBool(sync_dirty_data_on_close);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
