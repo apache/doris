@@ -278,6 +278,12 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
             // get tablet schema from each backend only in the 1st stream
             for (const auto& partition : _vpartition->get_partitions()) {
                 for (const auto& index : partition->indexes) {
+                    if (_tablet_schema_for_index.contains(index.index_id)) {
+                        // already getting tablet_schema for this index_id
+                        continue;
+                    }
+                    // create an entry in the map to mark this index_id
+                    _tablet_schema_for_index[index.index_id];
                     auto tablet_id = index.tablets[0];
                     auto nodes = _location->find_tablet(tablet_id)->node_ids;
                     if (std::find(nodes.begin(), nodes.end(), node_info.id) != nodes.end()) {
