@@ -610,14 +610,14 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
                 need_commit_tablet_info->set_partition_id(partition_id);
             }
         }
-        size_t header_len = header.ByteSizeLong();
-        buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
-        buf.append(header.SerializeAsString());
-        _pending_reports.fetch_add(1);
-        io::StreamSinkFileWriter::send_with_retry(stream, buf);
-        header.release_load_id();
-        return Status::OK();
     }
-
+    size_t header_len = header.ByteSizeLong();
+    buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
+    buf.append(header.SerializeAsString());
+    _pending_reports.fetch_add(1);
+    io::StreamSinkFileWriter::send_with_retry(stream, buf);
+    header.release_load_id();
+    return Status::OK();
+}
 } // namespace stream_load
 } // namespace doris
