@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.junit.Assert;
 import org.junit.Test;
 
-    public class ShowVariablesStmtTest {
+public class ShowVariablesStmtTest {
     @Test
     public void testNormal() {
         ShowVariablesStmt stmt = new ShowVariablesStmt(null, null);
