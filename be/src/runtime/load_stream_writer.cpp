@@ -83,10 +83,12 @@ Status LoadStreamWriter::init() {
 }
 
 Status LoadStreamWriter::append_data(uint32_t segid, butil::IOBuf buf) {
-    DCHECK(_is_init);
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
+        if (!_is_init) {
+            RETURN_IF_ERROR(init());
+        }
         if (segid + 1 > _segment_file_writers.size()) {
             for (size_t i = _segment_file_writers.size(); i <= segid; i++) {
                 Status st;

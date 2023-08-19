@@ -76,7 +76,9 @@ Status TabletStream::init(OlapTableSchemaParam* schema, int64_t index_id, int64_
 }
 
 Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
-    // TODO failed early
+    if (!_failed_st->ok()) {
+        return *failed_st;
+    }
 
     // dispatch add_segment request
     if (header.opcode() == PStreamHeader::ADD_SEGMENT) {
