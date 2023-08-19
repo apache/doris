@@ -326,20 +326,6 @@ void LoadStream::_report_result(StreamId stream, Status& st,
         response.add_failed_tablet_ids(id);
     }
 
-    {
-        TRuntimeProfileTree tprofile;
-        _profile->to_thrift(&tprofile);
-        ThriftSerializer ser(false, 4096);
-        uint8_t* buf = nullptr;
-        uint32_t len = 0;
-        auto st = ser.serialize(&tprofile, &len, &buf);
-        if (st.ok()) {
-            response.set_load_stream_profile(std::string((const char*)buf, len));
-        } else {
-            LOG(WARNING) << "load channel TRuntimeProfileTree serialize failed, errmsg=" << st;
-        }
-    }
-
     buf.append(response.SerializeAsString());
     int ret = brpc::StreamWrite(stream, buf);
     // TODO: handle eagain
