@@ -92,6 +92,9 @@ DeltaWriterV2::~DeltaWriterV2() {
 }
 
 Status DeltaWriterV2::init() {
+    if (_is_init) {
+        return Status::OK();
+    }
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param, *_req.tablet_schema.get());
     RowsetWriterContext context;
@@ -118,6 +121,7 @@ Status DeltaWriterV2::init() {
     _rowset_writer->init(context);
     _memtable_writer->init(_rowset_writer, _tablet_schema, _req.enable_unique_key_merge_on_write);
     _is_init = true;
+    ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     return Status::OK();
 }
 
