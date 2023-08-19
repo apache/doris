@@ -32,6 +32,7 @@ namespace io {
 class FileWriter {
 public:
     FileWriter(Path&& path, FileSystemSPtr fs) : _path(std::move(path)), _fs(fs) {}
+    FileWriter() = default;
     virtual ~FileWriter() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileWriter);
@@ -57,6 +58,8 @@ public:
     size_t bytes_appended() const { return _bytes_appended; }
 
     FileSystemSPtr fs() const { return _fs; }
+
+    bool is_closed() { return _closed; }
 
 protected:
     Path _path;

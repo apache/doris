@@ -86,6 +86,10 @@ public:
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
 
+    void open_stream_sink(google::protobuf::RpcController* controller,
+                          const POpenStreamSinkRequest* request, POpenStreamSinkResponse* response,
+                          google::protobuf::Closure* done) override;
+
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
                                  PTabletWriterAddBlockResult* response,
@@ -230,13 +234,6 @@ private:
 
 private:
     ExecEnv* _exec_env;
-
-    // every brpc service request should put into thread pool
-    // the reason see issue #16634
-    // define the interface for reading and writing data as heavy interface
-    // otherwise as light interface
-    FifoThreadPool _heavy_work_pool;
-    FifoThreadPool _light_work_pool;
 };
 
 } // namespace doris

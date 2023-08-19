@@ -56,6 +56,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -96,6 +97,18 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_thread_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(download_cache_thread_pool_queue_size, MetricUnit::NOUNIT);
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_active_threads, MetricUnit::NOUNIT);
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_max_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_max_threads, MetricUnit::NOUNIT);
+
+
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
@@ -150,6 +163,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::fragment_pool_queue_size)
             .build(&_join_node_thread_pool);
 
+    _heavy_work_pool.reset(new FifoThreadPool(config::brpc_heavy_work_pool_threads != -1
+                                   ? config::brpc_heavy_work_pool_threads
+                                   : std::max(128, CpuInfo::num_cores() * 4),
+                            config::brpc_heavy_work_pool_max_queue_size != -1
+                                   ? config::brpc_heavy_work_pool_max_queue_size
+                                   : std::max(10240, CpuInfo::num_cores() * 320),
+                           "brpc_heavy"));
+    _light_work_pool.reset(new FifoThreadPool(config::brpc_light_work_pool_threads != -1
+                                   ? config::brpc_light_work_pool_threads
+                                   : std::max(128, CpuInfo::num_cores() * 4),
+                           config::brpc_light_work_pool_max_queue_size != -1
+                                   ? config::brpc_light_work_pool_max_queue_size
+                                   : std::max(10240, CpuInfo::num_cores() * 320),
+                           "brpc_light"));
+
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
@@ -161,6 +189,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
+    _load_stream_mgr = new LoadStreamMgr(store_paths.size() * config::flush_thread_num_per_store);
     _new_load_stream_mgr = NewLoadStreamMgr::create_shared();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
@@ -367,6 +396,24 @@ void ExecEnv::_register_metrics() {
 
     REGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size,
                          [this]() { return _download_cache_thread_pool->get_queue_size(); });
+
+    REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
+                         [this]() { return _heavy_work_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(light_work_pool_queue_size,
+                         [this]() { return _light_work_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(heavy_work_active_threads,
+                         [this]() { return _heavy_work_pool->get_active_threads(); });
+    REGISTER_HOOK_METRIC(light_work_active_threads,
+                         [this]() { return _light_work_pool->get_active_threads(); });
+
+    REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
+                         []() { return config::brpc_heavy_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
+                         []() { return config::brpc_light_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(heavy_work_max_threads,
+                         []() { return config::brpc_heavy_work_pool_threads; });
+    REGISTER_HOOK_METRIC(light_work_max_threads,
+                         []() { return config::brpc_light_work_pool_threads; });
 }
 
 void ExecEnv::_deregister_metrics() {
@@ -375,6 +422,16 @@ void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(download_cache_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(download_cache_thread_pool_queue_size);
+
+    DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(heavy_work_active_threads);
+    DEREGISTER_HOOK_METRIC(light_work_active_threads);
+
+    DEREGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(light_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
+    DEREGISTER_HOOK_METRIC(light_work_max_threads);
 }
 
 void ExecEnv::_destroy() {
@@ -403,6 +460,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
     SAFE_DELETE(_file_meta_cache);
+    SAFE_DELETE(_load_stream_mgr);
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
     // access master_info.backend id to access some info. If there is a running query and master

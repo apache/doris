@@ -87,6 +87,7 @@
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -135,16 +136,6 @@ using namespace ErrorCode;
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_active_threads, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_active_threads, MetricUnit::NOUNIT);
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_max_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_max_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_max_threads, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_max_threads, MetricUnit::NOUNIT);
-
 bthread_key_t btls_key;
 
 static void thread_context_deleter(void* d) {
@@ -177,68 +168,27 @@ template <typename T>
 concept CanCancel = requires(T* response) { response->mutable_status(); };
 
 template <CanCancel T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool* pool) {
     brpc::ClosureGuard closure_guard(done);
     response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
     response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
-                                               pool.get_info());
+                                               pool->get_info());
 }
 
 template <typename T>
-void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
+void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool* pool) {
     brpc::ClosureGuard closure_guard(done);
-    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool.get_info();
+    LOG(WARNING) << "fail to offer request to the work pool, pool=" << pool->get_info();
 }
 
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
-        : _exec_env(exec_env),
-          _heavy_work_pool(config::brpc_heavy_work_pool_threads != -1
-                                   ? config::brpc_heavy_work_pool_threads
-                                   : std::max(128, CpuInfo::num_cores() * 4),
-                           config::brpc_heavy_work_pool_max_queue_size != -1
-                                   ? config::brpc_heavy_work_pool_max_queue_size
-                                   : std::max(10240, CpuInfo::num_cores() * 320),
-                           "brpc_heavy"),
-          _light_work_pool(config::brpc_light_work_pool_threads != -1
-                                   ? config::brpc_light_work_pool_threads
-                                   : std::max(128, CpuInfo::num_cores() * 4),
-                           config::brpc_light_work_pool_max_queue_size != -1
-                                   ? config::brpc_light_work_pool_max_queue_size
-                                   : std::max(10240, CpuInfo::num_cores() * 320),
-                           "brpc_light") {
-    REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
-                         [this]() { return _heavy_work_pool.get_queue_size(); });
-    REGISTER_HOOK_METRIC(light_work_pool_queue_size,
-                         [this]() { return _light_work_pool.get_queue_size(); });
-    REGISTER_HOOK_METRIC(heavy_work_active_threads,
-                         [this]() { return _heavy_work_pool.get_active_threads(); });
-    REGISTER_HOOK_METRIC(light_work_active_threads,
-                         [this]() { return _light_work_pool.get_active_threads(); });
-
-    REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
-                         []() { return config::brpc_heavy_work_pool_max_queue_size; });
-    REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
-                         []() { return config::brpc_light_work_pool_max_queue_size; });
-    REGISTER_HOOK_METRIC(heavy_work_max_threads,
-                         []() { return config::brpc_heavy_work_pool_threads; });
-    REGISTER_HOOK_METRIC(light_work_max_threads,
-                         []() { return config::brpc_light_work_pool_threads; });
+        : _exec_env(exec_env) {
 
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
 
 PInternalServiceImpl::~PInternalServiceImpl() {
-    DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(heavy_work_active_threads);
-    DEREGISTER_HOOK_METRIC(light_work_active_threads);
-
-    DEREGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size);
-    DEREGISTER_HOOK_METRIC(light_work_pool_max_queue_size);
-    DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
-    DEREGISTER_HOOK_METRIC(light_work_max_threads);
-
     CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
@@ -263,7 +213,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
                                               const PTabletWriterOpenRequest* request,
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
         signal::set_signal_task_id(request->id());
@@ -277,7 +227,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -285,11 +235,11 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
                                               const PExecPlanFragmentRequest* request,
                                               PExecPlanFragmentResult* response,
                                               google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -321,11 +271,11 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       const PExecPlanFragmentRequest* request,
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, response, done]() {
         _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -333,7 +283,7 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, result, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, result, done]() {
         auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
         auto scope = OpentelemetryScope {span};
         brpc::ClosureGuard closure_guard(done);
@@ -341,7 +291,66 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        offer_failed(result, done, _light_work_pool);
+        offer_failed(result, done, _exec_env->get_light_work_pool());
+    }
+}
+
+void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* controller,
+                                            const POpenStreamSinkRequest* request,
+                                            POpenStreamSinkResponse* response,
+                                            google::protobuf::Closure* done) {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([controller, request, response, done]() {
+        brpc::ClosureGuard done_guard(done);
+        LOG(INFO) << "OOXXOO: open stream sink, backend_id = " << request->backend_id();
+        std::unique_ptr<PStatus> status = std::make_unique<PStatus>();
+        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+        brpc::StreamOptions stream_options;
+     
+        for (const auto& req : request->tablets()) {
+            TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
+            TabletSharedPtr tablet = tablet_mgr->get_tablet(req.tablet_id());
+            if (tablet == nullptr) {
+                cntl->SetFailed(fmt::format("Tablet {} not found on backend {}", req.tablet_id(),
+                                            request->backend_id()));
+                status->set_status_code(TStatusCode::NOT_FOUND);
+                response->set_allocated_status(status.get());
+                response->release_status();
+                return;
+            }
+            auto resp = response->add_tablet_schemas();
+            resp->set_index_id(req.index_id());
+            resp->set_enable_unique_key_merge_on_write(tablet->enable_unique_key_merge_on_write());
+            tablet->tablet_schema()->to_schema_pb(resp->mutable_tablet_schema());
+        }
+     
+        ExecEnv* env = ExecEnv::GetInstance();
+     
+        auto load_stream_mgr = env->get_load_stream_mgr();
+        LoadStreamSharedPtr load_stream;
+        auto st = load_stream_mgr->try_open_load_stream(request, &load_stream);
+     
+        stream_options.handler = load_stream.get();
+        // TODO : set idle timeout
+        // stream_options.idle_timeout_ms =
+     
+        StreamId streamid;
+        if (brpc::StreamAccept(&streamid, *cntl, &stream_options) != 0) {
+            cntl->SetFailed("Fail to accept stream");
+            status->set_status_code(TStatusCode::CANCELLED);
+            response->set_allocated_status(status.get());
+            response->release_status();
+            return;
+        }
+     
+        load_stream->add_rpc_stream();
+        LOG(INFO) << "OOXXOO: get streamid =" << streamid;
+     
+        status->set_status_code(TStatusCode::OK);
+        response->set_allocated_status(status.get());
+        response->release_status();
+    });
+    if (!ret) {
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -349,18 +358,18 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
                                                    const PTabletWriterAddBlockRequest* request,
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([this, controller, request, response, done]() {
         _tablet_writer_add_block(controller, request, response, done);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 
 void PInternalServiceImpl::tablet_writer_add_block_by_http(
         google::protobuf::RpcController* controller, const ::doris::PEmptyRequest* request,
         PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, response, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([this, controller, response, done]() {
         PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTabletWriterAddBlockRequest>(new_request, done);
@@ -374,7 +383,7 @@ void PInternalServiceImpl::tablet_writer_add_block_by_http(
         }
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 
@@ -383,7 +392,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
                                                     PTabletWriterAddBlockResult* response,
                                                     google::protobuf::Closure* done) {
     int64_t submit_task_time_ns = MonotonicNanos();
-    bool ret = _heavy_work_pool.try_offer([request, response, done, submit_task_time_ns, this]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([request, response, done, submit_task_time_ns, this]() {
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
@@ -403,7 +412,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 
@@ -411,7 +420,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
                                                 const PTabletWriterCancelRequest* request,
                                                 PTabletWriterCancelResult* response,
                                                 google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
         signal::set_signal_task_id(request->id());
@@ -424,7 +433,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
         }
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -480,7 +489,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
                                                 const PCancelPlanFragmentRequest* request,
                                                 PCancelPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, result, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, result, done]() {
         auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
         auto scope = OpentelemetryScope {span};
         brpc::ClosureGuard closure_guard(done);
@@ -501,20 +510,20 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        offer_failed(result, done, _light_work_pool);
+        offer_failed(result, done, _exec_env->get_light_work_pool());
     }
 }
 
 void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* controller,
                                       const PFetchDataRequest* request, PFetchDataResult* result,
                                       google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, result, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([this, controller, request, result, done]() {
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
         _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
     });
     if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
+        offer_failed(result, done, _exec_env->get_heavy_work_pool());
     }
 }
 
@@ -522,7 +531,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                                               const PFetchTableSchemaRequest* request,
                                               PFetchTableSchemaResult* result,
                                               google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([request, result, done]() {
         VLOG_RPC << "fetch table schema";
         brpc::ClosureGuard closure_guard(done);
         TFileScanRange file_scan_range;
@@ -626,7 +635,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         st.to_protobuf(result->mutable_status());
     });
     if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
+        offer_failed(result, done, _exec_env->get_heavy_work_pool());
     }
 }
 
@@ -646,14 +655,14 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
                                              const PTabletKeyLookupRequest* request,
                                              PTabletKeyLookupResponse* response,
                                              google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, response, done]() {
         [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
         Status st = _tablet_fetch_data(request, response);
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -661,11 +670,11 @@ void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcCon
                                                         const PFetchColIdsRequest* request,
                                                         PFetchColIdsResponse* response,
                                                         google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, response, done]() {
         _get_column_ids_by_tablet_ids(controller, request, response, done);
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -739,7 +748,7 @@ void PInternalServiceImpl::report_stream_load_status(google::protobuf::RpcContro
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
                                     const PProxyRequest* request, PProxyResult* response,
                                     google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         // PProxyRequest is defined in gensrc/proto/internal_service.proto
         // Currently it supports 2 kinds of requests:
@@ -797,43 +806,43 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
         Status::OK().to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 
 void PInternalServiceImpl::update_cache(google::protobuf::RpcController* controller,
                                         const PUpdateCacheRequest* request,
                                         PCacheResponse* response, google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->update(request, response);
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
 void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controller,
                                        const PFetchCacheRequest* request, PFetchCacheResult* result,
                                        google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->fetch(request, result);
     });
     if (!ret) {
-        offer_failed(result, done, _heavy_work_pool);
+        offer_failed(result, done, _exec_env->get_heavy_work_pool());
     }
 }
 
 void PInternalServiceImpl::clear_cache(google::protobuf::RpcController* controller,
                                        const PClearCacheRequest* request, PCacheResponse* response,
                                        google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->clear(request, response);
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -841,7 +850,7 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
                                         const ::doris::PMergeFilterRequest* request,
                                         ::doris::PMergeFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
@@ -852,7 +861,7 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -860,7 +869,7 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
                                         const ::doris::PPublishFilterRequest* request,
                                         ::doris::PPublishFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
@@ -873,7 +882,7 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -881,7 +890,7 @@ void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* con
                                           const ::doris::PPublishFilterRequestV2* request,
                                           ::doris::PPublishFilterResponse* response,
                                           ::google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
@@ -894,14 +903,14 @@ void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* con
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
 void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller,
                                      const PSendDataRequest* request, PSendDataResult* response,
                                      google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId load_id;
         load_id.hi = request->load_id().hi();
@@ -927,14 +936,14 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
         }
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 
 void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
                                   const PCommitRequest* request, PCommitResult* response,
                                   google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId load_id;
         load_id.hi = request->load_id().hi();
@@ -950,14 +959,14 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
         }
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
 void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
                                     const PRollbackRequest* request, PRollbackResult* response,
                                     google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId load_id;
         load_id.hi = request->load_id().hi();
@@ -972,7 +981,7 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
         }
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -980,7 +989,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
                                               const PConstantExprRequest* request,
                                               PConstantExprResult* response,
                                               google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         st = _fold_constant_expr(request->request(), response);
@@ -990,7 +999,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -1019,8 +1028,9 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
         return;
     }
 
-    FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.try_offer([this, controller, request, response, done]() {
+    FifoThreadPool* pool = request->has_block() ? _exec_env->get_heavy_work_pool() :
+                                                  _exec_env->get_light_work_pool();
+    bool ret = pool->try_offer([this, controller, request, response, done]() {
         _transmit_block(controller, request, response, done, Status::OK());
     });
     if (!ret) {
@@ -1032,7 +1042,7 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
                                                   const PEmptyRequest* request,
                                                   PTransmitDataResult* response,
                                                   google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, response, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([this, controller, response, done]() {
         PTransmitDataParams* new_request = new PTransmitDataParams();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTransmitDataParams>(new_request, done);
@@ -1042,7 +1052,7 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
         _transmit_block(controller, new_request, response, new_done, st);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 
@@ -1084,7 +1094,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
                                              const PCheckRPCChannelRequest* request,
                                              PCheckRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
         if (request->data().size() != request->size()) {
@@ -1108,7 +1118,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
         }
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -1116,7 +1126,7 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
                                              const PResetRPCChannelRequest* request,
                                              PResetRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
         if (request->all()) {
@@ -1146,7 +1156,7 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
         }
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -1154,7 +1164,7 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
                                       const PHandShakeRequest* request,
                                       PHandShakeResponse* response,
                                       google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done]() {
+    bool ret = _exec_env->get_light_work_pool()->try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         if (request->has_hello()) {
             response->set_hello(request->hello());
@@ -1162,7 +1172,7 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
         response->mutable_status()->set_status_code(0);
     });
     if (!ret) {
-        offer_failed(response, done, _light_work_pool);
+        offer_failed(response, done, _exec_env->get_light_work_pool());
     }
 }
 
@@ -1221,7 +1231,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     int64_t brpc_port = request->brpc_port();
     std::string token = request->token();
     int64_t node_id = request->node_id();
-    bool ret = _heavy_work_pool.try_offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
                                            indices_size, http_port, token, rowset_path, this]() {
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
@@ -1380,7 +1390,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                                     rowset_meta->tablet_id(), node_id, true);
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
     Status::OK().to_protobuf(response->mutable_status());
 }
@@ -1440,7 +1450,7 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
         PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         VLOG_CRITICAL << "receive the result of slave replica pull rowset from slave replica. "
                          "slave server="
@@ -1451,7 +1461,7 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         Status::OK().to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 
@@ -1613,7 +1623,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          const PMultiGetRequest* request,
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done, this]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([request, response, done, this]() {
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
@@ -1624,7 +1634,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 
@@ -1640,7 +1650,7 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
 void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
                                 const PGlobRequest* request, PGlobResponse* response,
                                 google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+    bool ret = _exec_env->get_heavy_work_pool()->try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::vector<io::FileInfo> files;
         Status st = io::global_local_filesystem()->safe_glob(request->pattern(), &files);
@@ -1654,7 +1664,7 @@ void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
+        offer_failed(response, done, _exec_env->get_heavy_work_pool());
     }
 }
 

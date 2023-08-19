@@ -58,6 +58,7 @@ class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
+class LoadStreamMgr;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
@@ -188,6 +189,11 @@ public:
         this->_stream_load_executor = stream_load_executor;
     }
 
+    LoadStreamMgr* get_load_stream_mgr() { return _load_stream_mgr; }
+
+    FifoThreadPool* get_heavy_work_pool() { return _heavy_work_pool.get(); }
+    FifoThreadPool* get_light_work_pool() { return _light_work_pool.get(); }
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -264,6 +270,14 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
+    LoadStreamMgr* _load_stream_mgr = nullptr;
+
+    // every brpc service request should put into thread pool
+    // the reason see issue #16634
+    // define the interface for reading and writing data as heavy interface
+    // otherwise as light interface
+    std::unique_ptr<FifoThreadPool> _heavy_work_pool;
+    std::unique_ptr<FifoThreadPool> _light_work_pool;
 };
 
 template <>
