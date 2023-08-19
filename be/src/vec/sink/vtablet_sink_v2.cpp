@@ -513,6 +513,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
 
+        LOG(INFO) << "starting to close DeltaWriters";
         {
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers
@@ -527,6 +528,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             _delta_writer_for_tablet.reset();
         }
 
+        LOG(INFO) << "closed DeltaWriters, starting to send CLOSE_LOAD";
         {
             // send CLOSE_LOAD to all streams, return ERROR if any
             RETURN_IF_ERROR(std::transform_reduce(
@@ -536,6 +538,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
                     [this](auto&& entry) { return _close_load(entry.first); }));
         }
 
+        LOG(INFO) << "sent CLOSE_LOAD, starting wait for reports";
         {
             SCOPED_TIMER(_close_load_timer);
             while (_pending_reports.load() > 0) {
@@ -545,6 +548,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             }
         }
 
+        LOG(INFO) << "got all reports, starting StreamClose";
         {
             SCOPED_TIMER(_close_stream_timer);
             // close streams
@@ -556,6 +560,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             _stream_pool_for_node.reset();
         }
 
+        LOG(INFO) << "finished StreamClose, starting update commit info";
         std::vector<TTabletCommitInfo> tablet_commit_infos;
         for (auto& [tablet_id, backends] : _tablet_success_map) {
             for (int64_t be_id : backends) {
