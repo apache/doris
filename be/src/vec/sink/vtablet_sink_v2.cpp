@@ -598,14 +598,17 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
     header.set_sender_id(_sender_id);
     header.set_allocated_load_id(&_load_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
+    auto node = _node_id_for_stream.get()->at(stream);
+    auto partition_tablet_mapping = _node_partition_tablet_mapping.at(node);
     for (auto partition_id : _tablet_finder->partition_ids()) {
-        auto node = _node_id_for_stream.get()->at(stream);
-        auto partition_tablet_mapping = _node_partition_tablet_mapping.at(node);
-        auto tablet_ids = partition_tablet_mapping.at(partition_id);
-        for (auto& tablet_id : tablet_ids) {
-            NeedCommitTabletInfo* need_commit_tablet_info = header.add_need_commit_tablet_info();;
-            need_commit_tablet_info->set_tablet_id(tablet_id);
-            need_commit_tablet_info->set_partition_id(partition_id);
+        auto tablet_ids_it = partition_tablet_mapping.find(partition_id);
+        if (tablet_ids_it != partition_tablet_mapping.end()) {
+            for (auto& tablet_id : tablet_ids_it->second) {
+                NeedCommitTabletInfo* need_commit_tablet_info =
+                        header.add_need_commit_tablet_info();
+                need_commit_tablet_info->set_tablet_id(tablet_id);
+                need_commit_tablet_info->set_partition_id(partition_id);
+            }
         }
     }
     size_t header_len = header.ByteSizeLong();
