@@ -446,6 +446,8 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
         RETURN_IF_ERROR(
                 _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
     }
+    RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
+    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
@@ -734,10 +736,6 @@ Status BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat)
             _num_segment++;
         }
     }
-    if (_context.mow_context != nullptr) {
-        RETURN_IF_ERROR(_generate_delete_bitmap(segid));
-    }
-    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 

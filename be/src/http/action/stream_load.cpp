@@ -550,13 +550,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_partial_update(false);
         }
     }
-    if (!http_req->header(HTTP_MEMTABLE_ON_SINKNODE).empty()) {
-        if (iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true")) {
-            request.__set_memtable_on_sink_node(true);
-        } else {
-            request.__set_memtable_on_sink_node(false);
-        }
-    }
 
 #ifndef BE_TEST
     // plan this load

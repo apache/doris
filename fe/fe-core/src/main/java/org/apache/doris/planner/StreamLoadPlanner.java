@@ -313,7 +313,6 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
 
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
@@ -534,7 +533,6 @@ public class StreamLoadPlanner {
         queryOptions.setEnablePipelineEngine(Config.enable_pipeline_load);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile());
-        queryOptions.setEnableMemtableOnSinkNode(taskInfo.isMemtableOnSinkNode());
 
         pipParams.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
