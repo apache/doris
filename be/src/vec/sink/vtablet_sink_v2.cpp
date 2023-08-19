@@ -619,5 +619,6 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
     header.release_load_id();
     return Status::OK();
 }
+
 } // namespace stream_load
 } // namespace doris
