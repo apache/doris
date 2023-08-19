@@ -32,15 +32,17 @@ Status PrimaryKeyIndexBuilder::init() {
     segment_v2::IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = true;
+    options.data_page_size = config::primary_key_data_page_size;
     options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
-    // TODO(liaoxin) test to confirm whether it needs to be compressed
-    options.compression = segment_v2::NO_COMPRESSION; // currently not compressed
+    options.compression = segment_v2::ZSTD;
     _primary_key_index_builder.reset(
             new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
     RETURN_IF_ERROR(_primary_key_index_builder->init());
 
-    _bloom_filter_index_builder.reset(new segment_v2::PrimaryKeyBloomFilterIndexWriterImpl(
-            segment_v2::BloomFilterOptions(), type_info));
+    auto opt = segment_v2::BloomFilterOptions();
+    opt.fpp = 0.01;
+    _bloom_filter_index_builder.reset(
+            new segment_v2::PrimaryKeyBloomFilterIndexWriterImpl(opt, type_info));
     return Status::OK();
 }
 
