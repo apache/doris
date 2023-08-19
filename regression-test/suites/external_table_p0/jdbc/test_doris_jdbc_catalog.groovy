@@ -41,7 +41,7 @@ suite("test_doris_jdbc_catalog", "p0") {
         "password" = "${jdbcPassword}",
         "jdbc_url" = "${jdbcUrl}",
         "driver_url" = "${driver_url}",
-        "driver_class" = "com.mysql.jdbc.Driver"
+        "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
 
     sql  """ drop table if exists ${inDorisTable} """

@@ -639,7 +639,7 @@ void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
                     continue;
                 }
                 commit_tablet_txn_info_vec->push_back(CommitTabletTxnInfo(
-                        partition_id, transaction_id, rowset, delete_bitmap, rowset_ids));
+                        partition_id, transaction_id, delete_bitmap, rowset_ids));
             }
         }
     }

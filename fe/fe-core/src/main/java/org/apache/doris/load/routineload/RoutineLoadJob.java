@@ -253,6 +253,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected boolean isTypeRead = false;
 
+    protected byte enclose = 0;
+
+    protected byte escape = 0;
+
     public void setTypeRead(boolean isTypeRead) {
         this.isTypeRead = isTypeRead;
     }
@@ -514,6 +518,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public Separator getLineDelimiter() {
         return lineDelimiter;
+    }
+
+    public byte getEnclose() {
+        return enclose;
+    }
+
+    public byte getEscape() {
+        return escape;
     }
 
     public boolean isStrictMode() {

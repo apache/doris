@@ -204,6 +204,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case OLAP:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
+                cascadesContext.getStatementContext().addView((View) table);
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
@@ -254,7 +255,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer().analyze();
-
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }

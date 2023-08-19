@@ -157,6 +157,14 @@ public class Edge {
         return join.getExpressions();
     }
 
+    public List<Expression> getHashJoinConjuncts() {
+        return join.getHashJoinConjuncts();
+    }
+
+    public List<Expression> getOtherJoinConjuncts() {
+        return join.getOtherJoinConjuncts();
+    }
+
     public final Set<Slot> getInputSlots() {
         Set<Slot> slots = new HashSet<>();
         join.getExpressions().stream().forEach(expression -> slots.addAll(expression.getInputSlots()));

@@ -75,7 +75,6 @@ import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
@@ -2755,8 +2754,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStatus updateStatsCache(TUpdateFollowerStatsCacheRequest request) throws TException {
         StatisticsCacheKey key = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
-        ColumnStatistic columnStatistic = GsonUtils.GSON.fromJson(request.colStats, ColumnStatistic.class);
-        Env.getCurrentEnv().getStatisticsCache().putCache(key, columnStatistic);
+        /*
+         TODO: Need to handle minExpr and maxExpr, so that we can generate the columnStatistic
+          here and use putCache to update cached directly.
+         ColumnStatistic columnStatistic = GsonUtils.GSON.fromJson(request.colStats, ColumnStatistic.class);
+         Env.getCurrentEnv().getStatisticsCache().putCache(key, columnStatistic);
+        */
+        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(key.tableId, key.idxId, key.colName);
         return new TStatus(TStatusCode.OK);
     }
 }

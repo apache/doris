@@ -575,7 +575,7 @@ public class ScalarType extends Type {
                 break;
             case VARCHAR:
                 if (isWildcardVarchar()) {
-                    stringBuilder.append("varchar(*)");
+                    stringBuilder.append("varchar");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("varchar").append("(").append(len).append(")");
                 } else {

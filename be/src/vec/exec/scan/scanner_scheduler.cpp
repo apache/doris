@@ -40,7 +40,7 @@
 #include "util/blocking_queue.hpp"
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
-#include "util/priority_work_stealing_thread_pool.hpp"
+#include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/work_thread_pool.hpp"
@@ -94,9 +94,9 @@ Status ScannerScheduler::init(ExecEnv* env) {
     }
 
     // 2. local scan thread pool
-    _local_scan_thread_pool.reset(new PriorityWorkStealingThreadPool(
-            config::doris_scanner_thread_pool_thread_num, env->store_paths().size(),
-            config::doris_scanner_thread_pool_queue_size, "local_scan"));
+    _local_scan_thread_pool.reset(
+            new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
+                                   config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
     ThreadPoolBuilder("RemoteScanThreadPool")
@@ -213,7 +213,6 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                         this->_scanner_scan(this, ctx, scanner);
                     };
                     task.priority = nice;
-                    task.queue_id = (*iter)->queue_id();
                     ret = _local_scan_thread_pool->offer(task);
                 } else {
                     ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {

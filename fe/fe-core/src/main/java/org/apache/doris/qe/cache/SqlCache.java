@@ -31,12 +31,16 @@ import org.apache.logging.log4j.Logger;
 public class SqlCache extends Cache {
     private static final Logger LOG = LogManager.getLogger(SqlCache.class);
 
+    private String originSql;
+
     public SqlCache(TUniqueId queryId, SelectStmt selectStmt) {
         super(queryId, selectStmt);
     }
 
-    public SqlCache(TUniqueId queryId) {
+    // For SetOperationStmt and Nereids
+    public SqlCache(TUniqueId queryId, String originSql) {
         super(queryId);
+        this.originSql = originSql;
     }
 
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, String allViewExpandStmtListStr) {
@@ -45,11 +49,10 @@ public class SqlCache extends Cache {
     }
 
     public String getSqlWithViewStmt() {
-        if (selectStmt != null)  {
-            return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
-        } else {
-            return allViewExpandStmtListStr;
-        }
+        String originSql = selectStmt != null ? selectStmt.toSql() : this.originSql;
+        String cacheKey = originSql + "|" + allViewExpandStmtListStr;
+        LOG.debug("Cache key: {}", cacheKey);
+        return cacheKey;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {

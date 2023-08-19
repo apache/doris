@@ -110,7 +110,7 @@ class MemoTest implements MemoPatternMatchSupported {
         groupExpressions.put(srcParentExpression, srcParentExpression);
         groupExpressions.put(dstParentExpression, dstParentExpression);
 
-        memo.mergeGroup(srcGroup, dstGroup);
+        memo.mergeGroup(srcGroup, dstGroup, null);
 
         // check
         Assertions.assertEquals(0, srcGroup.getParentGroupExpressions().size());

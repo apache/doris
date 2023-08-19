@@ -854,7 +854,8 @@ public class SystemInfoService {
                 DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
                 if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
                     return new Status(TStatusCode.CANCELLED,
-                            "disk " + pathHash + " on backend " + beId + " exceed limit usage");
+                            "disk " + diskInfo.getRootPath() + " on backend "
+                                    + beId + " exceed limit usage, path hash: " + pathHash);
                 }
             }
         }

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
@@ -56,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -97,6 +99,28 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PatternDescriptor<LogicalAggregate<GroupPlan>> basePattern = logicalAggregate();
 
         return ImmutableList.of(
+            RuleType.COUNT_ON_INDEX.build(
+                logicalAggregate(
+                    logicalProject(
+                        logicalFilter(
+                            logicalOlapScan()
+                        ).when(filter -> containsMatchExpression(filter.getExpressions())
+                                && filter.getExpressions().size() == 1)
+                    ))
+                    .when(agg -> enablePushDownCountOnIndex())
+                    .when(agg -> agg.getGroupByExpressions().size() == 0)
+                    .when(agg -> {
+                        Set<AggregateFunction> funcs = agg.getAggregateFunctions();
+                        return !funcs.isEmpty() && funcs.stream().allMatch(f -> f instanceof Count && !f.isDistinct());
+                    })
+                    .thenApply(ctx -> {
+                        LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> agg = ctx.root;
+                        LogicalProject<LogicalFilter<LogicalOlapScan>> project = agg.child();
+                        LogicalFilter<LogicalOlapScan> filter = project.child();
+                        LogicalOlapScan olapScan = filter.child();
+                        return pushdownCountOnIndex(agg, project, filter, olapScan, ctx.cascadesContext);
+                    })
+            ),
             RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT.build(
                 logicalAggregate(
                     logicalOlapScan()
@@ -186,6 +210,55 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             .thenApplyMulti(ctx -> fourPhaseAggregateWithDistinct(ctx.root, ctx.connectContext))
             )
         );
+    }
+
+    private boolean containsMatchExpression(List<Expression> expressions) {
+        return expressions.stream().allMatch(expr -> expr instanceof Match);
+    }
+
+    private boolean enablePushDownCountOnIndex() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().isEnablePushDownCountOnIndex();
+    }
+
+    /**
+     * sql: select count(*) from tbl where column match 'token'
+     * <p>
+     * before:
+     * <p>
+     *               LogicalAggregate(groupBy=[], output=[count(*)])
+     *                                |
+     *                     LogicalFilter(column match 'token')
+     *                                |
+     *                       LogicalOlapScan(table=tbl)
+     * <p>
+     * after:
+     * <p>
+     *               LogicalAggregate(groupBy=[], output=[count(*)])
+     *                                |
+     *                    LogicalFilter(column match 'token')
+     *                                |
+     *        PhysicalStorageLayerAggregate(pushAggOp=COUNT_ON_INDEX, table=PhysicalOlapScan(table=tbl))
+     *
+     */
+    private LogicalAggregate<? extends Plan> pushdownCountOnIndex(
+            LogicalAggregate<? extends Plan> agg,
+            LogicalProject<? extends Plan> project,
+            LogicalFilter<? extends Plan> filter,
+            LogicalOlapScan olapScan,
+            CascadesContext cascadesContext) {
+        PhysicalOlapScan physicalOlapScan
+                = (PhysicalOlapScan) new LogicalOlapScanToPhysicalOlapScan()
+                .build()
+                .transform(olapScan, cascadesContext)
+                .get(0);
+        return agg.withChildren(ImmutableList.of(
+                project.withChildren(ImmutableList.of(
+                        filter.withChildren(ImmutableList.of(
+                                new PhysicalStorageLayerAggregate(
+                                        physicalOlapScan,
+                                        PushDownAggOp.COUNT_ON_MATCH)))))
+        ));
     }
 
     /**

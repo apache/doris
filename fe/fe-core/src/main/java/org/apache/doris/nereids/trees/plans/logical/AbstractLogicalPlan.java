@@ -27,15 +27,11 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * Abstract class for all concrete logical plan.
  */
 public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
-
-    private final Supplier<Boolean> hasUnboundExpressions = super::hasUnboundExpression;
-
     public AbstractLogicalPlan(PlanType type, Plan... children) {
         super(type, children);
     }
@@ -48,11 +44,6 @@ public abstract class AbstractLogicalPlan extends AbstractPlan implements Logica
     public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         super(type, groupExpression, logicalProperties, null, children);
-    }
-
-    @Override
-    public boolean hasUnboundExpression() {
-        return hasUnboundExpressions.get();
     }
 
     @Override

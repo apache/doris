@@ -50,6 +50,6 @@ suite("test_bound_exception") {
     }
     test {
         sql "SELECT id FROM ${tbName} WHERE id123 = 123 ORDER BY id"
-        exception "errCode = 2, detailMessage = Unexpected exception: Invalid call to dataType on unbound object"
+        exception "errCode = 2, detailMessage = Unexpected exception: Invalid call to id123.getDataType() on unbound object"
     }
 }

@@ -177,12 +177,9 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     // the condition column type should not be float or double.
     const TabletColumn& column = schema.column(field_index);
 
-    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
-        column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
         column.type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
-        return Status::Error<DELETE_INVALID_CONDITION>(
-                "field is not key column, or storage model is not duplicate, or data type is float "
-                "or double.");
+        return Status::Error<DELETE_INVALID_CONDITION>("data type is float or double.");
     }
 
     // Check operator and operands size are matched.
