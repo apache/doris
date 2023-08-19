@@ -379,9 +379,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ROUND_PRECISE_DECIMALV2_VALUE = "round_precise_decimalv2_value";
 
-    public static final String enable_memtable_on_sink_node =
-            "enable_memtable_on_sink_node";
-
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1110,9 +1107,6 @@ public class SessionVariable implements Serializable, Writable {
                             + " in the schema of the table."},
             needForward = true)
     public boolean truncateCharOrVarcharColumns = false;
-
-    @VariableMgr.VarAttr(name = enable_memtable_on_sink_node, needForward = true)
-    public boolean enableMemtableOnSinkNode = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2191,7 +2185,6 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInsertStrict(enableInsertStrict);
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
-        tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
 
         return tResult;
     }

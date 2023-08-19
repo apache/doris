@@ -493,10 +493,6 @@ DEFINE_Int32(fragment_pool_thread_num_min, "64");
 DEFINE_Int32(fragment_pool_thread_num_max, "2048");
 DEFINE_Int32(fragment_pool_queue_size, "4096");
 
-// thread pool config for handling streaming of sink
-DEFINE_Int32(sink_stream_pool_thread_num_min, "20");
-DEFINE_Int32(sink_stream_pool_thread_num_max, "20");
-
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
 // The maximum number of the threads per disk is also the max queue depth per disk.
@@ -727,9 +723,6 @@ DEFINE_mInt32(mem_tracker_consume_min_size_bytes, "1048576");
 // In most cases, it does not need to be modified.
 DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
-// number of brpc stream per OlapTableSinkV2
-DEFINE_Int32(stream_cnt_per_sink, "5");
-
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -900,8 +893,6 @@ DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
-// limit the queue of pending batches which will be sent by a single stream filewriter
-DEFINE_mInt64(streamsink_filewriter_batchsize, "262144");
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.

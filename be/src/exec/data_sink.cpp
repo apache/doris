@@ -40,7 +40,6 @@
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
 #include "vec/sink/vtablet_sink.h"
-#include "vec/sink/vtablet_sink_v2.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -151,11 +150,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        if (state->query_options().enable_memtable_on_sink_node) {
-            sink->reset(new stream_load::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
-        } else {
-            sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
-        }
+        sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
         break;
     }
@@ -292,11 +287,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     case TDataSinkType::OLAP_TABLE_SINK: {
         Status status;
         DCHECK(thrift_sink.__isset.olap_table_sink);
-        if (state->query_options().enable_memtable_on_sink_node) {
-            sink->reset(new stream_load::VOlapTableSinkV2(pool, row_desc, output_exprs, &status));
-        } else {
-            sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
-        }
+        sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
         RETURN_IF_ERROR(status);
         break;
     }
