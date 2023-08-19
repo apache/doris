@@ -83,7 +83,6 @@ protected:
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
-        _mgr = new MemTableMemoryLimiter();
         doris::EngineOptions options;
         options.store_paths = paths;
         Status s = doris::StorageEngine::open(options, &_engine);
@@ -98,17 +97,12 @@ protected:
             delete _engine;
             _engine = nullptr;
         }
-        if (_mgr != nullptr) {
-            delete _mgr;
-            _mgr = nullptr;
-        }
         EXPECT_EQ(system("rm -rf ./data_test"), 0);
         io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
                                                         UNUSED_PREFIX);
     }
 
     StorageEngine* _engine = nullptr;
-    MemTableMemoryLimiter* _mgr = nullptr;
 };
 
 TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
@@ -143,6 +137,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
+    auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -164,15 +159,8 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
     }
-    std::mutex lock;
-    _mgr->init(100);
-    auto memtable_writer = delta_writer->memtable_writer();
-    {
-        std::lock_guard<std::mutex> l(lock);
-        _mgr->register_writer(memtable_writer);
-    }
-    _mgr->handle_memtable_flush();
-    CHECK_EQ(0, memtable_writer->active_memtable_mem_consumption());
+    mem_limiter->handle_memtable_flush();
+    CHECK_EQ(0, mem_limiter->mem_usage());
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);

@@ -97,6 +97,7 @@ Status DeltaWriter::init() {
     RETURN_IF_ERROR(
             _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
                                    _rowset_builder.tablet()->enable_unique_key_merge_on_write()));
+    ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     return Status::OK();
 }
