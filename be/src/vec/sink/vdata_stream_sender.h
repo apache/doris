@@ -43,6 +43,7 @@
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
 #include "util/runtime_profile.h"
+#include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
@@ -144,6 +145,8 @@ public:
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
     segment_v2::CompressionTypePB& compression_type() { return _compression_type; }
 
+    void sink_keep_alive();
+
 protected:
     friend class BlockSerializer<VDataStreamSender>;
     friend class Channel<VDataStreamSender>;
@@ -229,6 +232,7 @@ protected:
     bool _enable_pipeline_exec = false;
 
     BlockSerializer<VDataStreamSender> _serializer;
+    int _a_local_channel_index = -1;
 };
 
 template <typename Parent = VDataStreamSender>
@@ -330,6 +334,37 @@ public:
 
     void set_receiver_eof(Status st) { _receiver_status = st; }
 
+    virtual void send_empty_block() {}
+
+    void update_last_sink_time() { _chn_last_sink_time_ms = MonotonicMillis(); }
+
+    void sink_keep_alive(int64_t current_time) {
+        if (_chn_last_sink_time_ms == 0) {
+            _chn_last_sink_time_ms = current_time;
+            return;
+        }
+
+        if (current_time - _chn_last_sink_time_ms >= config::pipeline_keep_alive_timeout_ms) {
+            send_empty_block();
+            _chn_last_sink_time_ms = current_time;
+        }
+    }
+
+    void sink_local_keep_alive(int64_t current_time) {
+        if (_chn_last_sink_time_ms == 0) {
+            _chn_last_sink_time_ms = current_time;
+            return;
+        }
+
+        if (current_time - _chn_last_sink_time_ms >= config::pipeline_keep_alive_timeout_ms) {
+            TUniqueId t_queryid;
+            t_queryid.__set_hi(_query_id.hi());
+            t_queryid.__set_lo(_query_id.lo());
+            _parent->state()->exec_env()->update_keep_alive_time(t_queryid);
+            _chn_last_sink_time_ms = current_time;
+        }
+    }
+
 protected:
     bool _recvr_is_valid() {
         if (_local_recvr && !_local_recvr->is_closed()) {
@@ -405,6 +440,8 @@ protected:
     PBlock _ch_pb_block2;
 
     BlockSerializer<Parent> _serializer;
+
+    int64_t _chn_last_sink_time_ms = 0;
 };
 
 #define HANDLE_CHANNEL_STATUS(state, channel, status)    \
@@ -474,6 +511,11 @@ public:
         Channel<Parent>::_ch_cur_pb_block = new PBlock();
     }
 
+    void send_empty_block() override {
+        std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
+        _buffer->add_block({this, std::move(pblock_ptr), false});
+    }
+
     // Asynchronously sends a block
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
@@ -534,6 +576,7 @@ public:
         }
         SCOPED_CONSUME_MEM_TRACKER(Channel<Parent>::_parent->mem_tracker());
         RETURN_IF_ERROR(send_block(_pblock.release(), eos));
+        Channel<Parent>::update_last_sink_time();
         return Status::OK();
     }
 

@@ -201,7 +201,8 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (request.block) {
+        // when request.block->column_metas_size() == 0, it means send a empty block to server to keep shuffle alive
+        if (request.block && request.block->column_metas_size()) {
             brpc_request->set_allocated_block(request.block.get());
         }
         auto* closure = request.channel->get_closure(id, request.eos, nullptr);

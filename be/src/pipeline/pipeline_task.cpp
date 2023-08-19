@@ -278,6 +278,7 @@ Status PipelineTask::execute(bool* eos) {
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             auto status = _sink->sink(_state, block, _data_state);
+            update_last_sink_time_ms();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -380,6 +381,39 @@ void PipelineTask::set_state(PipelineTaskState state) {
     }
 
     _cur_state = state;
+}
+
+bool PipelineTask::is_source_keep_alive_timeout() {
+    if (!_source->should_source_keep_alive()) {
+        return false;
+    }
+    int64_t current_time = MonotonicMillis();
+    if (query_context()->source_last_keep_alive_time_ms.load() == 0) {
+        query_context()->source_last_keep_alive_time_ms.store(current_time);
+        return false;
+    }
+    if (current_time - query_context()->source_last_keep_alive_time_ms.load() >
+        config::pipeline_keep_alive_timeout_ms) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+void PipelineTask::sink_keep_alive() {
+    if (!_sink->should_sink_keep_alive()) {
+        return;
+    }
+    if (_last_sink_time_ms == 0) {
+        update_last_sink_time_ms();
+        return;
+    }
+    int64_t current_time = MonotonicMillis();
+    if (current_time - _last_sink_time_ms >= config::pipeline_keep_alive_timeout_ms) {
+        doris::vectorized::Block empty_block;
+        _sink->sink(_state, &empty_block, _data_state);
+        update_last_sink_time_ms();
+    }
 }
 
 std::string PipelineTask::debug_string() {

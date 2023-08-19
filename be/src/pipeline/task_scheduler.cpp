@@ -137,6 +137,13 @@ void BlockedTaskScheduler::_schedule() {
                 if (task->source_can_read()) {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks);
                 } else {
+                    task->sink_keep_alive();
+                    bool ret = task->is_source_keep_alive_timeout();
+                    if (ret) {
+                        task->fragment_context()->cancel(PPlanFragmentCancelReason::TIMEOUT);
+                        LOG(INFO) << "query id " << print_id(task->query_context()->query_id)
+                                  << " is cancel because source is keep alive timeout";
+                    }
                     iter++;
                 }
             } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {

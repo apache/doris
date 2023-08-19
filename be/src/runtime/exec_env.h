@@ -179,6 +179,8 @@ public:
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
 
+    void update_keep_alive_time(TUniqueId query_id);
+
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
     void set_new_load_stream_mgr(std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr) {

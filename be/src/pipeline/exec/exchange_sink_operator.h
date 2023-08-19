@@ -63,6 +63,8 @@ public:
 
     RuntimeState* state() { return _state; }
 
+    bool should_sink_keep_alive() override { return true; }
+
 private:
     std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer;
     int _dest_node_id = -1;

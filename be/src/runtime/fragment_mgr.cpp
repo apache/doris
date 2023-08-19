@@ -1440,6 +1440,13 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     return Status::OK();
 }
 
+void FragmentMgr::update_keep_alive_time(TUniqueId query_id) {
+    std::lock_guard<std::mutex> lock(_lock);
+    if (_query_ctx_map.find(query_id) != _query_ctx_map.end()) {
+        _query_ctx_map[query_id]->source_last_keep_alive_time_ms.store(MonotonicMillis());
+    }
+}
+
 void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
                                                              RuntimeState* state,
                                                              QueryContext* query_ctx) {

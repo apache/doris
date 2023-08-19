@@ -212,6 +212,8 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
+    std::atomic<int64_t> source_last_keep_alive_time_ms;
+
 private:
     ExecEnv* _exec_env;
     vectorized::VecDateTimeValue _start_time;

@@ -1053,10 +1053,15 @@ void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* cont
                                            const Status& extract_st) {
     std::string query_id;
     TUniqueId finst_id;
+    TUniqueId tquery_id;
     if (request->has_query_id()) {
         query_id = print_id(request->query_id());
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
+
+        tquery_id.hi = request->query_id().hi();
+        tquery_id.lo = request->query_id().lo();
+        _exec_env->fragment_mgr()->update_keep_alive_time(tquery_id);
     }
     VLOG_ROW << "transmit block: fragment_instance_id=" << print_id(request->finst_id())
              << " query_id=" << query_id << " node=" << request->node_id();

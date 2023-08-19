@@ -29,6 +29,7 @@
 #include "runtime/task_group/task_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "util/time.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -246,6 +247,12 @@ public:
         }
     }
 
+    void update_last_sink_time_ms() { _last_sink_time_ms = MonotonicMillis(); }
+
+    void sink_keep_alive();
+
+    bool is_source_keep_alive_timeout();
+
 protected:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -284,6 +291,7 @@ protected:
     int _core_id = 0;
 
     bool _try_close_flag = false;
+    int64_t _last_sink_time_ms = 0;
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;

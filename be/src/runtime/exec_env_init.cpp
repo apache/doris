@@ -426,4 +426,8 @@ void ExecEnv::destroy(ExecEnv* env) {
     env->_destroy();
 }
 
+void ExecEnv::update_keep_alive_time(TUniqueId query_id) {
+    fragment_mgr()->update_keep_alive_time(query_id);
+}
+
 } // namespace doris

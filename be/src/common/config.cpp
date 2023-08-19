@@ -1056,6 +1056,8 @@ DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 
+DEFINE_mInt32(pipeline_keep_alive_timeout_ms, "60000");
+
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
 

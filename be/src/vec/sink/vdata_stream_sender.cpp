@@ -474,6 +474,7 @@ Status VDataStreamSender::open(RuntimeState* state) {
         RETURN_IF_ERROR(_channels[i]->init(state));
         if (_channels[i]->is_local()) {
             local_size++;
+            _a_local_channel_index = i;
         }
     }
     _only_local_exchange = local_size == _channels.size();
@@ -503,6 +504,14 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     }
     if (all_receiver_eof) {
         return Status::EndOfFile("all data stream channels EOF");
+    }
+
+    // NOTE:keep alive signal
+    // When a pipelineTask blocked(block by source) for a timeout, it will send an empty block to receiver
+    // to tell receiver source is alive and just wait
+    if (block->empty()) {
+        sink_keep_alive();
+        return Status::OK();
     }
 
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
@@ -597,6 +606,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             }
         }
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
+        sink_keep_alive();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         // will only copy schema
@@ -661,12 +671,34 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             RETURN_IF_ERROR(channel_add_rows(state, _channel_shared_ptrs, element_size, hashes,
                                              rows, block, _enable_pipeline_exec ? eos : false));
         }
+
+        sink_keep_alive();
     } else {
         // Range partition
         // 1. calculate range
         // 2. dispatch rows to channel
     }
     return Status::OK();
+}
+
+void VDataStreamSender::sink_keep_alive() {
+    int current_time = MonotonicMillis();
+    // 1 keep remote alive
+    for (auto channel : _channels) {
+        if (!channel->is_receiver_eof()) {
+            if (!channel->is_local()) {
+                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                // empty bucket may never receive rpc request, so need send empty block
+                channel->sink_keep_alive(current_time);
+            }
+        }
+    }
+
+    // 2 keep local alive
+    current_time = MonotonicMillis();
+    if (_a_local_channel_index != -1) {
+        _channels[_a_local_channel_index]->sink_local_keep_alive(current_time);
+    }
 }
 
 Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {

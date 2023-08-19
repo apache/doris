@@ -261,6 +261,10 @@ public:
 
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
+    virtual bool should_sink_keep_alive() { return false; }
+
+    virtual bool should_source_keep_alive() { return false; }
+
 protected:
     OperatorBuilderBase* _operator_builder;
     OperatorPtr _child;

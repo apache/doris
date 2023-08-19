@@ -1120,6 +1120,8 @@ DECLARE_mString(user_files_secure_path);
 // and if this threshold is exceeded, the remaining data will be pass through to other node directly.
 DECLARE_Int32(partition_topn_partition_threshold);
 
+DECLARE_mInt32(pipeline_keep_alive_timeout_ms);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
