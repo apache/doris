@@ -304,9 +304,8 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
             LOG(INFO) << "get_tablet_schema got index id " << resp.index_id();
             auto tablet_schema = std::make_shared<TabletSchema>();
             tablet_schema->init_from_pb(resp.tablet_schema());
-            _tablet_schema_for_index.insert({resp.index_id(), tablet_schema});
-            _enable_unique_mow_for_index.insert(
-                    {resp.index_id(), resp.enable_unique_key_merge_on_write()});
+            _tablet_schema_for_index[resp.index_id()] = tablet_schema;
+            _enable_unique_mow_for_index[resp.index_id()] = resp.enable_unique_key_merge_on_write();
             // TODO: this is a debug log
             LOG(INFO) << "Got tablet schema from backend " << node_info.id
                       << ": num_short_key_columns = " << tablet_schema->num_short_key_columns()
