@@ -733,11 +733,6 @@ message SegmentStatisticsPB {
     optional KeyBoundsPB key_bounds = 4;
 }
 
-message NeedCommitTabletInfo {
-    required int64 tablet_id= 1;
-    required int64 partition_id = 2;
-}
-
 message PStreamHeader {
     enum Opcode {
         APPEND_DATA = 1;
@@ -753,7 +748,7 @@ message PStreamHeader {
     optional bool segment_eos = 7;
     optional uint32 sender_id = 8;
     optional SegmentStatisticsPB segment_statistics = 9;
-    repeated NeedCommitTabletInfo need_commit_tablet_info = 10;
+    repeated PTabletWithPartition need_commit_tablet_info = 10;
 }
 
 service PBackendService {
