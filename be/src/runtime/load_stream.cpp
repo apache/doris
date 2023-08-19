@@ -258,14 +258,20 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
     _senders_status[sender_id] = false;
     _num_working_senders--;
     if (_num_working_senders == 0) {
-        for (auto& it : _index_streams_map) {
-            it.second->close(success_tablet_ids, failed_tablet_ids);
-        }
-        failed_tablet_ids->insert(failed_tablet_ids->end(), _failed_tablet_ids.begin(),
-                                  _failed_tablet_ids.end());
-        LOG(INFO) << "close load " << *this << ", failed_tablet_num=" << failed_tablet_ids->size()
-                  << ", success_tablet_num=" << success_tablet_ids->size();
-        return Status::OK();
+        bthread::Mutex mutex;
+        std::unique_lock<bthread::Mutex> lock(mutex);
+        bthread::ConditionVariable cond;
+        ExecEnv::GetInstance()->get_heavy_work_pool()->try_offer([this, &success_tablet_ids, &failed_tablet_ids, &cond]() {
+            for (auto& it : _index_streams_map) {
+                it.second->close(success_tablet_ids, failed_tablet_ids);
+            }
+            failed_tablet_ids->insert(failed_tablet_ids->end(), _failed_tablet_ids.begin(),
+                                      _failed_tablet_ids.end());
+            LOG(INFO) << "close load " << *this << ", failed_tablet_num=" << failed_tablet_ids->size()
+                      << ", success_tablet_num=" << success_tablet_ids->size();
+            cond.notify_one();
+        });
+        cond.wait(lock);
     }
 
     // do not return commit info for non-last one.
