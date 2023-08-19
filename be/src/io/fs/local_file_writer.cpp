@@ -183,7 +183,7 @@ Status LocalFileWriter::_close(bool sync) {
         return Status::OK();
     }
     _closed = true;
-    if (sync && _dirty && sync_dirty_data_on_close) {
+    if (sync && _dirty && config::sync_dirty_data_on_close) {
 #ifdef __APPLE__
         if (fcntl(_fd, F_FULLFSYNC) < 0) {
             return Status::IOError("cannot sync {}: {}", _path.native(), std::strerror(errno));
