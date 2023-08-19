@@ -279,6 +279,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
             for (const auto& partition : _vpartition->get_partitions()) {
                 for (const auto& index : partition->indexes) {
                     if (_tablet_schema_for_index.contains(index.index_id)) {
+                        LOG(INFO) << "get_tablet_schema skipping index id " << index.index_id;
                         // already getting tablet_schema for this index_id
                         continue;
                     }
@@ -289,6 +290,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
                         req->set_tablet_id(tablet_id);
                         req->set_index_id(index.index_id);
                         // create an entry in the map to mark this index_id
+                        LOG(INFO) << "get_tablet_schema getting index id " << index.index_id;
                         _tablet_schema_for_index[index.index_id];
                     }
                 }
@@ -298,6 +300,7 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
         cntl.set_timeout_ms(config::open_stream_sink_timeout_ms);
         stub->open_stream_sink(&cntl, &request, &response, nullptr);
         for (const auto& resp : response.tablet_schemas()) {
+            LOG(INFO) << "get_tablet_schema got index id " << resp.index_id();
             auto tablet_schema = std::make_shared<TabletSchema>();
             tablet_schema->init_from_pb(resp.tablet_schema());
             _tablet_schema_for_index.insert({resp.index_id(), tablet_schema});
