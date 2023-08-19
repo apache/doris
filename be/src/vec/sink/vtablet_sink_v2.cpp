@@ -453,8 +453,6 @@ Status VOlapTableSinkV2::_write_memtable(std::shared_ptr<vectorized::Block> bloc
                 }
             }
             DeltaWriterV2::open(&req, &delta_writer, _profile);
-            ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(
-                    delta_writer->memtable_writer());
             for (auto stream : streams) {
                 delta_writer->add_stream(stream);
             }
