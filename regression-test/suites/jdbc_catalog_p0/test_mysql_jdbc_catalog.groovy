@@ -157,5 +157,6 @@ suite("test_mysql_jdbc_catalog", "p0") {
         qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
         sql """ drop catalog if exists ${catalog_name} """
+        sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "false");"""
     }
 }

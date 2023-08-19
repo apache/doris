@@ -131,5 +131,4 @@ suite("test_round") {
     qt_query """ select truncate(decimal_col,2) from test_decimalv2; """
     qt_query """ select ceil(decimal_col,2) from test_decimalv2; """
     qt_query """ select floor(decimal_col,2) from test_decimalv2; """
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true"); """
 }
