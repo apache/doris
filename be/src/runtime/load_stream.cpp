@@ -284,6 +284,7 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
                         st = it.second->close(success_tablet_ids, failed_tablet_ids,
                                               need_commit_tablet_info);
                         if (!st.ok()) {
+                            cond.notify_one();
                             return;
                         }
                     }
