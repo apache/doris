@@ -261,7 +261,7 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
         bthread::Mutex mutex;
         std::unique_lock<bthread::Mutex> lock(mutex);
         bthread::ConditionVariable cond;
-        ExecEnv::GetInstance()->get_heavy_work_pool()->try_offer([this, &success_tablet_ids, &failed_tablet_ids, &cond]() {
+        bool ret = ExecEnv::GetInstance()->get_heavy_work_pool()->try_offer([this, &success_tablet_ids, &failed_tablet_ids, &cond]() {
             for (auto& it : _index_streams_map) {
                 it.second->close(success_tablet_ids, failed_tablet_ids);
             }
@@ -271,7 +271,11 @@ Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_table
                       << ", success_tablet_num=" << success_tablet_ids->size();
             cond.notify_one();
         });
-        cond.wait(lock);
+        if (ret) {
+            cond.wait(lock);
+        } else {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("there is not enough thread resource for close load");
+        }
     }
 
     // do not return commit info for non-last one.
