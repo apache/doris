@@ -790,9 +790,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             case COUNT:
                 pushAggOp = TPushAggOp.COUNT;
                 break;
-            case COUNT_ON_MATCH:
-                pushAggOp = TPushAggOp.COUNT_ON_INDEX;
-                break;
             case MIN_MAX:
                 pushAggOp = TPushAggOp.MINMAX;
                 break;
