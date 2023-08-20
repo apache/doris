@@ -624,7 +624,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
                 throw new UserException("failed to get path isSplittable, remote path: " + remotePath + ". msg: "
                     + operationStatus.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
             }
-            boolean result = response.getIsSplittable();
+            boolean result = response.isSplittable();
             LOG.info("finished to get path isSplittable, remote path {} with format {}, isSplittable: {}",
                     remotePath, inputFormat, result);
             return result;

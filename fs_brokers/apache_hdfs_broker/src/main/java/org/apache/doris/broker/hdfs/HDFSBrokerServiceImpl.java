@@ -120,7 +120,7 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
         try {
             boolean isSplittable = HiveUtils.isSplittable(request.path, request.inputFormat, request.properties);
             response.setOpStatus(generateOKStatus());
-            response.setIsSplittable(isSplittable);
+            response.setSplittable(isSplittable);
             return response;
         } catch (BrokerException e) {
             logger.warn("failed to get isSplitable with path: " + request.path, e);
