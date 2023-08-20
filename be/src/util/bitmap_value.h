@@ -187,16 +187,28 @@ public:
         return result;
     }
 
-    /**
-     * Add value n_args from pointer vals
-     *
-     */
-    void addMany(size_t n_args, const uint32_t* vals) {
-        for (size_t lcv = 0; lcv < n_args; lcv++) {
-            roarings[0].add(vals[lcv]);
-            roarings[0].setCopyOnWrite(copyOnWrite);
+    template <typename T>
+    void addMany(size_t n_args, const T* vals) {
+        if constexpr (sizeof(T) == sizeof(uint32_t)) {
+            auto& roaring = roarings[0];
+            roaring.addMany(n_args, reinterpret_cast<const uint32_t*>(vals));
+            roaring.setCopyOnWrite(copyOnWrite);
+        } else if constexpr (sizeof(T) < sizeof(uint32_t)) {
+            auto& roaring = roarings[0];
+            std::vector<uint32_t> values(n_args);
+            for (size_t i = 0; i != n_args; ++i) {
+                values[i] = uint32_t(vals[i]);
+            }
+            roaring.addMany(n_args, values.data());
+            roaring.setCopyOnWrite(copyOnWrite);
+        } else {
+            for (size_t lcv = 0; lcv < n_args; lcv++) {
+                roarings[highBytes(vals[lcv])].add(lowBytes(vals[lcv]));
+                roarings[highBytes(vals[lcv])].setCopyOnWrite(copyOnWrite);
+            }
         }
     }
+
     void addMany(size_t n_args, const uint64_t* vals) {
         for (size_t lcv = 0; lcv < n_args; lcv++) {
             roarings[highBytes(vals[lcv])].add(lowBytes(vals[lcv]));
@@ -1231,6 +1243,52 @@ public:
         }
     }
 
+    template <typename T>
+    void add_many(const T* values, const size_t count) {
+        switch (_type) {
+        case EMPTY:
+            if (count == 1) {
+                _sv = values[0];
+                _type = SINGLE;
+            } else if (config::enable_set_in_bitmap_value && count < SET_TYPE_THRESHOLD) {
+                for (size_t i = 0; i != count; ++i) {
+                    _set.insert(values[i]);
+                }
+                _type = SET;
+            } else {
+                _prepare_bitmap_for_write();
+                _bitmap->addMany(count, values);
+                _type = BITMAP;
+            }
+            break;
+        case SINGLE:
+            if (config::enable_set_in_bitmap_value && count < SET_TYPE_THRESHOLD) {
+                _set.insert(_sv);
+                for (size_t i = 0; i != count; ++i) {
+                    _set.insert(values[i]);
+                }
+                _type = SET;
+                _convert_to_bitmap_if_need();
+            } else {
+                _prepare_bitmap_for_write();
+                _bitmap->add(_sv);
+                _bitmap->addMany(count, values);
+                _type = BITMAP;
+            }
+            break;
+        case BITMAP:
+            _prepare_bitmap_for_write();
+            _bitmap->addMany(count, values);
+            break;
+        case SET:
+            for (size_t i = 0; i != count; ++i) {
+                _set.insert(values[i]);
+            }
+            _convert_to_bitmap_if_need();
+            break;
+        }
+    }
+
     void add(uint64_t value) {
         switch (_type) {
         case EMPTY:
@@ -1786,6 +1844,24 @@ public:
             break;
         }
         return *this;
+    }
+
+    bool operator==(const BitmapValue& rhs) const {
+        if (_type != rhs._type) return false;
+
+        switch (_type) {
+        case BitmapValue::BitmapDataType::EMPTY:
+            return true;
+        case BitmapValue::BitmapDataType::SINGLE:
+            return _sv == rhs._sv;
+        case BitmapValue::BitmapDataType::BITMAP:
+            return _bitmap == rhs._bitmap;
+        case BitmapValue::BitmapDataType::SET:
+            return _set == rhs._set;
+        default:
+            CHECK(false) << _type;
+        }
+        return false;
     }
 
     // check if value x is present

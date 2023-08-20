@@ -67,6 +67,11 @@ public:
         return Status::NotSupported("Not support send block");
     }
 
+    // Send a Block into this sink, not blocked thredd API only use in pipeline exec engine
+    virtual Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) {
+        return send(state, block, eos);
+    }
+
     [[nodiscard]] virtual Status try_close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }

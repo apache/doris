@@ -38,13 +38,13 @@ public abstract class SubqueryExpr extends Expression {
     protected final List<Slot> correlateSlots;
     protected final Optional<Expression> typeCoercionExpr;
 
-    public SubqueryExpr(LogicalPlan subquery) {
+    protected SubqueryExpr(LogicalPlan subquery) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.of();
         this.typeCoercionExpr = Optional.empty();
     }
 
-    public SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
+    protected SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.copyOf(correlateSlots);
         this.typeCoercionExpr = typeCoercionExpr;

@@ -215,7 +215,18 @@ struct FloorCeilImpl {
     template <typename NativeType>
     static void vector(const PaddedPODArray<NativeType>& dates, PaddedPODArray<NativeType>& res,
                        NullMap& null_map) {
-        vector_constant_delta<NativeType, Int32>(dates, Int32(1), res, null_map);
+        // vector_constant_delta<NativeType, Int32>(dates, Int32(1), res, null_map);
+        for (int i = 0; i < dates.size(); ++i) {
+            if constexpr (std::is_same_v<NativeType, UInt32>) {
+                Impl::template time_round<UInt32, DateV2Value<DateV2ValueType>>(dates[i], res[i],
+                                                                                null_map[i]);
+            } else if constexpr (std::is_same_v<NativeType, UInt64>) {
+                Impl::template time_round<UInt64, DateV2Value<DateTimeV2ValueType>>(
+                        dates[i], res[i], null_map[i]);
+            } else {
+                Impl::template time_round<Int64, VecDateTimeValue>(dates[i], res[i], null_map[i]);
+            }
+        }
     }
 
     template <typename NativeType>
@@ -474,6 +485,86 @@ struct TimeRound {
         is_null = !ts1.template date_add_interval<Impl::Unit>(interval);
     }
 
+    static constexpr uint64_t MASK_DAY_FLOOR =
+            0b1111111111111111111111111110000000000000000000000000000000000000;
+    static constexpr uint64_t MASK_HOUR_FLOOR =
+            0b1111111111111111111111111111111100000000000000000000000000000000;
+    static constexpr uint64_t MASK_MINUTE_FLOOR =
+            0b1111111111111111111111111111111111111100000000000000000000000000;
+    static constexpr uint64_t MASK_SECOND_FLOOR =
+            0b1111111111111111111111111111111111111111111100000000000000000000;
+
+    static constexpr bool USE_OPTIMIZE_FLOOR =
+            Impl::Unit == DAY || Impl::Unit == HOUR || Impl::Unit == MINUTE || Impl::Unit == SECOND;
+    template <typename NativeType, typename DateValueType>
+    static void datetimev2_floor(const DateValueType& ts2, DateValueType& ts1) {
+        // Optimize the performance of the datetimev2 type on the floor operation.
+        // Now supports days, hours, minutes, and seconds.
+        if constexpr (Impl::Unit == DAY) {
+            ts1.set_int_val(ts2.to_date_int_val() & MASK_DAY_FLOOR);
+        }
+        if constexpr (Impl::Unit == HOUR) {
+            ts1.set_int_val(ts2.to_date_int_val() & MASK_HOUR_FLOOR);
+        }
+        if constexpr (Impl::Unit == MINUTE) {
+            ts1.set_int_val(ts2.to_date_int_val() & MASK_MINUTE_FLOOR);
+        }
+        if constexpr (Impl::Unit == SECOND) {
+            ts1.set_int_val(ts2.to_date_int_val() & MASK_SECOND_FLOOR);
+        }
+    }
+    template <typename NativeType, typename DateValueType>
+    static void time_round(const DateValueType& ts2, DateValueType& ts1, UInt8& is_null) {
+        static_assert(Impl::Unit != WEEK);
+        if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>> &&
+                      Impl::Type == FLOOR && USE_OPTIMIZE_FLOOR) {
+            datetimev2_floor<NativeType, DateValueType>(ts2, ts1);
+            is_null = false;
+            return;
+        };
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            ts1.reset_zero_by_type(ts2.type());
+        }
+        int64_t diff;
+        int64_t part;
+        if constexpr (Impl::Unit == YEAR) {
+            diff = ts2.year();
+            part = (ts2.month() - 1) + (ts2.day() - 1) + ts2.hour() + ts2.minute() + ts2.second();
+        }
+        if constexpr (Impl::Unit == MONTH) {
+            diff = ts2.year() * 12 + ts2.month() - 1;
+            part = (ts2.day() - 1) + ts2.hour() + ts2.minute() + ts2.second();
+        }
+        if constexpr (Impl::Unit == DAY) {
+            diff = ts2.daynr();
+            part = ts2.hour() + ts2.minute() + ts2.second();
+        }
+        if constexpr (Impl::Unit == HOUR) {
+            diff = ts2.daynr() * 24 + ts2.hour();
+            part = ts2.minute() + ts2.second();
+        }
+        if constexpr (Impl::Unit == MINUTE) {
+            diff = ts2.daynr() * 24L * 60 + ts2.hour() * 60 + ts2.minute();
+            part = ts2.second();
+        }
+        if constexpr (Impl::Unit == SECOND) {
+            diff = ts2.daynr() * 24L * 60 * 60 + ts2.hour() * 60L * 60 + ts2.minute() * 60L +
+                   ts2.second();
+            part = 0;
+            if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
+                part = ts2.microsecond();
+            }
+        }
+
+        if constexpr (Impl::Type == CEIL) {
+            if (part) {
+                diff++;
+            }
+        }
+        TimeInterval interval(Impl::Unit, diff, 1);
+        is_null = !ts1.template date_set_interval<Impl::Unit>(interval);
+    }
+
     template <typename NativeType, typename DateValueType>
     static void time_round(NativeType date, Int32 period, NativeType origin_date, NativeType& res,
                            UInt8& is_null) {
@@ -503,6 +594,23 @@ struct TimeRound {
         }
 
         TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, period, ts1, is_null);
+    }
+
+    template <typename NativeType, typename DateValueType>
+    static void time_round(NativeType date, NativeType& res, UInt8& is_null) {
+        auto ts2 = binary_cast<NativeType, DateValueType>(date);
+        if (!ts2.is_valid_date()) {
+            is_null = true;
+            return;
+        }
+        auto& ts1 = (DateValueType&)(res);
+        if constexpr (Impl::Unit != WEEK) {
+            TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, ts1, is_null);
+        } else {
+            // Only week use the FIRST SUNDAY
+            ts1.from_olap_datetime(FIRST_SUNDAY);
+            TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, 1, ts1, is_null);
+        }
     }
 };
 

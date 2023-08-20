@@ -165,7 +165,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
 
     // Do schema change that not do light weight schema change
     sql """
-            ALTER TABLE ${tbName1}
+            ALTER TABLE ${tbName1} 
             ADD COLUMN k2 CHAR(10) KEY DEFAULT 'A';
         """
     max_try_secs = 1200

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.stats;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -84,6 +83,8 @@ public class JoinEstimation {
         List<Double> unTrustEqualRatio = Lists.newArrayList();
         List<EqualTo> unTrustableCondition = Lists.newArrayList();
         boolean leftBigger = leftStats.getRowCount() > rightStats.getRowCount();
+        double rightStatsRowCount = StatsMathUtil.nonZeroDivisor(rightStats.getRowCount());
+        double leftStatsRowCount = StatsMathUtil.nonZeroDivisor(leftStats.getRowCount());
         List<EqualTo> trustableConditions = join.getHashJoinConjuncts().stream()
                 .map(expression -> (EqualTo) expression)
                 .filter(
@@ -94,8 +95,6 @@ public class JoinEstimation {
                             EqualTo equal = normalizeHashJoinCondition(expression, leftStats, rightStats);
                             ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
                             ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
-                            double rightStatsRowCount = StatsMathUtil.nonZeroDivisor(rightStats.getRowCount());
-                            double leftStatsRowCount = StatsMathUtil.nonZeroDivisor(leftStats.getRowCount());
                             boolean trustable = eqRightColStats.ndv / rightStatsRowCount > almostUniqueThreshold
                                     || eqLeftColStats.ndv / leftStatsRowCount > almostUniqueThreshold;
                             if (!trustable) {
@@ -123,22 +122,16 @@ public class JoinEstimation {
 
         double outputRowCount = 1;
         if (!trustableConditions.isEmpty()) {
-            List<Pair<? extends Expression, Double>> sortedJoinConditions = trustableConditions.stream()
-                    .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
-                    .sorted((a, b) -> {
-                        double sub = a.second - b.second;
-                        if (sub > 0) {
-                            return 1;
-                        } else if (sub < 0) {
-                            return -1;
-                        } else {
-                            return 0;
-                        }
-                    }).collect(Collectors.toList());
+            List<Double> joinConditionSels = trustableConditions.stream()
+                    .map(expression -> estimateJoinConditionSel(crossJoinStats, expression))
+                    .sorted()
+                    .collect(Collectors.toList());
 
             double sel = 1.0;
-            for (int i = 0; i < sortedJoinConditions.size(); i++) {
-                sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
+            double denominator = 1.0;
+            for (int i = 0; i < joinConditionSels.size(); i++) {
+                sel *= Math.pow(joinConditionSels.get(i), 1 / denominator);
+                denominator *= 2;
             }
             outputRowCount = Math.max(1, crossJoinStats.getRowCount() * sel);
             outputRowCount = outputRowCount * Math.pow(0.9, unTrustableCondition.size());

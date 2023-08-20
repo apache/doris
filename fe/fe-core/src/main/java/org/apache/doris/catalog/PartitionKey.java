@@ -28,6 +28,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -510,5 +511,20 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
             return result;
         }
+    }
+
+    // if any of partition value is HIVE_DEFAULT_PARTITION
+    // return true to indicate that this is a hive default partition
+    public boolean isHiveDefaultPartition() {
+        for (LiteralExpr literalExpr : keys) {
+            if (!(literalExpr instanceof StringLiteral)) {
+                continue;
+            }
+            StringLiteral key = (StringLiteral) literalExpr;
+            if (key.getValue().equals(HiveMetaStoreCache.HIVE_DEFAULT_PARTITION)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

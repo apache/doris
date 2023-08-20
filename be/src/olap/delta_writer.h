@@ -112,7 +112,7 @@ public:
     // For UT
     DeleteBitmapPtr get_delete_bitmap() { return _rowset_builder.get_delete_bitmap(); }
 
-    MemTableWriter* memtable_writer() { return &_memtable_writer; }
+    std::shared_ptr<MemTableWriter> memtable_writer() { return _memtable_writer; }
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
@@ -126,7 +126,7 @@ private:
     bool _is_cancelled = false;
     WriteRequest _req;
     RowsetBuilder _rowset_builder;
-    MemTableWriter _memtable_writer;
+    std::shared_ptr<MemTableWriter> _memtable_writer;
 
     StorageEngine* _storage_engine;
 

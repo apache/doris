@@ -30,6 +30,8 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 
+import java.util.List;
+
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
@@ -37,8 +39,8 @@ public abstract class BinaryArithmetic extends BinaryOperator implements Propaga
 
     private final Operator legacyOperator;
 
-    public BinaryArithmetic(Expression left, Expression right, Operator legacyOperator) {
-        super(left, right, legacyOperator.toString());
+    public BinaryArithmetic(List<Expression> children, Operator legacyOperator) {
+        super(children, legacyOperator.toString());
         this.legacyOperator = legacyOperator;
     }
 
