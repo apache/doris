@@ -462,7 +462,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         next_index = _store_next_index[storage_medium]++;
         if (next_index < 0) {
             next_index = 0;
-            _store_next_index[storage_medium] = 0;
+            _store_next_index[storage_medium] = next_index + 1;
         }
         for (auto& it : _store_map) {
             DataDir* data_dir = it.second;
