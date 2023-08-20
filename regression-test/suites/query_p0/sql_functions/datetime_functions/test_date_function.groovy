@@ -650,7 +650,7 @@ suite("test_date_function") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     test {
         sql"""select current_timestamp(7);"""
-        check{result, exception, startTime, endTime ->
+        check{ result2, exception, startTime, endTime ->
             assertTrue(exception != null)
             logger.info(exception.message)
         }
