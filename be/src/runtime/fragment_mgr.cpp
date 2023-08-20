@@ -915,6 +915,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         g_fragmentmgr_prepare_latency << (duration_ns / 1000);
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
+        // TODO(zhiqiang): This function has Status return value which is not checked.
         _runtimefilter_controller.add_entity(params, local_params, &handler,
                                              context->get_runtime_state());
         context->set_merge_controller_handler(handler);
