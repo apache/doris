@@ -19,8 +19,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/exec/vjdbc_connector.h"
 #include "vec/sink/vtable_sink.h"
+#include "vec/sink/writer/vjdbc_table_writer.h"
 
 namespace doris {
 class ObjectPool;
@@ -44,11 +44,21 @@ public:
 
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
+    Status sink(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
+        return _writer->sink(block, eos);
+    }
+
     Status close(RuntimeState* state, Status exec_status) override;
+
+    Status try_close(RuntimeState* state, Status exec_status) override;
+
+    bool is_close_done() override { return !_writer->is_pending_finish(); }
+
+    bool can_write() override { return _writer->can_write(); }
 
 private:
     JdbcConnectorParam _jdbc_param;
-    std::unique_ptr<JdbcConnector> _writer;
+    std::unique_ptr<VJdbcTableWriter> _writer;
 };
 } // namespace vectorized
 } // namespace doris

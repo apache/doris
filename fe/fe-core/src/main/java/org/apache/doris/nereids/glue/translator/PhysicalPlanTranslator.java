@@ -417,6 +417,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     break;
                 case HIVE:
                     scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+                    ((HiveScanNode) scanNode).setSelectedPartitions(fileScan.getSelectedPartitions());
                     break;
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
@@ -431,6 +432,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("do not support table type " + table.getType());
         }
         scanNode.addConjuncts(translateToLegacyConjuncts(fileScan.getConjuncts()));
+
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
@@ -785,12 +787,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanTranslatorContext context) {
-        Preconditions.checkState(storageLayerAggregate.getRelation() instanceof PhysicalOlapScan,
-                "PhysicalStorageLayerAggregate only support PhysicalOlapScan: "
+        Preconditions.checkState((storageLayerAggregate.getRelation() instanceof PhysicalOlapScan
+                        || storageLayerAggregate.getRelation() instanceof PhysicalFileScan),
+                "PhysicalStorageLayerAggregate only support PhysicalOlapScan and PhysicalFileScan: "
                         + storageLayerAggregate.getRelation().getClass().getName());
         PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 
-        OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
+        ScanNode scanNode = (ScanNode) planFragment.getPlanRoot();
         TPushAggOp pushAggOp;
         switch (storageLayerAggregate.getAggOp()) {
             case COUNT:
@@ -806,7 +809,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
         }
-        olapScanNode.setPushDownAggNoGrouping(pushAggOp);
+        scanNode.setPushDownAggNoGrouping(pushAggOp);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), storageLayerAggregate);
         return planFragment;
     }

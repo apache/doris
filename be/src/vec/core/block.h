@@ -41,7 +41,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/names.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -197,7 +196,7 @@ public:
 
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
-    Names get_names() const;
+    std::vector<std::string> get_names() const;
     DataTypes get_data_types() const;
 
     DataTypePtr get_data_type(size_t index) const {
@@ -410,7 +409,7 @@ class MutableBlock {
 private:
     MutableColumns _columns;
     DataTypes _data_types;
-    Names _names;
+    std::vector<std::string> _names;
 
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     IndexByName index_by_name;
@@ -609,7 +608,7 @@ public:
         return res;
     }
 
-    Names& get_names() { return _names; }
+    std::vector<std::string>& get_names() { return _names; }
 
     bool has(const std::string& name) const;
 

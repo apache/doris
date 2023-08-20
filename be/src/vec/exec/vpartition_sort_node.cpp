@@ -166,7 +166,7 @@ void VPartitionSortNode::_emplace_into_hash_table(const ColumnRawPtrs& key_colum
                                                     batch_size);
                 }
             },
-            _partitioned_data->_partition_method_variant);
+            _partitioned_data->method_variant);
 }
 
 Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {

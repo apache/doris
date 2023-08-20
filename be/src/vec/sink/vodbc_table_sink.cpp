@@ -46,8 +46,8 @@ Status VOdbcTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(VTableSink::init(t_sink));
     const TOdbcTableSink& t_odbc_sink = t_sink.odbc_table_sink;
     _odbc_param.connect_string = t_odbc_sink.connect_string;
-    _table_name = t_odbc_sink.table;
-    _use_transaction = t_odbc_sink.use_transaction;
+    _odbc_param.table_name = t_odbc_sink.table;
+    _odbc_param.use_transaction = t_odbc_sink.use_transaction;
     return Status::OK();
 }
 
@@ -57,9 +57,6 @@ Status VOdbcTableSink::open(RuntimeState* state) {
     // create writer
     _writer.reset(new ODBCConnector(_odbc_param));
     RETURN_IF_ERROR(_writer->open(state));
-    if (_use_transaction) {
-        RETURN_IF_ERROR(_writer->begin_trans());
-    }
     RETURN_IF_ERROR(_writer->init_to_write(_profile));
     return Status::OK();
 }
@@ -77,8 +74,8 @@ Status VOdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
     while (start_send_row < output_block.rows()) {
-        RETURN_IF_ERROR(_writer->append(_table_name, &output_block, _output_vexpr_ctxs,
-                                        start_send_row, &num_row_sent, true));
+        RETURN_IF_ERROR(
+                _writer->append(&output_block, _output_vexpr_ctxs, start_send_row, &num_row_sent));
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }
@@ -87,8 +84,7 @@ Status VOdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
 }
 
 Status VOdbcTableSink::close(RuntimeState* state, Status exec_status) {
-    RETURN_IF_ERROR(VTableSink::close(state, exec_status));
-    if (exec_status.ok() && _use_transaction) {
+    if (exec_status.ok()) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }
     return DataSink::close(state, exec_status);

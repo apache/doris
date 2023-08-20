@@ -173,10 +173,6 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     }
     _mgr->handle_memtable_flush();
     CHECK_EQ(0, memtable_writer->active_memtable_mem_consumption());
-    {
-        std::lock_guard<std::mutex> l(lock);
-        _mgr->deregister_writer(memtable_writer);
-    }
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);

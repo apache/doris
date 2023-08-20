@@ -665,6 +665,9 @@ public:
 
     bool get_date_from_daynr(uint64_t);
 
+    // reset 0
+    void reset_zero_by_type(int type) { set_zero(type); }
+
 private:
     // Used to make sure sizeof VecDateTimeValue
     friend class UnusedClass;

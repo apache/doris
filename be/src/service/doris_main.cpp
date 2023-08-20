@@ -392,6 +392,7 @@ int main(int argc, char** argv) {
     }
 
     if (doris::config::enable_file_cache) {
+        doris::io::IFileCache::init();
         std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
         olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
@@ -400,16 +401,39 @@ int main(int argc, char** argv) {
                        << doris::config::file_cache_path;
             exit(-1);
         }
+
+        std::unique_ptr<doris::ThreadPool> file_cache_init_pool;
+        doris::ThreadPoolBuilder("FileCacheInitThreadPool")
+                .set_min_threads(cache_paths.size())
+                .set_max_threads(cache_paths.size())
+                .build(&file_cache_init_pool);
+
+        std::vector<doris::Status> cache_status;
         for (auto& cache_path : cache_paths) {
             if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
                 LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
                 continue;
             }
+
+            cache_status.push_back(Status::OK());
+            RETURN_IF_ERROR(file_cache_init_pool->submit_func(
+                    std::bind(&doris::io::FileCacheFactory::create_file_cache,
+                              &(doris::io::FileCacheFactory::instance()), cache_path.path,
+                              cache_path.init_settings(), &(cache_status.back()))));
+
             cache_path_set.emplace(cache_path.path);
-            Status st = doris::io::FileCacheFactory::instance().create_file_cache(
-                    cache_path.path, cache_path.init_settings());
-            if (!st) {
-                LOG(FATAL) << st;
+            // Status st = doris::io::FileCacheFactory::instance().create_file_cache(
+            //         cache_path.path, cache_path.init_settings());
+            // if (!st) {
+            //     LOG(FATAL) << st;
+            //     exit(-1);
+            // }
+        }
+
+        file_cache_init_pool->wait();
+        for (int i = 0; i < cache_status.size(); ++i) {
+            if (!cache_status[i].ok()) {
+                LOG(FATAL) << "failed to init file cache: " << i << ", err: " << cache_status[i];
                 exit(-1);
             }
         }

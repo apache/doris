@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule;
@@ -33,20 +32,17 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Logical OlapScan.
@@ -290,13 +286,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (selectedIndexId != ((OlapTable) table).getBaseIndexId()) {
             return getOutputByIndex(selectedIndexId);
         }
-        List<Column> otherColumns = new ArrayList<>();
-        if (!Util.showHiddenColumns() && getTable().hasDeleteSign()
-                && !ConnectContext.get().getSessionVariable()
-                .skipDeleteSign()) {
-            otherColumns.add(getTable().getDeleteSignColumn());
-        }
-        return Stream.concat(table.getBaseSchema().stream(), otherColumns.stream())
+        return table.getBaseSchema(true).stream()
                 .map(col -> {
                     if (cacheSlotWithSlotName.containsKey(col.getName())) {
                         return cacheSlotWithSlotName.get(col.getName());

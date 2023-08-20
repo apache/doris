@@ -155,12 +155,8 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public Plan child(int index) {
-        return super.child(index);
-    }
-
-    @Override
     public LogicalProperties getLogicalProperties() {
+        // TODO: use bound()?
         if (this instanceof Unbound) {
             return UnboundLogicalProperties.INSTANCE;
         }
