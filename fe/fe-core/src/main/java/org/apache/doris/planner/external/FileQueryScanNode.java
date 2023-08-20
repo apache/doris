@@ -326,6 +326,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
             }
 
+            curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+            TScanRangeLocation location = new TScanRangeLocation();
             Backend selectedBackend;
             if (enableSqlCache) {
                 // Use consistent hash to assign the same scan range into the same backend among different queries
@@ -336,9 +338,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             } else {
                 selectedBackend = backendPolicy.getNextBe();
             }
-
-            curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-            TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(selectedBackend.getId());
             location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
             curLocations.addToLocations(location);
