@@ -298,11 +298,6 @@ public:
                 return;
             }
         } else if (num.is_int64() || num.is_uint64()) {
-            if (num.is_uint64() && num.get_uint64() > std::numeric_limits<int128_t>::max()) {
-                err_ = JsonbErrType::E_OCTAL_OVERFLOW;
-                LOG(WARNING) << "overflow number: " << num.get_uint64();
-                return;
-            }
             int128_t val = num.is_int64() ? (int128_t)num.get_int64() : (int128_t)num.get_uint64();
             int size = 0;
             if (val >= std::numeric_limits<int8_t>::min() &&
@@ -317,7 +312,7 @@ public:
             } else if (val >= std::numeric_limits<int64_t>::min() &&
                        val <= std::numeric_limits<int64_t>::max()) {
                 size = writer_.writeInt64((int64_t)val);
-            } else { // val <= INT64_MAX
+            } else { // INT128
                 size = writer_.writeInt128(val);
             }
 
