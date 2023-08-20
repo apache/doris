@@ -719,6 +719,15 @@ public class VariableMgr {
                     }
                 }
 
+                VarContext varContext = ctxByVarName.get(entry.getKey());
+                if (varContext != null) {
+                    row.add(varContext.defaultValue);
+                    row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
+                } else {
+                    row.add("-");
+                    row.add("-");
+                }
+
                 rows.add(row);
             }
         } finally {
