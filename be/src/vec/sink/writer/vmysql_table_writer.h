@@ -39,7 +39,7 @@ struct MysqlConnInfo {
     int port;
     std::string charset;
 
-    [[nodiscard]] std::string debug_string() const;
+    std::string debug_string() const;
 };
 
 class Block;

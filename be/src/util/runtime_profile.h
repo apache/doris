@@ -185,7 +185,7 @@ public:
         DerivedCounter(TUnit::type type, const DerivedCounterFunction& counter_fn)
                 : Counter(type, 0), _counter_fn(counter_fn) {}
 
-        [[nodiscard]] int64_t value() const override { return _counter_fn(); }
+        int64_t value() const override { return _counter_fn(); }
 
     private:
         DerivedCounterFunction _counter_fn;
