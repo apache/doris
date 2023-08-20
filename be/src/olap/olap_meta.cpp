@@ -19,8 +19,6 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
-#include <gen_cpp/internal_service.pb.h>
-#include <glog/logging.h>
 #include <rocksdb/env.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/status.h>
@@ -29,13 +27,11 @@
 #include <stdint.h>
 
 #include <memory>
-#include <optional>
 #include <sstream>
 #include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"
 #include "olap/olap_define.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -45,7 +41,6 @@
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
-#include "util/tdigest.h"
 
 using rocksdb::DB;
 using rocksdb::DBOptions;
@@ -335,7 +330,7 @@ Status OlapMeta::iterate_with_write(
                                                                    const std::string& value) {
         std::string overwrite_val;
         func(key, value, &overwrite_val);
-        if (overwrite_val == nullptr) {
+        if (overwrite_val.empty()) {
             return true;
         }
         return put(column_family_index, key, overwrite_val).ok();

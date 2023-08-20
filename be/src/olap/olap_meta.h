@@ -21,12 +21,10 @@
 
 #include <functional>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "util/slice.h"
 
 namespace rocksdb {
 class ColumnFamilyHandle;

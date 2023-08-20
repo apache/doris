@@ -27,15 +27,12 @@
 #include <new>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 #include "common/logging.h"
 #include "olap/binlog.h"
-#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
-#include "olap/storage_engine.h"
 #include "olap/utils.h"
 
 namespace doris {
