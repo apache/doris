@@ -189,7 +189,7 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
 
 Status IndexStream::close(std::vector<int64_t>* success_tablet_ids,
                         std::vector<int64_t>* failed_tablet_ids,
-                        std::vector<NeedCommitTabletInfo>* need_commit_tablet_info) {
+                        std::vector<PTabletWithPartition>* need_commit_tablet_info) {
     std::lock_guard lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
     // open all need commit tablets
@@ -249,7 +249,7 @@ Status LoadStream::init(const POpenStreamSinkRequest* request) {
 
 Status LoadStream::close(uint32_t sender_id, std::vector<int64_t>* success_tablet_ids,
                          std::vector<int64_t>* failed_tablet_ids,
-                         std::vector<NeedCommitTabletInfo>* need_commit_tablet_info) {
+                         std::vector<PTabletWithPartition>* need_commit_tablet_info) {
     if (sender_id >= _senders_status.size()) {
         LOG(WARNING) << "out of range sender id " << sender_id << "  num "
                      << _senders_status.size();
@@ -402,7 +402,7 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
             std::vector<int64_t> success_tablet_ids;
             std::vector<int64_t> failed_tablet_ids;
             auto& need_commit_tablet_info = hdr.need_commit_tablet_info();
-            std::vector<NeedCommitTabletInfo> info(need_commit_tablet_info.begin(), need_commit_tablet_info.end());
+            std::vector<PTabletWithPartition> info(need_commit_tablet_info.begin(), need_commit_tablet_info.end());
             auto st = close(hdr.sender_id(), &success_tablet_ids, &failed_tablet_ids,
                             &info);
             _report_result(id, st, &success_tablet_ids, &failed_tablet_ids);
