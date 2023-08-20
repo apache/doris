@@ -101,14 +101,14 @@ public:
 
     virtual OperatorPtr build_operator() = 0;
 
-    [[nodiscard]] virtual bool is_sink() const { return false; }
-    [[nodiscard]] virtual bool is_source() const { return false; }
+    virtual bool is_sink() const { return false; }
+    virtual bool is_source() const { return false; }
 
-    [[nodiscard]] std::string get_name() const { return _name; }
+    std::string get_name() const { return _name; }
 
     virtual const RowDescriptor& row_desc() = 0;
 
-    [[nodiscard]] int32_t id() const { return _id; }
+    int32_t id() const { return _id; }
 
 protected:
     const int32_t _id;
@@ -126,7 +126,7 @@ public:
 
     ~OperatorBuilder() override = default;
 
-    [[nodiscard]] const RowDescriptor& row_desc() override { return _node->row_desc(); }
+    const RowDescriptor& row_desc() override { return _node->row_desc(); }
 
     NodeType* exec_node() const { return _node; }
 

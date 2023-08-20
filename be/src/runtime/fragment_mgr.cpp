@@ -124,13 +124,13 @@ public:
     Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
     bool is_canceled() { return _cancelled; }
 
-    [[nodiscard]] TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
+    TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
-    [[nodiscard]] TUniqueId query_id() const { return _query_id; }
+    TUniqueId query_id() const { return _query_id; }
 
     PlanFragmentExecutor* executor() { return &_executor; }
 
-    [[nodiscard]] const vectorized::VecDateTimeValue& start_time() const { return _start_time; }
+    const vectorized::VecDateTimeValue& start_time() const { return _start_time; }
 
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
@@ -155,7 +155,7 @@ public:
         _group = info.group;
     }
 
-    [[nodiscard]] bool is_timeout(const vectorized::VecDateTimeValue& now) const {
+    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
         if (_timeout_second <= 0) {
             return false;
         }
@@ -165,7 +165,7 @@ public:
         return false;
     }
 
-    [[nodiscard]] int get_timeout_second() const { return _timeout_second; }
+    int get_timeout_second() const { return _timeout_second; }
 
     std::shared_ptr<QueryContext> get_query_ctx() { return _query_ctx; }
 
