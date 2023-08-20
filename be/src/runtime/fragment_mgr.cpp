@@ -874,9 +874,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_ctx));
+
+    if (!(params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger)) {
+        query_ctx->set_ready_to_execute_only();
+    }
+
     auto pre_and_submit = [&](int i) {
-        const auto& local_params = params.local_params[i];
-        const TUniqueId& fragment_instance_id = local_params.fragment_instance_id;
+        const auto& instance_params = params.local_params[i];
+        const TUniqueId& fragment_instance_id = instance_params.fragment_instance_id;
 
         {
             std::lock_guard<std::mutex> lock(_lock);
@@ -891,24 +896,20 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         START_AND_SCOPE_SPAN(tracer, span, "exec_instance");
         span->SetAttribute("instance_id", print_id(fragment_instance_id));
 
-        if (!(params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger)) {
-            query_ctx->set_ready_to_execute_only();
-        }
-
         int64_t duration_ns = 0;
-        _setup_shared_hashtable_for_broadcast_join(params, local_params, query_ctx.get());
+        _setup_shared_hashtable_for_broadcast_join(params, instance_params, query_ctx.get());
 
-        std::shared_ptr<pipeline::PipelineFragmentContext> context =
+        std::shared_ptr<pipeline::PipelineFragmentContext> instance_ctx =
                 std::make_shared<pipeline::PipelineFragmentContext>(
                     query_ctx->query_id, fragment_instance_id, params.fragment_id,
-                    local_params.backend_num, query_ctx, _exec_env, cb,
+                    instance_params.backend_num, query_ctx, _exec_env, cb,
                     std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
                                     std::placeholders::_1));
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            auto prepare_st = context->prepare(params, i);
+            auto prepare_st = instance_ctx->prepare(params, i);
             if (!prepare_st.ok()) {
-                context->close_if_prepare_failed();
+                instance_ctx->close_if_prepare_failed();
                 return prepare_st;
             }
         }
@@ -916,42 +917,42 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         g_fragmentmgr_prepare_latency << (duration_ns / 1000);
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
         // TODO(zhiqiang): This function has Status return value which is not checked.
-        _runtimefilter_controller.add_entity(params, local_params, &handler,
-                                             context->get_runtime_state());
-        context->set_merge_controller_handler(handler);
+        _runtimefilter_controller.add_entity(params, instance_params, &handler,
+                                             instance_ctx->get_runtime_state());
+        instance_ctx->set_merge_controller_handler(handler);
 
         {
             std::lock_guard<std::mutex> lock(_lock);
-            _pipeline_map.insert(std::make_pair(fragment_instance_id, context));
+            _pipeline_map.insert(std::make_pair(fragment_instance_id, instance_ctx));
             _cv.notify_all();
         }
 
-        return context->submit();
+        return instance_ctx->submit();
     };
 
-    const int target_size = params.local_params.size();
-    if (target_size > 1) {
+    const int instance_num = params.local_params.size();
+    if (instance_num > 1) {
         int prepare_done = {0};
-        Status prepare_status[target_size];
+        Status prepare_status[instance_num];
         std::mutex m;
         std::condition_variable cv;
 
-        for (size_t i = 0; i < target_size; i++) {
+        for (size_t i = 0; i < instance_num; i++) {
             _thread_pool->submit_func([&, i]() {
                 prepare_status[i] = pre_and_submit(i);
                 std::unique_lock<std::mutex> lock(m);
                 prepare_done++;
-                if (prepare_done == target_size) {
+                if (prepare_done == instance_num) {
                     cv.notify_one();
                 }
             });
         }
 
         std::unique_lock<std::mutex> lock(m);
-        if (prepare_done != target_size) {
+        if (prepare_done != instance_num) {
             cv.wait(lock);
 
-            for (size_t i = 0; i < target_size; i++) {
+            for (size_t i = 0; i < instance_num; i++) {
                 if (!prepare_status[i].ok()) {
                     return prepare_status[i];
                 }
