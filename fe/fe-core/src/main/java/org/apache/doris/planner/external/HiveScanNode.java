@@ -222,6 +222,11 @@ public class HiveScanNode extends FileQueryScanNode {
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             boolean useSelfSplitter = hmsTable.getCatalog().useSelfSplitter();
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
+            if (bindBrokerName != null && useSelfSplitter == false) {
+                // useSelfSplitter must be true if bindBrokerName is set.
+                throw new UserException(HMSExternalCatalog.ENABLE_SELF_SPLITTER + " should be true if "
+                        + HMSExternalCatalog.BIND_BROKER_NAME + " is set");
+            }
             List<Split> allFiles = Lists.newArrayList();
             getFileSplitByPartitions(cache, getPartitions(), allFiles, useSelfSplitter, bindBrokerName);
             LOG.debug("get #{} files for table: {}.{}, cost: {} ms",

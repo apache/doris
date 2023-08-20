@@ -42,6 +42,7 @@ import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.RemoteFiles;
+import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.metric.GaugeMetric;
@@ -367,10 +368,14 @@ public class HiveMetaStoreCache {
                                         List<String> partitionValues,
                                         String bindBrokerName) throws UserException {
         FileCacheValue result = new FileCacheValue();
-        result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(FileSystemFactory.getFSIdentity(
                     location, bindBrokerName), jobConf, bindBrokerName));
+        if (fs instanceof BrokerFileSystem) {
+            result.setSplittable(((BrokerFileSystem) fs).isSplittable(
+                    location, inputFormat.getClass().getCanonicalName()));
+        }
+        result.setSplittable(HiveUtil.isSplittable(inputFormat, new Path(location), jobConf));
         try {
             // For Tez engine, it may generate subdirectoies for "union" query.
             // So there may be files and directories in the table directory at the same time. eg:
@@ -426,7 +431,7 @@ public class HiveMetaStoreCache {
                 // TODO: This is a temp config, will remove it after the HiveSplitter is stable.
                 if (key.useSelfSplitter) {
                     result = getFileCache(finalLocation, inputFormat, jobConf,
-                        key.getPartitionValues(), key.getBindBrokerName());
+                        key.getPartitionValues(), key.bindBrokerName);
                 } else {
                     InputSplit[] splits;
                     String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);

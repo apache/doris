@@ -602,6 +602,43 @@ public class BrokerFileSystem extends RemoteFileSystem {
         }
     }
 
+    public boolean isSplittable(String remotePath, String inputFormat) throws UserException {
+        // get a proper broker
+        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBroker();
+        if (pair == null) {
+            throw new UserException("failed to get broker client");
+        }
+        TPaloBrokerService.Client client = pair.first;
+        TNetworkAddress address = pair.second;
+
+        // invoke 'isSplittable' interface
+        boolean needReturn = true;
+        try {
+            TBrokerIsSplittableRequest req = new TBrokerIsSplittableRequest(TBrokerVersion.VERSION_ONE, remotePath,
+                    inputFormat, properties);
+            TBrokerIsSplittableResponse response = client.isSplittable(req);
+            TBrokerOperationStatus operationStatus = response.getOpStatus();
+            if (operationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
+                throw new UserException("failed to get path isSplittable, remote path: " + remotePath + ". msg: "
+                    + operationStatus.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
+            }
+            boolean result = response.getIsSplittable();
+            LOG.info("finished to get path isSplittable, remote path {} with format {}, isSplittable: {}",
+                    remotePath, inputFormat, result);
+            return result;
+        } catch (TException e) {
+            needReturn = false;
+            throw new UserException("failed to get path isSplittable, remote path: "
+                + remotePath + ". msg: " + e.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
+        } finally {
+            if (needReturn) {
+                ClientPool.brokerPool.returnObject(address, client);
+            } else {
+                ClientPool.brokerPool.invalidateObject(address, client);
+            }
+        }
+    }
+
     // List files in remotePath
     @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
