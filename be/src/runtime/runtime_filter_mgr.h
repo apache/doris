@@ -135,9 +135,9 @@ public:
     Status merge(const PMergeFilterRequest* request, butil::IOBufAsZeroCopyInputStream* attach_data,
                  bool opt_remote_rf);
 
-    [[nodiscard]] UniqueId query_id() const { return _query_id; }
+    UniqueId query_id() const { return _query_id; }
 
-    [[nodiscard]] UniqueId instance_id() const { return _fragment_instance_id; }
+    UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
         int64_t merge_time;

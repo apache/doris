@@ -91,7 +91,7 @@ public:
 
     void shutdown();
 
-    [[nodiscard]] TaskQueue* task_queue() const { return _task_queue.get(); }
+    TaskQueue* task_queue() const { return _task_queue.get(); }
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;

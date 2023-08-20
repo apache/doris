@@ -101,14 +101,14 @@ public:
 
     virtual OperatorPtr build_operator() = 0;
 
-    virtual bool is_sink() const { return false; }
-    virtual bool is_source() const { return false; }
+    [[nodiscard]] virtual bool is_sink() const { return false; }
+    [[nodiscard]] virtual bool is_source() const { return false; }
 
-    std::string get_name() const { return _name; }
+    [[nodiscard]] std::string get_name() const { return _name; }
 
     virtual const RowDescriptor& row_desc() = 0;
 
-    int32_t id() const { return _id; }
+    [[nodiscard]] int32_t id() const { return _id; }
 
 protected:
     const int32_t _id;
@@ -126,7 +126,7 @@ public:
 
     ~OperatorBuilder() override = default;
 
-    const RowDescriptor& row_desc() override { return _node->row_desc(); }
+    [[nodiscard]] const RowDescriptor& row_desc() override { return _node->row_desc(); }
 
     NodeType* exec_node() const { return _node; }
 
@@ -142,7 +142,7 @@ public:
 
     ~DataSinkOperatorBuilder() override = default;
 
-    [[nodiscard]] bool is_sink() const override { return true; }
+    bool is_sink() const override { return true; }
 
     const RowDescriptor& row_desc() override { return _sink->row_desc(); }
 
@@ -157,11 +157,11 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    [[nodiscard]] std::string get_name() const { return _operator_builder->get_name(); }
+    std::string get_name() const { return _operator_builder->get_name(); }
 
-    [[nodiscard]] bool is_sink() const;
+    bool is_sink() const;
 
-    [[nodiscard]] bool is_source() const;
+    bool is_source() const;
 
     virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 

@@ -165,7 +165,7 @@ public:
 
     QueryContext* query_context();
 
-    [[nodiscard]] int get_previous_core_id() const {
+    int get_previous_core_id() const {
         return _previous_schedule_id != -1 ? _previous_schedule_id
                                            : _pipeline->_previous_schedule_id;
     }
@@ -186,7 +186,7 @@ public:
 
     std::string debug_string();
 
-    [[nodiscard]] taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
+    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
 
@@ -196,15 +196,15 @@ public:
     // note(wb) an ugly implementation, need refactor later
     // 1.1 pipeline task
     void inc_runtime_ns(uint64_t delta_time) { this->_runtime += delta_time; }
-    [[nodiscard]] uint64_t get_runtime_ns() const { return this->_runtime; }
+    uint64_t get_runtime_ns() const { return this->_runtime; }
 
     // 1.2 priority queue's queue level
     void update_queue_level(int queue_level) { this->_queue_level = queue_level; }
-    [[nodiscard]] int get_queue_level() const { return this->_queue_level; }
+    int get_queue_level() const { return this->_queue_level; }
 
     // 1.3 priority queue's core id
     void set_core_id(int core_id) { this->_core_id = core_id; }
-    [[nodiscard]] int get_core_id() const { return this->_core_id; }
+    int get_core_id() const { return this->_core_id; }
 
     void set_begin_execute_time() {
         if (!_is_first_time_to_execute) {

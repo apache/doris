@@ -129,9 +129,9 @@ public:
     RuntimeProfile* profile();
     RuntimeProfile* load_channel_profile();
 
-    [[nodiscard]] const Status& status() const { return _status; }
+    const Status& status() const { return _status; }
 
-    [[nodiscard]] DataSink* get_sink() const { return _sink.get(); }
+    DataSink* get_sink() const { return _sink.get(); }
 
     void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
@@ -238,7 +238,7 @@ private:
     // Idempotent.
     void stop_report_thread();
 
-    [[nodiscard]] const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
+    const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
 
