@@ -79,7 +79,7 @@ public:
 
     void flush(uint32_t sender_id);
     Status close(std::vector<int64_t>* success_tablet_ids, std::vector<int64_t>* failed_tablet_ids,
-               std::vector<NeedCommitTabletInfo>* need_commit_tablet_info);
+               std::vector<PTabletWithPartition>* need_commit_tablet_info);
 
 private:
     int64_t _id;
@@ -110,7 +110,7 @@ public:
 
     Status close(uint32_t sender_id, std::vector<int64_t>* success_tablet_ids,
                  std::vector<int64_t>* failed_tablet_ids,
-                 std::vector<NeedCommitTabletInfo>* need_commit_tablet_info);
+                 std::vector<PTabletWithPartition>* need_commit_tablet_info);
 
     // callbacks called by brpc
     int on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) override;

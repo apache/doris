@@ -87,6 +87,16 @@ using NodeIdForStream = std::unordered_map<brpc::StreamId, int64_t>;
 using NodePartitionTabletMapping =
         std::unordered_map<int64_t, std::unordered_map<int64_t, std::unordered_set<int64_t>>>;
 
+struct TabletWithPartition {
+    int64_t partition_id;
+    int64_t tablet_id;
+};
+
+struct TabletWithIndex {
+    int64_t index_id;
+    int64_t tablet_id;
+};
+
 class StreamSinkHandler : public brpc::StreamInputHandler {
 public:
     StreamSinkHandler(VOlapTableSinkV2* sink) : _sink(sink) {}
@@ -141,7 +151,7 @@ private:
 
     Status _init_stream_pools();
 
-    void _build_node_partition_tablet_mapping();
+    void _build_tablet_node_mapping();
 
     void _generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
                                    const VOlapTablePartition* partition, uint32_t tablet_index,
@@ -221,7 +231,8 @@ private:
 
     std::unordered_set<int64_t> _opened_partitions;
 
-    NodePartitionTabletMapping _node_partition_tablet_mapping;
+    std::unordered_map<int64_t, std::vector<TabletWithPartition>> _tablets_for_node;
+    std::unordered_map<int64_t, std::vector<TabletWithIndex>> _indexes_from_node;
 
     std::shared_ptr<StreamPoolForNode> _stream_pool_for_node;
     std::shared_ptr<NodeIdForStream> _node_id_for_stream;

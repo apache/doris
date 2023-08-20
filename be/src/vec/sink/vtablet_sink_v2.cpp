@@ -228,16 +228,21 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     _stream_pool_for_node = std::make_shared<StreamPoolForNode>();
     _node_id_for_stream = std::make_shared<NodeIdForStream>();
     _delta_writer_for_tablet = std::make_shared<DeltaWriterForTablet>();
+    _build_tablet_node_mapping();
     RETURN_IF_ERROR(_init_stream_pools());
 
     return Status::OK();
 }
 
 Status VOlapTableSinkV2::_init_stream_pools() {
-    for (auto& [node_id, node_info] : _nodes_info->nodes_info()) {
+    for (auto& [node_id, _] : _tablets_for_node) {
+        auto node_info = _nodes_info->find_node(node_id);
+        if (node_info == nullptr) {
+            return Status::InternalError("Unknown node {} in tablet location", node_id);
+        }
         _stream_pool_for_node->insert({node_id, StreamPool {}});
         StreamPool& stream_pool = _stream_pool_for_node->at(node_id);
-        RETURN_IF_ERROR(_init_stream_pool(node_info, stream_pool));
+        RETURN_IF_ERROR(_init_stream_pool(*node_info, stream_pool));
         for (auto stream : stream_pool) {
             _node_id_for_stream->insert({stream, node_id});
         }
@@ -276,26 +281,11 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
         request.set_allocated_schema(_schema->to_protobuf());
         if (i == 0) {
             // get tablet schema from each backend only in the 1st stream
-            for (const auto& partition : _vpartition->get_partitions()) {
-                for (const auto& index : partition->indexes) {
-                    if (_tablet_schema_for_index.contains(index.index_id)) {
-                        LOG(INFO) << "get_tablet_schema skipping index id " << index.index_id;
-                        // already getting tablet_schema for this index_id
-                        continue;
-                    }
-                    auto tablet_id = index.tablets[0];
-                    auto nodes = _location->find_tablet(tablet_id)->node_ids;
-                    if (std::find(nodes.begin(), nodes.end(), node_info.id) != nodes.end()) {
-                        auto req = request.add_tablets();
-                        req->set_tablet_id(tablet_id);
-                        req->set_index_id(index.index_id);
-                        // create an entry in the map to mark this index_id
-                        LOG(INFO) << "get_tablet_schema getting index id " << index.index_id;
-                        _tablet_schema_for_index[index.index_id];
-                    }
-                }
+            for (auto& tablet : _indexes_from_node[node_info.id]) {
+                auto req = request.add_tablets();
+                req->set_index_id(tablet.index_id);
+                req->set_tablet_id(tablet.tablet_id);
             }
-            _build_node_partition_tablet_mapping();
         }
         POpenStreamSinkResponse response;
         cntl.set_timeout_ms(config::open_stream_sink_timeout_ms);
@@ -323,14 +313,20 @@ Status VOlapTableSinkV2::_init_stream_pool(const NodeInfo& node_info, StreamPool
     return Status::OK();
 }
 
-void VOlapTableSinkV2::_build_node_partition_tablet_mapping() {
+void VOlapTableSinkV2::_build_tablet_node_mapping() {
+    std::unordered_set<int64_t> known_indexes;
     for (const auto& partition : _vpartition->get_partitions()) {
         for (const auto& index : partition->indexes) {
             for (const auto& tablet_id : index.tablets) {
                 auto nodes = _location->find_tablet(tablet_id)->node_ids;
                 for (auto& node : nodes) {
-                    _node_partition_tablet_mapping[node][partition->id].insert(tablet_id);
+                    _tablets_for_node[node].emplace_back(partition->id, tablet_id);
                 }
+                if (known_indexes.contains(index.index_id)) [[likely]] {
+                    continue;
+                }
+                _indexes_from_node[nodes[0]].emplace_back(index.index_id, tablet_id);
+                known_indexes.insert(index.index_id);
             }
         }
     }
@@ -598,18 +594,15 @@ Status VOlapTableSinkV2::_close_load(brpc::StreamId stream) {
     header.set_sender_id(_sender_id);
     header.set_allocated_load_id(&_load_id);
     header.set_opcode(doris::PStreamHeader::CLOSE_LOAD);
-    auto node = _node_id_for_stream.get()->at(stream);
-    auto partition_tablet_mapping = _node_partition_tablet_mapping.at(node);
-    for (auto partition_id : _tablet_finder->partition_ids()) {
-        auto tablet_ids_it = partition_tablet_mapping.find(partition_id);
-        if (tablet_ids_it != partition_tablet_mapping.end()) {
-            for (auto& tablet_id : tablet_ids_it->second) {
-                NeedCommitTabletInfo* need_commit_tablet_info =
-                        header.add_need_commit_tablet_info();
-                need_commit_tablet_info->set_tablet_id(tablet_id);
-                need_commit_tablet_info->set_partition_id(partition_id);
-            }
+    auto node_id = _node_id_for_stream.get()->at(stream);
+    for (auto tablet : _tablets_for_node[node_id]) {
+        if (!_tablet_finder->partition_ids().contains(tablet.partition_id)) {
+            continue;
         }
+        PTabletWithPartition* need_commit_tablet_info =
+                header.add_need_commit_tablet_info();
+        need_commit_tablet_info->set_partition_id(tablet.partition_id);
+        need_commit_tablet_info->set_tablet_id(tablet.tablet_id);
     }
     size_t header_len = header.ByteSizeLong();
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
