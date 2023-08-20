@@ -97,7 +97,6 @@ public:
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
-    // TODO(hzq): what is the different between this two overload versions?
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
