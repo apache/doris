@@ -52,5 +52,9 @@ suite("test_complex_types", "p2,external,hive,external_remote,external_remote_hi
         qt_array_last """select max(array_last(i -> i > 0, capacity)) from byd where array_last(i -> i > 0, capacity) < 0.99"""
 
         qt_offsets_check """select * from complex_offsets_check order by id"""
+
+        qt_map_with_nullable_key """select * from parquet_all_types limit 1"""
+
+        sql """drop catalog ${catalog_name};"""
     }
 }
