@@ -26,7 +26,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
+//import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -165,7 +165,7 @@ public class BeSelectionPolicy {
         if (!preLocationFilterBackends.isEmpty()) {
             filterBackends = preLocationFilterBackends;
         }
-        Collections.shuffle(filterBackends);
+        // Collections.shuffle(filterBackends);
         List<Backend> candidates = new ArrayList<>();
         if (preferComputeNode) {
             int num = 0;
@@ -191,7 +191,7 @@ public class BeSelectionPolicy {
         } else {
             candidates.addAll(filterBackends);
         }
-        Collections.shuffle(candidates);
+        // Collections.shuffle(candidates);
         return candidates;
     }
 

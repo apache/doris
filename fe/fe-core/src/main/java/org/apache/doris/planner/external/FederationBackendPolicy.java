@@ -96,7 +96,8 @@ public class FederationBackendPolicy {
             throw new UserException("No available backends");
         }
         backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
-        int virtualNumber = Math.max(Math.min(512 / backends.size(), 32), 2);
+        // int virtualNumber = Math.max(Math.min(512 / backends.size(), 32), 2);
+        int virtualNumber = Config.virtual_node_num;
         consistentHash = new ConsistentHash<>(Hashing.murmur3_128(), new ScanRangeHash(),
                 new BackendHash(), backends, virtualNumber);
     }
