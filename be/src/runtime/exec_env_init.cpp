@@ -156,20 +156,20 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::fragment_pool_queue_size)
             .build(&_join_node_thread_pool);
 
-    _heavy_work_pool.reset(new FifoThreadPool(config::brpc_heavy_work_pool_threads != -1
-                                                      ? config::brpc_heavy_work_pool_threads
-                                                      : std::max(128, CpuInfo::num_cores() * 4),
-                                              config::brpc_heavy_work_pool_max_queue_size != -1
-                                                      ? config::brpc_heavy_work_pool_max_queue_size
-                                                      : std::max(10240, CpuInfo::num_cores() * 320),
-                                              "brpc_heavy"));
-    _light_work_pool.reset(new FifoThreadPool(config::brpc_light_work_pool_threads != -1
-                                                      ? config::brpc_light_work_pool_threads
-                                                      : std::max(128, CpuInfo::num_cores() * 4),
-                                              config::brpc_light_work_pool_max_queue_size != -1
-                                                      ? config::brpc_light_work_pool_max_queue_size
-                                                      : std::max(10240, CpuInfo::num_cores() * 320),
-                                              "brpc_light"));
+    _heavy_work_pool = std::make_unique<FifoThreadPool>(
+            config::brpc_heavy_work_pool_threads != -1 ? config::brpc_heavy_work_pool_threads
+                                                       : std::max(128, CpuInfo::num_cores() * 4),
+            config::brpc_heavy_work_pool_max_queue_size != -1
+                    ? config::brpc_heavy_work_pool_max_queue_size
+                    : std::max(10240, CpuInfo::num_cores() * 320),
+            "brpc_heavy");
+    _light_work_pool = std::make_unique<FifoThreadPool>(
+            config::brpc_light_work_pool_threads != -1 ? config::brpc_light_work_pool_threads
+                                                       : std::max(128, CpuInfo::num_cores() * 4),
+            config::brpc_light_work_pool_max_queue_size != -1
+                    ? config::brpc_light_work_pool_max_queue_size
+                    : std::max(10240, CpuInfo::num_cores() * 320),
+            "brpc_light");
 
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
