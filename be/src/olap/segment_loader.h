@@ -144,14 +144,14 @@ public:
     [[nodiscard]] bool is_inited() const { return _init; }
 
     void init(std::vector<segment_v2::SegmentSharedPtr> segments) {
-        DCHECK(_init);
+        DCHECK(!_init);
         _owned = true;
         _segments = std::move(segments);
         _init = true;
     }
 
     void init(Cache* cache, Cache::Handle* handle) {
-        DCHECK(_init);
+        DCHECK(!_init);
         _owned = false;
         _cache = cache;
         _handle = handle;
