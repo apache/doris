@@ -253,8 +253,10 @@ Status NewOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
-        _tablet_reader_params.direct_mode = _aggregation || single_version ||
-                                            (_parent->get_push_down_agg_type() != TPushAggOp::NONE);
+        _tablet_reader_params.direct_mode =
+                _aggregation || single_version ||
+                (_parent->get_push_down_agg_type() != TPushAggOp::NONE &&
+                 _parent->get_push_down_agg_type() != TPushAggOp::COUNT_ON_INDEX);
     }
 
     RETURN_IF_ERROR(_init_return_columns());
