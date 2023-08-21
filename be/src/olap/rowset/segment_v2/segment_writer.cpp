@@ -353,7 +353,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         segment_start_pos = _column_writers[cid]->get_next_rowid();
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         if (cid < _num_key_columns) {
@@ -484,7 +484,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                                    cids_missing);
     for (auto cid : cids_missing) {
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         if (_tablet_schema->has_sequence_col() && !have_input_seq_column &&
@@ -660,7 +660,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     for (size_t id = 0; id < _column_writers.size(); ++id) {
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(id);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         auto cid = _column_ids[id];
