@@ -109,7 +109,7 @@ Status DataTypeNullableSerDe::read_column_from_pb(IColumn& column, const PValues
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     auto& null_map_data = col.get_null_map_data();
     auto& nested = col.get_nested_column();
-    if (Status st = nested_serde->read_column_from_pb(nested, arg); st != Status::OK()) {
+    if (Status st = nested_serde->read_column_from_pb(nested, arg); !st.ok()) {
         return st;
     }
     null_map_data.resize(nested.size());

@@ -205,7 +205,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
-        if (status.is_io_error()) {
+        if (status.is<IO_ERROR>()) {
             _tablet->increase_io_error_times();
         }
         return status;
