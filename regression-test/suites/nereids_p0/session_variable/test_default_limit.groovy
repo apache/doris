@@ -19,6 +19,9 @@ suite('test_default_limit') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
     
+    sql 'drop table if exists baseall'
+    sql 'drop table if exists bigtable'
+    
     sql '''
         create table baseall (
             k1 int,

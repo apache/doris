@@ -16,6 +16,9 @@
 // under the License.
 
 suite('test_default_limit') {
+    sql 'drop table if exists baseall'
+    sql 'drop table if exists bigtable'
+    
     sql '''
         create table baseall (
             k1 int,
