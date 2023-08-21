@@ -16,9 +16,33 @@
 // under the License.
 
 suite('test_default_limit') {
-    sql 'use nereids_test_query_db'
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    
+    sql '''
+        create table baseall (
+            k1 int,
+            k2 int
+        )
+        distributed by hash(k1) buckets 16
+        properties(
+            'replication_num'='1'
+        )
+    '''
+
+    sql '''
+        create table bigtable (
+            k1 int,
+            k2 int
+        )
+        distributed by hash(k1) buckets 16
+        properties(
+            'replication_num'='1'
+        )
+    '''
+    
+    sql "insert into baseall values ${[1..16].collect { "($it, $it)" }.join(', ')}"
+    sql "insert into bigtable select * from baseall where k1 <= 3"
 
     for (int i = 0; i < 2; ++i) {
         if (i == 0) {
