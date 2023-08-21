@@ -25,8 +25,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.rewrite.SelectAuthChecker.AuthCols;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,108 +34,72 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * check select col auth
  */
-public class SelectAuthChecker implements RewriteRuleFactory {
+public class SelectAuthChecker extends DefaultPlanRewriter<AuthCols> implements CustomRewriter {
     private static final Logger LOG = LogManager.getLogger(SelectAuthChecker.class);
 
     @Override
-    public List<Rule> buildRules() {
-        return ImmutableList.of(
-                // select a from tbl;
-                logicalProject(logicalRelation()).then(project -> dealProjectRelation(project))
-                        .toRule(RuleType.RELATION_AUTHENTICATION),
-                // select * from tbl;
-                logicalRelation().then(relation -> dealRelation(relation))
-                        .toRule(RuleType.RELATION_AUTHENTICATION),
-                // select * from tbl where a=1;
-                logicalFilter(logicalRelation()).then(filter -> dealFilterRelation(filter))
-                        .toRule(RuleType.RELATION_AUTHENTICATION),
-                // select a from tbl where a=1;
-                logicalProject(logicalFilter(logicalRelation())).then(project -> dealProjectFilterRelation(project))
-                        .toRule(RuleType.RELATION_AUTHENTICATION)
-        );
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        return plan.accept(this, null);
     }
 
-    /**
-     * select * from tbl where a=1;
-     */
-    public static Plan dealFilterRelation(LogicalFilter<LogicalRelation> filter) {
-        Plan plan = filter.child(0);
-        if (!(plan instanceof CatalogRelation)) {
-            return filter;
+    @Override
+    public Plan visitLogicalProject(LogicalProject<? extends Plan> project, AuthCols authCols) {
+        // include: logicalProject(logicalFilter(logicalRelation())) || logicalProject(logicalRelation())
+        // exclude: logicalProject(LogicalJoin(*)) or other
+        if (CollectionUtils.isEmpty(project.children()) || project.children().size() != 1 || (
+                !(project.child(0) instanceof LogicalFilter) && !(project.child(0) instanceof LogicalRelation))) {
+            return visit(project, authCols);
+
         }
-        checkSelectAuth((CatalogRelation) plan, null);
-        return filter;
+        if (authCols == null) {
+            authCols = new AuthCols();
+        }
+        // if `hasProject` is false,match sql is `select *`,we need check priv of all columns
+        authCols.setHasProject(true);
+        getCols(project.getProjects(), authCols.getCols());
+        return visit(project, authCols);
     }
 
-    /**
-     * select * from tbl;
-     */
-    public static Plan dealRelation(LogicalRelation relation) {
-        if (!(relation instanceof CatalogRelation)) {
-            return relation;
+    @Override
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, AuthCols authCols) {
+        if (authCols == null) {
+            authCols = new AuthCols();
         }
-        checkSelectAuth((CatalogRelation) relation, null);
+        getCols(filter.getConjuncts(), authCols.getCols());
+        return visit(filter, authCols);
+    }
+
+    @Override
+    public Plan visitLogicalRelation(LogicalRelation relation, AuthCols authCols) {
+        if (relation instanceof CatalogRelation) {
+            if (authCols == null) {
+                authCols = new AuthCols();
+            }
+            checkSelectAuth((CatalogRelation) relation, authCols);
+        }
         return relation;
-    }
-
-    /**
-     * deal select with filter
-     */
-    public static Plan dealProjectFilterRelation(LogicalProject<LogicalFilter<LogicalRelation>> project) {
-        Plan plan = project.child(0);
-        if (!(plan instanceof LogicalFilter)) {
-            return project;
-        }
-        LogicalFilter filter = (LogicalFilter) plan;
-        Plan relation = filter.child(0);
-        if (!(relation instanceof CatalogRelation)) {
-            return project;
-        }
-        Set<String> cols = Sets.newHashSet();
-        // get cols from filter
-        getCols(filter.getConjuncts(), cols);
-        // get cols from project
-        getCols(project.getProjects(), cols);
-        checkSelectAuth((CatalogRelation) relation, cols);
-        return project;
-    }
-
-    /**
-     * deal select with no filter
-     */
-    public static LogicalProject dealProjectRelation(
-            LogicalProject<LogicalRelation> project) {
-        Plan relation = project.child(0);
-        if (!(relation instanceof CatalogRelation)) {
-            return project;
-        }
-        Set<String> cols = Sets.newHashSet();
-        // get cols from project
-        getCols(project.getProjects(), cols);
-        checkSelectAuth((CatalogRelation) relation, cols);
-        return project;
     }
 
     /**
      * check col select auth
      */
-    public static void checkSelectAuth(CatalogRelation catalogRelation, Set<String> cols) {
+    private void checkSelectAuth(CatalogRelation catalogRelation, AuthCols authCols) {
         TableIf table;
         DatabaseIf database;
         CatalogIf catalog;
@@ -158,13 +122,13 @@ public class SelectAuthChecker implements RewriteRuleFactory {
             return;
         }
 
-        if (CollectionUtils.isEmpty(cols)) {
-            cols = table.getColumns().stream().map(Column::getName).collect(Collectors.toSet());
+        if (!authCols.isHasProject()) {
+            authCols.setCols(table.getColumns().stream().map(Column::getName).collect(Collectors.toSet()));
         }
         try {
             Env.getCurrentEnv().getAccessManager()
                     .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), catalog.getName(),
-                            database.getFullName(), table.getName(), cols, PrivPredicate.SELECT);
+                            database.getFullName(), table.getName(), authCols.getCols(), PrivPredicate.SELECT);
         } catch (UserException e) {
             throw new AnalysisException("Permission denied:" + e.getMessage());
         }
@@ -181,6 +145,35 @@ public class SelectAuthChecker implements RewriteRuleFactory {
             if (expression.children().size() != 0) {
                 getCols(expression.children(), cols);
             }
+        }
+    }
+
+    /**
+     * cols need check priv
+     */
+    protected static class AuthCols {
+        private boolean hasProject;
+        private Set<String> cols;
+
+        public AuthCols() {
+            this.cols = Sets.newHashSet();
+            this.hasProject = false;
+        }
+
+        public boolean isHasProject() {
+            return hasProject;
+        }
+
+        public void setHasProject(boolean hasProject) {
+            this.hasProject = hasProject;
+        }
+
+        public Set<String> getCols() {
+            return cols;
+        }
+
+        public void setCols(Set<String> cols) {
+            this.cols = cols;
         }
     }
 }

@@ -295,7 +295,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
-                    topDown(new SelectAuthChecker()),
+                    custom(RuleType.RELATION_AUTHENTICATION, SelectAuthChecker::new),
                     custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
                     topDown(
                             new PushdownFilterThroughProject(),
