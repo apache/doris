@@ -44,7 +44,7 @@ suite("test_compress_type", "p2,external,hive,external_remote,external_remote_hi
         }
         qt_q21 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
         qt_q22 """select count(*) from test_compress_partitioned"""
-        qt_q23 """select count(*) from test_compress_partitioned where watchid=4611870011201662970"""
+        order_qt_q23 """select * from test_compress_partitioned where watchid=4611870011201662970"""
 
         sql """set file_split_size=8388608"""
         explain {
@@ -55,7 +55,7 @@ suite("test_compress_type", "p2,external,hive,external_remote,external_remote_hi
 
         qt_q31 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
         qt_q32 """select count(*) from test_compress_partitioned"""
-        qt_q33 """select count(*) from test_compress_partitioned where watchid=4611870011201662970"""
+        order_qt_q33 """select * from test_compress_partitioned where watchid=4611870011201662970"""
         sql """set file_split_size=0"""
     }
 }
