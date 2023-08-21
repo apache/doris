@@ -108,7 +108,7 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
 fi
 
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
-    export DORIS_CLASSPATH="${HADOOP_CONF_DIR}:${DORIS_CLASSPATH}"
+    export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
 
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
@@ -117,7 +117,7 @@ export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
-export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${DORIS_HOME}/lib/hadoop_hdfs/native:${DORIS_HOME}/lib/zlib:${LD_LIBRARY_PATH}"
 
 jdk_version() {
     local java_cmd="${1}"
