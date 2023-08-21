@@ -199,6 +199,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
 
+    public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
+
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
 
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
@@ -649,6 +651,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL)
     private boolean enablePipelineEngine = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PIPELINE_X_ENGINE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
+    private boolean enablePipelineXEngine = false;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableAggState = false;
@@ -1523,7 +1528,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        if (enablePipelineEngine && parallelPipelineTaskNum == 0) {
+        if (getEnablePipelineEngine() && parallelPipelineTaskNum == 0) {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
@@ -1746,6 +1751,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
         this.enablePipelineEngine = enablePipelineEngine;
+    }
+
+    public void setEnablePipelineXEngine(boolean enablePipelineXEngine) {
+        this.enablePipelineXEngine = enablePipelineXEngine;
     }
 
     public boolean enablePushDownNoGroupAgg() {
@@ -2119,6 +2128,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
+        tResult.setEnablePipelineXEngine(enablePipelineXEngine);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
@@ -2479,7 +2489,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean getEnablePipelineEngine() {
-        return enablePipelineEngine;
+        return enablePipelineEngine || enablePipelineXEngine;
+    }
+
+    public boolean getEnablePipelineXEngine() {
+        return enablePipelineXEngine;
     }
 
     public static boolean enablePipelineEngine() {
@@ -2487,7 +2501,8 @@ public class SessionVariable implements Serializable, Writable {
         if (connectContext == null) {
             return false;
         }
-        return connectContext.getSessionVariable().enablePipelineEngine;
+        return connectContext.getSessionVariable().enablePipelineEngine
+                || connectContext.getSessionVariable().enablePipelineXEngine;
     }
 
     public static boolean enableAggState() {

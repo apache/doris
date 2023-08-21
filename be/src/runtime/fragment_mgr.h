@@ -46,7 +46,8 @@ namespace doris {
 
 namespace pipeline {
 class PipelineFragmentContext;
-}
+class PipelineXFragmentContext;
+} // namespace pipeline
 class QueryContext;
 class ExecEnv;
 class FragmentExecState;
@@ -95,6 +96,9 @@ public:
 
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
+
+    void remove_pipeline_context(
+            std::shared_ptr<pipeline::PipelineXFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
