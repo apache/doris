@@ -88,14 +88,14 @@ struct ToBitmap {
     static constexpr auto name = "to_bitmap";
 
     template <typename ColumnType>
-    static Status vector(const ColumnType* col, std::vector<BitmapValue>& res_data,
-                         NullMap& null_map, size_t input_rows_count) {
+    static void vector(const ColumnType* col, std::vector<BitmapValue>& res_data, NullMap& null_map,
+                       size_t input_rows_count) {
         res_data.resize(input_rows_count);
         if (col->size() == 0 && input_rows_count == 1) {
             // For NULL constant
             res_data.emplace_back();
             null_map[0] = 1;
-            return Status::OK();
+            return;
         }
 
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
@@ -123,8 +123,12 @@ struct ToBitmap {
                 }
             }
         }
-        return Status::OK();
     }
+
+    template <typename ColumnType>
+    static void vector(const ColumnArray::Offsets64& offset_column_data,
+                       const IColumn& nested_column, const NullMap& nested_null_map,
+                       std::vector<BitmapValue>& res, NullMap& null_map) {}
 };
 
 struct ToBitmapWithCheck {
@@ -210,42 +214,48 @@ struct BitmapFromString {
     static constexpr auto name = "bitmap_from_string";
 
     template <typename ColumnType>
-    static Status vector(const ColumnType* col, std::vector<BitmapValue>& res, NullMap& null_map,
-                         size_t input_rows_count) {
-        const ColumnString::Chars& data = col->get_chars();
-        const ColumnString::Offsets& offsets = col->get_offsets();
-        res.reserve(input_rows_count);
-        std::vector<uint64_t> bits;
-        if (offsets.size() == 0 && input_rows_count == 1) {
-            // For NULL constant
-            res.emplace_back();
-            null_map[0] = 1;
-            return Status::OK();
-        }
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int64_t str_size = offsets[i] - offsets[i - 1];
-
-            if ((str_size > INT32_MAX) ||
-                !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
+    static void vector(const ColumnType* col, std::vector<BitmapValue>& res, NullMap& null_map,
+                       size_t input_rows_count) {
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            const ColumnString::Chars& data = col->get_chars();
+            const ColumnString::Offsets& offsets = col->get_offsets();
+            res.reserve(input_rows_count);
+            std::vector<uint64_t> bits;
+            if (offsets.size() == 0 && input_rows_count == 1) {
+                // For NULL constant
                 res.emplace_back();
-                null_map[i] = 1;
-                continue;
+                null_map[0] = 1;
+                return;
             }
-            res.emplace_back(bits);
-            bits.clear();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                int64_t str_size = offsets[i] - offsets[i - 1];
+
+                if ((str_size > INT32_MAX) ||
+                    !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
+                    res.emplace_back();
+                    null_map[i] = 1;
+                    continue;
+                }
+                res.emplace_back(bits);
+                bits.clear();
+            }
         }
-        return Status::OK();
     }
+
+    template <typename ColumnType>
+    static void vector(const ColumnArray::Offsets64& offset_column_data,
+                       const IColumn& nested_column, const NullMap& nested_null_map,
+                       std::vector<BitmapValue>& res, NullMap& null_map) {}
 };
 
 struct BitmapFromArray {
     static constexpr auto name = "bitmap_from_array";
 
     template <typename ColumnType>
-    static Status vector(const ColumnArray::Offsets64& offset_column_data,
-                         const IColumn& nested_column, const NullMap& nested_null_map,
-                         std::vector<BitmapValue>& res, NullMap& null_map) {
+    static void vector(const ColumnArray::Offsets64& offset_column_data,
+                       const IColumn& nested_column, const NullMap& nested_null_map,
+                       std::vector<BitmapValue>& res, NullMap& null_map) {
         const auto& nested_column_data = static_cast<const ColumnType&>(nested_column).get_data();
         auto size = offset_column_data.size();
         res.reserve(size);
@@ -270,8 +280,11 @@ struct BitmapFromArray {
             }
             bits.clear();
         }
-        return Status::OK();
     }
+
+    template <typename ColumnType>
+    static void vector(const ColumnType* col, std::vector<BitmapValue>& res, NullMap& null_map,
+                       size_t input_rows_count) {}
 };
 
 template <typename Impl>
@@ -303,9 +316,13 @@ public:
         WhichDataType which(data_type);
 
         if (which.is_string_or_fixed_string()) {
-            Impl::vector<ColumnString>(argument_column, res, null_map, input_rows_count);
+            Impl::template vector<ColumnString>(
+                    check_and_get_column<ColumnString>(argument_column.get()), res, null_map,
+                    input_rows_count);
         } else if (which.is_int64()) {
-            Impl::vector<ColumnInt64>(argument_column, res, null_map, input_rows_count);
+            Impl::template vector<ColumnInt64>(
+                    check_and_get_column<ColumnInt64>(argument_column.get()), res, null_map,
+                    input_rows_count);
         } else if (which.is_array()) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
