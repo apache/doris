@@ -967,9 +967,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
 }
 
 Status SegmentIterator::_apply_inverted_index() {
-    if (_opts.runtime_state->enable_profile()) {
-        SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
-    }
+    SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
         return Status::OK();
     }
@@ -1570,9 +1568,7 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
 
 Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                bool set_block_rowid) {
-    if (_opts.runtime_state->enable_profile()) {
-        SCOPED_RAW_TIMER(&_opts.stats->first_read_ns);
-    }
+    SCOPED_RAW_TIMER(&_opts.stats->first_read_ns);
     do {
         uint32_t range_from;
         uint32_t range_to;
@@ -1584,7 +1580,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         if (_cur_rowid == 0 || _cur_rowid != range_from) {
             _cur_rowid = range_from;
             _opts.stats->block_first_read_seek_num += 1;
-            if (_opts.runtime_state->enable_profile()) {
+            if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                 SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
             }
             RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
@@ -1753,9 +1749,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
 
-    if (_opts.runtime_state->enable_profile()) {
-        SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
-    }
+    SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_lazy_inited)) {
         RETURN_IF_ERROR(_lazy_init());
         _lazy_inited = true;
@@ -1854,9 +1848,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 if (_is_need_expr_eval) {
                     // The predicate column contains the remaining expr column, no need second read.
                     if (!_second_read_column_ids.empty()) {
-                        if (_opts.runtime_state->enable_profile()) {
-                            SCOPED_RAW_TIMER(&_opts.stats->second_read_ns);
-                        }
+                        SCOPED_RAW_TIMER(&_opts.stats->second_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _second_read_column_ids, _block_rowids, sel_rowid_idx,
                                 selected_size, &_current_return_columns));
