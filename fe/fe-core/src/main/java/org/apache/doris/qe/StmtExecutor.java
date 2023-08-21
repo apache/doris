@@ -126,6 +126,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -391,7 +392,14 @@ public class StmtExecutor {
     }
 
     public boolean isInsertStmt() {
-        return parsedStmt != null && parsedStmt instanceof InsertStmt;
+        if (parsedStmt == null) {
+            return false;
+        }
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            return logicalPlan instanceof InsertIntoTableCommand;
+        }
+        return parsedStmt instanceof InsertStmt;
     }
 
     /**
