@@ -1,3 +1,5 @@
+import org.junit.Assert
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -22,6 +24,30 @@ suite("test_local_tvf_with_complex_type_insertinto_doris", "p0") {
     def be_id = table[0][0]
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/"
     def table_name = "comp"
+
+    if (table.size() > 1) {
+        // cluster mode need to make sure all be has this data
+        // get s3 files to local
+        String s3_file_orc = "${getS3Url()}/regression/tvf/comp.orc"
+        String s3_file_parquet = "${getS3Url()}/regression/tvf/comp.parquet"
+
+        String cmd_orc = "wget ${s3_file_orc}"
+        String cmd_parquet = "wget ${s3_file_parquet}"
+        logger.info("Execute: ${cmd_orc}".toString())
+        logger.info("Execute: ${cmd_parquet}".toString())
+        Process process = cmd_orc.execute()
+        def code = process.waitFor()
+        Assert.assertEquals(0, code)
+        Process pro = cmd_parquet.execute()
+        c = pro.waitFor()
+        Assert.assertEquals(0, c)
+        // cluster mode need to make sure all be has this data
+        for (final def be_info in table) {
+            def be_host = be_info[1]
+            scpFiles("root", be_host, "comp.orc", dataFilePath, false);
+            scpFiles("root", be_host, "comp.parquet", dataFilePath, false);
+        }
+    }
 
     qt_sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
 
