@@ -30,6 +30,9 @@ suite("query6") {
     sql 'set enable_nereids_timeout = false'
     sql 'SET enable_pipeline_engine = true'
 
+    // TODO: uncomment following line to get better shape 
+    // sql 'set max_join_number_bushy_tree=6'
+
     qt_ds_shape_6 '''
     explain shape plan
 
