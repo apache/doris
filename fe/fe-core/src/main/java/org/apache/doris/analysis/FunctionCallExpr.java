@@ -939,7 +939,7 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.QUANTILE_UNION)) {
             if (children.size() != 1) {
-                throw new AnalysisException(fnName + "function could only have one child");
+                throw new AnalysisException(fnName + " function could only have one child");
             }
             Type inputType = getChild(0).getType();
             if (!inputType.isQuantileStateType()) {
