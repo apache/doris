@@ -100,9 +100,7 @@ public:
             _value.store(binary_cast<double, int64_t>(value), std::memory_order_relaxed);
         }
 
-        virtual int64_t value() const {
-            return _value.load(std::memory_order_relaxed);
-        }
+        virtual int64_t value() const { return _value.load(std::memory_order_relaxed); }
 
         virtual double double_value() const {
             return binary_cast<int64_t, double>(_value.load(std::memory_order_relaxed));
@@ -150,9 +148,7 @@ public:
             UpdateMax(v);
         }
 
-        int64_t current_value() const {
-            return current_value_.load(std::memory_order_relaxed);
-        }
+        int64_t current_value() const { return current_value_.load(std::memory_order_relaxed); }
 
     private:
         /// Set '_value' to 'v' if 'v' is larger than '_value'. The entire operation is

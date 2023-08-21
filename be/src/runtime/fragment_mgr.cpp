@@ -799,7 +799,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                          params.query_options.enable_pipeline_engine;
 
     RETURN_IF_ERROR(
-        _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
+            _get_query_ctx(params, params.params.query_id, pipeline_engine_enabled, query_ctx));
 
     query_ctx->fragment_ids.push_back(fragment_instance_id);
 
@@ -825,8 +825,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
 
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    _runtimefilter_controller.add_entity(params, &handler,
-                                         exec_state->executor()->runtime_state());
+    _runtimefilter_controller.add_entity(params, &handler, exec_state->executor()->runtime_state());
     exec_state->set_merge_controller_handler(handler);
 
     {
@@ -901,10 +900,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         std::shared_ptr<pipeline::PipelineFragmentContext> instance_ctx =
                 std::make_shared<pipeline::PipelineFragmentContext>(
-                    query_ctx->query_id, fragment_instance_id, params.fragment_id,
-                    instance_params.backend_num, query_ctx, _exec_env, cb,
-                    std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
-                                    std::placeholders::_1));
+                        query_ctx->query_id, fragment_instance_id, params.fragment_id,
+                        instance_params.backend_num, query_ctx, _exec_env, cb,
+                        std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
+                                        std::placeholders::_1));
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = instance_ctx->prepare(params, i);
