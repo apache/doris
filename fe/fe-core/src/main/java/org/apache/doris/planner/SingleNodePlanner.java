@@ -1053,7 +1053,7 @@ public class SingleNodePlanner {
                 // reset assigned conjuncts of analyzer in every compare
                 analyzer.setAssignedConjuncts(root.getAssignedConjuncts());
                 PlanNode candidate = createJoinNode(analyzer, root, rootPlanNodeOfCandidate, tblRefOfCandidate);
-                // (ML): 这里还需要吗？应该不会返回null吧
+                // it may not return null, but protect.
                 if (candidate == null) {
                     continue;
                 }
