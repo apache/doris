@@ -1105,7 +1105,7 @@ DECLARE_mBool(enable_window_funnel_function_v2);
 // If set to true, it will be enabled even if user not enable it when creating catalog
 DECLARE_Bool(enable_hdfs_hedged_read);
 // hdfs hedged read thread pool size, for "dfs.client.hedged.read.threadpool.size"
-// Maybe overwritten by the value specified when creating catalog
+// Maybe overwritten by the value specified when creating catalog.
 DECLARE_Int32(hdfs_hedged_read_thread_num);
 // the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
 // Maybe overwritten by the value specified when creating catalog.
