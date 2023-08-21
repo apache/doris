@@ -968,7 +968,7 @@ public class Coordinator {
             receiver.cancel();
         }
         cancelRemoteFragmentsAsync(cancelReason);
-        if (profileDoneSignal != null) {
+        if (profileDoneSignal != null && !needReport) {
             // count down to zero to notify all objects waiting for this
             profileDoneSignal.countDownToZero(new Status());
             LOG.info("unfinished instance: {}", profileDoneSignal.getLeftMarks()
