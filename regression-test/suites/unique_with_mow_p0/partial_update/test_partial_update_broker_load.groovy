@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_primary_key_partial_update_broker_load", "p0,external,external_docker,external_docker_hive") {
+suite("test_primary_key_partial_update_broker_load", "external,external_docker,external_docker_hive") {
 
     brokerName = getBrokerName()
     hdfsUser = getHdfsUser()
@@ -78,4 +78,12 @@ suite("test_primary_key_partial_update_broker_load", "p0,external,external_docke
     load_from_hdfs(tableName, test_load_label, "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/preinstalled_data/data_case/partial_update/update.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
     wait_for_load_result(test_load_label, tableName)
     qt_sql """select * from ${tableName} order by id;"""
+
+    sql "set enable_unified_load=true;"
+    sql "sync;"
+    def test_load_label2 = UUID.randomUUID().toString().replaceAll("-", "")
+    load_from_hdfs(tableName, test_load_label2, "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/preinstalled_data/data_case/partial_update/update2.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
+    wait_for_load_result(test_load_label2, tableName)
+    qt_sql """select * from ${tableName} order by id;"""
+    sql "drop table if exists ${tableName};"
 }
