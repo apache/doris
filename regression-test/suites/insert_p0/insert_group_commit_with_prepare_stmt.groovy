@@ -18,7 +18,10 @@
 suite("insert_group_commit_with_prepare_stmt") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
-    def table = "insert_group_commit_with_prepare_stmt"
+    def realDb = "regression_test_insert_p0"
+    def table = realDb + ".insert_group_commit_with_prepare_stmt"
+
+    sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
 
     def getRowCount = { expectedRowCount ->
         def retry = 0
@@ -60,16 +63,16 @@ suite("insert_group_commit_with_prepare_stmt") {
         stmt.addBatch()
     }
 
-    def db = context.config.defaultDb + "_insert_p0"
-    def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, db)
+    def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb)
+    logger.info("url: " + url)
+
     def result1 = connect(user=user, password=password, url=url) {
         try {
-            sql """ use ${db} """
             // create table
             sql """ drop table if exists ${table}; """
 
             sql """
-            CREATE TABLE `${table}` (
+            CREATE TABLE ${table} (
                 `id` int(11) NOT NULL,
                 `name` varchar(50) NULL,
                 `score` int(11) NULL default "-1"
@@ -129,12 +132,11 @@ suite("insert_group_commit_with_prepare_stmt") {
     table = "test_prepared_stmt_duplicate"
     result1 = connect(user=user, password=password, url=url) {
         try {
-            sql """ use ${db} """
             // create table
             sql """ drop table if exists ${table}; """
 
             sql """
-            CREATE TABLE `${table}` (
+            CREATE TABLE ${table} (
                 `id` int(11) NOT NULL,
                 `name` varchar(50) NULL,
                 `score` int(11) NULL default "-1"
