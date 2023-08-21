@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
@@ -110,8 +111,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                 new NormalizeRepeat()
             ),
-            bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
+            topDown(new NormalizeAggregate()),
+            bottomUp(new SubqueryToApply()),
             bottomUp(new CheckAnalysis())
         );
     }

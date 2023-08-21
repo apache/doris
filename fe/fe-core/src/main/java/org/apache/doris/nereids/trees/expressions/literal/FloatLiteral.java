@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.FloatType;
 
+import java.text.NumberFormat;
+
 /**
  * float type literal
  */
@@ -47,5 +49,12 @@ public class FloatLiteral extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.FloatLiteral((double) value, Type.FLOAT);
+    }
+
+    @Override
+    public String getStringValue() {
+        NumberFormat nf = NumberFormat.getInstance();
+        nf.setGroupingUsed(false);
+        return nf.format(value);
     }
 }
