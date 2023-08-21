@@ -97,6 +97,7 @@ private:
 
     // make sure this handle is initialized and valid before
     // reading data.
+    bool _load_segment_once {false};
     SegmentCacheHandle _segment_cache_handle;
 
     StorageReadOptions _read_options;
