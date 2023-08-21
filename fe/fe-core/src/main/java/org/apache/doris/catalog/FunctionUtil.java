@@ -236,6 +236,7 @@ public class FunctionUtil {
         } catch (Exception e) {
             LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
                     function.getFunctionName().getFunction(), e);
+            throw e;
         }
         return true;
     }
