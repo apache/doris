@@ -1602,6 +1602,9 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void runAlterJobV2() {
+        if (!Config.forbid_alter_job) {
+            return;
+        }
         runnableSchemaChangeJobV2.values().forEach(alterJobsV2 -> {
             if (!alterJobsV2.isDone() && !activeSchemaChangeJobsV2.containsKey(alterJobsV2.getJobId())
                     && activeSchemaChangeJobsV2.size() < MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE) {
