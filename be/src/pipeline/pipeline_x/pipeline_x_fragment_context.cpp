@@ -104,35 +104,29 @@ PipelineXFragmentContext::~PipelineXFragmentContext() {
 
 void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                       const std::string& msg) {
-    if (_canceled) {
-        return;
-    }
-    _canceled = true;
-    if (!_query_ctx->is_cancelled()) {
+    if (!_runtime_state->is_cancelled()) {
         std::lock_guard<std::mutex> l(_status_lock);
-        if (_query_ctx->is_cancelled()) {
+        if (_runtime_state->is_cancelled()) {
             return;
         }
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             _exec_status = Status::Cancelled(msg);
         }
-        _query_ctx->set_is_cancelled(true);
 
-        LOG(WARNING) << "PipelineXFragmentContext Canceled. reason=" << msg;
+        for (auto& rs : _runtime_states) {
+            rs->set_is_cancelled(true, msg);
+            rs->set_process_status(_exec_status);
+            _exec_env->vstream_mgr()->cancel(rs->fragment_instance_id());
+        }
 
-        // Print detail informations below when you debugging here.
-        //
-        // for (auto& task : _tasks) {
-        //     LOG(WARNING) << task->debug_string();
-        // }
+        LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
 
-        FOR_EACH_RUNTIME_STATE(runtime_state->set_process_status(_exec_status);)
 
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
         if (stream_load_ctx != nullptr) {
-            stream_load_ctx->pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+            stream_load_ctx->pipe->cancel(msg);
         }
         _cancel_reason = reason;
         _cancel_msg = msg;
@@ -140,7 +134,7 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         _query_ctx->set_ready_to_execute(true);
 
         // must close stream_mgr to avoid dead lock in Exchange Node
-        //        _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
+//
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));

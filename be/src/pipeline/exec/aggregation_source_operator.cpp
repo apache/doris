@@ -96,7 +96,7 @@ void AggLocalState::_close_with_serialized_key() {
                     _dependency->destroy_agg_status(data.get_null_key_data());
                 }
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
     _dependency->release_tracker();
 }
 
@@ -242,7 +242,7 @@ Status AggLocalState::_serialize_with_serialized_key_result_non_spill(RuntimeSta
                     }
                 }
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 
     if (!mem_reuse) {
         vectorized::ColumnsWithTypeAndName columns_with_schema;
@@ -384,7 +384,7 @@ Status AggLocalState::_get_result_with_serialized_key_non_spill(RuntimeState* st
                     }
                 }
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 
     if (!mem_reuse) {
         *block = columns_with_schema;

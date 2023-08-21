@@ -135,7 +135,7 @@ Status AggSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
                                                       p._align_aggregate_states) *
                                                              p._align_aggregate_states));
                 },
-                _agg_data->_aggregated_method_variant);
+                _agg_data->method_variant);
         if (p._is_merge) {
             _executor.execute = std::bind<Status>(&AggSinkLocalState::_merge_with_serialized_key,
                                                   this, std::placeholders::_1);
@@ -186,7 +186,7 @@ size_t AggSinkLocalState::_memory_usage() const {
                 }
                 usage += agg_method.data.get_buffer_size_in_bytes();
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 
     if (_agg_arena_pool) {
         usage += _agg_arena_pool->size();
@@ -218,7 +218,7 @@ void AggSinkLocalState::_update_memusage_with_serialized_key() {
                         _agg_arena_pool->size() +
                         _shared_state->aggregate_data_container->memory_usage();
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 template <bool limit, bool for_spill>
@@ -433,7 +433,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
 
 size_t AggSinkLocalState::_get_hash_table_size() {
     return std::visit([&](auto&& agg_method) { return agg_method.data.size(); },
-                      _agg_data->_aggregated_method_variant);
+                      _agg_data->method_variant);
 }
 
 void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
@@ -517,7 +517,7 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
 
                 COUNTER_UPDATE(_hash_table_input_counter, num_rows);
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places,
@@ -570,7 +570,7 @@ void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places
                     }
                 }
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
@@ -748,7 +748,7 @@ Status AggSinkLocalState::try_spill_disk(bool eos) {
                 RETURN_IF_ERROR(_spill_hash_table(agg_method, hash_table));
                 return _dependency->reset_hash_table();
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->method_variant);
 }
 
 AggSinkOperatorX::AggSinkOperatorX(const int id, ObjectPool* pool, const TPlanNode& tnode,
@@ -909,7 +909,7 @@ Status AggSinkOperatorX::close(RuntimeState* state) {
                     COUNTER_SET(local_state._hash_table_size_counter,
                                 int64_t(agg_method.data.size()));
                 },
-                local_state._agg_data->_aggregated_method_variant);
+                local_state._agg_data->method_variant);
     }
     local_state._preagg_block.clear();
 

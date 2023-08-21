@@ -49,7 +49,7 @@ Status AggDependency::reset_hash_table() {
                 _agg_state.agg_arena_pool.reset(new vectorized::Arena);
                 return Status::OK();
             },
-            _agg_state.agg_data->_aggregated_method_variant);
+            _agg_state.agg_data->method_variant);
 }
 
 Status AggDependency::destroy_agg_status(vectorized::AggregateDataPtr data) {
