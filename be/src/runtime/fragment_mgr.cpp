@@ -668,7 +668,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         int64_t duration_ns = 0;
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
-                        query_ctx->query_id, params.fragment_id, query_ctx, _exec_env, cb,
+                        query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
                         std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
                                         std::placeholders::_1));
         {
@@ -747,7 +747,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             _setup_shared_hashtable_for_broadcast_join(params, local_params, query_ctx.get());
             std::shared_ptr<pipeline::PipelineFragmentContext> context =
                     std::make_shared<pipeline::PipelineFragmentContext>(
-                            query_ctx->query_id, fragment_instance_id, params.fragment_id,
+                            query_ctx->query_id(), fragment_instance_id, params.fragment_id,
                             local_params.backend_num, query_ctx, _exec_env, cb,
                             std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
                                             std::placeholders::_1));
