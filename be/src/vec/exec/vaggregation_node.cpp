@@ -505,6 +505,7 @@ Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->open(state));
+        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
     // move _create_agg_status to open not in during prepare,
