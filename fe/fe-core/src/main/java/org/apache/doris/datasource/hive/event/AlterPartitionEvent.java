@@ -134,11 +134,15 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
             return false;
         }
 
+        // Check if `that` event is a rename event, a rename event can not be batched
+        // because the process of `that` event will change the reference relation of this partition
         MetastorePartitionEvent thatPartitionEvent = (MetastorePartitionEvent) that;
         if (thatPartitionEvent.willChangePartitionName()) {
             return false;
         }
 
+        // `that` event can be batched if this event's partitions contains all of the partitions which `that` event has
+        // else just remove `that` event's relevant partitions
         for (String partitionName : getAllPartitionNames()) {
             if (thatPartitionEvent instanceof AddPartitionEvent) {
                 ((AddPartitionEvent) thatPartitionEvent).removePartition(partitionName);

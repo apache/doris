@@ -167,20 +167,22 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return false;
         }
 
-        // that event must be a MetastoreTableEvent event
-        // otherwise `isSameTable` will return false
+        // First check if `that` event is a rename event, a rename event can not be batched
+        // because the process of `that` event will change the reference relation of this table
+        // `that` event must be a MetastoreTableEvent event otherwise `isSameTable` will return false
         MetastoreTableEvent thatTblEvent = (MetastoreTableEvent) that;
         if (thatTblEvent.willChangeTableName()) {
             return false;
         }
 
-        // `thatTblEvent` event will not change the table's name
-        // so if the process of this event will drop this table,
-        // it can merge all the table's events before
+        // Then check if the process of this event will create or drop this table,
+        // if true then `that` event can be batched
         if (willCreateOrDropTable()) {
             return true;
         }
 
+        // Last, check if the process of `that` event will create or drop this table
+        // if false then `that` event can be batched
         return !thatTblEvent.willCreateOrDropTable();
     }
 }

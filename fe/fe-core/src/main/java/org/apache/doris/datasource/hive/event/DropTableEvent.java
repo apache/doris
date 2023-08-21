@@ -89,8 +89,13 @@ public class DropTableEvent extends MetastoreTableEvent {
             return false;
         }
 
-        // `that` event must be a MetastoreTableEvent event
-        // otherwise `isSameTable` will return false
+        /**
+         * Check if `that` event is a rename event, a rename event can not be batched
+         * because the process of `that` event will change the reference relation of this table,
+         * otherwise it can be batched because this event is a drop-table event
+         * and the process of this event will drop the whole table,
+         * and `that` event must be a MetastoreTableEvent event otherwise `isSameTable` will return false
+         * */
         MetastoreTableEvent thatTblEvent = (MetastoreTableEvent) that;
         return !thatTblEvent.willChangeTableName();
     }
