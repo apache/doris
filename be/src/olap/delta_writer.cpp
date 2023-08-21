@@ -93,6 +93,9 @@ DeltaWriter::~DeltaWriter() {
 }
 
 Status DeltaWriter::init() {
+    if (_is_init) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(_rowset_builder.init());
     RETURN_IF_ERROR(
             _memtable_writer->init(_rowset_builder.rowset_writer(), _rowset_builder.tablet_schema(),
