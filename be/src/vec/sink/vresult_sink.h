@@ -118,6 +118,9 @@ struct ResultFileOptions {
     }
 };
 
+
+constexpr int RESULT_SINK_BUFFER_SIZE = 4096;
+
 class VResultSink : public DataSink {
 public:
     friend class pipeline::ResultSinkOperator;
