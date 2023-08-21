@@ -17,7 +17,7 @@
 
 suite("test_autobucket") {
     sql "drop table if exists autobucket_test"
-    result = sql """
+    def sql_result = sql """
         CREATE TABLE `autobucket_test` (
           `user_id` largeint(40) NOT NULL
         ) ENGINE=OLAP
@@ -29,14 +29,14 @@ suite("test_autobucket") {
         )
         """
 
-    result = sql "show create table autobucket_test"
-    assertTrue(result.toString().containsIgnoreCase("BUCKETS AUTO"))
+    sql_result = sql "show create table autobucket_test"
+    assertTrue(sql_result.toString().containsIgnoreCase("BUCKETS AUTO"))
 
-    result = sql "show partitions from autobucket_test"
-    logger.info("${result}")
+    sql_result = sql "show partitions from autobucket_test"
+    logger.info("${sql_result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
     // 10 is the default buckets without partition size
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
+    assertEquals(Integer.valueOf(sql_result.get(0).get(8)), 10)
 
     sql "drop table if exists autobucket_test"
 }
