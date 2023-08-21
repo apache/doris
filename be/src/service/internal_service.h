@@ -235,8 +235,8 @@ private:
     // the reason see issue #16634
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
-    FifoThreadPool _heavy_work_pool;
-    FifoThreadPool _light_work_pool;
+    FifoThreadPool& _heavy_work_pool;
+    FifoThreadPool& _light_work_pool;
 };
 
 } // namespace doris
