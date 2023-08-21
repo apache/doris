@@ -86,28 +86,41 @@ struct BitmapEmpty {
 
 struct ToBitmap {
     static constexpr auto name = "to_bitmap";
-    using ArgumentType = DataTypeString;
 
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res_data, NullMap& null_map,
-                         size_t input_rows_count) {
+    template <typename ColumnType>
+    static Status vector(const ColumnType* col, std::vector<BitmapValue>& res_data,
+                         NullMap& null_map, size_t input_rows_count) {
         res_data.resize(input_rows_count);
-        if (offsets.size() == 0 && input_rows_count == 1) {
+        if (col->size() == 0 && input_rows_count == 1) {
             // For NULL constant
             res_data.emplace_back();
             null_map[0] = 1;
             return Status::OK();
         }
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1];
-            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
-                                                                                &parse_result);
-            if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
-                res_data[i].add(int_value);
-            } else {
-                null_map[i] = 1;
+
+        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
+            const ColumnString::Chars& data = col->get_chars();
+            const ColumnString::Offsets& offsets = col->get_offsets();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                size_t str_size = offsets[i] - offsets[i - 1];
+                StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+                uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                        raw_str, str_size, &parse_result);
+                if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
+                    res_data[i].add(int_value);
+                } else {
+                    null_map[i] = 1;
+                }
+            }
+        } else if constexpr (std::is_same_v<ColumnType, ColumnInt64>) {
+            auto& data = col->get_data();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                if (LIKELY(data[i] >= 0)) {
+                    res_data[i].add(data[i]);
+                } else {
+                    null_map[i] = 1;
+                }
             }
         }
         return Status::OK();
@@ -194,13 +207,13 @@ struct ToBitmapWithCheck {
 };
 
 struct BitmapFromString {
-    using ArgumentType = DataTypeString;
-
     static constexpr auto name = "bitmap_from_string";
 
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         std::vector<BitmapValue>& res, NullMap& null_map,
+    template <typename ColumnType>
+    static Status vector(const ColumnType* col, std::vector<BitmapValue>& res, NullMap& null_map,
                          size_t input_rows_count) {
+        const ColumnString::Chars& data = col->get_chars();
+        const ColumnString::Offsets& offsets = col->get_offsets();
         res.reserve(input_rows_count);
         std::vector<uint64_t> bits;
         if (offsets.size() == 0 && input_rows_count == 1) {
@@ -227,7 +240,6 @@ struct BitmapFromString {
 };
 
 struct BitmapFromArray {
-    using ArgumentType = DataTypeArray;
     static constexpr auto name = "bitmap_from_array";
 
     template <typename ColumnType>
@@ -287,13 +299,14 @@ public:
         auto& res = res_data_column->get_data();
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
-        // todo(zeno) int can avoid cast into string or char
-        if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeString>) {
-            const auto& str_column = static_cast<const ColumnString&>(*argument_column);
-            const ColumnString::Chars& data = str_column.get_chars();
-            const ColumnString::Offsets& offsets = str_column.get_offsets();
-            Impl::vector(data, offsets, res, null_map, input_rows_count);
-        } else if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeArray>) {
+        const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
+        WhichDataType which(data_type);
+
+        if (which.is_string_or_fixed_string()) {
+            Impl::vector<ColumnString>(argument_column, res, null_map, input_rows_count);
+        } else if (which.is_int64()) {
+            Impl::vector<ColumnInt64>(argument_column, res, null_map, input_rows_count);
+        } else if (which.is_array()) {
             auto argument_type = remove_nullable(
                     assert_cast<const DataTypeArray&>(*block.get_by_position(arguments[0]).type)
                             .get_nested_type());
