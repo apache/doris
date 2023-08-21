@@ -101,4 +101,16 @@ suite("nereids_insert_duplicate") {
             select * except(kaint) from src where id is not null'''
     sql 'sync'
     qt_lsc2 'select * from dup_light_sc_not_null_t order by id, kint'
+
+    sql 'set delete_without_partition=true'
+    sql '''delete from dup_t where id is not null'''
+    sql '''delete from dup_t where id is null'''
+    sql '''delete from dup_light_sc_t where id is not null'''
+    sql '''delete from dup_light_sc_t where id is null'''
+    sql '''delete from dup_not_null_t where id is not null'''
+    sql '''delete from dup_not_null_t where id is null'''
+    sql '''delete from dup_light_sc_not_null_t where id is not null'''
+    sql '''delete from dup_light_sc_not_null_t where id is null'''
+    sql 'alter table dup_light_sc_t rename column ktinyint ktint'
+    sql 'alter table dup_light_sc_not_null_t rename column ktinyint ktint'
 }
