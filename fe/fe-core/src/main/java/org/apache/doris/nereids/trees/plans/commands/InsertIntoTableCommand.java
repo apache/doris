@@ -119,7 +119,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             // in nereids, we just forbid it.
             throw new AnalysisException("insert into table command is not supported in txn model");
         }
-        ctx.getState().setIsQuery(false);
 
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         planner = new NereidsPlanner(ctx.getStatementContext());
