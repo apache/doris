@@ -89,9 +89,12 @@ protected:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(_engine);
         _engine->start_bg_threads();
+        exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }
 
     void TearDown() override {
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_memtable_memory_limiter(nullptr);
         if (_engine != nullptr) {
             _engine->stop();
             delete _engine;
@@ -159,6 +162,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
     }
+    mem_limiter->init(100);
     mem_limiter->handle_memtable_flush();
     CHECK_EQ(0, mem_limiter->mem_usage());
 
