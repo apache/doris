@@ -2111,4 +2111,9 @@ public class Config extends ConfigBase {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
+
+    @ConfField(description = {
+            "是否开启列权限",
+            "Whether to enable col auth"})
+    public static boolean enable_col_auth = false;
 }
