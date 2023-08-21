@@ -233,7 +233,7 @@ public class Config extends ConfigBase {
     public static int bdbje_lock_timeout_second = 5;
 
     @ConfField(description = {"BDBJE 主从节点间同步的超时时间，单位为秒。如果出现大量的 ReplicaWriteException，"
-            + "可以适当增大这个值",
+            + "可以适当增大这个值a",
             "The replica ack timeout of bdbje between master and follower, in seconds. "
                     + "If there are many ReplicaWriteException in FE WARN log, you can try to increase this value"})
     public static int bdbje_replica_ack_timeout_second = 10;

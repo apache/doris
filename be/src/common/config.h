@@ -1109,7 +1109,7 @@ DECLARE_Bool(enable_hdfs_hedged_read);
 // Maybe overwritten by the value specified when creating catalog
 DECLARE_Int32(hdfs_hedged_read_thread_num);
 // the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
-// Maybe overwritten by the value specified when creating catalog
+// Maybe overwritten by the value specified when creating catalog.
 DECLARE_Int32(hdfs_hedged_read_threshold_time);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
