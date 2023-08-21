@@ -458,6 +458,22 @@ void FragmentMgr::remove_pipeline_context(
     }
 }
 
+void FragmentMgr::remove_pipeline_context(
+        std::shared_ptr<pipeline::PipelineXFragmentContext> f_context) {
+    std::lock_guard<std::mutex> lock(_lock);
+    auto query_id = f_context->get_query_id();
+    auto* q_context = f_context->get_query_context();
+    std::vector<TUniqueId> ins_ids;
+    f_context->instance_ids(ins_ids);
+    bool all_done = q_context->countdown(ins_ids.size());
+    for (const auto& ins_id : ins_ids) {
+        _pipeline_map.erase(ins_id);
+    }
+    if (all_done) {
+        _query_ctx_map.erase(query_id);
+    }
+}
+
 template <typename Params>
 Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, bool pipeline,
                                    std::shared_ptr<QueryContext>& query_ctx) {
