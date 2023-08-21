@@ -128,7 +128,6 @@ public:
     uint64_t total_put_wait_time() const { return _total_put_wait_time; }
 
 protected:
-
     bool _shutdown;
     const int _max_elements;
     std::condition_variable _get_cv; // 'get' callers wait on this
