@@ -52,6 +52,7 @@ public abstract class JdbcClient {
     private static final int HTTP_TIMEOUT_MS = 10000;
     protected static final int JDBC_DATETIME_SCALE = 6;
 
+    private String catalog;
     protected String dbType;
     protected String jdbcUser;
     protected URLClassLoader classLoader = null;
@@ -93,6 +94,7 @@ public abstract class JdbcClient {
     }
 
     protected JdbcClient(JdbcClientConfig jdbcClientConfig) {
+        this.catalog = jdbcClientConfig.getCatalog();
         this.jdbcUser = jdbcClientConfig.getUser();
         this.isOnlySpecifiedDatabase = Boolean.parseBoolean(jdbcClientConfig.getOnlySpecifiedDatabase());
         this.isLowerCaseTableNames = Boolean.parseBoolean(jdbcClientConfig.getIsLowerCaseTableNames());
@@ -160,7 +162,8 @@ public abstract class JdbcClient {
         try {
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            throw new JdbcClientException("Can not connect to jdbc", e);
+            throw new JdbcClientException("Can not connect to jdbc due to error: %s, catalog name: %s", e.getMessage(),
+                this.catalog, e);
         }
         return conn;
     }
