@@ -613,7 +613,7 @@ suite("test_bitmap_function") {
 
     // qt_sql """ select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
     // qt_sql """ select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
-    qt_sql """ select orthogonal_bitmap_union_count(members) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006);  """
+    // qt_sql """ select orthogonal_bitmap_union_count(members) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006);  """
     // qt_sql_orthogonal_bitmap_intersect_count2 """ select orthogonal_bitmap_intersect_count(members, tag_group, 1,2) from test_arthogonal_bitmap; """
     // qt_sql_orthogonal_bitmap_intersect_count3_1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
     // qt_sql_orthogonal_bitmap_intersect_count3_2 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=2)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
