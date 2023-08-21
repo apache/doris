@@ -1602,7 +1602,8 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void runAlterJobV2() {
-        if (!Config.forbid_alter_job) {
+        if (Config.forbid_altering_job) {
+            LOG.info("forbid altering job");
             return;
         }
         runnableSchemaChangeJobV2.values().forEach(alterJobsV2 -> {

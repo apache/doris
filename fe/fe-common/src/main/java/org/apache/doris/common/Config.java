@@ -2108,5 +2108,5 @@ public class Config extends ConfigBase {
     public static boolean use_mysql_bigint_for_largeint = false;
 
     @ConfField
-    public static boolean forbid_alter_job = false;
+    public static boolean forbid_altering_job = false;
 }
