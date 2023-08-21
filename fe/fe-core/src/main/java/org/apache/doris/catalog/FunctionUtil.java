@@ -181,7 +181,8 @@ public class FunctionUtil {
         }
     }
 
-    public static void readFields(DataInput in, ConcurrentMap<String, ImmutableList<Function>> name2Function)
+    public static void readFields(DataInput in, String dbName,
+            ConcurrentMap<String, ImmutableList<Function>> name2Function)
             throws IOException {
         int numEntries = in.readInt();
         for (int i = 0; i < numEntries; ++i) {
@@ -191,7 +192,11 @@ public class FunctionUtil {
             for (int j = 0; j < numFunctions; ++j) {
                 builder.add(Function.read(in));
             }
-            name2Function.put(name, builder.build());
+            ImmutableList<Function> functions = builder.build();
+            name2Function.put(name, functions);
+            for (Function f : functions) {
+                translateToNereids(dbName, f);
+            }
         }
     }
 
