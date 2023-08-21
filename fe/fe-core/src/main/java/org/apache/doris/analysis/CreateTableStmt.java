@@ -518,7 +518,7 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Time type is not supported for olap table");
             }
 
-            if (columnDef.getType().isObjectStored()) {
+            if (columnDef.getType().isObjectStored() && !columnDef.getType().isBitmapType()) {
                 hasObjectStored = true;
                 objectStoredColumn = columnDef.getName();
             }
