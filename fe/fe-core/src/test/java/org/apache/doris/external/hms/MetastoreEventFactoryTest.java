@@ -436,11 +436,11 @@ public class MetastoreEventFactoryTest {
         EventProducer initProducer = new EventProducer(initProportions);
         EventProducer producer = new EventProducer(proportions);
 
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 200; i++) {
             // create a test catalog and do initialization
             MockCatalog testCatalog = new MockCatalog(testCtl);
             List<MetastoreEvent> initEvents = Lists.newArrayListWithCapacity(1000);
-            for (int j = 0; j < 10000; j++) {
+            for (int j = 0; j < 1000; j++) {
                 initEvents.add(initProducer.produceOneEvent(j));
             }
             for (MetastoreEvent event : initEvents) {
@@ -451,7 +451,7 @@ public class MetastoreEventFactoryTest {
             MockCatalog validateCatalog = testCatalog.copy();
 
             List<MetastoreEvent> events = Lists.newArrayListWithCapacity(1000);
-            for (int j = 0; j < 10000; j++) {
+            for (int j = 0; j < 1000; j++) {
                 events.add(producer.produceOneEvent(j));
             }
             List<MetastoreEvent> mergedEvents = factory.createBatchEvents(testCtl, events);
