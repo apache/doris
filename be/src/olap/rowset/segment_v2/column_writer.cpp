@@ -1083,17 +1083,19 @@ Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     size_t element_cnt = size_t((unsigned long)(*data_ptr));
     auto offset_data = *(data_ptr + 1);
     const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
-    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
 
-    if (element_cnt == 0) {
-        return Status::OK();
+    if (element_cnt > 0) {
+        for (size_t i = 0; i < 2; ++i) {
+            auto data = *(data_ptr + 2 + i);
+            auto nested_null_map = *(data_ptr + 2 + 2 + i);
+            RETURN_IF_ERROR(
+                    _kv_writers[i]->append(reinterpret_cast<const uint8_t*>(nested_null_map),
+                                           reinterpret_cast<const void*>(data), element_cnt));
+        }
     }
-    for (size_t i = 0; i < 2; ++i) {
-        auto data = *(data_ptr + 2 + i);
-        auto nested_null_map = *(data_ptr + 2 + 2 + i);
-        RETURN_IF_ERROR(_kv_writers[i]->append(reinterpret_cast<const uint8_t*>(nested_null_map),
-                                               reinterpret_cast<const void*>(data), element_cnt));
-    }
+    // make sure the order : offset writer flush next_array_item_ordinal after kv_writers append_data
+    // because we use _kv_writers[0]->get_next_rowid() to set next_array_item_ordinal in offset page footer
+    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
     return Status::OK();
 }
 
