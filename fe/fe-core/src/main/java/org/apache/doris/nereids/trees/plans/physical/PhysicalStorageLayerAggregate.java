@@ -108,9 +108,8 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     /** PushAggOp */
     public enum PushDownAggOp {
-        COUNT, MIN_MAX, MIX, COUNT_ON_MATCH;
+        COUNT, MIN_MAX, MIX;
 
-        /** supportedFunctions */
         public static Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedFunctions() {
             return ImmutableMap.<Class<? extends AggregateFunction>, PushDownAggOp>builder()
                     .put(Count.class, PushDownAggOp.COUNT)

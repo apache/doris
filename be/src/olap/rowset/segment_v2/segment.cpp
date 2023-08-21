@@ -160,8 +160,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
 
     RETURN_IF_ERROR(load_index());
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-        read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
-        read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+        read_options.push_down_agg_type_opt != TPushAggOp::NONE) {
         iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
