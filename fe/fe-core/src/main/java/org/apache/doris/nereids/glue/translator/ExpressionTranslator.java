@@ -31,6 +31,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
@@ -186,13 +187,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
-        String invertedIndexParser = null;
-        String invertedIndexParserMode = null;
+        String invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
+        String invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
         SlotRef left = (SlotRef) match.left().accept(this, context);
-
-        if (left == null) {
-            throw new AnalysisException("Left slot reference is null");
-        }
         OlapTable olapTbl = Optional.ofNullable(getOlapTableFromSlotDesc(left.getDesc()))
                                     .orElse(getOlapTableDirectly(left));
 
@@ -201,17 +198,15 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
 
         List<Index> indexes = olapTbl.getIndexes();
-        if (indexes == null) {
-            return null; // or throw an exception if this is unexpected
-        }
-
-        for (Index index : indexes) {
-            if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
-                List<String> columns = index.getColumns();
-                if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
-                    invertedIndexParser = index.getInvertedIndexParser();
-                    invertedIndexParserMode = index.getInvertedIndexParserMode();
-                    break;
+        if (indexes != null) {
+            for (Index index : indexes) {
+                if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                    List<String> columns = index.getColumns();
+                    if (columns != null && !columns.isEmpty() && left.getColumnName().equals(columns.get(0))) {
+                        invertedIndexParser = index.getInvertedIndexParser();
+                        invertedIndexParserMode = index.getInvertedIndexParserMode();
+                        break;
+                    }
                 }
             }
         }
