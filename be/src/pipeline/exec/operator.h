@@ -492,6 +492,7 @@ public:
               _rows_returned_counter(nullptr),
               _rows_returned_rate(nullptr),
               _memory_used_counter(nullptr),
+              _peak_memory_usage_counter(nullptr),
               _parent(parent),
               _state(state) {}
     virtual ~PipelineXLocalState() {}
@@ -505,6 +506,9 @@ public:
     const TARGET& cast() const {
         return reinterpret_cast<const TARGET&>(*this);
     }
+
+    // If use projection, we should clear `_origin_block`.
+    void clear_origin_block();
 
     bool reached_limit() const;
     void reached_limit(vectorized::Block* block, bool* eos);
@@ -541,6 +545,8 @@ protected:
     // Account for peak memory used by this node
     RuntimeProfile::Counter* _memory_used_counter;
     RuntimeProfile::Counter* _projection_timer;
+    // Account for peak memory used by this node
+    RuntimeProfile::Counter* _peak_memory_usage_counter;
 
     OpentelemetrySpan _span;
     OperatorXBase* _parent;
@@ -548,6 +554,7 @@ protected:
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
     bool _init = false;
+    vectorized::Block _origin_block;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -645,6 +652,13 @@ public:
 
     virtual bool is_source() const override { return false; }
 
+    Status get_next_after_projects(RuntimeState* state, vectorized::Block* block,
+                                   SourceState& source_state);
+
+    /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
+    Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
+                          vectorized::Block* output_block);
+
 protected:
     friend class PipelineXLocalState;
     int _id; // unique w/in single plan tree
@@ -656,7 +670,6 @@ protected:
 
     OperatorXBase* _children;
     RowDescriptor _row_descriptor;
-    vectorized::Block _origin_block;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
     vectorized::VExprContextSPtrs _projections;

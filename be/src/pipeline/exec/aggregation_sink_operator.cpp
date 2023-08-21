@@ -20,6 +20,7 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "runtime/primitive_type.h"
 
 namespace doris::pipeline {
 
@@ -150,6 +151,13 @@ Status AggSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
         _should_limit_output = p._limit != -1 &&       // has limit
                                (!p._have_conjuncts) && // no having conjunct
                                p._needs_finalize;      // agg's finalize step
+    }
+    // move _create_agg_status to open not in during prepare,
+    // because during prepare and open thread is not the same one,
+    // this could cause unable to get JVM
+    if (_shared_state->probe_expr_ctxs.empty()) {
+        // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
+        RETURN_IF_CATCH_EXCEPTION(_dependency->create_agg_status(_agg_data->without_key));
     }
     return Status::OK();
 }
@@ -501,6 +509,7 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                                                 places);
                     }
                 } else {
+                    SCOPED_TIMER(_hash_table_emplace_timer);
                     for (size_t i = 0; i < num_rows; ++i) {
                         vectorized::AggregateDataPtr mapped = nullptr;
                         if constexpr (vectorized::ColumnsHashing::IsSingleNullableColumnMethod<
@@ -575,88 +584,61 @@ void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places
 
 void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
     DCHECK(probe_exprs.size() >= 1);
+
+    using Type = vectorized::AggregatedDataVariants::Type;
+    Type t(Type::serialized);
+
     if (probe_exprs.size() == 1) {
         auto is_nullable = probe_exprs[0]->root()->is_nullable();
-        switch (probe_exprs[0]->root()->result_type()) {
+        PrimitiveType type = probe_exprs[0]->root()->result_type();
+        switch (type) {
         case TYPE_TINYINT:
         case TYPE_BOOLEAN:
-            _agg_data->init(vectorized::AggregatedDataVariants::Type::int8_key, is_nullable);
-            return;
         case TYPE_SMALLINT:
-            _agg_data->init(vectorized::AggregatedDataVariants::Type::int16_key, is_nullable);
-            return;
         case TYPE_INT:
         case TYPE_FLOAT:
         case TYPE_DATEV2:
-            if (_parent->cast<AggSinkOperatorX>()._is_first_phase)
-                _agg_data->init(vectorized::AggregatedDataVariants::Type::int32_key, is_nullable);
-            else
-                _agg_data->init(vectorized::AggregatedDataVariants::Type::int32_key_phase2,
-                                is_nullable);
-            return;
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
         case TYPE_DATE:
         case TYPE_DATETIME:
         case TYPE_DATETIMEV2:
-            if (_parent->cast<AggSinkOperatorX>()._is_first_phase)
-                _agg_data->init(vectorized::AggregatedDataVariants::Type::int64_key, is_nullable);
-            else
-                _agg_data->init(vectorized::AggregatedDataVariants::Type::int64_key_phase2,
-                                is_nullable);
-            return;
-        case TYPE_LARGEINT: {
-            if (_parent->cast<AggSinkOperatorX>()._is_first_phase)
-                _agg_data->init(vectorized::AggregatedDataVariants::Type::int128_key, is_nullable);
-            else
-                _agg_data->init(vectorized::AggregatedDataVariants::Type::int128_key_phase2,
-                                is_nullable);
-            return;
-        }
+        case TYPE_LARGEINT:
         case TYPE_DECIMALV2:
         case TYPE_DECIMAL32:
         case TYPE_DECIMAL64:
         case TYPE_DECIMAL128I: {
-            vectorized::DataTypePtr& type_ptr = probe_exprs[0]->root()->data_type();
-            vectorized::TypeIndex idx =
-                    is_nullable ? assert_cast<const vectorized::DataTypeNullable&>(*type_ptr)
-                                          .get_nested_type()
-                                          ->get_type_id()
-                                : type_ptr->get_type_id();
-            vectorized::WhichDataType which(idx);
-            if (which.is_decimal32()) {
-                if (_parent->cast<AggSinkOperatorX>()._is_first_phase)
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int32_key,
-                                    is_nullable);
-                else
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int32_key_phase2,
-                                    is_nullable);
-            } else if (which.is_decimal64()) {
-                if (_parent->cast<AggSinkOperatorX>()._is_first_phase)
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int64_key,
-                                    is_nullable);
-                else
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int64_key_phase2,
-                                    is_nullable);
+            size_t size = get_primitive_type_size(type);
+            if (size == 1) {
+                t = Type::int8_key;
+            } else if (size == 2) {
+                t = Type::int16_key;
+            } else if (size == 4) {
+                t = Type::int32_key;
+            } else if (size == 8) {
+                t = Type::int64_key;
+            } else if (size == 16) {
+                t = Type::int128_key;
             } else {
-                if (_parent->cast<AggSinkOperatorX>()._is_first_phase)
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int128_key,
-                                    is_nullable);
-                else
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int128_key_phase2,
-                                    is_nullable);
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "meet invalid type size, size={}, type={}", size,
+                                type_to_string(type));
             }
-            return;
+            break;
         }
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            _agg_data->init(vectorized::AggregatedDataVariants::Type::string_key, is_nullable);
+            t = Type::string_key;
             break;
         }
         default:
-            _agg_data->init(vectorized::AggregatedDataVariants::Type::serialized);
+            t = Type::serialized;
         }
+
+        _agg_data->init(
+                get_hash_key_type_with_phase(t, !_parent->cast<AggSinkOperatorX>()._is_first_phase),
+                is_nullable);
     } else {
         bool use_fixed_key = true;
         bool has_null = false;
@@ -690,40 +672,19 @@ void AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& p
 
         if (use_fixed_key) {
             if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt64)) {
-                if (_parent->cast<AggSinkOperatorX>()._is_first_phase) {
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int64_keys, has_null);
-                } else {
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int64_keys_phase2,
-                                    has_null);
-                }
+                t = Type::int64_keys;
             } else if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt128)) {
-                if (_parent->cast<AggSinkOperatorX>()._is_first_phase) {
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int128_keys,
-                                    has_null);
-                } else {
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int128_keys_phase2,
-                                    has_null);
-                }
+                t = Type::int128_keys;
             } else if (bitmap_size + key_byte_size <= sizeof(vectorized::UInt136)) {
-                if (_parent->cast<AggSinkOperatorX>()._is_first_phase) {
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int136_keys,
-                                    has_null);
-                } else {
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int136_keys_phase2,
-                                    has_null);
-                }
+                t = Type::int136_keys;
             } else {
-                if (_parent->cast<AggSinkOperatorX>()._is_first_phase) {
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int256_keys,
-                                    has_null);
-                } else {
-                    _agg_data->init(vectorized::AggregatedDataVariants::Type::int256_keys_phase2,
-                                    has_null);
-                }
+                t = Type::int256_keys;
             }
-
+            _agg_data->init(get_hash_key_type_with_phase(
+                                    t, !_parent->cast<AggSinkOperatorX>()._is_first_phase),
+                            has_null);
         } else {
-            _agg_data->init(vectorized::AggregatedDataVariants::Type::serialized);
+            _agg_data->init(Type::serialized);
         }
     }
 }
@@ -869,6 +830,7 @@ Status AggSinkOperatorX::open(doris::RuntimeState* state) {
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->open(state));
+        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
     return Status::OK();

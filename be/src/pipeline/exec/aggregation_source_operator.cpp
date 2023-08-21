@@ -71,14 +71,7 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         _executor.close = std::bind<void>(&AggLocalState::_close_with_serialized_key, this);
     }
 
-    // move _create_agg_status to open not in during prepare,
-    // because during prepare and open thread is not the same one,
-    // this could cause unable to get JVM
-    if (_shared_state->probe_expr_ctxs.empty()) {
-        // _create_agg_status may acquire a lot of memory, may allocate failed when memory is very few
-        RETURN_IF_CATCH_EXCEPTION(_dependency->create_agg_status(_agg_data->without_key));
-        _agg_data_created_without_key = true;
-    }
+    _agg_data_created_without_key = p._without_key;
     return Status::OK();
 }
 

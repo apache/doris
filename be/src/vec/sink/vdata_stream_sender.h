@@ -100,12 +100,12 @@ public:
     VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
                       const RowDescriptor& row_desc, const TDataStreamSink& sink,
                       const std::vector<TPlanFragmentDestination>& destinations,
-                      int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
+                      bool send_query_statistics_with_every_batch);
 
     VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
                       const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                       const std::vector<TPlanFragmentDestination>& destinations,
-                      int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
+                      bool send_query_statistics_with_every_batch);
 
     ~VDataStreamSender() override;
 
@@ -241,8 +241,8 @@ public:
     // how much tuple data is getting accumulated before being sent; it only applies
     // when data is added via add_row() and not sent directly via send_batch().
     Channel(Parent* parent, const RowDescriptor& row_desc, const TNetworkAddress& brpc_dest,
-            const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int buffer_size,
-            bool is_transfer_chain, bool send_query_statistics_with_every_batch)
+            const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, bool is_transfer_chain,
+            bool send_query_statistics_with_every_batch)
             : _parent(parent),
               _row_desc(row_desc),
               _fragment_instance_id(fragment_instance_id),
@@ -450,11 +450,10 @@ template <typename Parent = VDataStreamSender>
 class PipChannel final : public Channel<Parent> {
 public:
     PipChannel(Parent* parent, const RowDescriptor& row_desc, const TNetworkAddress& brpc_dest,
-               const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int buffer_size,
+               const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                bool is_transfer_chain, bool send_query_statistics_with_every_batch)
             : Channel<Parent>(parent, row_desc, brpc_dest, fragment_instance_id, dest_node_id,
-                              buffer_size, is_transfer_chain,
-                              send_query_statistics_with_every_batch) {
+                              is_transfer_chain, send_query_statistics_with_every_batch) {
         ch_roll_pb_block();
     }
 

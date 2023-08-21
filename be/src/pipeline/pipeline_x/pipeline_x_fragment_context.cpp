@@ -113,11 +113,10 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
 
-        for (auto& rs : _runtime_states) {
-            rs->set_is_cancelled(true, msg);
-            rs->set_process_status(_exec_status);
-            _exec_env->vstream_mgr()->cancel(rs->fragment_instance_id());
-        }
+        FOR_EACH_RUNTIME_STATE(
+                runtime_state->set_is_cancelled(true, msg);
+                runtime_state->set_process_status(_exec_status);
+                _exec_env->vstream_mgr()->cancel(runtime_state->fragment_instance_id());)
 
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
 
@@ -236,9 +235,9 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                 params.__isset.send_query_statistics_with_every_batch
                         ? params.send_query_statistics_with_every_batch
                         : false;
-        _sink.reset(new ExchangeSinkOperatorX(
-                _sink_idx++, state, pool, row_desc, thrift_sink.stream_sink, params.destinations,
-                16 * 1024, send_query_statistics_with_every_batch, this));
+        _sink.reset(new ExchangeSinkOperatorX(_sink_idx++, state, pool, row_desc,
+                                              thrift_sink.stream_sink, params.destinations,
+                                              send_query_statistics_with_every_batch, this));
         break;
     }
     case TDataSinkType::RESULT_SINK: {
@@ -248,7 +247,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
 
         // TODO: figure out good buffer size based on size of output row
         _sink.reset(new ResultSinkOperatorX(_sink_idx++, row_desc, output_exprs,
-                                            thrift_sink.result_sink, 4096));
+                                            thrift_sink.result_sink,
+                                            vectorized::RESULT_SINK_BUFFER_SIZE));
         break;
     }
     default:
@@ -379,8 +379,7 @@ Status PipelineXFragmentContext::_build_pipelines(ObjectPool* pool,
                                                   const DescriptorTbl& descs, OperatorXPtr* root,
                                                   PipelinePtr cur_pipe) {
     if (request.fragment.plan.nodes.size() == 0) {
-        *root = nullptr;
-        return Status::OK();
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid plan which has no plan node!");
     }
 
     int node_idx = 0;
@@ -405,7 +404,9 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
     // propagate error case
     if (*node_idx >= tnodes.size()) {
         // TODO: print thrift msg
-        return Status::InternalError("Failed to reconstruct plan tree from thrift.");
+        return Status::InternalError(
+                "Failed to reconstruct plan tree from thrift. Node id: {}, number of nodes: {}",
+                *node_idx, tnodes.size());
     }
     const TPlanNode& tnode = tnodes[*node_idx];
 
@@ -429,7 +430,9 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
         // this means we have been given a bad tree and must fail
         if (*node_idx >= tnodes.size()) {
             // TODO: print thrift msg
-            return Status::InternalError("Failed to reconstruct plan tree from thrift.");
+            return Status::InternalError(
+                    "Failed to reconstruct plan tree from thrift. Node id: {}, number of nodes: {}",
+                    *node_idx, tnodes.size());
         }
     }
 
@@ -518,12 +521,9 @@ Status PipelineXFragmentContext::submit() {
 }
 
 void PipelineXFragmentContext::close_sink() {
-    if (_prepared) {
-        FOR_EACH_RUNTIME_STATE(
-                _sink->close(runtime_state.get(), Status::RuntimeError("prepare failed"));)
-    } else {
-        FOR_EACH_RUNTIME_STATE(_sink->close(runtime_state.get(), Status::OK());)
-    }
+    FOR_EACH_RUNTIME_STATE(
+            _sink->close(runtime_state.get(),
+                         _prepared ? Status::RuntimeError("prepare failed") : Status::OK()););
 }
 
 void PipelineXFragmentContext::close_if_prepare_failed() {

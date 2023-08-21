@@ -292,7 +292,6 @@ void Channel<Parent>::ch_roll_pb_block() {
 VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
                                      const RowDescriptor& row_desc, const TDataStreamSink& sink,
                                      const std::vector<TPlanFragmentDestination>& destinations,
-                                     int per_channel_buffer_size,
                                      bool send_query_statistics_with_every_batch)
         : _sender_id(sender_id),
           _state(state),
@@ -330,13 +329,13 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
             if (_enable_pipeline_exec) {
                 _channel_shared_ptrs.emplace_back(new PipChannel<VDataStreamSender>(
                         this, row_desc, destinations[i].brpc_server, fragment_instance_id,
-                        sink.dest_node_id, per_channel_buffer_size, is_transfer_chain,
+                        sink.dest_node_id, is_transfer_chain,
                         send_query_statistics_with_every_batch));
             } else {
-                _channel_shared_ptrs.emplace_back(new Channel(
-                        this, row_desc, destinations[i].brpc_server, fragment_instance_id,
-                        sink.dest_node_id, per_channel_buffer_size, is_transfer_chain,
-                        send_query_statistics_with_every_batch));
+                _channel_shared_ptrs.emplace_back(
+                        new Channel(this, row_desc, destinations[i].brpc_server,
+                                    fragment_instance_id, sink.dest_node_id, is_transfer_chain,
+                                    send_query_statistics_with_every_batch));
             }
             fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                                  _channel_shared_ptrs.size() - 1);
@@ -358,7 +357,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
 VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int sender_id,
                                      const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                                      const std::vector<TPlanFragmentDestination>& destinations,
-                                     int per_channel_buffer_size,
                                      bool send_query_statistics_with_every_batch)
         : _sender_id(sender_id),
           _state(state),
@@ -388,8 +386,7 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
             fragment_id_to_channel_index.end()) {
             _channel_shared_ptrs.emplace_back(
                     new Channel(this, row_desc, destinations[i].brpc_server, fragment_instance_id,
-                                _dest_node_id, per_channel_buffer_size, false,
-                                send_query_statistics_with_every_batch));
+                                _dest_node_id, false, send_query_statistics_with_every_batch));
         }
         fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                              _channel_shared_ptrs.size() - 1);
