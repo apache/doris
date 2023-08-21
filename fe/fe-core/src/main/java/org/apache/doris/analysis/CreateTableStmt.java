@@ -491,8 +491,6 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
             }
         }
-        boolean hasObjectStored = false;
-        String objectStoredColumn = "";
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
@@ -518,18 +516,22 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Time type is not supported for olap table");
             }
 
-            if (columnDef.getType().isObjectStored() && !columnDef.getType().isBitmapType()) {
-                hasObjectStored = true;
-                objectStoredColumn = columnDef.getName();
+            if (columnDef.getType().isObjectStored()) {
+                if (columnDef.getType().isBitmapType()) {
+                    if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
+                        throw new AnalysisException("column:" + columnDef.getName()
+                                + " must be used in AGG_KEYS or UNIQUE_KEYS.");
+                    }
+                } else {
+                    if (keysDesc.getKeysType() != KeysType.AGG_KEYS) {
+                        throw new AnalysisException("column:" + columnDef.getName() + " must be used in AGG_KEYS.");
+                    }
+                }
             }
 
             if (!columnSet.add(columnDef.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnDef.getName());
             }
-        }
-
-        if (hasObjectStored && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
-            throw new AnalysisException("column:" + objectStoredColumn + " must be used in AGG_KEYS.");
         }
 
         if (engineName.equals("olap")) {
