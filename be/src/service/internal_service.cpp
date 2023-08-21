@@ -1107,7 +1107,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     }
 
     FifoThreadPool& pool = request->has_block() ? _heavy_work_pool : _light_work_pool;
-    bool ret = pool.try_offer([this, controller, request, response, done]() {
+    bool ret = pool.offer([this, controller, request, response, done]() {
         _transmit_block(controller, request, response, done, Status::OK());
     });
     if (!ret) {

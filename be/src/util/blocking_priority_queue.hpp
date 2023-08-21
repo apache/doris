@@ -44,7 +44,6 @@ public:
     using BlockingQueue<T>::_max_elements;
     using BlockingQueue<T>::_total_get_wait_time;
     using BlockingQueue<T>::_total_put_wait_time;
-    using BlockingQueue<T>::_notify_one;
 
     // Get an element from the queue, waiting indefinitely (or until timeout) for one to become available.
     // Returns false if we were shut down prior to getting the element, and there
@@ -98,7 +97,7 @@ public:
                 _queue.pop();
                 ++_upgrade_counter;
                 unique_lock.unlock();
-                _notify_one();
+                _put_cv.notify_one();
                 return true;
             } else {
                 assert(_shutdown);
@@ -135,7 +134,7 @@ public:
             ++_upgrade_counter;
             _total_get_wait_time += timer.elapsed_time();
             unique_lock.unlock();
-            _notify_one();
+            _put_cv.notify_one();
             return true;
         }
 
@@ -159,7 +158,7 @@ public:
 
         _queue.push(val);
         unique_lock.unlock();
-        _notify_one();
+        _get_cv.notify_one();
         return true;
     }
 
@@ -169,7 +168,7 @@ public:
         if (_queue.size() < BlockingQueue<T>::_max_elements && !_shutdown) {
             _queue.push(val);
             unique_lock.unlock();
-            _notify_one();
+            _get_cv.notify_one();
             return true;
         }
         return false;

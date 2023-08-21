@@ -55,7 +55,7 @@ public:
             *out = _list.front();
             _list.pop_front();
             unique_lock.unlock();
-            _notify_one();
+            _put_cv.notify_one();
             return true;
         } else {
             assert(_shutdown);
@@ -78,7 +78,7 @@ public:
 
         _list.push_back(val);
         unique_lock.unlock();
-        _notify_one();
+        _get_cv.notify_one();
         return true;
     }
 
@@ -99,7 +99,7 @@ public:
 
         _list.push_back(val);
         unique_lock.unlock();
-        _notify_one();
+        _get_cv.notify_one();
         return true;
     }
 
@@ -128,10 +128,6 @@ public:
     uint64_t total_put_wait_time() const { return _total_put_wait_time; }
 
 protected:
-    void _notify_one() {
-        _get_cv.notify_one(); // notify get_cv first
-        _put_cv.notify_one();
-    }
 
     bool _shutdown;
     const int _max_elements;
