@@ -38,7 +38,8 @@ suite('test_default_limit') {
         )
     '''
 
-    sql "insert into baseall values ${[1..16].collect { "($it, $it)" }.join(', ')}"
+    def values = [1..16].collect { "($it, $it)" }.join(', ')
+    sql "insert into baseall values $values"
     sql "insert into bigtable select * from baseall where k1 <= 3"
 
     for (int i = 0; i < 2; ++i) {
