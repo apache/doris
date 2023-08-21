@@ -236,8 +236,9 @@ public class FunctionUtil {
         } catch (Exception e) {
             LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
                     function.getFunctionName().getFunction(), e);
-            throw e;
         }
+        LOG.info(String.format("Nereids add function: %s:%s OK!", dbName == null ? "_global_" : dbName,
+                function.getFunctionName().getFunction()));
         return true;
     }
 
@@ -251,6 +252,8 @@ public class FunctionUtil {
             LOG.warn("Nereids drop function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
                     function.getName(), e);
         }
+        LOG.info(String.format("Nereids drop function: %s:%s OK!", dbName == null ? "_global_" : dbName,
+                function.getName()));
         return false;
     }
 }
