@@ -41,6 +41,8 @@
 #include <thrift/transport/TTransportException.h>
 
 #include <atomic>
+
+#include "pipeline/pipeline_x/pipeline_x_fragment_context.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <map>
