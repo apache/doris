@@ -175,6 +175,8 @@ public:
         PARTIAL_ACCEPTABLE
     };
 
+    RuntimeProfile* scanner_profile() { return _scanner_profile.get(); }
+
 protected:
     // Different data sources register different profiles by implementing this method
     virtual Status _init_profile();

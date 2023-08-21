@@ -543,8 +543,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                         InvertedIndexDescriptor::get_index_file_name(
                                                 segment_file, index_meta->index_id());
                                 bool exists = false;
-                                if (fs->exists(inverted_index_src_file_path, &exists) !=
-                                    Status::OK()) {
+                                if (!fs->exists(inverted_index_src_file_path, &exists).ok()) {
                                     LOG(ERROR)
                                             << inverted_index_src_file_path << " fs->exists error";
                                     return false;

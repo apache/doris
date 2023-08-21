@@ -46,17 +46,36 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
                            RuntimeProfile* parent_profile)
         : _index(index),
           _pipeline(pipeline),
-          _operators(operators),
-          _source(_operators.front()),
-          _root(_operators.back()),
-          _sink(sink),
           _prepared(false),
           _opened(false),
           _state(state),
           _cur_state(PipelineTaskState::NOT_READY),
           _data_state(SourceState::DEPEND_ON_SOURCE),
           _fragment_context(fragment_context),
-          _parent_profile(parent_profile) {
+          _parent_profile(parent_profile),
+          _operators(operators),
+          _source(_operators.front()),
+          _root(_operators.back()),
+          _sink(sink) {
+    _pipeline_task_watcher.start();
+}
+
+PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+                           PipelineFragmentContext* fragment_context,
+                           RuntimeProfile* parent_profile)
+        : _index(index),
+          _pipeline(pipeline),
+          _prepared(false),
+          _opened(false),
+          _state(state),
+          _cur_state(PipelineTaskState::NOT_READY),
+          _data_state(SourceState::DEPEND_ON_SOURCE),
+          _fragment_context(fragment_context),
+          _parent_profile(parent_profile),
+          _operators({}),
+          _source(nullptr),
+          _root(nullptr),
+          _sink(nullptr) {
     _pipeline_task_watcher.start();
 }
 

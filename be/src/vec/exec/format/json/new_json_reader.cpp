@@ -624,8 +624,8 @@ Status NewJsonReader::_vhandle_flat_array_complex_json(
             }
             RETURN_IF_ERROR(st);
             if (*is_empty_row == true) {
-                if (st == Status::OK()) {
-                    return Status::OK();
+                if (st.ok()) {
+                    return st;
                 }
                 if (_total_rows == 0) {
                     continue;
@@ -1226,8 +1226,8 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
                 }
                 RETURN_IF_ERROR(st);
                 if (*is_empty_row == true) {
-                    if (st == Status::OK()) {
-                        return Status::OK();
+                    if (st.ok()) {
+                        return st;
                     }
                     if (_total_rows == 0) {
                         continue;
@@ -1244,7 +1244,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
-                    if (st.is_not_found()) {
+                    if (st.is<NOT_FOUND>()) {
                         RETURN_IF_ERROR(
                                 _append_error_msg(nullptr, "JsonPath not found", "", nullptr));
                         ADVANCE_ROW();
