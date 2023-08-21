@@ -121,7 +121,6 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
 
-
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
         auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
@@ -134,7 +133,7 @@ void PipelineXFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         _query_ctx->set_ready_to_execute(true);
 
         // must close stream_mgr to avoid dead lock in Exchange Node
-//
+        //
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
         // _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
