@@ -234,7 +234,8 @@ public class FunctionUtil {
                 JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
             }
         } catch (Exception e) {
-            LOG.warn("Nereids create function {}:{} failed", dbName, function.getFunctionName().getFunction(), e);
+            LOG.warn("Nereids create function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
+                    function.getFunctionName().getFunction(), e);
         }
         return true;
     }
@@ -246,7 +247,8 @@ public class FunctionUtil {
                     .collect(Collectors.toList());
             Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes);
         } catch (Exception e) {
-            LOG.warn("Nereids drop function {}:{} failed", dbName, function.getName(), e);
+            LOG.warn("Nereids drop function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
+                    function.getName(), e);
         }
         return false;
     }
