@@ -1071,6 +1071,7 @@
                     "items": [
                         "admin-manual/data-admin/backup",
                         "admin-manual/data-admin/restore",
+                        "admin-manual/data-admin/data-recovery",
                         "admin-manual/data-admin/delete-recover"
                     ]
                 },
