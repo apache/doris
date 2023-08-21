@@ -679,7 +679,7 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `jdbc_clickhouse_query_final`
 
-  Whether to add the final keyword when using the JDBC Catalog function to query ClickHouse. 
+  Whether to add the final keyword when using the JDBC Catalog function to query ClickHouse,default is false.
   
   It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
 

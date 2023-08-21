@@ -666,7 +666,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
 * `jdbc_clickhouse_query_final`
 
-  是否在使用 JDBC Catalog 功能查询 ClickHouse 时增加 final 关键字
+  是否在使用 JDBC Catalog 功能查询 ClickHouse 时增加 final 关键字，默认为 false
 
   用于 ClickHouse 的 ReplacingMergeTree 表引擎查询去重
 

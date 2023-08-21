@@ -206,7 +206,7 @@ public class JdbcScanNode extends ExternalScanNode {
         }
 
         if (jdbcType == TOdbcTableType.CLICKHOUSE
-                && analyzer.getContext().getSessionVariable().jdbcClickhouseQueryFinal) {
+                && ConnectContext.get().getSessionVariable().jdbcClickhouseQueryFinal) {
             sql.append(" SETTINGS final = 1");
         }
         return sql.toString();
