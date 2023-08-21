@@ -677,6 +677,12 @@ Translated with www.DeepL.com/Translator (free version)
 
   Because the maximum length of the char or varchar column in the schema of the table is inconsistent with the schema in the underlying parquet or orc file. At this time, if the option is turned on, it will be truncated according to the maximum length in the schema of the table.
 
+* `jdbc_clickhouse_query_final`
+
+  Whether to add the final keyword when using the JDBC Catalog function to query ClickHouse. 
+  
+  It is used for the ReplacingMergeTree table engine of ClickHouse to deduplicate queries.
+
 ***
 
 #### Supplementary instructions on statement execution timeout control
