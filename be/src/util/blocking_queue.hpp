@@ -20,14 +20,12 @@
 
 #pragma once
 
-#include <unistd.h>
-
 #include <atomic>
 #include <condition_variable>
 #include <list>
 #include <mutex>
 
-#include "common/logging.h"
+#include "util/lock.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -56,7 +54,8 @@ public:
         if (!_list.empty()) {
             *out = _list.front();
             _list.pop_front();
-            _put_cv.notify_one();
+            unique_lock.unlock();
+            _notify_one();
             return true;
         } else {
             assert(_shutdown);
@@ -78,7 +77,8 @@ public:
         }
 
         _list.push_back(val);
-        _get_cv.notify_one();
+        unique_lock.unlock();
+        _notify_one();
         return true;
     }
 
@@ -98,7 +98,8 @@ public:
         }
 
         _list.push_back(val);
-        _get_cv.notify_one();
+        unique_lock.unlock();
+        _notify_one();
         return true;
     }
 
@@ -126,13 +127,18 @@ public:
     // Returns the total amount of time threads have blocked in BlockingPut.
     uint64_t total_put_wait_time() const { return _total_put_wait_time; }
 
-private:
+protected:
+    void _notify_one() {
+        _get_cv.notify_one(); // notify get_cv first
+        _put_cv.notify_one();
+    }
+
     bool _shutdown;
     const int _max_elements;
     std::condition_variable _get_cv; // 'get' callers wait on this
     std::condition_variable _put_cv; // 'put' callers wait on this
     // _lock guards access to _list, total_get_wait_time, and total_put_wait_time
-    mutable std::mutex _lock;
+    mutable doris::Mutex _lock;
     std::list<T> _list;
     std::atomic<uint64_t> _total_get_wait_time;
     std::atomic<uint64_t> _total_put_wait_time;

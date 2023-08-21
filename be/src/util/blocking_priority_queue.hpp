@@ -20,29 +20,31 @@
 
 #pragma once
 
-#include <unistd.h>
-
 #include <condition_variable>
 #include <mutex>
 #include <queue>
 
 #include "common/config.h"
-#include "util/lock.h"
-#include "util/stopwatch.hpp"
+#include "util/blocking_queue.hpp"
 
 namespace doris {
 
 // Fixed capacity FIFO queue, where both blocking_get and blocking_put operations block
 // if the queue is empty or full, respectively.
 template <typename T>
-class BlockingPriorityQueue {
+class BlockingPriorityQueue : public BlockingQueue<T> {
 public:
     BlockingPriorityQueue(size_t max_elements)
-            : _shutdown(false),
-              _max_element(max_elements),
-              _upgrade_counter(0),
-              _total_get_wait_time(0),
-              _total_put_wait_time(0) {}
+            : BlockingQueue<T>(max_elements), _upgrade_counter(0) {}
+
+    using BlockingQueue<T>::_lock;
+    using BlockingQueue<T>::_get_cv;
+    using BlockingQueue<T>::_put_cv;
+    using BlockingQueue<T>::_shutdown;
+    using BlockingQueue<T>::_max_elements;
+    using BlockingQueue<T>::_total_get_wait_time;
+    using BlockingQueue<T>::_total_put_wait_time;
+    using BlockingQueue<T>::_notify_one;
 
     // Get an element from the queue, waiting indefinitely (or until timeout) for one to become available.
     // Returns false if we were shut down prior to getting the element, and there
@@ -95,7 +97,8 @@ public:
                 *out = _queue.top();
                 _queue.pop();
                 ++_upgrade_counter;
-                _put_cv.notify_one();
+                unique_lock.unlock();
+                _notify_one();
                 return true;
             } else {
                 assert(_shutdown);
@@ -131,7 +134,8 @@ public:
             _queue.pop();
             ++_upgrade_counter;
             _total_get_wait_time += timer.elapsed_time();
-            _put_cv.notify_one();
+            unique_lock.unlock();
+            _notify_one();
             return true;
         }
 
@@ -144,7 +148,7 @@ public:
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock unique_lock(_lock);
-        while (!(_shutdown || _queue.size() < _max_element)) {
+        while (!(_shutdown || _queue.size() < _max_elements)) {
             _put_cv.wait(unique_lock);
         }
         _total_put_wait_time += timer.elapsed_time();
@@ -154,30 +158,21 @@ public:
         }
 
         _queue.push(val);
-        _get_cv.notify_one();
+        unique_lock.unlock();
+        _notify_one();
         return true;
     }
 
     // Return false if queue full or has been shutdown.
     bool try_put(const T& val) {
         std::unique_lock unique_lock(_lock);
-        if (_queue.size() < _max_element && !_shutdown) {
+        if (_queue.size() < BlockingQueue<T>::_max_elements && !_shutdown) {
             _queue.push(val);
             unique_lock.unlock();
-            _get_cv.notify_one();
+            _notify_one();
             return true;
         }
         return false;
-    }
-
-    // Shut down the queue. Wakes up all threads waiting on blocking_get or blocking_put.
-    void shutdown() {
-        {
-            std::lock_guard l(_lock);
-            _shutdown = true;
-        }
-        _get_cv.notify_all();
-        _put_cv.notify_all();
     }
 
     uint32_t get_size() const {
@@ -185,25 +180,9 @@ public:
         return _queue.size();
     }
 
-    uint32_t get_capacity() const { return _max_element; }
-
-    // Returns the total amount of time threads have blocked in blocking_get.
-    uint64_t total_get_wait_time() const { return _total_get_wait_time; }
-
-    // Returns the total amount of time threads have blocked in blocking_put.
-    uint64_t total_put_wait_time() const { return _total_put_wait_time; }
-
 private:
-    bool _shutdown;
-    const int _max_element;
-    doris::ConditionVariable _get_cv; // 'get' callers wait on this
-    doris::ConditionVariable _put_cv; // 'put' callers wait on this
-    // _lock guards access to _queue, total_get_wait_time, and total_put_wait_time
-    mutable doris::Mutex _lock;
     std::priority_queue<T> _queue;
     int _upgrade_counter;
-    std::atomic<uint64_t> _total_get_wait_time;
-    std::atomic<uint64_t> _total_put_wait_time;
 };
 
 } // namespace doris

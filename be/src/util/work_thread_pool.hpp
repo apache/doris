@@ -23,6 +23,7 @@
 #include "util/blocking_priority_queue.hpp"
 #include "util/blocking_queue.hpp"
 #include "util/lock.h"
+#include "util/pretty_printer.h"
 #include "util/thread.h"
 #include "util/thread_group.h"
 
@@ -68,7 +69,7 @@ public:
 
     // Destructor ensures that all threads are terminated before this object is freed
     // (otherwise they may continue to run and reference member variables)
-    virtual ~WorkThreadPool() {
+    ~WorkThreadPool() {
         shutdown();
         join();
     }
@@ -84,14 +85,14 @@ public:
     //
     // Returns true if the work item was successfully added to the queue, false otherwise
     // (which typically means that the thread pool has already been shut down).
-    virtual bool offer(Task task) { return _work_queue.blocking_put(task); }
+    bool offer(Task task) { return _work_queue.blocking_put(task); }
 
-    virtual bool offer(WorkFunction func) {
+    bool offer(WorkFunction func) {
         WorkThreadPool::Task task = {0, func};
         return _work_queue.blocking_put(task);
     }
 
-    virtual bool try_offer(WorkFunction func) {
+    bool try_offer(WorkFunction func) {
         WorkThreadPool::Task task = {0, func};
         return _work_queue.try_put(task);
     }
@@ -100,54 +101,31 @@ public:
     // and the worker threads to terminate once they have processed their current work item.
     // Returns once the shutdown flag has been set, does not wait for the threads to
     // terminate.
-    virtual void shutdown() {
+    void shutdown() {
         _shutdown = true;
         _work_queue.shutdown();
     }
 
     // Blocks until all threads are finished. shutdown does not need to have been called,
     // since it may be called on a separate thread.
-    virtual void join() { _threads.join_all(); }
+    void join() { _threads.join_all(); }
 
-    virtual uint32_t get_queue_size() const { return _work_queue.get_size(); }
-    virtual uint32_t get_active_threads() const { return _active_threads; }
-
-    // Blocks until the work queue is empty, and then calls shutdown to stop the worker
-    // threads and Join to wait until they are finished.
-    // Any work Offer()'ed during DrainAndshutdown may or may not be processed.
-    virtual void drain_and_shutdown() {
-        {
-            std::unique_lock l(_lock);
-            while (_work_queue.get_size() != 0) {
-                _empty_cv.wait(l);
-            }
-        }
-        shutdown();
-        join();
-    }
+    uint32_t get_queue_size() const { return _work_queue.get_size(); }
+    uint32_t get_active_threads() const { return _active_threads; }
 
     std::string get_info() const {
         return fmt::format(
                 "PriorityThreadPool(name={}, queue_size={}/{}, active_thread={}/{}, "
                 "total_get_wait_time={}, total_put_wait_time={})",
                 _name, get_queue_size(), _work_queue.get_capacity(), _active_threads,
-                _threads.size(), _work_queue.total_get_wait_time(),
-                _work_queue.total_put_wait_time());
+                _threads.size(),
+                PrettyPrinter::print(_work_queue.total_get_wait_time(), TUnit::TIME_NS),
+                PrettyPrinter::print(_work_queue.total_put_wait_time(), TUnit::TIME_NS));
     }
 
-protected:
-    virtual bool is_shutdown() { return _shutdown; }
-
-    // Collection of worker threads that process work from the queue.
-    ThreadGroup _threads;
-
-    // Guards _empty_cv
-    doris::Mutex _lock;
-
-    // Signalled when the queue becomes empty
-    doris::ConditionVariable _empty_cv;
-
 private:
+    bool is_shutdown() { return _shutdown; }
+
     // Driver method for each thread in the pool. Continues to read work from the queue
     // until the pool is shutdown.
     void work_thread(int thread_id) {
@@ -159,11 +137,17 @@ private:
                 task.work_function();
                 _active_threads--;
             }
-            if (_work_queue.get_size() == 0) {
-                _empty_cv.notify_all();
-            }
+        }
+        if (_work_queue.get_size() == 0) {
+            _empty_cv.notify_all();
         }
     }
+
+    // Collection of worker threads that process work from the queue.
+    ThreadGroup _threads;
+
+    // Signalled when the queue becomes empty
+    doris::ConditionVariable _empty_cv;
 
     WorkQueue _work_queue;
 
