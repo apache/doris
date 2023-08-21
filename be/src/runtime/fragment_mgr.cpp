@@ -316,24 +316,25 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
 static void empty_function(RuntimeState*, Status*) {}
 
-void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> exec_state,
+void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                                const FinishCallback& cb) {
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
-    SCOPED_ATTACH_TASK(exec_state->runtime_state());
+    SCOPED_ATTACH_TASK(fragment_executor->runtime_state());
 #endif
 
     LOG_INFO(func_name)
-            .tag("query_id", exec_state->query_id())
-            .tag("instance_id", exec_state->fragment_instance_id())
+            .tag("query_id", fragment_executor->query_id())
+            .tag("instance_id", fragment_executor->fragment_instance_id())
             .tag("pthread_id", (uintptr_t)pthread_self());
 
-    Status st = exec_state->execute();
+    Status st = fragment_executor->execute();
     if (!st.ok()) {
-        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "exec_state execute failed");
+        fragment_executor->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                  "fragment_executor execute failed");
     }
 
-    std::shared_ptr<QueryContext> query_ctx = exec_state->get_query_ctx();
+    std::shared_ptr<QueryContext> query_ctx = fragment_executor->get_query_ctx();
     bool all_done = false;
     if (query_ctx != nullptr) {
         // decrease the number of unfinished fragments
@@ -343,15 +344,15 @@ void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> exec_state,
     // remove exec state after this fragment finished
     {
         std::lock_guard<std::mutex> lock(_lock);
-        _fragment_map.erase(exec_state->fragment_instance_id());
+        _fragment_map.erase(fragment_executor->fragment_instance_id());
         if (all_done && query_ctx) {
             _query_ctx_map.erase(query_ctx->query_id());
         }
     }
 
     // Callback after remove from this id
-    auto status = exec_state->status();
-    cb(exec_state->runtime_state(), &status);
+    auto status = fragment_executor->status();
+    cb(fragment_executor->runtime_state(), &status);
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
@@ -613,7 +614,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    _runtimefilter_controller.add_entity(params, &handler, fragment_executor->runtime_state());
+    RETURN_IF_ERROR(_runtimefilter_controller.add_entity(params, &handler,
+                                                         fragment_executor->runtime_state()));
     fragment_executor->set_merge_controller_handler(handler);
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -697,8 +699,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         g_fragmentmgr_prepare_latency << (duration_ns / 1000);
 
         std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-        _runtimefilter_controller.add_entity(params, local_params, &handler,
-                                             context->get_runtime_state());
+        RETURN_IF_ERROR(_runtimefilter_controller.add_entity(params, local_params, &handler,
+                                                             context->get_runtime_state()));
         context->set_merge_controller_handler(handler);
 
         {
@@ -811,9 +813,9 @@ bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
     auto ctx = _query_ctx_map.find(query_id);
     if (ctx != _query_ctx_map.end()) {
         for (auto it : ctx->second->fragment_ids) {
-            auto exec_state_iter = _fragment_map.find(it);
-            if (exec_state_iter != _fragment_map.end() && exec_state_iter->second) {
-                return exec_state_iter->second->is_canceled();
+            auto fragment_executor_iter = _fragment_map.find(it);
+            if (fragment_executor_iter != _fragment_map.end() && fragment_executor_iter->second) {
+                return fragment_executor_iter->second->is_canceled();
             }
 
             auto pipeline_ctx_iter = _pipeline_map.find(it);

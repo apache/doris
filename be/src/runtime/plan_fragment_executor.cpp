@@ -83,7 +83,6 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
         : _exec_env(exec_env),
           _plan(nullptr),
           _query_ctx(query_ctx),
-          _query_id(query_ctx->query_id()),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
           _backend_num(backend_num),
@@ -116,7 +115,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     OpentelemetryTracer tracer = telemetry::get_noop_tracer();
     if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
-        tracer = telemetry::get_tracer(print_id(_query_id));
+        tracer = telemetry::get_tracer(print_id(_query_ctx->query_id()));
     }
     _span = tracer->StartSpan("Plan_fragment_executor");
     OpentelemetryScope scope {_span};
@@ -127,8 +126,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     const TPlanFragmentExecParams& params = request.params;
     LOG_INFO("PlanFragmentExecutor::prepare")
-            .tag("query_id", _query_id)
-            .tag("instance_id", params.fragment_instance_id)
+            .tag("query_id", print_id(_query_ctx->query_id()))
+            .tag("instance_id", print_id(params.fragment_instance_id))
             .tag("backend_num", request.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
@@ -255,7 +254,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 Status PlanFragmentExecutor::open() {
     int64_t mem_limit = _runtime_state->query_mem_tracker()->limit();
     LOG_INFO("PlanFragmentExecutor::open")
-            .tag("query_id", _query_id)
+            .tag("query_id", _query_ctx->query_id())
             .tag("instance_id", _runtime_state->fragment_instance_id())
             .tag("mem_limit", PrettyPrinter::print(mem_limit, TUnit::BYTES));
 
@@ -395,9 +394,9 @@ Status PlanFragmentExecutor::execute() {
         SCOPED_RAW_TIMER(&duration_ns);
         opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
         Status st = open();
-        WARN_IF_ERROR(st,
-                      strings::Substitute("Got error while opening fragment $0, query id: $1",
-                                          print_id(_fragment_instance_id), print_id(_query_id)));
+        WARN_IF_ERROR(st, strings::Substitute("Got error while opening fragment $0, query id: $1",
+                                              print_id(_fragment_instance_id),
+                                              print_id(_query_ctx->query_id())));
         if (!st.ok()) {
             cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                    fmt::format("PlanFragmentExecutor open failed, reason: {}", st.to_string()));
@@ -520,7 +519,7 @@ void PlanFragmentExecutor::send_report(bool done) {
             _is_report_success ? _runtime_state->load_channel_profile() : nullptr,
             done || !status.ok(),
             _query_ctx->coord_addr,
-            _query_id,
+            _query_ctx->query_id(),
             _fragment_id,
             _fragment_instance_id,
             _backend_num,
@@ -539,7 +538,7 @@ Status PlanFragmentExecutor::update_status(Status status) {
     std::lock_guard<std::mutex> l(_status_lock);
     if (!status.ok() && _status.ok()) {
         _status = status;
-        LOG(WARNING) << "query_id=" << print_id(_query_id)
+        LOG(WARNING) << "query_id=" << print_id(_query_ctx->query_id())
                      << ", instance_id=" << print_id(_fragment_instance_id) << " meet error status "
                      << status;
     }
@@ -563,8 +562,8 @@ void PlanFragmentExecutor::stop_report_thread() {
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     std::lock_guard<std::mutex> l(_status_lock);
     LOG_INFO("PlanFragmentExecutor::cancel")
-            .tag("query_id", _query_id)
-            .tag("instance_id", _runtime_state->fragment_instance_id())
+            .tag("query_id", print_id(_query_ctx->query_id()))
+            .tag("instance_id", print_id(_runtime_state->fragment_instance_id()))
             .tag("reason", reason)
             .tag("error message", msg);
     if (_runtime_state->is_cancelled()) {
@@ -588,7 +587,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
 #ifndef BE_TEST
     // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
     // For stream load the fragment's query_id == load id, it is set in FE.
-    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_id);
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(_query_ctx->query_id());
     if (stream_load_ctx != nullptr) {
         stream_load_ctx->pipe->cancel(msg);
     }

@@ -144,7 +144,7 @@ public:
 
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
-    TUniqueId query_id() const { return _query_id; }
+    TUniqueId query_id() const { return _query_ctx->query_id(); }
 
     bool is_timeout(const vectorized::VecDateTimeValue& now) const;
 
@@ -156,8 +156,6 @@ private:
     ExecEnv* _exec_env; // not owned
     ExecNode* _plan;    // lives in _runtime_state->obj_pool()
     std::shared_ptr<QueryContext> _query_ctx;
-    // Id of this query
-    TUniqueId _query_id;
     // Id of this instance
     TUniqueId _fragment_instance_id;
     int _fragment_id;
