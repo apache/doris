@@ -28,6 +28,7 @@ suite("test_nereids_authentication", "query") {
     }
 
     sql "set enable_nereids_planner = true"
+    sql "set enable_fallback_to_original_planner = false"
 
     def dbName = "nereids_authentication"
     sql "DROP DATABASE IF EXISTS ${dbName}"
@@ -94,7 +95,28 @@ suite("test_nereids_authentication", "query") {
         }
     }
     connect(user=user, password='Doris_123456', url=url) {
+        try {
+            sql "SELECT * FROM ${tableName3} where `key`=1"
+            fail()
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains('Permission denied'))
+        }
+    }
+    connect(user=user, password='Doris_123456', url=url) {
+        try {
+            sql "select * from ${tableName1} where `key` in (select `key` from ${tableName3})"
+            fail()
+        } catch (Exception e) {
+            log.info(e.getMessage())
+            assertTrue(e.getMessage().contains('Permission denied'))
+        }
+    }
+    connect(user=user, password='Doris_123456', url=url) {
         sql "SELECT value FROM ${tableName3}"
+    }
+    connect(user=user, password='Doris_123456', url=url) {
+        sql "select * from ${tableName1} where `key` in (select `value` from ${tableName3})"
     }
     assertEquals(result.size(), 0)
 
