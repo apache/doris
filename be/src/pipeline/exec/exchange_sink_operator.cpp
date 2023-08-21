@@ -125,8 +125,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, Dependency* dependency)
     for (const auto& channel : channels) {
         instances.emplace_back(channel->get_fragment_instance_id_str());
     }
-    std::string title = fmt::format("VDataStreamSender (dst_id={}, dst_fragments=[{}])",
-                                    p._dest_node_id, instances);
+    std::string title = "VDataStreamSender (dst_id={}, dst_fragments=[{}])";
     _profile = p._pool->add(new RuntimeProfile(title));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = std::make_unique<MemTracker>("ExchangeSinkLocalState:");
