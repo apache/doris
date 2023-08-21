@@ -944,9 +944,19 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // occurring, return true here that column data needs to be read
         return true;
     }
+    // Check the following conditions:
+    // 1. If the column represented by the unique ID is an inverted index column (indicated by '_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id]')
+    //    and it's not marked for projection in '_output_columns'.
+    // 2. Or, if the column is an inverted index column and it's marked for projection in '_output_columns',
+    //    and the operation is a push down of the 'COUNT_ON_INDEX' aggregation function.
+    // If any of the above conditions are met, log a debug message indicating that there's no need to read data for the indexed column.
+    // Then, return false.
     int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-    if (_need_read_data_indices.count(cid) > 0 && !_need_read_data_indices[cid] &&
-        _output_columns.count(unique_id) < 1) {
+    if ((_need_read_data_indices.count(cid) > 0 && !_need_read_data_indices[cid] &&
+         _output_columns.count(unique_id) < 1) ||
+        (_need_read_data_indices.count(cid) > 0 && !_need_read_data_indices[cid] &&
+         _output_columns.count(unique_id) == 1 &&
+         _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX)) {
         VLOG_DEBUG << "SegmentIterator no need read data for column: "
                    << _opts.tablet_schema->column_by_uid(unique_id).name();
         return false;
