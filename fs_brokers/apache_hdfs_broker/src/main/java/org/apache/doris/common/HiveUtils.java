@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.broker.hdfs.BrokerException;
+import org.apache.doris.thrift.TBrokerOperationStatusCode;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
