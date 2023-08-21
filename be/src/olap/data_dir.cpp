@@ -17,6 +17,7 @@
 
 #include "olap/data_dir.h"
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -369,9 +370,9 @@ Status DataDir::load() {
 
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
-    auto load_rowset_func = [&dir_rowset_metas, &local_fs = fs()](
+    auto load_rowset_func = [&dir_rowset_metas, &local_fs = fs(), this](
                                     TabletUid tablet_uid, RowsetId rowset_id,
-                                    const std::string& meta_str, std::string* result) -> bool {
+                                    const std::string& meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
@@ -387,14 +388,20 @@ Status DataDir::load() {
             if (!delete_pred->sub_predicates().empty() &&
                 delete_pred->sub_predicates_v2().empty()) {
                 DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
-                rowset_meta->serialize(result);
+                LOG(INFO) << fmt::format(
+                        "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
+                        rowset_id.to_string(), tablet_uid.to_string());
+                std::string result;
+                rowset_meta->serialize(&result);
+                std::string key =
+                        ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
+                _meta->put(META_COLUMN_FAMILY_INDEX, key, result);
             }
         }
         dir_rowset_metas.push_back(rowset_meta);
         return true;
     };
-    Status load_rowset_status =
-            RowsetMetaManager::traverse_rowset_metas_with_write(_meta, load_rowset_func);
+    Status load_rowset_status = RowsetMetaManager::traverse_rowset_metas(_meta, load_rowset_func);
 
     if (!load_rowset_status) {
         LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << _path;

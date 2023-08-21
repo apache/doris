@@ -36,6 +36,10 @@ class RowsetMetaPB;
 
 namespace doris {
 
+namespace {
+const std::string ROWSET_PREFIX = "rst_";
+} // namespace
+
 // Helper class for managing rowset meta of one root path.
 class RowsetMetaManager {
 public:
@@ -71,9 +75,6 @@ public:
     static Status traverse_rowset_metas(OlapMeta* meta,
                                         std::function<bool(const TabletUid&, const RowsetId&,
                                                            const std::string&)> const& collector);
-    static Status traverse_rowset_metas_with_write(
-            OlapMeta* meta, std::function<bool(const TabletUid&, const RowsetId&,
-                                               const std::string&, std::string*)> const& visitor);
     static Status traverse_binlog_metas(
             OlapMeta* meta, std::function<bool(const string&, const string&, bool)> const& func);
 

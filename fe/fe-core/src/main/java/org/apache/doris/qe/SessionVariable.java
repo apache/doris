@@ -1097,7 +1097,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_SYNC_ANALYZE_TASK_NUM)
     public int parallelSyncAnalyzeTaskNum = 2;
 
-    @VariableMgr.VarAttr(name = ENABLE_DELETE_SUB_PREDICATE_V2)
+    @VariableMgr.VarAttr(name = ENABLE_DELETE_SUB_PREDICATE_V2, fuzzy = true)
     public boolean enableDeleteSubPredicateV2 = true;
 
     @VariableMgr.VarAttr(name = TRUNCATE_CHAR_OR_VARCHAR_COLUMNS,
@@ -1132,9 +1132,11 @@ public class SessionVariable implements Serializable, Writable {
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
+            this.enableDeleteSubPredicateV2 = false;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;
+            this.enableDeleteSubPredicateV2 = true;
         }
         this.runtimeFilterType = 1 << randomInt;
         /*

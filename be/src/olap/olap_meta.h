@@ -67,14 +67,6 @@ public:
                    const std::string& prefix,
                    std::function<bool(const std::string&, const std::string&)> const& func);
 
-    Status iterate_with_write(
-            const int column_family_index, const std::string& prefix,
-            std::function<bool(const std::string&, const std::string&, std::string*)> const& func);
-
-    Status iterate_with_write(
-            const int column_family_index, const std::string& seek_key, const std::string& prefix,
-            std::function<bool(const std::string&, const std::string&, std::string*)> const& func);
-
     [[nodiscard]] std::string get_root_path() const { return _root_path; }
 
     rocksdb::ColumnFamilyHandle* get_handle(const int column_family_index) {

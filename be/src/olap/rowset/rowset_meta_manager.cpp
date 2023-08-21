@@ -36,9 +36,6 @@
 #include "olap/utils.h"
 
 namespace doris {
-namespace {
-const std::string ROWSET_PREFIX = "rst_";
-} // namespace
 
 using namespace ErrorCode;
 
@@ -451,22 +448,6 @@ Status RowsetMetaManager::traverse_rowset_metas(
     };
     Status status =
             meta->iterate(META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX, traverse_rowset_meta_func);
-    return status;
-}
-
-Status RowsetMetaManager::traverse_rowset_metas_with_write(
-        OlapMeta* meta, std::function<bool(const TabletUid&, const RowsetId&, const std::string&,
-                                           std::string*)> const& visitor) {
-    auto traverse_rowset_meta_func = [&visitor](const std::string& key, const std::string& value,
-                                                std::string* result) -> bool {
-        std::pair<TabletUid, RowsetId> res;
-        if (!_get_tablet_id_and_rowset_id(key, &res)) {
-            return true;
-        }
-        return visitor(res.first, res.second, value, result);
-    };
-    Status status = meta->iterate_with_write(META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX,
-                                             traverse_rowset_meta_func);
     return status;
 }
 

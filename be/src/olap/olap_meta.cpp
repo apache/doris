@@ -317,25 +317,4 @@ Status OlapMeta::iterate(const int column_family_index, const std::string& seek_
     return Status::OK();
 }
 
-Status OlapMeta::iterate_with_write(
-        const int column_family_index, const std::string& prefix,
-        std::function<bool(const std::string&, const std::string&, std::string*)> const& func) {
-    return iterate_with_write(column_family_index, prefix, prefix, func);
-}
-
-Status OlapMeta::iterate_with_write(
-        const int column_family_index, const std::string& seek_key, const std::string& prefix,
-        std::function<bool(const std::string&, const std::string&, std::string*)> const& func) {
-    const auto& traverse_func = [column_family_index, &func, this](const std::string& key,
-                                                                   const std::string& value) {
-        std::string overwrite_val;
-        func(key, value, &overwrite_val);
-        if (overwrite_val.empty()) {
-            return true;
-        }
-        return put(column_family_index, key, overwrite_val).ok();
-    };
-    return iterate(column_family_index, seek_key, prefix, traverse_func);
-}
-
 } // namespace doris
