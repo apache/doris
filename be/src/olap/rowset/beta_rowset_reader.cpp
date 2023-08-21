@@ -210,13 +210,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.output_columns = read_context->output_columns;
 
     // load segments
-    // When doing vertical compaction, the load_segments is called many times
-    if (!_load_segment_once) {
-        bool should_use_cache = use_cache || read_context->reader_type == ReaderType::READER_QUERY;
-        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
-                                                                should_use_cache));
-        _load_segment_once = true;
-    }
+    bool should_use_cache = use_cache || read_context->reader_type == ReaderType::READER_QUERY;
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle,
+                                                             should_use_cache));
 
     // create iterator for each segment
     auto& segments = _segment_cache_handle.get_segments();

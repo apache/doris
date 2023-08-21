@@ -141,6 +141,8 @@ public:
         }
     }
 
+    [[nodiscard]] bool is_inited() const { return _init; }
+
     void init(std::vector<segment_v2::SegmentSharedPtr> segments) {
         DCHECK(_init);
         _owned = true;

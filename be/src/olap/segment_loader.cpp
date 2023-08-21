@@ -65,6 +65,10 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     SegmentCacheHandle* cache_handle, bool use_cache) {
+    if (cache_handle->is_inited()) {
+        return Status::OK();
+    }
+
     SegmentCache::CacheKey cache_key(rowset->rowset_id());
     if (_segment_cache->lookup(cache_key, cache_handle)) {
         return Status::OK();
