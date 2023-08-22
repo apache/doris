@@ -125,8 +125,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                     LOG(WARNING) << ss.str();
                     return status;
                 }
-                LOG(INFO) << "master_info.backend_ip:" << master_info.backend_ip
-                          << ",hostname_to_ip:" << ip;
+                LOG(INFO) << "master_info.backend_ip: " << master_info.backend_ip
+                          << ", hostname_to_ip: " << ip;
                 //step3: get all ips of the interfaces on this machine
                 std::vector<InetAddress> hosts;
                 status = get_hosts(&hosts);
