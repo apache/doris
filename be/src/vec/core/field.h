@@ -122,37 +122,6 @@ using FieldMap = std::map<String, Field, std::less<String>>;
 DEFINE_FIELD_MAP(VariantMap);
 #undef DEFINE_FIELD_MAP
 
-struct AggregateFunctionStateData {
-    String name; /// Name with arguments.
-    String data;
-
-    bool operator<(const AggregateFunctionStateData&) const {
-        LOG(FATAL) << "Operator < is not implemented for AggregateFunctionStateData.";
-    }
-
-    bool operator<=(const AggregateFunctionStateData&) const {
-        LOG(FATAL) << "Operator <= is not implemented for AggregateFunctionStateData.";
-    }
-
-    bool operator>(const AggregateFunctionStateData&) const {
-        LOG(FATAL) << "Operator <= is not implemented for AggregateFunctionStateData.";
-    }
-
-    bool operator>=(const AggregateFunctionStateData&) const {
-        LOG(FATAL) << "Operator >= is not implemented for AggregateFunctionStateData.";
-    }
-
-    bool operator==(const AggregateFunctionStateData& rhs) const {
-        if (name != rhs.name) {
-            LOG(FATAL) << fmt::format(
-                    "Comparing aggregate functions with different types: {} and {}", name,
-                    rhs.name);
-        }
-
-        return data == rhs.data;
-    }
-};
-
 class JsonbField {
 public:
     JsonbField() = default;
@@ -342,7 +311,6 @@ public:
             Decimal32 = 19,
             Decimal64 = 20,
             Decimal128 = 21,
-            AggregateFunctionState = 22,
             JSONB = 23,
             Decimal128I = 24,
             Map = 25,
@@ -386,8 +354,6 @@ public:
                 return "Decimal128";
             case Decimal128I:
                 return "Decimal128I";
-            case AggregateFunctionState:
-                return "AggregateFunctionState";
             case FixedLengthObject:
                 return "FixedLengthObject";
             case VariantMap:
@@ -542,6 +508,9 @@ public:
     }
 
     std::strong_ordering operator<=>(const Field& rhs) const {
+        if (which == Types::Null || rhs == Types::Null) {
+            return std::strong_ordering::equal;
+        }
         if (which != rhs.which) {
             LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
                        << ", rhs=" << Types::to_string(rhs.which);
@@ -553,7 +522,6 @@ public:
         case Types::QuantileState:
         case Types::FixedLengthObject:
         case Types::JSONB:
-        case Types::AggregateFunctionState:
         case Types::Null:
         case Types::Array:
         case Types::Tuple:
@@ -570,7 +538,7 @@ public:
             return get<Int128>() <=> rhs.get<Int128>();
         case Types::Float64:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
-                   : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equivalent
+                   : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
                                                           : std::strong_ordering::greater;
         case Types::String:
             return get<String>() <=> rhs.get<String>();
@@ -583,13 +551,15 @@ public:
         case Types::Decimal128I:
             return get<Decimal128I>() <=> rhs.get<Decimal128I>();
         }
+        LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
+                   << ", rhs=" << Types::to_string(rhs.which);
     }
 
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
                          Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
                          DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
-                         DecimalField<Decimal128I>, AggregateFunctionStateData>
+                         DecimalField<Decimal128I>, BitmapValue, HyperLogLog, QuantileState<double>>
             storage;
 
     Types::Which which;
@@ -667,9 +637,6 @@ private:
         case Types::Decimal128I:
             f(field.template get<DecimalField<Decimal128I>>());
             return;
-        case Types::AggregateFunctionState:
-            f(field.template get<AggregateFunctionStateData>());
-            return;
         case Types::FixedLengthObject:
             LOG(FATAL) << "FixedLengthObject not supported";
             break;
@@ -742,9 +709,6 @@ private:
         case Types::Map:
             destroy<Map>();
             break;
-        case Types::AggregateFunctionState:
-            destroy<AggregateFunctionStateData>();
-            break;
         case Types::VariantMap:
             destroy<VariantMap>();
             break;
@@ -765,10 +729,6 @@ private:
 
 #undef DBMS_MIN_FIELD_SIZE
 
-template <>
-struct TypeId<AggregateFunctionStateData> {
-    static constexpr const TypeIndex value = TypeIndex::AggregateFunction;
-};
 template <>
 struct TypeId<Tuple> {
     static constexpr const TypeIndex value = TypeIndex::Tuple;
@@ -848,10 +808,6 @@ struct Field::TypeToEnum<DecimalField<Decimal128>> {
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal128I>> {
     static constexpr Types::Which value = Types::Decimal128I;
-};
-template <>
-struct Field::TypeToEnum<AggregateFunctionStateData> {
-    static constexpr Types::Which value = Types::AggregateFunctionState;
 };
 template <>
 struct Field::TypeToEnum<VariantMap> {
@@ -934,10 +890,6 @@ struct Field::EnumToType<Field::Types::Decimal128I> {
     using Type = DecimalField<Decimal128I>;
 };
 template <>
-struct Field::EnumToType<Field::Types::AggregateFunctionState> {
-    using Type = DecimalField<AggregateFunctionStateData>;
-};
-template <>
 struct Field::EnumToType<Field::Types::VariantMap> {
     using Type = VariantMap;
 };
@@ -978,10 +930,6 @@ struct TypeName<VariantMap> {
 template <>
 struct TypeName<Map> {
     static std::string get() { return "Map"; }
-};
-template <>
-struct TypeName<AggregateFunctionStateData> {
-    static std::string get() { return "AggregateFunctionState"; }
 };
 
 /// char may be signed or unsigned, and behave identically to signed char or unsigned char,
@@ -1073,11 +1021,6 @@ struct NearestFieldTypeImpl<bool> {
 template <>
 struct NearestFieldTypeImpl<std::string_view> {
     using Type = String;
-};
-
-template <>
-struct NearestFieldTypeImpl<AggregateFunctionStateData> {
-    using Type = AggregateFunctionStateData;
 };
 
 template <>

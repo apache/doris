@@ -83,13 +83,6 @@ void read_binary(Array& x, BufferReadable& buf) {
             x.push_back(value);
             break;
         }
-        case Field::Types::AggregateFunctionState: {
-            AggregateFunctionStateData value;
-            doris::vectorized::read_string_binary(value.name, buf);
-            doris::vectorized::read_string_binary(value.data, buf);
-            x.push_back(value);
-            break;
-        }
         }
     }
 }
@@ -127,11 +120,6 @@ void write_binary(const Array& x, BufferWritable& buf) {
         }
         case Field::Types::JSONB: {
             doris::vectorized::write_json_binary(get<JsonbField>(*it), buf);
-            break;
-        }
-        case Field::Types::AggregateFunctionState: {
-            doris::vectorized::write_string_binary(it->get<AggregateFunctionStateData>().name, buf);
-            doris::vectorized::write_string_binary(it->get<AggregateFunctionStateData>().data, buf);
             break;
         }
         }
