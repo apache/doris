@@ -74,7 +74,7 @@ public class PolicyMgr implements Writable {
     private Map<PolicyTypeEnum, List<Policy>> typeToPolicyMap = Maps.newConcurrentMap();
 
     // dbId -> tableId -> List<RowPolicy>
-    private Map<Long, Map<Long, List<RowPolicy>>> tablePolicys = Maps.newConcurrentMap();
+    private Map<Long, Map<Long, List<RowPolicy>>> tablePolicies = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -252,7 +252,7 @@ public class PolicyMgr implements Writable {
         dbPolicies.add(policy);
         typeToPolicyMap.put(policy.getType(), dbPolicies);
         if (PolicyTypeEnum.ROW == policy.getType()) {
-            addTablePolicys((RowPolicy) policy);
+            addTablePolicies((RowPolicy) policy);
         }
 
     }
@@ -278,7 +278,7 @@ public class PolicyMgr implements Writable {
                     ((StoragePolicy) policy).removeResourceReference();
                 }
                 if (policy instanceof RowPolicy) {
-                    dropTablePolicys((RowPolicy) policy);
+                    dropTablePolicies((RowPolicy) policy);
                 }
                 return true;
             }
@@ -291,26 +291,28 @@ public class PolicyMgr implements Writable {
      * Match row policy and return it.
      **/
     public RowPolicy getMatchTablePolicy(long dbId, long tableId, UserIdentity user) {
-        List<RowPolicy> res = getUserPolicys(dbId, tableId, user);
+        List<RowPolicy> res = getUserPolicies(dbId, tableId, user);
         if (CollectionUtils.isEmpty(res)) {
             return null;
         }
-        return mergeRowPolicys(res);
+        return mergeRowPolicies(res);
     }
 
-    public List<RowPolicy> getUserPolicys(long dbId, long tableId, UserIdentity user) {
+    public List<RowPolicy> getUserPolicies(long dbId, long tableId, UserIdentity user) {
+        List<RowPolicy> res = Lists.newArrayList();
+        // Make a judgment in advance to reduce the number of times to obtain getRoles
+        if (!tablePolicies.containsKey(dbId) || !tablePolicies.get(dbId).containsKey(tableId)) {
+            return res;
+        }
         Set<String> roles = Env.getCurrentEnv().getAccessManager().getAuth().getRolesByUserWithLdap(user).stream()
                 .map(role -> ClusterNamespace.getNameFromFullName(role.getRoleName())).collect(Collectors.toSet());
-        List<RowPolicy> res = Lists.newArrayList();
         readLock();
         try {
-            if (!tablePolicys.containsKey(dbId) || !tablePolicys.get(dbId).containsKey(tableId)) {
+            // double check in lock,avoid NPE
+            if (!tablePolicies.containsKey(dbId) || !tablePolicies.get(dbId).containsKey(tableId)) {
                 return res;
             }
-            List<RowPolicy> policys = tablePolicys.get(dbId).get(tableId);
-            if (policys.size() == 0) {
-                return res;
-            }
+            List<RowPolicy> policys = tablePolicies.get(dbId).get(tableId);
             for (RowPolicy rowPolicy : policys) {
                 // on rowPolicy to user
                 if ((rowPolicy.getUser() != null && rowPolicy.getUser().getQualifiedUser()
@@ -325,7 +327,7 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private RowPolicy mergeRowPolicys(List<RowPolicy> policys) {
+    private RowPolicy mergeRowPolicies(List<RowPolicy> policys) {
         if (CollectionUtils.isEmpty(policys)) {
             return null;
         }
@@ -407,20 +409,20 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private void addTablePolicys(RowPolicy policy) {
+    private void addTablePolicies(RowPolicy policy) {
         if (policy.getUser() != null) {
             policy.getUser().setIsAnalyzed();
         }
-        List<RowPolicy> policys = getOrCreateTblPolicys(policy.getDbId(), policy.getTableId());
+        List<RowPolicy> policys = getOrCreateTblPolicies(policy.getDbId(), policy.getTableId());
         policys.add(policy);
     }
 
-    private void dropTablePolicys(RowPolicy policy) {
-        List<RowPolicy> policys = getOrCreateTblPolicys(policy.getDbId(), policy.getTableId());
+    private void dropTablePolicies(RowPolicy policy) {
+        List<RowPolicy> policys = getOrCreateTblPolicies(policy.getDbId(), policy.getTableId());
         policys.removeIf(p -> p.matchPolicy(policy));
     }
 
-    private List<RowPolicy> getOrCreateTblPolicys(long dbId, long tableId) {
+    private List<RowPolicy> getOrCreateTblPolicies(long dbId, long tableId) {
         Map<Long, List<RowPolicy>> dbPolicyMap = getOrCreateDbPolicyMap(dbId);
         if (!dbPolicyMap.containsKey(tableId)) {
             dbPolicyMap.put(tableId, Lists.newArrayList());
@@ -429,16 +431,16 @@ public class PolicyMgr implements Writable {
     }
 
     private Map<Long, List<RowPolicy>> getOrCreateDbPolicyMap(Long dbId) {
-        if (!tablePolicys.containsKey(dbId)) {
-            tablePolicys.put(dbId, Maps.newConcurrentMap());
+        if (!tablePolicies.containsKey(dbId)) {
+            tablePolicies.put(dbId, Maps.newConcurrentMap());
         }
-        return tablePolicys.get(dbId);
+        return tablePolicies.get(dbId);
     }
 
     /**
      * The merge policy cache needs to be regenerated after the update.
      **/
-    private void updateTablePolicys() {
+    private void updateTablePolicies() {
         readLock();
         try {
             if (!typeToPolicyMap.containsKey(PolicyTypeEnum.ROW)) {
@@ -446,7 +448,7 @@ public class PolicyMgr implements Writable {
             }
             List<Policy> allPolicies = typeToPolicyMap.get(PolicyTypeEnum.ROW);
             for (Policy policy : allPolicies) {
-                addTablePolicys((RowPolicy) policy);
+                addTablePolicies((RowPolicy) policy);
             }
 
         } finally {
@@ -466,7 +468,7 @@ public class PolicyMgr implements Writable {
         String json = Text.readString(in);
         PolicyMgr policyMgr = GsonUtils.GSON.fromJson(json, PolicyMgr.class);
         // update merge policy cache and userPolicySet
-        policyMgr.updateTablePolicys();
+        policyMgr.updateTablePolicies();
         return policyMgr;
     }
 
