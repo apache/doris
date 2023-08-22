@@ -77,7 +77,7 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
-if [[ ${SCALE_FACTOR} -ne 1 ]] && [[ ${SCALE_FACTOR} -ne 100 ]]; then
+if [[ ${SCALE_FACTOR} -ne 1 ]] && [[ ${SCALE_FACTOR} -ne 100 ]] && [[ ${SCALE_FACTOR} -ne 1000 ]] && [[ ${SCALE_FACTOR} -ne 10000 ]]; then
     echo "${SCALE_FACTOR} scale is not supported"
     exit 1
 fi

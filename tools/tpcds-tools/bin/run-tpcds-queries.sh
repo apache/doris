@@ -79,19 +79,19 @@ fi
 
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Running tpcds sf 1 queries"
-    TPCDS_QUERIES_DIR="${CURDIR}/../queries_sf1"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/queries_sf1"
     TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1.sql"
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Running tpcds sf 100 queries"
-    TPCDS_QUERIES_DIR="${CURDIR}/../queries_sf100"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/queries_sf100"
     TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf100.sql"
 eif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
     echo "Running tpcds sf 1000 queries"
-    TPCDS_QUERIES_DIR="${CURDIR}/../queries_sf1000"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/queries_sf1000"
     TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf1000.sql"
 elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
     echo "Running tpcds sf 10000 queries"
-    TPCDS_QUERIES_DIR="${CURDIR}/../queries_sf10000"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries/queries_sf10000"
     TPCDS_OPT_CONF="${CURDIR}/../conf/opt/opt_sf10000.sql"
 else
     echo "${SCALE_FACTOR} scale is NOT support currently."
