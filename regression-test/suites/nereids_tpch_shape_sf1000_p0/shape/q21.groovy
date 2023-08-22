@@ -30,10 +30,9 @@ suite("q21") {
 
 
     
-sql 'set be_number_for_test=3'
+    sql 'set be_number_for_test=3'
     
-    qt_select """
-    explain shape plan
+    String q21 = """
         select
                 s_name,
                 count(*) as numwait
@@ -75,4 +74,9 @@ sql 'set be_number_for_test=3'
         s_name
         limit 100;
     """
+    String memo = sql "explain memo plan ${q21}"
+    println("q21 memo >>>")    
+    println(memo)
+
+    qt_select "explain shape plan ${q21}"
 }
