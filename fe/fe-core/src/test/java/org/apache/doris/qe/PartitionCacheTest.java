@@ -242,7 +242,7 @@ public class PartitionCacheTest {
         channel.reset();
 
         SessionVariable sessionVariable = new SessionVariable();
-        Deencapsulation.setField(sessionVariable, "beNumber", 1);
+        Deencapsulation.setField(sessionVariable, "beNumberForTest", 1);
 
         new Expectations(channel) {
             {

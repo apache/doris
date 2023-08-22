@@ -161,7 +161,7 @@ public class SessionVariable implements Serializable, Writable {
     // if the right table is greater than this value in the hash join,  we will ignore IN filter
     public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
-    public static final String BE_NUMBER = "be_number_for_test";
+    public static final String BE_NUMBER_FOR_TEST = "be_number_for_test";
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
@@ -712,16 +712,16 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
-    public int getBeNumber() {
-        return beNumber;
+    public int getBeNumberForTest() {
+        return beNumberForTest;
     }
 
-    public void setBeNumber(int beNumber) {
-        this.beNumber = beNumber;
+    public void setBeNumberForTest(int beNumberForTest) {
+        this.beNumberForTest = beNumberForTest;
     }
 
-    @VariableMgr.VarAttr(name = BE_NUMBER)
-    private int beNumber = -1;
+    @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
+    private int beNumberForTest = -1;
 
     public double getCboCpuWeight() {
         return cboCpuWeight;
