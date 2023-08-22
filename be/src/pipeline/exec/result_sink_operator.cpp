@@ -50,7 +50,7 @@ bool ResultSinkOperator::can_write() {
     return _sink->_sender->can_sink();
 }
 
-Status ResultSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
+Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     auto& p = _parent->cast<ResultSinkOperatorX>();
     auto fragment_instance_id = state->fragment_instance_id();
     auto title = fmt::format("VDataBufferSender (dst_fragment_instance_id={:x}-{:x})",
@@ -79,10 +79,10 @@ Status ResultSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
     return Status::OK();
 }
 
-ResultSinkOperatorX::ResultSinkOperatorX(const int id, const RowDescriptor& row_desc,
+ResultSinkOperatorX::ResultSinkOperatorX(const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink, int buffer_size)
-        : DataSinkOperatorX(id),
+        : DataSinkOperatorX(0),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _buf_size(buffer_size) {
@@ -119,10 +119,10 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status ResultSinkOperatorX::setup_local_state(RuntimeState* state, Dependency* dependency) {
+Status ResultSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
     auto local_state = ResultSinkLocalState::create_shared(this, state);
     state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, dependency);
+    return local_state->init(state, info);
 }
 
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,

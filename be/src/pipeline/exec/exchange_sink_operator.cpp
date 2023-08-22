@@ -101,7 +101,8 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
 }
 
-Status ExchangeSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
+Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    _sender_id = info.sender_id;
     _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
     _broadcast_pb_block_idx = 0;
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
@@ -187,10 +188,10 @@ segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
 }
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
-        const int id, RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
+        RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
         bool send_query_statistics_with_every_batch, PipelineXFragmentContext* context)
-        : DataSinkOperatorX(id),
+        : DataSinkOperatorX(sink.dest_node_id),
           _context(context),
           _pool(pool),
           _row_desc(row_desc),
@@ -209,10 +210,10 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
 }
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
-        const int id, ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
+        ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
         const std::vector<TPlanFragmentDestination>& destinations,
         bool send_query_statistics_with_every_batch, PipelineXFragmentContext* context)
-        : DataSinkOperatorX(id),
+        : DataSinkOperatorX(dest_node_id),
           _context(context),
           _pool(pool),
           _row_desc(row_desc),
@@ -224,11 +225,10 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
     _name = "ExchangeSinkOperatorX";
 }
 
-ExchangeSinkOperatorX::ExchangeSinkOperatorX(const int id, ObjectPool* pool,
-                                             const RowDescriptor& row_desc,
+ExchangeSinkOperatorX::ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
                                              bool send_query_statistics_with_every_batch,
                                              PipelineXFragmentContext* context)
-        : DataSinkOperatorX(id),
+        : DataSinkOperatorX(0),
           _context(context),
           _pool(pool),
           _row_desc(row_desc),
@@ -253,10 +253,10 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status ExchangeSinkOperatorX::setup_local_state(RuntimeState* state, Dependency* dependency) {
+Status ExchangeSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
     auto local_state = ExchangeSinkLocalState::create_shared(this, state);
     state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, dependency);
+    return local_state->init(state, info);
 }
 
 Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
@@ -523,8 +523,18 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
     Status status;
     for (int i = 0; i < num_channels; ++i) {
         if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {
-            status = channels[i]->add_rows(block, channel2rows[i], eos);
+            status = channels[i]->add_rows(block, channel2rows[i], false);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);
+            channel2rows[i].clear();
+        }
+    }
+
+    if (eos) {
+        for (int i = 0; i < num_channels; ++i) {
+            if (!channels[i]->is_receiver_eof()) {
+                status = channels[i]->add_rows(block, channel2rows[i], true);
+                HANDLE_CHANNEL_STATUS(state, channels[i], status);
+            }
         }
     }
 
@@ -533,8 +543,7 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
 
 Status ExchangeSinkOperatorX::try_close(RuntimeState* state) {
     auto& local_state = state->get_sink_local_state(id())->cast<ExchangeSinkLocalState>();
-    DCHECK(local_state._serializer.get_block() == nullptr ||
-           local_state._serializer.get_block()->rows() == 0);
+    local_state._serializer.reset_block();
     Status final_st = Status::OK();
     for (int i = 0; i < local_state.channels.size(); ++i) {
         Status st = local_state.channels[i]->close(state);

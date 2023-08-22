@@ -81,7 +81,7 @@ public:
               only_local_exchange(false),
               _serializer(this) {}
 
-    Status init(RuntimeState* state, Dependency* dependency) override;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
@@ -155,17 +155,16 @@ private:
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX {
 public:
-    ExchangeSinkOperatorX(const int id, RuntimeState* state, ObjectPool* pool,
-                          const RowDescriptor& row_desc, const TDataStreamSink& sink,
+    ExchangeSinkOperatorX(RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
+                          const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
                           bool send_query_statistics_with_every_batch,
                           PipelineXFragmentContext* context);
-    ExchangeSinkOperatorX(const int id, ObjectPool* pool, const RowDescriptor& row_desc,
-                          PlanNodeId dest_node_id,
+    ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
                           const std::vector<TPlanFragmentDestination>& destinations,
                           bool send_query_statistics_with_every_batch,
                           PipelineXFragmentContext* context);
-    ExchangeSinkOperatorX(const int id, ObjectPool* pool, const RowDescriptor& row_desc,
+    ExchangeSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
                           bool send_query_statistics_with_every_batch,
                           PipelineXFragmentContext* context);
     Status init(const TDataSink& tsink) override;
@@ -174,7 +173,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, Dependency* dependency) override;
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;

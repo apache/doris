@@ -38,7 +38,7 @@ AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
 Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState::init(state, info));
     _dependency = (AggDependency*)info.dependency;
-    _shared_state = ((AggSharedState*)_dependency->shared_state());
+    _shared_state = (AggSharedState*)_dependency->shared_state();
     _agg_data = _shared_state->agg_data.get();
     _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
     _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
