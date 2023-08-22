@@ -52,6 +52,7 @@
 #include "olap/cold_data_compaction.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segcompaction.h"
@@ -65,18 +66,19 @@
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/index_builder.h"
 #include "runtime/client_cache.h"
+#include "runtime/memory/cache_manager.h"
 #include "service/brpc.h"
 #include "service/point_query_executor.h"
 #include "util/brpc_client_cache.h"
 #include "util/countdown_latch.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
-#include "util/priority_thread_pool.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "util/work_thread_pool.hpp"
 
 using std::string;
 
@@ -131,8 +133,8 @@ Status StorageEngine::start_bg_threads() {
 
     if (config::enable_segcompaction) {
         ThreadPoolBuilder("SegCompactionTaskThreadPool")
-                .set_min_threads(config::seg_compaction_max_threads)
-                .set_max_threads(config::seg_compaction_max_threads)
+                .set_min_threads(config::segcompaction_num_threads)
+                .set_max_threads(config::segcompaction_num_threads)
                 .build(&_seg_compaction_thread_pool);
     }
     ThreadPoolBuilder("ColdDataCompactionTaskThreadPool")
@@ -175,11 +177,11 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_tablet_path_check_callback(); }, &_tablet_path_check_thread));
     LOG(INFO) << "tablet path check thread started";
 
-    // fd cache clean thread
+    // cache clean thread
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "fd_cache_clean_thread",
-            [this]() { this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
-    LOG(INFO) << "fd cache clean thread started";
+            "StorageEngine", "cache_clean_thread", [this]() { this->_cache_clean_callback(); },
+            &_cache_clean_thread));
+    LOG(INFO) << "cache clean thread started";
 
     // path scan and gc thread
     if (config::path_gc_check) {
@@ -246,17 +248,17 @@ Status StorageEngine::start_bg_threads() {
     return Status::OK();
 }
 
-void StorageEngine::_fd_cache_clean_callback() {
-    int32_t interval = 600;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
-        interval = config::cache_clean_interval;
+void StorageEngine::_cache_clean_callback() {
+    int32_t interval = config::cache_prune_stale_interval;
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+           !k_doris_exit) {
         if (interval <= 0) {
-            LOG(WARNING) << "config of file descriptor clean interval is illegal: [" << interval
+            LOG(WARNING) << "config of cache clean interval is illegal: [" << interval
                          << "], force set to 3600 ";
             interval = 3600;
         }
 
-        _start_clean_cache();
+        CacheManager::instance()->for_each_cache_prune_stale();
     }
 }
 
@@ -277,7 +279,8 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     double usage = 1.0;
     // After the program starts, the first round of cleaning starts after min_interval.
     uint32_t curr_interval = min_interval;
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval)) &&
+           !k_doris_exit) {
         // Function properties:
         // when usage < 0.6,          ratio close to 1.(interval close to max_interval)
         // when usage at [0.6, 0.75], ratio is rapidly decreasing from 0.87 to 0.27.
@@ -311,7 +314,8 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
                          << ", force set to 1";
             interval = 1;
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+             !k_doris_exit);
 }
 
 void StorageEngine::check_cumulative_compaction_config() {
@@ -342,7 +346,8 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
                          << ", force set to 1";
             interval = 1;
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+             !k_doris_exit);
 }
 
 void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
@@ -361,7 +366,8 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
                          << "will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+             !k_doris_exit);
 }
 
 void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
@@ -379,7 +385,8 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
                          << "will be forced set to one day";
             interval = 24 * 3600; // one day
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+             !k_doris_exit);
 }
 
 void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
@@ -394,7 +401,8 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
             }
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+             !k_doris_exit);
 }
 
 void StorageEngine::_tablet_path_check_callback() {
@@ -413,7 +421,8 @@ void StorageEngine::_tablet_path_check_callback() {
     do {
         int32_t batch_size = config::tablet_path_check_batch_size;
         if (batch_size <= 0) {
-            if (_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
+            if (_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+                !k_doris_exit) {
                 break;
             }
             continue;
@@ -471,7 +480,8 @@ void StorageEngine::_tablet_path_check_callback() {
             }
         }
 
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+             !k_doris_exit);
 }
 
 void StorageEngine::_adjust_compaction_thread_num() {
@@ -627,7 +637,8 @@ void StorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = 5000; // 5s to check disable_auto_compaction
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)) &&
+             !k_doris_exit);
 }
 
 void StorageEngine::_update_replica_infos_callback() {
@@ -711,7 +722,8 @@ void StorageEngine::_update_replica_infos_callback() {
             start = end;
         }
         interval = config::update_replica_infos_interval_seconds;
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+             !k_doris_exit);
 }
 
 Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tablet,
@@ -833,7 +845,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                     compaction_type == CompactionType::CUMULATIVE_COMPACTION
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
-                    &disk_max_score, _cumulative_compaction_policy);
+                    &disk_max_score, _cumulative_compaction_policies);
             if (tablet != nullptr) {
                 if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                     if (need_pick_tablet) {
@@ -863,9 +875,13 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 }
 
 void StorageEngine::_update_cumulative_compaction_policy() {
-    if (_cumulative_compaction_policy == nullptr) {
-        _cumulative_compaction_policy =
-                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
+    if (_cumulative_compaction_policies.empty()) {
+        _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                        CUMULATIVE_SIZE_BASED_POLICY);
+        _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                        CUMULATIVE_TIME_SERIES_POLICY);
     }
 }
 
@@ -975,8 +991,13 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                              bool force) {
     _update_cumulative_compaction_policy();
-    if (tablet->get_cumulative_compaction_policy() == nullptr) {
-        tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
+    // alter table tableName set ("compaction_policy"="time_series")
+    // if atler table's compaction  policy, we need to modify tablet compaction policy shared ptr
+    if (tablet->get_cumulative_compaction_policy() == nullptr ||
+        tablet->get_cumulative_compaction_policy()->name() !=
+                tablet->tablet_meta()->compaction_policy()) {
+        tablet->set_cumulative_compaction_policy(
+                _cumulative_compaction_policies.at(tablet->tablet_meta()->compaction_policy()));
     }
     tablet->set_skip_compaction(false);
     return _submit_compaction_task(tablet, compaction_type, force);
@@ -1067,12 +1088,14 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                 LOG(INFO) << "failed to submit cooldown task";
             }
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)) &&
+             !k_doris_exit);
 }
 
 void StorageEngine::_remove_unused_remote_files_callback() {
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
+                   std::chrono::seconds(config::remove_unused_remote_files_interval_sec)) &&
+           !k_doris_exit) {
         LOG(INFO) << "begin to remove unused remote files";
         Tablet::remove_unused_remote_files();
     }
@@ -1083,7 +1106,8 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
     std::mutex tablet_submitted_mtx;
 
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::cold_data_compaction_interval_sec))) {
+                   std::chrono::seconds(config::cold_data_compaction_interval_sec)) &&
+           !k_doris_exit) {
         if (config::disable_auto_compaction ||
             MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
             continue;
@@ -1186,11 +1210,21 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
 }
 
 void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
-    int64_t interval = config::generate_cache_cleaner_task_interval_sec;
-    do {
+    while (true) {
+        int64_t interval = config::generate_cache_cleaner_task_interval_sec;
+        if (interval <= 0) {
+            interval = 10;
+        }
+        bool stop = _stop_background_threads_latch.wait_for(std::chrono::seconds(interval));
+        if (stop || k_doris_exit) {
+            break;
+        }
+        if (config::generate_cache_cleaner_task_interval_sec <= 0) {
+            continue;
+        }
         LOG(INFO) << "Begin to Clean cache files";
         FileCacheManager::instance()->gc_file_caches();
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+    }
 }
 
 void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_id,
@@ -1230,7 +1264,8 @@ int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
 }
 
 void StorageEngine::_async_publish_callback() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30)) &&
+           !k_doris_exit) {
         // tablet, publish_version
         std::vector<std::pair<TabletSharedPtr, int64_t>> need_removed_tasks;
         {

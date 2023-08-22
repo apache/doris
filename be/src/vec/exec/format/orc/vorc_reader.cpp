@@ -148,6 +148,9 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    VecDateTimeValue t;
+    t.from_unixtime(0, ctz);
+    _offset_days = t.day() == 31 ? 0 : 1;
     _init_profile();
     _init_system_properties();
     _init_file_description();
@@ -926,9 +929,9 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::DATE:
         return TypeDescriptor(PrimitiveType::TYPE_DATEV2);
     case orc::TypeKind::VARCHAR:
-        return TypeDescriptor(PrimitiveType::TYPE_VARCHAR);
+        return TypeDescriptor::create_varchar_type(orc_type->getMaximumLength());
     case orc::TypeKind::CHAR:
-        return TypeDescriptor(PrimitiveType::TYPE_CHAR);
+        return TypeDescriptor::create_char_type(orc_type->getMaximumLength());
     case orc::TypeKind::TIMESTAMP_INSTANT:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {
@@ -1288,11 +1291,6 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get())
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
-        if (nested_orc_type->getKind() == orc::TypeKind::MAP ||
-            nested_orc_type->getKind() == orc::TypeKind::STRUCT) {
-            return Status::InternalError(
-                    "Array does not support nested map/struct type in column {}", col_name);
-        }
         return _orc_column_to_doris_column<is_filter>(
                 col_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
@@ -1314,15 +1312,6 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                         ->get_value_type());
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
-        if (orc_key_type->getKind() == orc::TypeKind::LIST ||
-            orc_key_type->getKind() == orc::TypeKind::MAP ||
-            orc_key_type->getKind() == orc::TypeKind::STRUCT ||
-            orc_value_type->getKind() == orc::TypeKind::LIST ||
-            orc_value_type->getKind() == orc::TypeKind::MAP ||
-            orc_value_type->getKind() == orc::TypeKind::STRUCT) {
-            return Status::InternalError("Map does not support nested complex type in column {}",
-                                         col_name);
-        }
         const ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
         const ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(col_name, doris_key_column,
@@ -1346,12 +1335,6 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
             orc::ColumnVectorBatch* orc_field = orc_struct->fields[i];
             const orc::Type* orc_type = orc_column_type->getSubtype(i);
-            if (orc_type->getKind() == orc::TypeKind::LIST ||
-                orc_type->getKind() == orc::TypeKind::MAP ||
-                orc_type->getKind() == orc::TypeKind::STRUCT) {
-                return Status::InternalError(
-                        "Struct does not support nested complex type in column {}", col_name);
-            }
             const ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
             const DataTypePtr& doris_type = doris_struct_type->get_element(i);
             RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(
@@ -1430,8 +1413,10 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         }
         *read_rows = rr;
 
-        RETURN_IF_ERROR(_fill_partition_columns(block, rr, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, rr, _lazy_read_ctx.missing_columns));
+        RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
+                                                _lazy_read_ctx.partition_columns));
+        RETURN_IF_ERROR(
+                _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
             *eof = true;
@@ -1504,16 +1489,18 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         }
         *read_rows = rr;
 
+        RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
+                                                _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(
-                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+                _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
+            _convert_dict_cols_to_string_cols(block, nullptr);
             *eof = true;
             return Status::OK();
         }
 
-        _build_delete_row_filter(block, rr);
+        _build_delete_row_filter(block, _batch->numElements);
 
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();

@@ -43,6 +43,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
@@ -290,6 +291,17 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     ColumnPtr column = block.get_columns()[result];
     EXPECT_TRUE(column != nullptr);
 
+    ColumnPtr nested_col = nullptr;
+    ColumnPtr null_map_col = ColumnUInt8::create(row_size, 0);
+    if (doris::vectorized::is_column_nullable(*column)) {
+        const auto& null_column = check_and_get_column<ColumnNullable>(column);
+        nested_col = null_column->get_nested_column_ptr();
+        null_map_col = null_column->get_null_map_column_ptr();
+    } else {
+        nested_col = column;
+    }
+    const auto& null_map = check_and_get_column<ColumnUInt8>(null_map_col)->get_data();
+
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
@@ -302,6 +314,16 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     // convert jsonb binary value to json string to compare with expected json text
                     EXPECT_EQ(expect_data, JsonbToJson::jsonb_to_json_string(s.data, s.size))
                             << " at row " << i;
+                }
+            } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
+                const auto* expect_data =
+                        any_cast<typename ReturnType::FieldType*>(data_set[i].second);
+                if (null_map[i]) {
+                    EXPECT_TRUE(expect_data->empty()) << " at row " << i;
+                } else {
+                    auto& bitmap_value =
+                            check_and_get_column<ColumnBitmap>(nested_col)->get_data()[i];
+                    EXPECT_EQ(*expect_data, bitmap_value) << " at row " << i;
                 }
             } else {
                 Field field;

@@ -61,6 +61,8 @@ import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
+import org.apache.doris.load.ExportJobState;
+import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
@@ -81,6 +83,8 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -362,11 +366,12 @@ public class EditLog {
                     exportMgr.replayCreateExportJob(job);
                     break;
                 }
-                case OperationType.OP_EXPORT_UPDATE_STATE:
-                    ExportJob.StateTransfer op = (ExportJob.StateTransfer) journal.getData();
+                case OperationType.OP_EXPORT_UPDATE_STATE: {
+                    ExportJobStateTransfer op = (ExportJobStateTransfer) journal.getData();
                     ExportMgr exportMgr = env.getExportMgr();
                     exportMgr.replayUpdateJobState(op);
                     break;
+                }
                 case OperationType.OP_FINISH_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();
                     DeleteHandler deleteHandler = env.getDeleteHandler();
@@ -642,6 +647,31 @@ public class EditLog {
                 case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                     RoutineLoadJob routineLoadJob = (RoutineLoadJob) journal.getData();
                     Env.getCurrentEnv().getRoutineLoadManager().replayCreateRoutineLoadJob(routineLoadJob);
+                    break;
+                }
+                case OperationType.OP_CREATE_SCHEDULER_JOB: {
+                    Job job = (Job) journal.getData();
+                    Env.getCurrentEnv().getAsyncJobManager().replayCreateJob(job);
+                    break;
+                }
+                case OperationType.OP_UPDATE_SCHEDULER_JOB: {
+                    Job job = (Job) journal.getData();
+                    Env.getCurrentEnv().getAsyncJobManager().replayUpdateJob(job);
+                    break;
+                }
+                case OperationType.OP_DELETE_SCHEDULER_JOB: {
+                    Job job = (Job) journal.getData();
+                    Env.getCurrentEnv().getAsyncJobManager().replayDeleteJob(job);
+                    break;
+                }
+                case OperationType.OP_CREATE_SCHEDULER_TASK: {
+                    JobTask task = (JobTask) journal.getData();
+                    Env.getCurrentEnv().getJobTaskManager().replayCreateTask(task);
+                    break;
+                }
+                case OperationType.OP_DELETE_SCHEDULER_TASK: {
+                    JobTask task = (JobTask) journal.getData();
+                    Env.getCurrentEnv().getJobTaskManager().replayDeleteTask(task);
                     break;
                 }
                 case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
@@ -1050,8 +1080,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BARRIER: {
-                    // the log only for barrier commit seq, not need to replay
-                    LOG.info("replay barrier");
+                    BarrierLog log = (BarrierLog) journal.getData();
+                    env.getBinlogManager().addBarrierLog(log, logId);
                     break;
                 }
                 case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
@@ -1433,8 +1463,8 @@ public class EditLog {
         logEdit(OperationType.OP_EXPORT_CREATE, job);
     }
 
-    public void logExportUpdateState(long jobId, ExportJob.JobState newState) {
-        ExportJob.StateTransfer transfer = new ExportJob.StateTransfer(jobId, newState);
+    public void logExportUpdateState(long jobId, ExportJobState newState) {
+        ExportJobStateTransfer transfer = new ExportJobStateTransfer(jobId, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
     }
 
@@ -1534,6 +1564,26 @@ public class EditLog {
 
     public void logCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         logEdit(OperationType.OP_CREATE_ROUTINE_LOAD_JOB, routineLoadJob);
+    }
+
+    public void logCreateJob(Job job) {
+        logEdit(OperationType.OP_CREATE_SCHEDULER_JOB, job);
+    }
+
+    public void logUpdateJob(Job job) {
+        logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
+    }
+
+    public void logCreateJobTask(JobTask jobTask) {
+        logEdit(OperationType.OP_CREATE_SCHEDULER_TASK, jobTask);
+    }
+
+    public void logDeleteJobTask(JobTask jobTask) {
+        logEdit(OperationType.OP_DELETE_SCHEDULER_TASK, jobTask);
+    }
+
+    public void logDeleteJob(Job job) {
+        logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
 
     public void logOpRoutineLoadJob(RoutineLoadOperation routineLoadOperation) {
@@ -1846,8 +1896,11 @@ public class EditLog {
         return logEdit(OperationType.OP_GC_BINLOG, log);
     }
 
-    public long logBarrier() {
-        return logEdit(OperationType.OP_BARRIER, new BarrierLog());
+    public long logBarrier(BarrierLog log) {
+        long logId = logEdit(OperationType.OP_BARRIER, log);
+        Env.getCurrentEnv().getBinlogManager().addBarrierLog(log, logId);
+        LOG.info("logId {}, barrier {}", logId, log);
+        return logId;
     }
 
     public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {

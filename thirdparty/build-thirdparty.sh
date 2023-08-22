@@ -812,7 +812,7 @@ build_brpc() {
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=1 -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
-        -DBUILD_BRPC_TOOLS=OFF \
+        -DBUILD_BRPC_TOOLS=OFF -DBUILD_SHARED_LIBS=OFF \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
@@ -1434,9 +1434,9 @@ build_jemalloc() {
 
 # libunwind
 build_libunwind() {
-    # https://github.com/libunwind/libunwind
-    # https://github.com/libunwind/libunwind/issues/189
-    # https://stackoverflow.com/questions/27842377/building-libunwind-for-mac
+    # There are two major variants of libunwind. libunwind on Linux
+    # (https://www.nongnu.org/libunwind/) provides unw_backtrace, and
+    # Apache/LLVM libunwind (notably used on Apple platforms) doesn't
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         check_if_source_exist "${LIBUNWIND_SOURCE}"
         cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"

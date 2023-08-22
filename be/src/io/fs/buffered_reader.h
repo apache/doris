@@ -383,6 +383,7 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
+    Status _close_internal();
     size_t get_buffer_pos(int64_t position) const {
         return (position % _whole_pre_buffer_size) / s_max_pre_buffer_size;
     }
@@ -436,6 +437,7 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
+    Status _close_internal();
     io::FileReaderSPtr _reader;
     std::unique_ptr<char[]> _data = nullptr;
     size_t _size;

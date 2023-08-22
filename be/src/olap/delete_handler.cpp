@@ -60,7 +60,7 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
 
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
-        if (check_condition_valid(schema, condition) != Status::OK()) {
+        if (!check_condition_valid(schema, condition).ok()) {
             // Error will print log, no need to do it manually.
             return Status::Error<DELETE_INVALID_CONDITION>("invalid condition. condition={}",
                                                            ThriftDebugString(condition));
@@ -177,12 +177,9 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     // the condition column type should not be float or double.
     const TabletColumn& column = schema.column(field_index);
 
-    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
-        column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
         column.type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
-        return Status::Error<DELETE_INVALID_CONDITION>(
-                "field is not key column, or storage model is not duplicate, or data type is float "
-                "or double.");
+        return Status::Error<DELETE_INVALID_CONDITION>("data type is float or double.");
     }
 
     // Check operator and operands size are matched.
@@ -214,7 +211,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
         //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matches  "="
         //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
-                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
+                R"(([\w$#%]+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
         regex ex(CONDITION_STR_PATTERN);
         if (regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
@@ -255,7 +252,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             continue;
         }
         // Need the tablet schema at the delete condition to parse the accurate column unique id
-        TabletSchemaSPtr delete_pred_related_schema = delete_pred->tablet_schema();
+        const auto& delete_pred_related_schema = delete_pred->tablet_schema();
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
         temp.filter_version = delete_pred->version().first;

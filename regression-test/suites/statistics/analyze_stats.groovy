@@ -156,8 +156,8 @@ suite("test_analyze") {
     """
 
     def contains_expected_table = {r ->
-        for(int i = 0; i < show_result.size; i++) {
-            if (show_result[i][3] == "${tbl}" ) {
+        for(int i = 0; i < r.size; i++) {
+            if (r[i][3] == "${tbl}" ) {
                 return true
             }
         }
@@ -188,6 +188,54 @@ suite("test_analyze") {
     sql """
         ANALYZE DATABASE ${db} WITH SAMPLE ROWS 5 WITH PERIOD 100000
     """
+
+    sql """
+        DROP TABLE IF EXISTS analyze_partitioned_tbl_test
+    """
+
+    sql """
+        CREATE TABLE analyze_partitioned_tbl_test (col1 int, col2 int, col3 int)
+        PARTITION BY RANGE(`col2`) (
+            PARTITION `p1` VALUES LESS THAN ('5'),
+            PARTITION `p2` VALUES LESS THAN ('10'),
+            PARTITION `P3` VALUES LESS THAN ('15'),
+            PARTITION `P4` VALUES LESS THAN ('20'),
+            PARTITION `P5` VALUES LESS THAN ('25'),
+            PARTITION `P6` VALUES LESS THAN ('30'))
+        DISTRIBUTED BY HASH(col3)
+        BUCKETS 3
+        PROPERTIES(
+            "replication_num"="1"
+        )
+    """
+
+    sql """insert into analyze_partitioned_tbl_test values(1,3,1) """
+    sql """insert into analyze_partitioned_tbl_test values(6,6,6) """
+    sql """insert into analyze_partitioned_tbl_test values(11,6,6) """
+    sql """insert into analyze_partitioned_tbl_test values(16,6,6) """
+    sql """insert into analyze_partitioned_tbl_test values(21,6,6) """
+    sql """insert into analyze_partitioned_tbl_test values(26,6,6) """
+
+    sql """
+        ANALYZE TABLE analyze_partitioned_tbl_test WITH SYNC
+    """
+
+    part_tbl_analyze_result = sql """
+        SHOW COLUMN CACHED STATS analyze_partitioned_tbl_test(col1)
+    """
+
+    def expected_result = { r->
+        for(int i = 0; i < r.size; i++) {
+            if ((int) Double.parseDouble(r[i][1]) == 6) {
+                return true
+            } else {
+                return false
+            }
+        }
+        return false
+    }
+
+    assert  expected_result(part_tbl_analyze_result)
 
 }
 

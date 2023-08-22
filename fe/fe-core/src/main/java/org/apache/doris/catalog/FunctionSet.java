@@ -204,6 +204,9 @@ public class FunctionSet<T> {
     public static final String HIST = "hist";
     public static final String MAP_AGG = "map_agg";
 
+    public static final String BITMAP_AGG = "bitmap_agg";
+    public static final String COUNT_BY_ENUM = "count_by_enum";
+
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
                     .put(Type.CHAR,
@@ -1032,9 +1035,18 @@ public class FunctionSet<T> {
             }
 
             if (!Type.JSONB.equals(t)) {
-                for (Type valueType : Type.getTrivialTypes()) {
-                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType), new MapType(t, valueType),
+                for (Type valueType : Type.getMapSubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType),
+                            new MapType(t, valueType),
                             Type.VARCHAR,
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
+
+                for (Type v : Type.getArraySubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
                             "", "", "", "", "", null, "",
                             true, true, false, true));
                 }
@@ -1277,6 +1289,16 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createBuiltin("group_bit_xor",
                     Lists.newArrayList(t), t, t, "", "", "", "", "",
                     false, true, false, true));
+            if (!t.equals(Type.LARGEINT)) {
+                addBuiltin(
+                        AggregateFunction.createBuiltin("bitmap_agg", Lists.newArrayList(t), Type.BITMAP, Type.BITMAP,
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                true, false, true, true));
+            }
         }
 
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
@@ -1612,6 +1634,21 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                         "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
         }
+
+        // count_by_enum
+        addBuiltin(AggregateFunction.createBuiltin(COUNT_BY_ENUM,
+                Lists.newArrayList(Type.STRING),
+                Type.STRING,
+                Type.STRING,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                false, true, false, true));
 
     }
 

@@ -20,10 +20,13 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
+#include "bvar/bvar.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 
 namespace doris {
+
+bvar::Adder<int64_t> g_loadchannel_cnt("loadchannel_cnt");
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
                          const std::string& sender_ip, int64_t backend_id, bool enable_profile)
@@ -33,6 +36,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
           _sender_ip(sender_ip),
           _backend_id(backend_id),
           _enable_profile(enable_profile) {
+    g_loadchannel_cnt << 1;
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -41,6 +45,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
 }
 
 LoadChannel::~LoadChannel() {
+    g_loadchannel_cnt << -1;
     LOG(INFO) << "load channel removed"
               << " load_id=" << _load_id << ", is high priority=" << _is_high_priority
               << ", sender_ip=" << _sender_ip;

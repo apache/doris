@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Pipeline execution engine",
+    "title": "Pipeline Execution Engine",
     "language": "en",
     "toc_min_heading_level": 2,
     "toc_max_heading_level": 4
@@ -26,7 +26,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Pipeline execution engine
+# Pipeline Execution Engine
 
 <version since="2.0.0"></version>
 
@@ -72,8 +72,8 @@ set enable_pipeline_engine = true;
 #### parallel_pipeline_task_num
 
 `parallel_pipeline_task_num` represents the concurrency of pipeline tasks of a query. Default value is `0` (e.g. half number of CPU cores). Users can adjust this value according to their own workloads.
-If the user upgrades from a lower version, the default value will be the parallel_fragment_exec_instance_num before the upgrade.
 
 ```
 set parallel_pipeline_task_num = 0;
 ```
+You can limit the automatically configured concurrency by setting "max_instance_num."（The default value is 64)

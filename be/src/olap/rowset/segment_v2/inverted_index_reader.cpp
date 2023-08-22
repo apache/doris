@@ -37,6 +37,7 @@
 #include <CLucene/util/CLStreams.h>
 #include <CLucene/util/FutureArrays.h>
 #include <CLucene/util/bkd/bkd_docid_iterator.h>
+#include <CLucene/util/stringUtil.h>
 #include <math.h>
 #include <string.h>
 
@@ -141,7 +142,7 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
             if (token.termLength<char>() != 0) {
                 std::string_view term(token.termBuffer<char>(), token.termLength<char>());
-                std::wstring ws_term = lucene_utf8stows(term);
+                std::wstring ws_term = StringUtil::string_to_wstring(term);
                 analyse_result.emplace_back(ws_term);
             }
         } else {
@@ -250,10 +251,18 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 get_analyse_result(column_name, search_str, query_type, inverted_index_ctx.get());
 
         if (analyse_result.empty()) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
+            auto msg = fmt::format(
                     "token parser result is empty for query, "
                     "please check your query: '{}' and index parser: '{}'",
                     search_str, get_parser_string_from_properties(_index_meta.properties()));
+            if (query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+                query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+                query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+                LOG(WARNING) << msg;
+                return Status::OK();
+            } else {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
+            }
         }
 
         std::unique_ptr<lucene::search::Query> query;
@@ -435,7 +444,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
-    std::wstring search_str_ws = lucene_utf8stows(search_str);
+    std::wstring search_str_ws = StringUtil::string_to_wstring(search_str);
     // unique_ptr with custom deleter
     std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
             _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),

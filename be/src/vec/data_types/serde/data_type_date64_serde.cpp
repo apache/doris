@@ -28,9 +28,15 @@
 namespace doris {
 namespace vectorized {
 
+void DataTypeDate64SerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                   int end_idx, BufferWritable& bw,
+                                                   FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT();
+}
+
 void DataTypeDate64SerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
                                                      BufferWritable& bw,
-                                                     const FormatOptions& options) const {
+                                                     FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -54,23 +60,29 @@ void DataTypeDate64SerDe::serialize_one_cell_to_text(const IColumn& column, int 
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
-    bw.commit();
 }
 
-Status DataTypeDate64SerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeDate64SerDe::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeDate64SerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
     if (options.date_olap_format) {
         tm time_tm;
-        char* res = strptime(rb.position(), "%Y-%m-%d", &time_tm);
+        char* res = strptime(slice.data, "%Y-%m-%d", &time_tm);
         if (nullptr != res) {
             val = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
         } else {
             // 1400 - 01 - 01
             val = 716833;
         }
-    } else if (!read_date_text_impl<Int64>(val, rb)) {
+    } else if (ReadBuffer rb(slice.data, slice.size); !read_date_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -78,9 +90,15 @@ Status DataTypeDate64SerDe::deserialize_one_cell_from_text(IColumn& column, Read
     return Status::OK();
 }
 
+void DataTypeDateTimeSerDe::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
 void DataTypeDateTimeSerDe::serialize_one_cell_to_text(const IColumn& column, int row_num,
                                                        BufferWritable& bw,
-                                                       const FormatOptions& options) const {
+                                                       FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -109,16 +127,22 @@ void DataTypeDateTimeSerDe::serialize_one_cell_to_text(const IColumn& column, in
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
     }
-    bw.commit();
 }
 
-Status DataTypeDateTimeSerDe::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeDateTimeSerDe::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
+}
+
+Status DataTypeDateTimeSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
     if (options.date_olap_format) {
         tm time_tm;
-        char* res = strptime(rb.position(), "%Y-%m-%d %H:%M:%S", &time_tm);
+        char* res = strptime(slice.data, "%Y-%m-%d %H:%M:%S", &time_tm);
         if (nullptr != res) {
             val = ((time_tm.tm_year + 1900) * 10000L + (time_tm.tm_mon + 1) * 100L +
                    time_tm.tm_mday) *
@@ -128,7 +152,7 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_text(IColumn& column, Re
             // 1400 - 01 - 01
             val = 14000101000000L;
         }
-    } else if (!read_datetime_text_impl<Int64>(val, rb)) {
+    } else if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }

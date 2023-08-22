@@ -40,11 +40,6 @@ public class RuntimeFilterId extends Id<RuntimeFilterId> {
         return String.format("RF%03d", id);
     }
 
-    @Override
-    public int hashCode() {
-        return id;
-    }
-
     public int compareTo(RuntimeFilterId cmp) {
         return Integer.compare(id, cmp.id);
     }

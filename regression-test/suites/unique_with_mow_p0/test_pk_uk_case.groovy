@@ -184,6 +184,8 @@ suite("test_pk_uk_case") {
             ($order_key, $part_key, $sub_key, $line_num, $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
         """
 
+        sql "sync"
+
         // count(*)
         result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
         result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """

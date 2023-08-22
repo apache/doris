@@ -53,12 +53,14 @@ public class ShowTableStatsStmt extends ShowStmt {
     private final TableName tableName;
 
     private final PartitionNames partitionNames;
+    private final boolean cached;
 
     private TableIf table;
 
-    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames) {
+    public ShowTableStatsStmt(TableName tableName, PartitionNames partitionNames, boolean cached) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
+        this.cached = cached;
     }
 
     public TableName getTableName() {
@@ -132,5 +134,9 @@ public class ShowTableStatsStmt extends ShowStmt {
         row.add(StatisticsUtil.getReadableTime(tableStatistic.lastAnalyzeTimeInMs));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
+    }
+
+    public boolean isCached() {
+        return cached;
     }
 }

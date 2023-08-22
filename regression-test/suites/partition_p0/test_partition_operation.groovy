@@ -44,6 +44,7 @@ suite("test_partition_operation", "p1") {
             set "column_separator", ","
             file "./multi_partition/partition_table.csv"
         }
+        sql """sync"""
         test {
             sql "select * from ${tableName} order by k1, k2"
             resultFile "./multi_partition/partition_table.out"

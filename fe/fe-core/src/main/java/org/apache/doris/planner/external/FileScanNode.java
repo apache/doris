@@ -60,7 +60,7 @@ import java.util.Map;
 public abstract class FileScanNode extends ExternalScanNode {
     private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
-    public static final long DEFAULT_SPLIT_SIZE = 128 * 1024 * 1024; // 128MB
+    public static final long DEFAULT_SPLIT_SIZE = 8 * 1024 * 1024; // 8MB
 
     // For explain
     protected long inputSplitsNum = 0;
@@ -69,7 +69,7 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long readPartitionNum = 0;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
-                            boolean needCheckColumnPriv) {
+            boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
@@ -158,6 +158,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(String.format("avgRowSize=%s, ", avgRowSize));
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
+        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp)).append("\n");
 
         return output.toString();
     }
@@ -175,6 +176,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {
                     expr = column.getDefaultValueExpr();
+                    expr.analyze(analyzer);
                 } else {
                     expr = new StringLiteral(column.getDefaultValue());
                 }

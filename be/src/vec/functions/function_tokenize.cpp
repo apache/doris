@@ -25,7 +25,6 @@
 #include "CLucene/StdHeader.h"
 #include "CLucene/config/repl_wchar.h"
 #include "olap/inverted_index_parser.h"
-#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -37,11 +36,49 @@
 
 namespace doris::vectorized {
 
-void FunctionTokenize::_execute_constant(const ColumnString& src_column_string,
-                                         const StringRef& tokenize_type,
-                                         IColumn& dest_nested_column,
-                                         ColumnArray::Offsets64& dest_offsets,
-                                         NullMapType* dest_nested_null_map) {
+Status parse(const std::string& str, std::map<std::string, std::string>& result) {
+    std::string::size_type start = 0;
+
+    while (start < str.size()) {
+        std::string::size_type end = str.find(',', start);
+        std::string pair =
+                (end == std::string::npos) ? str.substr(start) : str.substr(start, end - start);
+
+        std::string::size_type eq_pos = pair.find('=');
+        if (eq_pos == std::string::npos) {
+            return Status::InvalidArgument(
+                    fmt::format("invalid params {} for function tokenize", str));
+        }
+        std::string key = pair.substr(0, eq_pos);
+        key = key.substr(key.find_first_not_of(" '\""
+                                               "\t\n\r"),
+                         key.find_last_not_of(" '\""
+                                              "\t\n\r") -
+                                 key.find_first_not_of(" '\""
+                                                       "\t\n\r") +
+                                 1);
+        std::string value = pair.substr(eq_pos + 1);
+        value = value.substr(value.find_first_not_of(" '\""
+                                                     "\t\n\r"),
+                             value.find_last_not_of(" '\""
+                                                    "\t\n\r") -
+                                     value.find_first_not_of(" '\""
+                                                             "\t\n\r") +
+                                     1);
+
+        result[key] = value;
+
+        start = (end == std::string::npos) ? str.size() : end + 1;
+    }
+
+    return Status::OK();
+}
+
+void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
+                                    InvertedIndexCtx& inverted_index_ctx,
+                                    IColumn& dest_nested_column,
+                                    ColumnArray::Offsets64& dest_offsets,
+                                    NullMapType* dest_nested_null_map) {
     ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
     ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
     ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -50,25 +87,6 @@ void FunctionTokenize::_execute_constant(const ColumnString& src_column_string,
     ColumnArray::Offset64 string_pos = 0;
     ColumnArray::Offset64 dest_pos = 0;
     ColumnArray::Offset64 src_offsets_size = src_column_string.get_offsets().size();
-
-    InvertedIndexCtx inverted_index_ctx;
-    auto parser_type = get_inverted_index_parser_type_from_string(tokenize_type.to_string());
-
-    switch (parser_type) {
-    case InvertedIndexParserType::PARSER_CHINESE: {
-        // we don't support parse_mode params now, so make it default.
-        inverted_index_ctx.parser_mode = INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
-        inverted_index_ctx.parser_type = parser_type;
-        break;
-    }
-    case InvertedIndexParserType::PARSER_UNICODE: {
-        inverted_index_ctx.parser_type = parser_type;
-        break;
-    }
-    default:
-        // default as english
-        inverted_index_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
-    }
 
     for (size_t i = 0; i < src_offsets_size; i++) {
         const StringRef tokenize_str = src_column_string.get_data_at(i);
@@ -129,8 +147,17 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
 
     if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
         if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
-            _execute_constant(*col_left, col_right->get_data_at(0), *dest_nested_column,
-                              dest_offsets, dest_nested_null_map);
+            InvertedIndexCtx inverted_index_ctx;
+            std::map<std::string, std::string> properties;
+            auto st = parse(col_right->get_data_at(0).to_string(), properties);
+            if (!st.ok()) {
+                return st;
+            }
+            inverted_index_ctx.parser_type = get_inverted_index_parser_type_from_string(
+                    get_parser_string_from_properties(properties));
+            inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);
+            _do_tokenize(*col_left, inverted_index_ctx, *dest_nested_column, dest_offsets,
+                         dest_nested_null_map);
 
             block.replace_by_position(result, std::move(dest_column_ptr));
             return Status::OK();

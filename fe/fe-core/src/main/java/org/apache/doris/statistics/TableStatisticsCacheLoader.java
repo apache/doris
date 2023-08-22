@@ -36,7 +36,9 @@ public class TableStatisticsCacheLoader extends StatisticsCacheLoader<Optional<T
     protected Optional<TableStatistic> doLoad(StatisticsCacheKey key) {
         try {
             TableStatistic tableStatistic = StatisticsRepository.fetchTableLevelStats(key.tableId);
-            return Optional.of(tableStatistic);
+            if (tableStatistic != TableStatistic.UNKNOWN) {
+                return Optional.of(tableStatistic);
+            }
         } catch (DdlException e) {
             LOG.debug("Fail to get table line number from table_statistics table. "
                     + "Will try to get from data source.", e);

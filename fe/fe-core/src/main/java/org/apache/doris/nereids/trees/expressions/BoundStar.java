@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 /** BoundStar is used to wrap list of slots for temporary. */
 public class BoundStar extends NamedExpression implements PropagateNullable {
     public BoundStar(List<Slot> children) {
-        super(children.toArray(new Slot[0]));
+        super((List) children);
         Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
                 "BoundStar can not wrap UnboundSlot"
         );

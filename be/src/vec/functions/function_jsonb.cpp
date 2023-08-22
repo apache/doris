@@ -392,7 +392,7 @@ public:
             Status st = Impl::vector_vector_v2(
                     context, ldata, loffsets, jsonb_data_const, jsonb_path_columns, path_const,
                     res_data, res_offsets, null_map->get_data(), is_invalid_json_path);
-            if (st != Status::OK()) {
+            if (!st.ok()) {
                 return st;
             }
         } else {

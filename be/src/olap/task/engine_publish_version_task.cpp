@@ -262,7 +262,7 @@ void TabletPublishTxnTask::handle() {
     Defer defer {[&] { _rowset->finish_publish(); }};
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, _version, &_stats);
-    if (publish_status != Status::OK()) {
+    if (!publish_status.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -274,7 +274,7 @@ void TabletPublishTxnTask::handle() {
     int64_t t1 = MonotonicMicros();
     publish_status = _tablet->add_inc_rowset(_rowset);
     _stats.add_inc_rowset_us = MonotonicMicros() - t1;
-    if (publish_status != Status::OK() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
+    if (!publish_status.ok() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -314,7 +314,7 @@ void AsyncTabletPublishTask::handle() {
     Version version(_version, _version);
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, version, &_stats);
-    if (publish_status != Status::OK()) {
+    if (!publish_status.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;
@@ -325,7 +325,7 @@ void AsyncTabletPublishTask::handle() {
     int64_t t1 = MonotonicMicros();
     publish_status = _tablet->add_inc_rowset(rowset);
     _stats.add_inc_rowset_us = MonotonicMicros() - t1;
-    if (publish_status != Status::OK() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
+    if (!publish_status.ok() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << rowset->rowset_id()
                      << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id
                      << ", res=" << publish_status;

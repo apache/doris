@@ -106,7 +106,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     }
 
     public void doExecute() throws Exception {
-        setTaskStateToRunning();
         if (isTableLevelTask) {
             getTableStats();
         } else {
@@ -232,8 +231,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             String sql = stringSubstitutor.replace(sb.toString());
             executeInsertSql(sql);
-            Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(
-                    catalog.getId(), db.getId(), tbl.getId(), -1, col.getName());
         }
     }
 
@@ -294,5 +291,14 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         params.put("update_time", TimeUtils.DATETIME_FORMAT.format(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(timestamp) * 1000),
                         ZoneId.systemDefault())));
+    }
+
+    @Override
+    protected void afterExecution() {
+        if (isTableLevelTask) {
+            Env.getCurrentEnv().getStatisticsCache().refreshTableStatsSync(catalog.getId(), db.getId(), tbl.getId());
+        } else {
+            Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+        }
     }
 }

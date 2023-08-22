@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
@@ -37,7 +39,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -57,6 +61,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -83,6 +89,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
@@ -284,6 +292,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalDeferMaterializeOlapScan(LogicalDeferMaterializeOlapScan deferMaterializeOlapScan,
+            Void context) {
+        return computeCatalogRelation(deferMaterializeOlapScan.getLogicalOlapScan());
+    }
+
+    @Override
     public Statistics visitLogicalSchemaScan(LogicalSchemaScan schemaScan, Void context) {
         return computeCatalogRelation(schemaScan);
     }
@@ -324,6 +338,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalTopN(LogicalTopN<? extends Plan> topN, Void context) {
         return computeTopN(topN);
+    }
+
+    @Override
+    public Statistics visitLogicalDeferMaterializeTopN(LogicalDeferMaterializeTopN<? extends Plan> topN, Void context) {
+        return computeTopN(topN.getLogicalTopN());
     }
 
     @Override
@@ -411,6 +430,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitPhysicalDeferMaterializeOlapScan(PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan,
+            Void context) {
+        return computeCatalogRelation(deferMaterializeOlapScan.getPhysicalOlapScan());
+    }
+
+    @Override
     public Statistics visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
         return computeCatalogRelation(schemaScan);
     }
@@ -449,6 +474,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
         return computeTopN(topN);
+    }
+
+    @Override
+    public Statistics visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
+            Void context) {
+        return computeTopN(topN.getPhysicalTopN());
     }
 
     @Override
@@ -563,13 +594,28 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Histogram getColumnHistogram(TableIf table, String colName) {
-        if (totalHistogramMap.get(table.getName() + colName) != null) {
-            return totalHistogramMap.get(table.getName() + colName);
-        } else if (isPlayNereidsDump) {
-            return null;
-        } else {
-            return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+        // if (totalHistogramMap.get(table.getName() + colName) != null) {
+        //     return totalHistogramMap.get(table.getName() + colName);
+        // } else if (isPlayNereidsDump) {
+        //     return null;
+        // } else {
+        //     return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
+        // }
+        return null;
+    }
+
+    private ColumnStatistic setOlapPartitionInfo(TableIf tableIf, ColumnStatistic colStats) {
+        if (colStats.partitionIdToColStats.isEmpty()) {
+            return colStats;
         }
+        if (!(tableIf instanceof OlapTable)) {
+            return colStats;
+        }
+        OlapTable table = (OlapTable) tableIf;
+        if (table.getPartitionInfo().getType() != PartitionType.UNPARTITIONED) {
+            colStats = new ColumnStatisticBuilder(colStats).setPartitionInfo(table.getPartitionInfo()).build();
+        }
+        return colStats;
     }
 
     // TODO: 1. Subtract the pruned partition
@@ -583,18 +629,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         double rowCount = catalogRelation.getTable().estimatedRowCount();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
+            boolean shouldIgnoreThisCol = shouldIgnoreCol(table, slotReference.getColumn().get());
+
             if (colName == null) {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache = Config.enable_stats && FeConstants.enableInternalSchemaDb
-                    ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+                    ? shouldIgnoreThisCol
+                        ? ColumnStatistic.UNKNOWN : getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
             if (cache.avgSizeByte <= 0) {
                 cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
                         .build();
             }
             if (cache.isUnKnown) {
-                if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, slotReference.getColumn().get())) {
+                if (forbidUnknownColStats && !shouldIgnoreThisCol) {
                     if (StatisticsUtil.statsTblAvailable()) {
                         throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
                                 + "It may caused by:\n"
@@ -616,6 +665,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 continue;
             }
             rowCount = Math.max(rowCount, cache.count);
+            cache = setOlapPartitionInfo(table, cache);
             Histogram histogram = getColumnHistogram(table, colName);
             if (histogram != null) {
                 ColumnStatisticBuilder columnStatisticBuilder =
@@ -634,16 +684,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Statistics computePartitionTopN(PartitionTopN partitionTopN) {
-        Statistics stats = groupExpression.childStatistics(0);
-        double rowCount = stats.getRowCount();
+        Statistics childStats = groupExpression.childStatistics(0);
+        double rowCount = childStats.getRowCount();
         List<Expression> partitionKeys = partitionTopN.getPartitionKeys();
         if (!partitionTopN.hasGlobalLimit() && !partitionKeys.isEmpty()) {
             // If there is no global limit. So result for the cardinality estimation is:
             // NDV(partition key) * partitionLimit
-            Map<Expression, ColumnStatistic> childSlotToColumnStats = stats.columnStatistics();
             List<ColumnStatistic> partitionByKeyStats = partitionKeys.stream()
-                    .filter(childSlotToColumnStats::containsKey)
-                    .map(childSlotToColumnStats::get)
+                    .map(partitionKey -> {
+                        ColumnStatistic partitionKeyStats = childStats.findColumnStatistics(partitionKey);
+                        if (partitionKeyStats == null) {
+                            partitionKeyStats = new ExpressionEstimation().visit(partitionKey, childStats);
+                        }
+                        return partitionKeyStats;
+                    })
                     .filter(s -> !s.isUnKnown)
                     .collect(Collectors.toList());
             if (partitionByKeyStats.isEmpty()) {
@@ -651,7 +705,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 rowCount = rowCount * DEFAULT_COLUMN_NDV_RATIO;
             } else {
                 rowCount = Math.min(rowCount, partitionByKeyStats.stream().map(s -> s.ndv)
-                    .max(Double::compare).get());
+                    .max(Double::compare).get() * partitionTopN.getPartitionLimit());
             }
         } else {
             rowCount = Math.min(rowCount, partitionTopN.getPartitionLimit());
@@ -659,7 +713,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // TODO: for the filter push down window situation, we will prune the row count twice
         //  because we keep the pushed down filter. And it will be calculated twice, one of them in 'PartitionTopN'
         //  and the other is in 'Filter'. It's hard to dismiss.
-        return stats.updateRowCountOnly(rowCount);
+        return childStats.updateRowCountOnly(rowCount);
     }
 
     private Statistics computeLimit(Limit limit) {
@@ -914,42 +968,72 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Statistics computeWindow(Window windowOperator) {
-        Statistics stats = groupExpression.childStatistics(0);
-        Map<Expression, ColumnStatistic> childColumnStats = stats.columnStatistics();
+        Statistics childStats = groupExpression.childStatistics(0);
+        Map<Expression, ColumnStatistic> childColumnStats = childStats.columnStatistics();
         Map<Expression, ColumnStatistic> columnStatisticMap = windowOperator.getWindowExpressions().stream()
                 .map(expr -> {
-                    //estimate rank()
-                    if (expr instanceof Alias && expr.child(0) instanceof WindowExpression
-                            && ((WindowExpression) expr.child(0)).getFunction() instanceof Rank) {
-                        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder();
-                        colBuilder.setNdv(stats.getRowCount())
-                                .setOriginal(null)
-                                .setCount(stats.getRowCount())
-                                .setMinValue(0)
-                                .setMaxValue(stats.getRowCount());
-                        return Pair.of(expr.toSlot(), colBuilder.build());
-                    }
-                    //estimate other expressions
-                    ColumnStatistic value = null;
-                    Set<Slot> slots = expr.getInputSlots();
-                    if (slots.isEmpty()) {
-                        value = ColumnStatistic.UNKNOWN;
+                    Preconditions.checkArgument(expr instanceof Alias
+                            && expr.child(0) instanceof WindowExpression,
+                            "need WindowExpression, but we meet " + expr);
+                    WindowExpression windExpr = (WindowExpression) expr.child(0);
+                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder();
+                    colStatsBuilder.setCount(childStats.getRowCount())
+                            .setOriginal(null);
+
+                    Double partitionCount = windExpr.getPartitionKeys().stream().map(key -> {
+                        ColumnStatistic keyStats = childStats.findColumnStatistics(key);
+                        if (keyStats == null) {
+                            keyStats = new ExpressionEstimation().visit(key, childStats);
+                        }
+                        return keyStats;
+                    })
+                            .filter(columnStatistic -> !columnStatistic.isUnKnown)
+                            .map(colStats -> colStats.ndv).max(Double::compare)
+                            .orElseGet(() -> -1.0);
+
+                    if (partitionCount == -1.0) {
+                        // partition key stats are all unknown
+                        colStatsBuilder.setCount(childStats.getRowCount())
+                                .setNdv(1)
+                                .setMinValue(Double.NEGATIVE_INFINITY)
+                                .setMaxValue(Double.POSITIVE_INFINITY);
                     } else {
-                        for (Slot slot : slots) {
-                            if (childColumnStats.containsKey(slot)) {
-                                value = childColumnStats.get(slot);
-                                break;
+                        partitionCount = Math.max(1, partitionCount);
+                        if (windExpr.getFunction() instanceof AggregateFunction) {
+                            if (windExpr.getFunction() instanceof Count) {
+                                colStatsBuilder.setNdv(1)
+                                        .setMinValue(0)
+                                        .setMinExpr(new IntLiteral(0))
+                                        .setMaxValue(childStats.getRowCount())
+                                        .setMaxExpr(new IntLiteral((long) childStats.getRowCount()));
+                            } else if (windExpr.getFunction() instanceof Min
+                                    || windExpr.getFunction() instanceof Max) {
+                                Expression minmaxChild = windExpr.getFunction().child(0);
+                                ColumnStatistic minChildStats = new ExpressionEstimation()
+                                        .visit(minmaxChild, childStats);
+                                colStatsBuilder.setNdv(1)
+                                        .setMinValue(minChildStats.minValue)
+                                        .setMinExpr(minChildStats.minExpr)
+                                        .setMaxValue(minChildStats.maxValue)
+                                        .setMaxExpr(minChildStats.maxExpr);
+                            } else {
+                                // sum/avg
+                                colStatsBuilder.setNdv(1).setMinValue(Double.NEGATIVE_INFINITY)
+                                        .setMaxValue(Double.POSITIVE_INFINITY);
                             }
-                        }
-                        if (value == null) {
-                            // todo: how to set stats?
-                            value = ColumnStatistic.UNKNOWN;
+                        } else {
+                            // rank/dense_rank/row_num ...
+                            colStatsBuilder.setNdv(childStats.getRowCount() / partitionCount)
+                                    .setMinValue(0)
+                                    .setMinExpr(new IntLiteral(0))
+                                    .setMaxValue(childStats.getRowCount())
+                                    .setMaxExpr(new IntLiteral((long) childStats.getRowCount()));
                         }
                     }
-                    return Pair.of(expr.toSlot(), value);
+                    return Pair.of(expr.toSlot(), colStatsBuilder.build());
                 }).collect(Collectors.toMap(Pair::key, Pair::value));
         columnStatisticMap.putAll(childColumnStats);
-        return new Statistics(stats.getRowCount(), columnStatisticMap);
+        return new Statistics(childStats.getRowCount(), columnStatisticMap);
     }
 
     private ColumnStatistic unionColumn(ColumnStatistic leftStats, double leftRowCount, ColumnStatistic rightStats,
@@ -1054,7 +1138,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return groupExpression.childStatistics(1);
     }
 
-    private boolean ignoreUnknownColStatsCheck(TableIf tableIf, Column c) {
+    private boolean shouldIgnoreCol(TableIf tableIf, Column c) {
         if (tableIf instanceof SchemaTable) {
             return true;
         }

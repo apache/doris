@@ -282,7 +282,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     if (!is_recovery) {
         Status save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
                                                      rowset_ptr->rowset_meta()->get_rowset_pb());
-        if (save_status != Status::OK()) {
+        if (!save_status.ok()) {
             return Status::Error<ROWSET_SAVE_FAILED>(
                     "save committed rowset failed. when commit txn rowset_id: {}, tablet id: {}, "
                     "txn id: {}",
@@ -378,7 +378,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             rowset->merge_rowset_meta(transient_rowset->rowset_meta());
 
             // erase segment cache cause we will add a segment to rowset
-            SegmentLoader::instance()->erase_segment(rowset->rowset_id());
+            SegmentLoader::instance()->erase_segments(rowset->rowset_id());
         }
         stats->partial_update_write_segment_us = MonotonicMicros() - t3;
         int64_t t4 = MonotonicMicros();
@@ -639,7 +639,7 @@ void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
                     continue;
                 }
                 commit_tablet_txn_info_vec->push_back(CommitTabletTxnInfo(
-                        partition_id, transaction_id, rowset, delete_bitmap, rowset_ids));
+                        partition_id, transaction_id, delete_bitmap, rowset_ids));
             }
         }
     }

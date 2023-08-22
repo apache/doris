@@ -288,14 +288,6 @@ void Daemon::memtable_memory_limiter_tracker_refresh_thread() {
     }
 }
 
-void Daemon::memory_tracker_profile_refresh_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(100)) &&
-           !k_doris_exit) {
-        MemTracker::refresh_all_tracker_profile();
-        MemTrackerLimiter::refresh_all_tracker_profile();
-    }
-}
-
 /*
  * this thread will calculate some metrics at a fix interval(15 sec)
  * 1. push bytes per second
@@ -313,6 +305,9 @@ void Daemon::calculate_metrics_thread() {
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
     do {
+        if (!ExecEnv::GetInstance()->initialized()) {
+            continue;
+        }
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
@@ -361,12 +356,12 @@ void Daemon::calculate_metrics_thread() {
             DorisMetrics::instance()->all_segments_num->set_value(
                     StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)) && !k_doris_exit);
 }
 
 // clean up stale spilled files
 void Daemon::block_spill_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)) && !k_doris_exit) {
         if (ExecEnv::GetInstance()->initialized()) {
             ExecEnv::GetInstance()->block_spill_mgr()->gc(200);
         }
@@ -468,11 +463,6 @@ void Daemon::start() {
             [this]() { this->memtable_memory_limiter_tracker_refresh_thread(); },
             &_memtable_memory_limiter_tracker_refresh_thread);
     CHECK(st.ok()) << st;
-    st = Thread::create(
-            "Daemon", "memory_tracker_profile_refresh_thread",
-            [this]() { this->memory_tracker_profile_refresh_thread(); },
-            &_memory_tracker_profile_refresh_thread);
-    CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {
         st = Thread::create(
@@ -500,9 +490,6 @@ void Daemon::stop() {
     }
     if (_memtable_memory_limiter_tracker_refresh_thread) {
         _memtable_memory_limiter_tracker_refresh_thread->join();
-    }
-    if (_memory_tracker_profile_refresh_thread) {
-        _memory_tracker_profile_refresh_thread->join();
     }
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();

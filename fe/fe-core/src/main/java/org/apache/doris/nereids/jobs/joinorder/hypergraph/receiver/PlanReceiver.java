@@ -29,7 +29,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -247,13 +246,8 @@ public class PlanReceiver implements AbstractReceiver {
             }
             Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
             joinType = edge.getJoinType();
-            for (Expression expression : edge.getExpressions()) {
-                if (expression instanceof EqualTo) {
-                    hashConjuncts.add(expression);
-                } else {
-                    otherConjuncts.add(expression);
-                }
-            }
+            hashConjuncts.addAll(edge.getHashJoinConjuncts());
+            otherConjuncts.addAll(edge.getOtherJoinConjuncts());
         }
         return joinType;
     }
@@ -319,6 +313,10 @@ public class PlanReceiver implements AbstractReceiver {
             hasGenerated.add(groupExpression);
 
             // process child first, plan's child may be changed due to mergeGroup
+            // due to mergeGroup, the children Group of groupExpression may be replaced, so we need to use lambda to
+            // get the child to make we can get child at the time we use child.
+            // If we use for child: groupExpression.children(), it means that we take it in advance. It may cause NPE,
+            // work flow: get children() to get left, right -> copyIn left() -> mergeGroup -> right is merged -> NPE
             Plan physicalPlan = groupExpression.getPlan();
             for (int i = 0; i < groupExpression.children().size(); i++) {
                 int childIdx = i;

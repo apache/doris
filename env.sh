@@ -68,7 +68,9 @@ for cellar in "\${CELLARS[@]}"; do
 done
 export PATH="\${EXPORT_CELLARS}:/usr/bin:\${PATH}"
 
-export DORIS_BUILD_PYTHON_VERSION=python3
+export DORIS_BUILD_PYTHON_VERSION='python3'
+
+export NODE_OPTIONS='--openssl-legacy-provider'
 EOF
 
     DORIS_HOME_ABSOLUATE_PATH="$(

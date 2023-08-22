@@ -53,7 +53,30 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### 基于Iceberg API创建Catalog
 
-使用Iceberg API访问元数据的方式，支持Hive、REST、Glue、DLF等服务作为Iceberg的Catalog。
+使用Iceberg API访问元数据的方式，支持Hadoop File System、Hive、REST、Glue、DLF等服务作为Iceberg的Catalog。
+
+#### Hadoop Catalog
+
+```sql
+CREATE CATALOG iceberg_hadoop PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-host:8020/dir/key'
+);
+```
+
+```sql
+CREATE CATALOG iceberg_hadoop_ha PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type' = 'hadoop',
+    'warehouse' = 'hdfs://your-nameservice/dir/key',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
 
 #### Hive Metastore
 
@@ -97,7 +120,22 @@ Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/doc
 CREATE CATALOG iceberg PROPERTIES (
     'type'='iceberg',
     'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181'
+);
+```
+
+如果使用HDFS存储数据，并开启了高可用模式，还需在Catalog中增加HDFS高可用配置：
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
     'uri' = 'http://172.21.0.1:8181',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.1:8020',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.2:8020',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
@@ -118,16 +156,42 @@ CREATE CATALOG iceberg PROPERTIES (
 
 `hive.metastore.uris`: Dataproc Metastore 服务开放的接口，在 Metastore 管理页面获取 ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
 
-### Iceberg On S3
+### Iceberg On Object Storage
 
-若数据存放在S3上，properties中可以使用以下参数
+若数据存放在S3上，properties中可以使用以下参数：
 
 ```
 "s3.access_key" = "ak"
 "s3.secret_key" = "sk"
-"s3.endpoint" = "http://endpoint-uri"
-"s3.region" = "your-region"
-"s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
+"s3.endpoint" = "s3.us-east-1.amazonaws.com"
+"s3.region" = "us-east-1"
+```
+
+数据存放在阿里云OSS上：
+
+```
+"oss.access_key" = "ak"
+"oss.secret_key" = "sk"
+"oss.endpoint" = "oss-cn-beijing-internal.aliyuncs.com"
+"oss.region" = "oss-cn-beijing"
+```
+
+数据存放在腾讯云COS上：
+
+```
+"cos.access_key" = "ak"
+"cos.secret_key" = "sk"
+"cos.endpoint" = "cos.ap-beijing.myqcloud.com"
+"cos.region" = "ap-beijing"
+```
+
+数据存放在华为云OBS上：
+
+```
+"obs.access_key" = "ak"
+"obs.secret_key" = "sk"
+"obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com"
+"obs.region" = "cn-north-4"
 ```
 
 ## 列类型映射

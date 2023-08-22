@@ -72,7 +72,7 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalDistribute[" + id.asInt() + "]" + getGroupIdAsString(),
+        return Utils.toSqlString("PhysicalDistribute[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "distributionSpec", distributionSpec,
                 "stats", statistics
         );
@@ -155,5 +155,16 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         boolean pushedDown = childPlan.pushDownRuntimeFilter(context, generator, builderNode, src, probeExpr,
                 type, buildSideNdv, exprOrder);
         return pushedDown;
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return child().getOutput();
+    }
+
+    @Override
+    public PhysicalDistribute<CHILD_TYPE> resetLogicalProperties() {
+        return new PhysicalDistribute<>(distributionSpec, groupExpression,
+                null, physicalProperties, statistics, child());
     }
 }

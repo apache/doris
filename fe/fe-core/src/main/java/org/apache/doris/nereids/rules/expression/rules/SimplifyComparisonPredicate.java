@@ -203,7 +203,8 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
             right = temp;
         }
 
-        if (left instanceof Cast && right instanceof DecimalV3Literal) {
+        if (left instanceof Cast && left.child(0).getDataType().isDecimalV3Type()
+                && right instanceof DecimalV3Literal) {
             Cast cast = (Cast) left;
             left = cast.child();
             DecimalV3Literal literal = (DecimalV3Literal) right;

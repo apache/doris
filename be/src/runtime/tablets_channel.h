@@ -77,6 +77,7 @@ struct TabletsChannelKey {
 std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key);
 
 class DeltaWriter;
+class MemTableWriter;
 class OlapTableSchemaParam;
 class LoadChannel;
 
@@ -112,8 +113,6 @@ public:
 
     void refresh_profile();
 
-    std::unordered_map<int64_t, DeltaWriter*> get_tablet_writers() { return _tablet_writers; }
-
 private:
     template <typename Request>
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
@@ -126,7 +125,6 @@ private:
                      google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                      google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                      PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
-    void _build_partition_tablets_relation(const PTabletWriterOpenRequest& request);
 
     void _add_broken_tablet(int64_t tablet_id);
     void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
@@ -165,11 +163,8 @@ private:
     // status to return when operate on an already closed/cancelled channel
     // currently it's OK.
     Status _close_status;
-    std::map<int64, std::vector<int64>> _partition_tablets_map;
-    std::map<int64, int64> _tablet_partition_map;
 
     // tablet_id -> TabletChannel
-    // when you erase, you should call deregister_writer method in MemTableMemoryLimiter;
     std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.

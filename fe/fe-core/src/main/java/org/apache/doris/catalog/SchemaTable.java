@@ -151,11 +151,16 @@ public class SchemaTable extends Table {
             .put("session_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "session_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
-                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024)).build()))
+                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024))
+                                    .column("DEFAULT_VALUE", ScalarType.createVarchar(1024))
+                                    .column("CHANGED", ScalarType.createVarchar(4))
+                                    .build()))
             .put("global_variables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "global_variables", TableType.SCHEMA,
                             builder().column("VARIABLE_NAME", ScalarType.createVarchar(64))
-                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024)).build()))
+                                    .column("VARIABLE_VALUE", ScalarType.createVarchar(1024))
+                                    .column("DEFAULT_VALUE", ScalarType.createVarchar(1024))
+                                    .column("CHANGED", ScalarType.createVarchar(4)).build()))
             .put("columns",
                     new SchemaTable(SystemIdGenerator.getNextId(), "columns", TableType.SCHEMA,
                             builder().column("TABLE_CATALOG", ScalarType.createVarchar(512))

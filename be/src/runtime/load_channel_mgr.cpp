@@ -83,7 +83,6 @@ LoadChannelMgr::~LoadChannelMgr() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _memtable_memory_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
@@ -112,10 +111,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     }
 
     RETURN_IF_ERROR(channel->open(params));
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        _register_channel_all_writers(channel);
-    }
+
     return Status::OK();
 }
 
@@ -161,7 +157,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
-        _memtable_memory_limiter->handle_memtable_flush();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
     }
 
     // 3. add batch to load channel
@@ -185,7 +181,6 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.find(load_id) != _load_channels.end()) {
-            _deregister_channel_all_writers(_load_channels.find(load_id)->second);
             _load_channels.erase(load_id);
         }
         auto handle = _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
@@ -201,7 +196,6 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.find(load_id) != _load_channels.end()) {
             cancelled_channel = _load_channels[load_id];
-            _deregister_channel_all_writers(cancelled_channel);
             _load_channels.erase(load_id);
         }
     }
@@ -246,7 +240,6 @@ Status LoadChannelMgr::_start_load_channels_clean() {
         }
 
         for (auto& key : need_delete_channel_ids) {
-            _deregister_channel_all_writers(_load_channels.find(key)->second);
             _load_channels.erase(key);
             LOG(INFO) << "erase timeout load channel: " << key;
         }

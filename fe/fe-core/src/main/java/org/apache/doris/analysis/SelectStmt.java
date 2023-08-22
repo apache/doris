@@ -1343,6 +1343,16 @@ public class SelectStmt extends QueryStmt {
             }
         }
 
+        // can't contain analytic exprs
+        ArrayList<Expr> aggExprsForChecking = Lists.newArrayList();
+        TreeNode.collect(resultExprs, Expr.isAggregatePredicate(), aggExprsForChecking);
+        ArrayList<Expr> analyticExprs = Lists.newArrayList();
+        TreeNode.collect(aggExprsForChecking, AnalyticExpr.class, analyticExprs);
+        if (!analyticExprs.isEmpty()) {
+            throw new AnalysisException(
+                "AGGREGATE clause must not contain analytic expressions");
+        }
+
         // Collect the aggregate expressions from the SELECT, HAVING and ORDER BY clauses
         // of this statement.
         ArrayList<FunctionCallExpr> aggExprs = Lists.newArrayList();

@@ -33,13 +33,13 @@ ThreadContextPtr::ThreadContextPtr() {
 AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
                        const TUniqueId& task_id, const TUniqueId& fragment_instance_id) {
     SwitchBthreadLocal::switch_to_bthread_local();
+    signal::set_signal_task_id(task_id);
     thread_context()->attach_task(task_id, fragment_instance_id, mem_tracker);
 }
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
     SwitchBthreadLocal::switch_to_bthread_local();
-    doris::signal::query_id_hi = runtime_state->query_id().hi;
-    doris::signal::query_id_lo = runtime_state->query_id().lo;
+    signal::set_signal_task_id(runtime_state->query_id());
     thread_context()->attach_task(runtime_state->query_id(), runtime_state->fragment_instance_id(),
                                   runtime_state->query_mem_tracker());
 }

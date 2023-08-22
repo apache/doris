@@ -328,8 +328,11 @@ public class BrokerLoadJob extends BulkLoadJob {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(String.valueOf(id));
-        builder.dorisVersion(
-                Version.DORIS_BUILD_VERSION_MAJOR == 0 ? Version.DORIS_BUILD_VERSION : Version.DORIS_BUILD_SHORT_HASH);
+        if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
+            builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
+        } else {
+            builder.dorisVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+        }
         builder.taskType(ProfileType.LOAD.name());
         builder.startTime(TimeUtils.longToTimeString(createTimestamp));
         if (isFinished) {

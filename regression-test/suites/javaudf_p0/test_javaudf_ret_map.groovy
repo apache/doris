@@ -25,6 +25,12 @@ suite("test_javaudf_ret_map") {
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
     log.info("Jar path: ${jarPath}".toString())
     try {
+        try_sql("DROP FUNCTION IF EXISTS retii(map<int,int>);")
+        try_sql("DROP FUNCTION IF EXISTS retss(map<String,String>);")
+        try_sql("DROP FUNCTION IF EXISTS retid(map<int,Double>);")
+        try_sql("DROP FUNCTION IF EXISTS retidss(int ,double);")
+        try_sql("DROP TABLE IF EXISTS db")
+        try_sql("DROP TABLE IF EXISTS dbss")
         sql """
              CREATE TABLE IF NOT EXISTS db(
                         `id` INT NULL COMMENT "",

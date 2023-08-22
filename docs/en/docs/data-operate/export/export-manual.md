@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Data export",
+    "title": "Export Overview",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Data export
+# Export Overview
 
 Export is a function provided by Doris to export data. This function can export user-specified table or partition data in text format to remote storage through Broker process, such as HDFS / Object storage (supports S3 protocol) etc.
 
@@ -37,7 +37,7 @@ This document mainly introduces the basic principles, usage, best practices and 
 * Broker: Doris can manipulate files for remote storage through the Broker process.
 * Tablet: Data fragmentation. A table is divided into multiple data fragments.
 
-## Principle
+## Principles
 
 After the user submits an Export job. Doris counts all Tablets involved in this job. These tablets are then grouped to generate a special query plan for each group. The query plan reads the data on the included tablet and then writes the data to the specified path of the remote storage through Broker. It can also be directly exported to the remote storage that supports S3 protocol through S3 protocol.
 
@@ -75,7 +75,7 @@ The overall mode of dispatch is as follows:
 	1. PENDING: FE generates Export Pending Task, sends snapshot command to BE, and takes a snapshot of all Tablets involved. And generate multiple query plans.
 	2. EXPORTING: FE generates Export ExportingTask and starts executing the query plan.
 
-### query plan splitting
+### Query Plan Splitting
 
 The Export job generates multiple query plans, each of which scans a portion of the Tablet. The number of Tablets scanned by each query plan is specified by the FE configuration parameter `export_tablet_num_per_task`, which defaults to 5. That is, assuming a total of 100 Tablets, 20 query plans will be generated. Users can also specify this number by the job attribute `tablet_num_per_task`, when submitting a job.
 
@@ -95,7 +95,7 @@ Among them, `c69fcf2b6db5420f-a96b94c1ff8bccef` is the query ID of the query pla
 
 When all data is exported, Doris will rename these files to the user-specified path.
 
-### Broker parameter
+### Broker Parameter
 
 Export needs to use the Broker process to access remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.md)
 
@@ -106,7 +106,7 @@ For detailed usage of Export, please refer to [SHOW EXPORT](../../sql-manual/sql
 
 Export's detailed commands can be passed through `HELP EXPORT;` Examples are as follows:
 
-### Export to hdfs
+### Export to HDFS
 
 ```sql
 EXPORT TABLE db1.tbl1 
@@ -136,7 +136,7 @@ WITH BROKER "hdfs"
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.
 * `tablet_num_per_task`: The maximum number of fragments allocated per query plan. The default is 5.
 
-### Export to object storage (supports S3 protocol)
+### Export to Object Storage (Supports S3 Protocol)
 
 ```sql
 EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
@@ -151,7 +151,7 @@ EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
 - `AWS_ENDPOINT`：Endpoint indicates the access domain name of object storage external services.
 - `AWS_REGION`：Region indicates the region where the object storage data center is located.
 
-### View export status
+### View Export Status
 
 After submitting a job, the job status can be viewed by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
 
@@ -194,7 +194,7 @@ FinishTime: 2019-06-25 17:08:34
 * Timeout: Job timeout. The unit is seconds. This time is calculated from CreateTime.
 * Error Msg: If there is an error in the job, the cause of the error is shown here.
 
-### Cancel export job
+### Cancel Export Job
 
 <version since="dev"></version>
 

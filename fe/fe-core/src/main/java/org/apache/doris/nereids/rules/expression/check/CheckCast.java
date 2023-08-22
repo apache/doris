@@ -24,6 +24,10 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
+
+import java.util.Map;
 
 /**
  * check cast valid
@@ -44,14 +48,23 @@ public class CheckCast extends AbstractExpressionRewriteRule {
     }
 
     private boolean check(DataType originalType, DataType targetType) {
-        if (originalType.isArrayType() && targetType.isArrayType()) {
+        if (originalType instanceof ArrayType && targetType instanceof ArrayType) {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType());
-        } else if (originalType.isMapType()) {
-            // TODO support map cast check when we support map
-            return false;
-        } else if (originalType.isStructType()) {
-            // TODO support struct cast check when we support struct
-            return false;
+        } else if (originalType instanceof MapType && targetType instanceof MapType) {
+            return check(((MapType) originalType).getKeyType(), ((MapType) targetType).getKeyType())
+                    && check(((MapType) originalType).getValueType(), ((MapType) targetType).getValueType());
+        } else if (originalType instanceof StructType && targetType instanceof StructType) {
+            Map<String, DataType> targetItems = ((StructType) targetType).getItems();
+            for (Map.Entry<String, DataType> entry : ((StructType) originalType).getItems().entrySet()) {
+                if (targetItems.containsKey(entry.getKey())) {
+                    if (!check(entry.getValue(), targetItems.get(entry.getKey()))) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            return true;
         } else {
             return checkPrimitiveType(originalType, targetType);
         }

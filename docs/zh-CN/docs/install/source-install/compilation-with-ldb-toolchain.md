@@ -1,6 +1,6 @@
 ---
 {
-    "title": "使用 LDB toolchain 编译",
+    "title": "使用 LDB Toolchain 编译",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 使用 LDB toolchain 编译
+# 使用 LDB Toolchain 编译
 
 本文档主要介绍如何使用 LDB toolchain 编译 Doris。该方式目前作为 Docker 编译方式的补充，方便没有 Docker 环境的开发者和用户编译 Doris 源码。
 Doris目前推荐的LDB toolchain版本为 0.17, 其中含有clang-16和gcc-11。

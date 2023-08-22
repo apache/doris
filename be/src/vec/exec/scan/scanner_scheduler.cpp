@@ -39,12 +39,12 @@
 #include "scan_task_queue.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/blocking_queue.hpp"
+#include "util/cpu_info.h"
 #include "util/defer_op.h"
-#include "util/priority_thread_pool.hpp"
-#include "util/priority_work_stealing_thread_pool.hpp"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/work_thread_pool.hpp"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_olap_scanner.h" // IWYU pragma: keep
 #include "vec/exec/scan/scanner_context.h"
@@ -100,14 +100,16 @@ Status ScannerScheduler::init(ExecEnv* env) {
     }
 
     // 2. local scan thread pool
-    _local_scan_thread_pool.reset(new PriorityWorkStealingThreadPool(
-            config::doris_scanner_thread_pool_thread_num, env->store_paths().size(),
-            config::doris_scanner_thread_pool_queue_size, "local_scan"));
+    _local_scan_thread_pool.reset(
+            new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
+                                   config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
     ThreadPoolBuilder("RemoteScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num)            // 48 default
-            .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num) // 512 default
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
+            .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                                     ? config::doris_max_remote_scanner_thread_pool_thread_num
+                                     : std::max(512, CpuInfo::num_cores() * 10))
             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
             .build(&_remote_scan_thread_pool);
 
@@ -240,7 +242,6 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                             this->_scanner_scan(this, ctx, scanner);
                         };
                         task.priority = nice;
-                        task.queue_id = (*iter)->queue_id();
                         ret = _local_scan_thread_pool->offer(task);
                     }
                 } else {

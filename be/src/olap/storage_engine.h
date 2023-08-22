@@ -61,7 +61,6 @@ class CumulativeCompaction;
 class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
 class MemTracker;
-class PriorityThreadPool;
 class StreamLoadRecorder;
 class TCloneReq;
 class TCreateTabletReq;
@@ -86,7 +85,7 @@ public:
 
     static StorageEngine* instance() { return _s_instance; }
 
-    Status create_tablet(const TCreateTabletReq& request);
+    Status create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile);
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
@@ -188,6 +187,9 @@ public:
     void create_base_compaction(TabletSharedPtr best_tablet,
                                 std::shared_ptr<BaseCompaction>& base_compaction);
 
+    void create_full_compaction(TabletSharedPtr best_tablet,
+                                std::shared_ptr<FullCompaction>& full_compaction);
+
     void create_single_replica_compaction(
             TabletSharedPtr best_tablet,
             std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
@@ -254,6 +256,8 @@ private:
 
     void _clean_unused_rowset_metas();
 
+    void _clean_unused_binlog_metas();
+
     void _clean_unused_delete_bitmap();
 
     void _clean_unused_pending_publish_info();
@@ -272,7 +276,7 @@ private:
     void _disk_stat_monitor_thread_callback();
 
     // clean file descriptors cache
-    void _fd_cache_clean_callback();
+    void _cache_clean_callback();
 
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
@@ -285,8 +289,6 @@ private:
 
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
-
-    void _start_clean_cache();
 
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
@@ -398,7 +400,7 @@ private:
     // thread to produce both base and cumulative compaction tasks
     scoped_refptr<Thread> _compaction_tasks_producer_thread;
     scoped_refptr<Thread> _update_replica_infos_thread;
-    scoped_refptr<Thread> _fd_cache_clean_thread;
+    scoped_refptr<Thread> _cache_clean_thread;
     // threads to clean all file descriptor not actively in use
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
     // threads to scan disk paths
@@ -460,7 +462,9 @@ private:
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
 
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    // we use unordered_map to store all cumulative compaction policy sharded ptr
+    std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
+            _cumulative_compaction_policies;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;

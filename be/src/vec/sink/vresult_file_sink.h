@@ -46,13 +46,13 @@ class VExprContext;
 
 class VResultFileSink : public DataSink {
 public:
-    VResultFileSink(ObjectPool* pool, const RowDescriptor& row_desc, const TResultFileSink& sink,
-                    int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
+    VResultFileSink(RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
+                    const TResultFileSink& sink, bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr);
-    VResultFileSink(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
-                    const TResultFileSink& sink,
+    VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
+                    const RowDescriptor& row_desc, const TResultFileSink& sink,
                     const std::vector<TPlanFragmentDestination>& destinations,
-                    int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
+                    bool send_query_statistics_with_every_batch,
                     const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
     ~VResultFileSink() override = default;
     Status init(const TDataSink& thrift_sink) override;

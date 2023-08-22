@@ -105,6 +105,16 @@ suite("window_funnel") {
     """
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
+    String backend_id;
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    for (String backendId in backendId_to_backendIP.keySet()) {
+        String be_host = backendId_to_backendIP[backendId]
+        String be_http_port = backendId_to_backendHttpPort[backendId]
+        curl("POST", "http://${be_host}:${be_http_port}/api/update_config?enable_window_funnel_function_v2=true")
+    }
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (

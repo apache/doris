@@ -63,11 +63,11 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     case TTypeNodeType::ARRAY: {
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
-        DCHECK_EQ(node.contains_nulls.size(), 1);
         type = TYPE_ARRAY;
         contains_nulls.reserve(1);
         // here should compatible with fe 1.2, because use contains_null in contains_nulls
         if (node.__isset.contains_nulls) {
+            DCHECK_EQ(node.contains_nulls.size(), 1);
             contains_nulls.push_back(node.contains_nulls[0]);
         } else {
             contains_nulls.push_back(node.contains_null);

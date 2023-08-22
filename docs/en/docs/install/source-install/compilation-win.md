@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Compile With Windows 
+# Compilation on Windows 
 
 This topic is about how to compile Doris from source with Windows.
 

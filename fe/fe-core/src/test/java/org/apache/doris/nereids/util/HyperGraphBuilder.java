@@ -327,8 +327,8 @@ public class HyperGraphBuilder {
         for (Slot slot : scanPlan.getOutput()) {
             slotIdToColumnStats.put(slot,
                     new ColumnStatistic(count, count, null, 1, 0, 0, 0,
-                            count, 1, null, null, true, null,
-                            new Date().toString()));
+                            count, null, null, true, null,
+                            new Date().toString(), null));
         }
         return new Statistics(count, slotIdToColumnStats);
     }
@@ -640,7 +640,7 @@ public class HyperGraphBuilder {
                 lv = right.get(slots.get(0)).get(rightIndex);
                 rv = left.get(slots.get(1)).get(leftIndex);
             }
-            Boolean res = (lv == rv);
+            Boolean res = (lv == rv) && (lv != null) && (rv != null);
             if (joinType.isNullAwareLeftAntiJoin()) {
                 res |= (lv == null);
             }

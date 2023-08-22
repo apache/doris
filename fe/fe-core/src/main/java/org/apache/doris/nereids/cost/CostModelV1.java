@@ -24,6 +24,8 @@ import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -71,8 +73,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
             // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
             beNumber = 1;
-        } else if (ConnectContext.get().getSessionVariable().getBeNumber() != -1) {
-            beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
+        } else if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
+            beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
         } else {
             beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
         }
@@ -97,6 +99,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalOlapScan(PhysicalOlapScan physicalOlapScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return CostV1.ofCpu(statistics.getRowCount());
+    }
+
+    @Override
+    public Cost visitPhysicalDeferMaterializeOlapScan(PhysicalDeferMaterializeOlapScan deferMaterializeOlapScan,
+            PlanContext context) {
+        return visitPhysicalOlapScan(deferMaterializeOlapScan.getPhysicalOlapScan(), context);
     }
 
     public Cost visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
@@ -165,6 +173,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 childStatistics.getRowCount(),
                 statistics.getRowCount(),
                 childStatistics.getRowCount());
+    }
+
+    @Override
+    public Cost visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
+            PlanContext context) {
+        return visitPhysicalTopN(topN.getPhysicalTopN(), context);
     }
 
     @Override

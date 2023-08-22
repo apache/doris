@@ -96,7 +96,7 @@ private:
     static CppType convert(const TabletColumn& column, const std::string& condition) {
         StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
         // return CppType value cast from int128_t
-        return StringParser::string_to_decimal<int128_t>(
+        return StringParser::string_to_decimal<Type, int128_t>(
                 condition.data(), condition.size(), column.precision(), column.frac(), &result);
     }
 };

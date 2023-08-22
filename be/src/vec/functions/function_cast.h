@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -217,7 +218,24 @@ struct TimeCast {
         x = hour * 3600 + minute * 60 + second;
         return true;
     }
+    template <typename S>
+    static bool try_parse_time(__int128 from, S& x, const cctz::time_zone& local_time_zone) {
+        from %= (int64)(1000000000000);
+        int64 seconds = from / 100;
+        int64 hour = 0, minute = 0, second = 0;
+        second = from - 100 * seconds;
+        from /= 100;
+        seconds = from / 100;
+        minute = from - 100 * seconds;
+        hour = seconds;
+        if (minute >= 60 || second >= 60) {
+            return false;
+        }
+        x = hour * 3600 + minute * 60 + second;
+        return true;
+    }
 };
+
 /** Conversion of number types to each other, enums to numbers, dates and datetimes to numbers and back: done by straight assignment.
   *  (Date is represented internally as number of days from some day; DateTime - as unix timestamp)
   */
@@ -385,7 +403,7 @@ struct ConvertImpl {
                 }
             } else {
                 if constexpr (IsDataTypeNumber<FromDataType> &&
-                              std::is_same_v<ToDataType, DataTypeTime>) {
+                              std::is_same_v<ToDataType, DataTypeTimeV2>) {
                     // 300 -> 00:03:00  360 will be parse failed , so value maybe null
                     ColumnUInt8::MutablePtr col_null_map_to;
                     ColumnUInt8::Container* vec_null_map_to = nullptr;
@@ -394,6 +412,7 @@ struct ConvertImpl {
                     for (size_t i = 0; i < size; ++i) {
                         (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
                                 vec_from[i], vec_to[i], context->state()->timezone_obj());
+                        vec_to[i] *= (1000 * 1000);
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -423,7 +442,8 @@ struct ConvertImpl {
 /** If types are identical, just take reference to column.
   */
 template <typename T, typename Name>
-struct ConvertImpl<std::enable_if_t<!T::is_parametric, T>, T, Name> {
+    requires(!T::is_parametric)
+struct ConvertImpl<T, T, Name> {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t /*input_rows_count*/) {
         block.get_by_position(result).column = block.get_by_position(arguments[0]).column;
@@ -522,19 +542,15 @@ struct ConvertImplGenericToString {
     }
 };
 //this is for data in compound type
-template <typename StringColumnType>
 struct ConvertImplGenericFromString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const size_t result, size_t input_rows_count) {
-        static_assert(std::is_same_v<StringColumnType, ColumnString>,
-                      "Can be used only to parse from ColumnString");
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type
         DCHECK(block.get_by_position(result).type != nullptr);
         auto data_type_to = block.get_by_position(result).type;
-        if (const StringColumnType* col_from_string =
-                    check_and_get_column<StringColumnType>(&col_from)) {
+        if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
             auto col_to = data_type_to->create_column();
 
             size_t size = col_from.size();
@@ -542,14 +558,14 @@ struct ConvertImplGenericFromString {
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
-
+            const bool is_complex = is_complex_type(data_type_to);
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 // Note: here we should handle the null element
                 if (val.size == 0) {
                     col_to->insert_default();
                     // empty string('') is an invalid format for complex type, set null_map to 1
-                    if (is_complex_type(data_type_to)) {
+                    if (is_complex) {
                         (*vec_null_map_to)[i] = 1;
                     }
                     continue;
@@ -846,14 +862,15 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
-                  std::is_same_v<DataTypeTime, DataType>) {
+                  std::is_same_v<DataTypeTimeV2, DataType>) {
         // cast from string to time(float64)
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        return TimeCast::try_parse_time(s, len, x, local_time_zone, time_zone_cache);
+        auto ret = TimeCast::try_parse_time(s, len, x, local_time_zone, time_zone_cache);
+        x *= (1000 * 1000);
+        return ret;
     }
-
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
         return try_read_float_text(x, rb);
     }
@@ -867,9 +884,24 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
         return try_read_int_text(x, rb);
     }
 
-    if constexpr (IsDataTypeDecimal<DataType>) {
+    if constexpr (IsDataTypeDecimalV2<DataType>) {
         UInt32 scale = additions;
-        return try_read_decimal_text(x, rb, DataType::max_precision(), scale);
+        return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, DataType::max_precision(), scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeDecimal<Decimal32>, DataType>) {
+        UInt32 scale = additions;
+        return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, DataType::max_precision(), scale);
+    }
+
+    if constexpr (std::is_same_v<DataTypeDecimal<Decimal64>, DataType>) {
+        UInt32 scale = additions;
+        return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, DataType::max_precision(), scale);
+    }
+
+    if constexpr (IsDataTypeDecimal128I<DataType>) {
+        UInt32 scale = additions;
+        return try_read_decimal_text<TYPE_DECIMAL128I>(x, rb, DataType::max_precision(), scale);
     }
 }
 
@@ -1133,7 +1165,8 @@ using FunctionToFloat32 =
 using FunctionToFloat64 =
         FunctionConvert<DataTypeFloat64, NameToFloat64, ToNumberMonotonicity<Float64>>;
 
-using FunctionToTime = FunctionConvert<DataTypeTime, NameToFloat64, ToNumberMonotonicity<Float64>>;
+using FunctionToTimeV2 =
+        FunctionConvert<DataTypeTimeV2, NameToFloat64, ToNumberMonotonicity<Float64>>;
 using FunctionToString = FunctionConvert<DataTypeString, NameToString, ToStringMonotonicity>;
 using FunctionToDecimal32 =
         FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32, UnknownMonotonicity>;
@@ -1229,8 +1262,8 @@ struct FunctionTo<DataTypeDateTimeV2> {
     using Type = FunctionToDateTimeV2;
 };
 template <>
-struct FunctionTo<DataTypeTime> {
-    using Type = FunctionToTime;
+struct FunctionTo<DataTypeTimeV2> {
+    using Type = FunctionToTimeV2;
 };
 class PreparedFunctionCast : public PreparedFunctionImpl {
 public:
@@ -1665,7 +1698,7 @@ private:
                                    const DataTypeHLL& to_type) const {
         /// Conversion from String through parsing.
         if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         }
 
         //TODO if from is not string, it must be HLL?
@@ -1684,7 +1717,7 @@ private:
                                      const DataTypeArray& to_type) const {
         /// Conversion from String through parsing.
         if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         }
 
         const auto* from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());
@@ -1792,7 +1825,7 @@ private:
         case TypeIndex::Float64:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
         case TypeIndex::String:
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         default:
             return &ConvertImplGenericToJsonb::execute;
         }
@@ -1802,7 +1835,7 @@ private:
     WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
         switch (from_type->get_type_id()) {
         case TypeIndex::String:
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         default:
             return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
         }
@@ -1829,7 +1862,7 @@ private:
                                       const DataTypeStruct& to_type) const {
         // support CAST AS Struct from string
         if (from_type->get_type_id() == TypeIndex::String) {
-            return &ConvertImplGenericFromString<ColumnString>::execute;
+            return &ConvertImplGenericFromString::execute;
         }
 
         // only support CAST AS Struct from struct or string types
@@ -2031,7 +2064,7 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTime>) {
+                          std::is_same_v<ToDataType, DataTypeTimeV2>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;

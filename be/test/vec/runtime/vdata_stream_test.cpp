@@ -188,11 +188,9 @@ TEST_F(VDataStreamTest, BasicTest) {
         dest.__set_server(addr);
         dests.push_back(dest);
     }
-    int per_channel_buffer_size = 1024 * 1024;
     bool send_query_statistics_with_every_batch = false;
     VDataStreamSender sender(&runtime_stat, &_object_pool, sender_id, row_desc, tsink.stream_sink,
-                             dests, per_channel_buffer_size,
-                             send_query_statistics_with_every_batch);
+                             dests, send_query_statistics_with_every_batch);
     sender.set_query_statistics(std::make_shared<QueryStatistics>());
     sender.init(tsink);
     sender.prepare(&runtime_stat);
@@ -208,14 +206,15 @@ TEST_F(VDataStreamTest, BasicTest) {
     vectorized::Block block({type_and_name});
     sender.send(&runtime_stat, &block);
 
+    Status exec_status;
+    sender.close(&runtime_stat, exec_status);
+
     Block block_2;
     bool eos;
     recv->get_next(&block_2, &eos);
 
     EXPECT_EQ(block_2.rows(), 1024);
 
-    Status exec_status;
-    sender.close(&runtime_stat, exec_status);
     recv->close();
 }
 } // namespace doris::vectorized

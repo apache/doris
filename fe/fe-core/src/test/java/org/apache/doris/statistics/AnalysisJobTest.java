@@ -62,13 +62,7 @@ public class AnalysisJobTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateAnalysisJob(@Mocked AnalysisTaskScheduler scheduler) throws Exception {
-        new Expectations() {
-            {
-                scheduler.schedule((BaseAnalysisTask) any);
-                times = 3;
-            }
-        };
+    public void testCreateAnalysisJob() throws Exception {
 
         new MockUp<StatisticsUtil>() {
 
@@ -101,7 +95,7 @@ public class AnalysisJobTest extends TestWithFeService {
     }
 
     @Test
-    public void testJobExecution(@Mocked AnalysisTaskScheduler scheduler, @Mocked StmtExecutor stmtExecutor)
+    public void testJobExecution(@Mocked StmtExecutor stmtExecutor)
             throws Exception {
         new MockUp<StatisticsUtil>() {
 
@@ -112,6 +106,12 @@ public class AnalysisJobTest extends TestWithFeService {
 
             @Mock
             public void execUpdate(String sql) throws Exception {
+            }
+        };
+        new MockUp<StatisticsCache>() {
+
+            @Mock
+            public void syncLoadColStats(long tableId, long idxId, String colName) {
             }
         };
         new Expectations() {
