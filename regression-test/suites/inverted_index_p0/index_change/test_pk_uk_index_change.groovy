@@ -217,6 +217,8 @@ suite("test_pk_uk_index_change", "inverted_index") {
             ($order_key, $part_key, $sub_key, $line_num, $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
         """
 
+        sql "sync"
+
         if (idx > 0) {
             // alter add inverted index
             sql """ ALTER TABLE ${tableNamePk}
