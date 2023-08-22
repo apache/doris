@@ -49,7 +49,7 @@ VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool,
                                  const RowDescriptor& row_desc, const TResultFileSink& sink,
                                  bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr)
-        : _t_output_expr(t_output_expr), _row_desc(row_desc) {
+        : DataSink(row_desc), _t_output_expr(t_output_expr) {
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new ResultFileOptions(sink.file_options));
     CHECK(sink.__isset.storage_backend_type);
@@ -67,9 +67,9 @@ VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool, int send
                                  const std::vector<TPlanFragmentDestination>& destinations,
                                  bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
-        : _t_output_expr(t_output_expr),
-          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false),
-          _row_desc(row_desc) {
+        : DataSink(row_desc),
+          _t_output_expr(t_output_expr),
+          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new ResultFileOptions(sink.file_options));
     CHECK(sink.__isset.storage_backend_type);

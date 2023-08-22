@@ -978,7 +978,7 @@ void VNodeChannel::mark_close() {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool), _input_row_desc(row_desc) {
+        : DataSink(row_desc), _pool(pool) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "VOlapTableSink";
@@ -1132,7 +1132,7 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
     }
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     _prepare = true;
     return Status::OK();
 }

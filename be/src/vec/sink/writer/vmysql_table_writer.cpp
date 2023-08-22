@@ -31,6 +31,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
+#include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -73,14 +74,15 @@ VMysqlTableWriter::VMysqlTableWriter(const TDataSink& t_sink,
     _conn_info.charset = t_mysql_sink.charset;
 }
 
-VMysqlTableWriter::~VMysqlTableWriter() {
+Status VMysqlTableWriter::close() {
     if (_mysql_conn) {
         mysql_close(_mysql_conn);
     }
+
+    return Status::OK();
 }
 
-Status VMysqlTableWriter::open(RuntimeState* state) {
-    AsyncResultWriter::open(state);
+Status VMysqlTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _mysql_conn = mysql_init(nullptr);
     if (_mysql_conn == nullptr) {
         return Status::InternalError("Call mysql_init failed.");
