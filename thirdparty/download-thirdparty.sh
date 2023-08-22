@@ -376,9 +376,9 @@ echo "Finished patching ${HYPERSCAN_SOURCE}"
 
 cd "${TP_SOURCE_DIR}/${AWS_SDK_SOURCE}"
 if [[ ! -f "${PATCHED_MARK}" ]]; then
-    if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.211" ]]; then
-        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.211.tar.gz -O aws-crt-cpp-1.9.211.tar.gz; then
-            tar xzf aws-crt-cpp-1.9.211.tar.gz
+    if [[ "${AWS_SDK_SOURCE}" == "aws-sdk-cpp-1.9.272" ]]; then
+        if wget --no-check-certificate -q https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/aws-crt-cpp-1.9.272.tar.gz -O aws-crt-cpp-1.9.272.tar.gz; then
+            tar xzf aws-crt-cpp-1.9.272.tar.gz
         else
             bash ./prefetch_crt_dependency.sh
         fi

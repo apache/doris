@@ -177,6 +177,14 @@ public class StatisticsCache {
         columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName));
     }
 
+    public void invalidateTableStats(long catalogId, long dbId, long tblId) {
+        tableStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(catalogId, dbId, tblId));
+    }
+
+    public void refreshTableStatsSync(long catalogId, long dbId, long tblId) {
+        tableStatisticsCache.synchronous().refresh(new StatisticsCacheKey(catalogId, dbId, tblId));
+    }
+
     public void refreshHistogramSync(long tblId, long idxId, String colName) {
         histogramCache.synchronous().refresh(new StatisticsCacheKey(tblId, idxId, colName));
     }
@@ -249,6 +257,10 @@ public class StatisticsCache {
         updateFollowerStatsCacheRequest.key = GsonUtils.GSON.toJson(k);
         updateFollowerStatsCacheRequest.colStats = GsonUtils.GSON.toJson(c);
         for (Frontend frontend : Env.getCurrentEnv().getFrontends(FrontendNodeType.FOLLOWER)) {
+            if (frontend.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
+                // Doesn't need to send request to current node.
+                continue;
+            }
             TNetworkAddress address = new TNetworkAddress(frontend.getHost(),
                     frontend.getRpcPort());
             FrontendService.Client client = null;

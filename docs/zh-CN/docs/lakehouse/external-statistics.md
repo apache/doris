@@ -191,6 +191,11 @@ DROP ANALYZE JOB [JOB_ID]
 信息的查看包括表的统计信息（表的行数）查看和列统计信息查看，请参考[内表统计信息](../query-acceleration/statistics.md)查看统计信息部分。
 
 #### 表统计信息
+```
+SHOW TALBE [cached] stats TABLE_NAME;
+```
+
+查看statistics表中指定table的行数，如果指定cached参数，则展示的是指定表已加载到缓存中的行数信息。
 
 ```
 mysql> SHOW TABLE STATS hive.tpch100.orders;
@@ -203,7 +208,7 @@ mysql> SHOW TABLE STATS hive.tpch100.orders;
 
 #### 列统计信息
 ```
-SHOW COLUMN [cached] stats hive.tpch100.orders;
+SHOW COLUMN [cached] stats TABLE_NAME;
 ```
 
 查看statistics表中指定table的列统计信息，如果指定cached参数，则展示的是指定表已加载到缓存中的列信息。

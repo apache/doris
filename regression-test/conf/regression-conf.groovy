@@ -109,6 +109,9 @@ extHdfsPort = 4007
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
 
+//paimon catalog test config for bigdata
+enableExternalPaimonTest = false
+
 //mysql jdbc connector test config for bigdata
 enableExternalMysqlTest = false
 extMysqlHost = "***.**.**.**"

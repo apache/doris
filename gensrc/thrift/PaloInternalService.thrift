@@ -229,6 +229,10 @@ struct TQueryOptions {
   76: optional bool enable_inverted_index_query = true;
 
   77: optional bool truncate_char_or_varchar_columns = false
+
+  78: optional bool enable_hash_join_early_start_probe = false
+
+  79: optional bool enable_pipeline_x_engine = false;
 }
 
 

@@ -790,11 +790,11 @@ public class JdbcExecutor {
             bigDecimalPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof Integer) {
             integerPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
-        } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedShort) {
-            clickHouseUInt16ToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof java.lang.Long) {
             // For mysql view. But don't worry about overflow
             longPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof com.clickhouse.data.value.UnsignedShort) {
+            clickHouseUInt16ToInt(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 
@@ -1406,10 +1406,10 @@ public class JdbcExecutor {
             localDateTimePutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof java.sql.Timestamp) {
             timestampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
-        } else if (column[firstNotNullIndex] instanceof oracle.sql.TIMESTAMP) {
-            oracleTimetampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         } else if (column[firstNotNullIndex] instanceof OffsetDateTime) {
             offsetDateTimePutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
+        } else if (column[firstNotNullIndex] instanceof oracle.sql.TIMESTAMP) {
+            oracleTimetampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr, firstNotNullIndex);
         }
     }
 

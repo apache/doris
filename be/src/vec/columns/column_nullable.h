@@ -136,6 +136,16 @@ public:
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
+    template <typename ColumnType>
+    void insert_from_with_type(const IColumn& src, size_t n) {
+        const ColumnNullable& src_concrete = assert_cast<const ColumnNullable&>(src);
+        assert_cast<ColumnType*>(nested_column.get())
+                ->insert_from(src_concrete.get_nested_column(), n);
+        auto is_null = src_concrete.get_null_map_data()[n];
+        _has_null |= is_null;
+        _get_null_map_data().push_back(is_null);
+    }
+
     void insert_from_not_nullable(const IColumn& src, size_t n);
     void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);

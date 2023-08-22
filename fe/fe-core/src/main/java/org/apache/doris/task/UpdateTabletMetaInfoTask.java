@@ -83,11 +83,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                                     MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch,
                                     String compactionPolicy,
                                     Map<String, Long> timeSeriesCompactionConfig) {
-        this(backendId, tableIdWithSchemaHash);
-        this.storagePolicyId = storagePolicyId;
-        this.inMemory = inMemory;
-        this.binlogConfig = binlogConfig;
-        this.latch = latch;
+        this(backendId, tableIdWithSchemaHash, inMemory, storagePolicyId, binlogConfig, latch);
         this.compactionPolicy = compactionPolicy;
         this.timeSeriesCompactionConfig = timeSeriesCompactionConfig;
     }

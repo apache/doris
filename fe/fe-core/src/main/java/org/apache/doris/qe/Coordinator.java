@@ -244,6 +244,7 @@ public class Coordinator {
     private boolean enableShareHashTableForBroadcastJoin = false;
 
     private boolean enablePipelineEngine = false;
+    private boolean enablePipelineXEngine = false;
 
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
@@ -323,6 +324,9 @@ public class Coordinator {
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
                 && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+        this.enablePipelineXEngine = context.getSessionVariable().getEnablePipelineXEngine()
+                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
+
         initQueryOptions(context);
 
         setFromUserProperty(context);
@@ -1759,7 +1763,7 @@ public class Coordinator {
                         }).findFirst();
 
                         // disable shared scan optimization if one of conditions below is met:
-                        // 1. Use non-pipeline engine
+                        // 1. Use non-pipeline or pipelineX engine
                         // 2. Number of scan ranges is larger than instances
                         // 3. This fragment has a colocated scan node
                         // 4. This fragment has a FileScanNode
@@ -1767,7 +1771,7 @@ public class Coordinator {
                         if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
                                 || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
-                                || Config.disable_shared_scan) {
+                                || Config.disable_shared_scan || enablePipelineXEngine) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num

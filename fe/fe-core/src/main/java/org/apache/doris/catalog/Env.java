@@ -3755,7 +3755,7 @@ public class Env {
         return timerJobManager;
     }
 
-    public TransientTaskManager getMemoryTaskManager() {
+    public TransientTaskManager getTransientTaskManager() {
         return transientTaskManager;
     }
 
@@ -4577,7 +4577,11 @@ public class Env {
         }
         tableProperty.buildInMemory()
                 .buildStoragePolicy()
-                .buildIsBeingSynced();
+                .buildIsBeingSynced()
+                .buildCompactionPolicy()
+                .buildTimeSeriesCompactionGoalSizeMbytes()
+                .buildTimeSeriesCompactionFileCountThreshold()
+                .buildTimeSeriesCompactionTimeThresholdSeconds();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -4797,7 +4801,7 @@ public class Env {
         try {
             newView.init();
         } catch (UserException e) {
-            throw new DdlException("failed to init view stmt", e);
+            throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
         }
 
         if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {

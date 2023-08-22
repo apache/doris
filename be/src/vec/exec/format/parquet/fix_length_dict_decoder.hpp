@@ -74,10 +74,10 @@ public:
 
         TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
         switch (logical_type) {
-#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                \
-    case NUMERIC_TYPE:                                                                         \
-        if constexpr (std::is_same_v<T, PHYSICAL_TYPE>) {                                      \
-            return _decode_numeric<CPP_NUMERIC_TYPE, has_filter>(doris_column, select_vector); \
+#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE)                                   \
+    case NUMERIC_TYPE:                                                                            \
+        if constexpr (!std::is_same_v<T, ParquetInt96>) {                                         \
+            return _decode_numeric<CPP_NUMERIC_TYPE, T, has_filter>(doris_column, select_vector); \
         }
             FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
@@ -177,7 +177,7 @@ public:
     }
 
 protected:
-    template <typename Numeric, bool has_filter>
+    template <typename Numeric, typename PhysicalType, bool has_filter>
     Status _decode_numeric(MutableColumnPtr& doris_column, ColumnSelectVector& select_vector) {
         auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
         size_t data_index = column_data.size();
@@ -189,7 +189,7 @@ protected:
             case ColumnSelectVector::CONTENT: {
                 for (size_t i = 0; i < run_length; ++i) {
                     column_data[data_index++] =
-                            static_cast<Numeric>(_dict_items[_indexes[dict_index++]]);
+                            static_cast<PhysicalType>(_dict_items[_indexes[dict_index++]]);
                 }
                 break;
             }

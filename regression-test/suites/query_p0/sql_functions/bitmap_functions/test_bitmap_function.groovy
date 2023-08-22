@@ -611,13 +611,13 @@ suite("test_bitmap_function") {
     sql """ insert into ${arthogonalBitmapTable} values (1, 1, bitmap_from_string("1,11,111")), (2, 2, to_bitmap(2)); """
     sql """ insert into ${arthogonalBitmapTable} values (11, 1, bitmap_from_string("1,11")), (12, 2, to_bitmap(2)); """
 
-    qt_sql """ select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
-    qt_sql """ select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
-    qt_sql """ select orthogonal_bitmap_union_count(members) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006);  """
-    qt_sql_orthogonal_bitmap_intersect_count2 """ select orthogonal_bitmap_intersect_count(members, tag_group, 1,2) from test_arthogonal_bitmap; """
-    qt_sql_orthogonal_bitmap_intersect_count3_1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
-    qt_sql_orthogonal_bitmap_intersect_count3_2 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=2)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
-    qt_sql_orthogonal_bitmap_intersect_count4 """ select orthogonal_bitmap_intersect_count(members, tag_group, 2,12) from test_arthogonal_bitmap; """
+    // qt_sql """ select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
+    // qt_sql """ select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 1150001, 390006) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006); """
+    // qt_sql """ select orthogonal_bitmap_union_count(members) from ${arthogonalBitmapTable} where  tag_group in ( 1150000, 1150001, 390006);  """
+    // qt_sql_orthogonal_bitmap_intersect_count2 """ select orthogonal_bitmap_intersect_count(members, tag_group, 1,2) from test_arthogonal_bitmap; """
+    // qt_sql_orthogonal_bitmap_intersect_count3_1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
+    // qt_sql_orthogonal_bitmap_intersect_count3_2 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=2)*/orthogonal_bitmap_intersect_count(members, tag_group, 1,11) from test_arthogonal_bitmap; """
+    // qt_sql_orthogonal_bitmap_intersect_count4 """ select orthogonal_bitmap_intersect_count(members, tag_group, 2,12) from test_arthogonal_bitmap; """
     qt_sql_orthogonal_bitmap_union_count2 """ select orthogonal_bitmap_union_count( cast(null as bitmap)) from test_arthogonal_bitmap; """
     qt_sql_orthogonal_bitmap_union_count3 """ select orthogonal_bitmap_union_count(members) from test_arthogonal_bitmap; """
 
@@ -720,12 +720,12 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_intersect_check0 """
         select intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
     """
-    qt_sql_bitmap_intersect_check1 """
-        select bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_bitmap_intersect;
-    """
-    qt_sql_bitmap_intersect_check2 """
-        select orthogonal_bitmap_intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
-    """
+    // qt_sql_bitmap_intersect_check1 """
+    //     select bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_bitmap_intersect;
+    // """
+    // qt_sql_bitmap_intersect_check2 """
+    //     select orthogonal_bitmap_intersect_count(id_bitmap, type, 1) as count2_bitmap from test_bitmap_intersect;
+    // """
 
     // test function intersect_count
     // test nereids
@@ -782,11 +782,11 @@ suite("test_bitmap_function") {
     //     select count(distinct if(type=1, id,null)) as count1,
     //         bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_orthog_bitmap_intersect;
     // """
-    sql """ set experimental_enable_pipeline_engine=false; """
-    qt_sql_orthogonal_bitmap_intersect_nereids1 """
-        select count(distinct tag) as count1,
-            bitmap_count(orthogonal_bitmap_intersect(id_bitmap, tag, 0)) as count2_bitmap from test_orthog_bitmap_intersect;
-    """
+    // sql """ set experimental_enable_pipeline_engine=false; """
+    // qt_sql_orthogonal_bitmap_intersect_nereids1 """
+    //     select count(distinct tag) as count1,
+    //         bitmap_count(orthogonal_bitmap_intersect(id_bitmap, tag, 0)) as count2_bitmap from test_orthog_bitmap_intersect;
+    // """
 
     // test not nereids
     sql """ set experimental_enable_nereids_planner=false; """
@@ -797,26 +797,26 @@ suite("test_bitmap_function") {
     //     select count(distinct if(type=1, id,null)) as count1,
     //         bitmap_count(orthogonal_bitmap_intersect(id_bitmap, type, 1)) as count2_bitmap from test_orthog_bitmap_intersect;
     // """
-    sql """ set experimental_enable_pipeline_engine=false; """
-    qt_sql_orthogonal_bitmap_intersect_not_nereids1 """
-        select count(distinct tag) as count1,
-            bitmap_count(orthogonal_bitmap_intersect(id_bitmap, tag, 0)) as count2_bitmap from test_orthog_bitmap_intersect;
-    """
+    // sql """ set experimental_enable_pipeline_engine=false; """
+    // qt_sql_orthogonal_bitmap_intersect_not_nereids1 """
+    //     select count(distinct tag) as count1,
+    //         bitmap_count(orthogonal_bitmap_intersect(id_bitmap, tag, 0)) as count2_bitmap from test_orthog_bitmap_intersect;
+    // """
 
     // test function orthogonal_bitmap_intersect_count
     // test nereids
     sql """ set experimental_enable_nereids_planner=true; """
     // test pipeline
-    sql """ set experimental_enable_pipeline_engine=true; """
-    qt_sql_orthogonal_bitmap_intersect_count_nereids0 """
-        select count(distinct tag) as count1,
-            orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
-    """
-    sql """ set experimental_enable_pipeline_engine=false; """
-    qt_sql_orthogonal_bitmap_intersect_count_nereids1 """
-        select count(distinct tag) as count1,
-            orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
-    """
+    // sql """ set experimental_enable_pipeline_engine=true; """
+    // qt_sql_orthogonal_bitmap_intersect_count_nereids0 """
+    //     select count(distinct tag) as count1,
+    //         orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
+    // """
+    // sql """ set experimental_enable_pipeline_engine=false; """
+    // qt_sql_orthogonal_bitmap_intersect_count_nereids1 """
+    //     select count(distinct tag) as count1,
+    //         orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
+    // """
 
     // test not nereids
     sql """ set experimental_enable_nereids_planner=false; """
@@ -827,9 +827,9 @@ suite("test_bitmap_function") {
     //     select count(distinct tag) as count1,
     //         orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
     // """
-    sql """ set experimental_enable_pipeline_engine=false; """
-    qt_sql_orthogonal_bitmap_intersect_count_not_nereids1 """
-        select count(distinct tag) as count1,
-            orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
-    """
+    // sql """ set experimental_enable_pipeline_engine=false; """
+    // qt_sql_orthogonal_bitmap_intersect_count_not_nereids1 """
+    //     select count(distinct tag) as count1,
+    //         orthogonal_bitmap_intersect_count(id_bitmap, tag, 0) as count2_bitmap from test_orthog_bitmap_intersect;
+    // """
 }

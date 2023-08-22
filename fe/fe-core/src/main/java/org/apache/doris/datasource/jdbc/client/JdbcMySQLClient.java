@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -138,15 +139,11 @@ public class JdbcMySQLClient extends JdbcClient {
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            tableName = modifyTableNameIfNecessary(tableName);
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
             List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             boolean needGetDorisColumns = true;
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
-                if (isTableModified(tableName, rs.getString("TABLE_NAME"))) {
-                    continue;
-                }
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
@@ -197,10 +194,18 @@ public class JdbcMySQLClient extends JdbcClient {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
+            DefaultValueExprDef defaultValueExprDef = null;
+            if (field.getDefaultValue() != null
+                    && field.getDefaultValue().toLowerCase().startsWith("current_timestamp")) {
+                long precision = field.getDefaultValue().toLowerCase().contains("(")
+                        ? Long.parseLong(field.getDefaultValue().toLowerCase()
+                        .split("\\(")[1].split("\\)")[0]) : 0;
+                defaultValueExprDef = new DefaultValueExprDef("now", precision);
+            }
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
                     field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
-                    true, null, -1, null));
+                    true, defaultValueExprDef, -1, null));
         }
         return dorisTableSchema;
     }

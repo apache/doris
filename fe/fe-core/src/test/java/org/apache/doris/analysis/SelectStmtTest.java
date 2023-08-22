@@ -508,14 +508,12 @@ public class SelectStmtTest {
 
     @Test
     public void testDeleteSign() throws Exception {
-        String sql1 = "SELECT * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String sql1 = "SELECT /*+ SET_VAR(enable_nereids_planner=true, ENABLE_FALLBACK_TO_ORIGINAL_PLANNER=false) */ * FROM db1.table1  LEFT ANTI JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         String explain = dorisAssert.query(sql1).explainQuery();
         Assert.assertTrue(explain
-                .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));
-        Assert.assertTrue(explain
-                .contains("PREDICATES: `default_cluster:db1`.`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+                .contains("PREDICATES: __DORIS_DELETE_SIGN__ = 0"));
         Assert.assertFalse(explain.contains("other predicates:"));
-        String sql2 = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        String sql2 = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
         explain = dorisAssert.query(sql2).explainQuery();
         Assert.assertTrue(explain
                 .contains("PREDICATES: `default_cluster:db1`.`table1`.`__DORIS_DELETE_SIGN__` = 0"));

@@ -118,7 +118,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     return storageLayerAggregate(agg, project, olapScan, ctx.cascadesContext);
                 })
             ),
-            RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT.build(
+            RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN.build(
                 logicalAggregate(
                     logicalProject(
                         logicalFileScan()

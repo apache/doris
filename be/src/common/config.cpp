@@ -1054,8 +1054,12 @@ DEFINE_Bool(enable_hdfs_hedged_read, "false");
 DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
 DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
 
+DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
+
+DEFINE_Int32(partition_topn_partition_threshold, "1024");
 
 #ifdef BE_TEST
 // test s3

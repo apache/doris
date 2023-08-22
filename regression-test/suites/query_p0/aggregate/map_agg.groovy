@@ -168,6 +168,10 @@ suite("map_agg") {
         ORDER BY `id`;
     """
 
+    qt_sql3 """
+        select map_agg(k, v) from (select 'key' as k, array('ab', 'efg', null) v) a;
+    """
+
      sql "DROP TABLE `test_map_agg`"
      sql "DROP TABLE `test_map_agg_nullable`"
      sql "DROP TABLE `test_map_agg_numeric_key`"

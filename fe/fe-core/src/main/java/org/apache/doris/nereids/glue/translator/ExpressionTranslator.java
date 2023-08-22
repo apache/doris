@@ -89,7 +89,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
@@ -372,7 +372,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         List<Type> argTypes = function.getArguments().stream()
                 .map(Expression::getDataType)
-                .map(AbstractDataType::toCatalogDataType)
+                .map(DataType::toCatalogDataType)
                 .collect(Collectors.toList());
 
         NullableMode nullableMode = function.nullable()
@@ -412,7 +412,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());
         List<Type> argTypes = function.expectedInputTypes().stream()
-                .map(AbstractDataType::toCatalogDataType)
+                .map(DataType::toCatalogDataType)
                 .collect(Collectors.toList());
 
         NullableMode nullableMode = function.nullable()
