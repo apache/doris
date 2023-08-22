@@ -262,10 +262,12 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                 return Status::Error<DELETE_INVALID_PARAMETERS>(
                         "fail to parse condition. condition={}", sub_predicate);
             }
-            condition.__set_column_unique_id(
-                    delete_pred_related_schema->column(condition.column_name).unique_id());
+            int32_t col_unique_id =
+                    delete_pred_related_schema->column(condition.column_name).unique_id();
+            const auto& column = tablet_schema->column_by_uid(col_unique_id);
+            uint32_t index = tablet_schema->field_index(col_unique_id);
             auto predicate =
-                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true);
+                    parse_to_predicate(column, index, condition, _predicate_arena.get(), true);
             if (predicate != nullptr) {
                 temp.column_predicate_vec.push_back(predicate);
             }
@@ -274,8 +276,6 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
-            condition.__set_column_unique_id(
-                    delete_pred_related_schema->column(condition.column_name).unique_id());
             if (in_predicate.is_not_in()) {
                 condition.__set_condition_op("!*=");
             } else {
@@ -284,8 +284,12 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             for (const auto& value : in_predicate.values()) {
                 condition.condition_values.push_back(value);
             }
+            int32_t col_unique_id =
+                    delete_pred_related_schema->column(condition.column_name).unique_id();
+            const auto& column = tablet_schema->column_by_uid(col_unique_id);
+            uint32_t index = tablet_schema->field_index(col_unique_id);
             temp.column_predicate_vec.push_back(
-                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true));
+                    parse_to_predicate(column, index, condition, _predicate_arena.get(), true));
         }
 
         _del_conds.emplace_back(std::move(temp));

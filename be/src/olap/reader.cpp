@@ -462,18 +462,17 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         // is too complicated to modify related interface
         TCondition tmp_cond = condition;
         RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
-        auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
-        tmp_cond.__set_column_unique_id(condition_col_uid);
+        const auto& column = _tablet_schema->column(tmp_cond.column_name);
+        uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
-                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_arena.get());
+                parse_to_predicate(column, index, tmp_cond, _predicate_arena.get());
         if (predicate != nullptr) {
             // record condition value into predicate_params in order to pushdown segment_iterator,
             // _gen_predicate_result_sign will build predicate result unique sign with condition value
             auto predicate_params = predicate->predicate_params();
             predicate_params->value = condition.condition_values[0];
             predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
-            if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
-                FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+            if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
@@ -538,10 +537,10 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
         const ReaderParams& read_params) {
     for (const auto& condition : read_params.conditions_except_leafnode_of_andnode) {
         TCondition tmp_cond = condition;
-        auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
-        tmp_cond.__set_column_unique_id(condition_col_uid);
+        const auto& column = _tablet_schema->column(tmp_cond.column_name);
+        uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
-                parse_to_predicate(_tablet_schema, tmp_cond, _predicate_arena.get());
+                parse_to_predicate(column, index, tmp_cond, _predicate_arena.get());
         if (predicate != nullptr) {
             auto predicate_params = predicate->predicate_params();
             predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
