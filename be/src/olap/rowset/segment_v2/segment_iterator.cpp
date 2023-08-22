@@ -1590,7 +1590,9 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         if (_cur_rowid == 0 || _cur_rowid != range_from) {
             _cur_rowid = range_from;
             _opts.stats->block_first_read_seek_num += 1;
-            SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+            if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
+                SCOPED_RAW_TIMER(&_opts.stats->block_first_read_seek_ns);
+            }
             RETURN_IF_ERROR(_seek_columns(_first_read_column_ids, _cur_rowid));
         }
         size_t rows_to_read = range_to - range_from;
