@@ -48,7 +48,6 @@ public class BackendServiceClient {
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
-    private final long execPlanTimeout;
 
     public BackendServiceClient(TNetworkAddress address, Executor executor) {
         this.address = address;
@@ -60,25 +59,23 @@ public class BackendServiceClient {
                 .intercept(new OpenTelemetryClientInterceptor()).usePlaintext().build();
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
-        // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
-        execPlanTimeout = Config.remote_fragment_exec_timeout_ms + 5000;
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             InternalService.PExecPlanFragmentRequest request) {
-        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+        return stub.withDeadlineAfter(getExecPlanTimeout(), TimeUnit.MILLISECONDS)
                 .execPlanFragment(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentPrepareAsync(
             InternalService.PExecPlanFragmentRequest request) {
-        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+        return stub.withDeadlineAfter(getExecPlanTimeout(), TimeUnit.MILLISECONDS)
                 .execPlanFragmentPrepare(request);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(
             InternalService.PExecPlanFragmentStartRequest request) {
-        return stub.withDeadlineAfter(execPlanTimeout, TimeUnit.MILLISECONDS)
+        return stub.withDeadlineAfter(getExecPlanTimeout(), TimeUnit.MILLISECONDS)
                 .execPlanFragmentStart(request);
     }
 
@@ -197,4 +194,10 @@ public class BackendServiceClient {
             };
         }
     }
+
+    private long getExecPlanTimeout() {
+        // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
+        return Config.remote_fragment_exec_timeout_ms + 5000;
+    }
+
 }
