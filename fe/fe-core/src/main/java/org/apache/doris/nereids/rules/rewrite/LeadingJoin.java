@@ -35,8 +35,8 @@ public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements 
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        Hint leadingHint = jobContext.getCascadesContext().getStatementContext().getHintMap().get("Leading");
-        if (leadingHint != null) {
+        if (jobContext.getCascadesContext().getStatementContext().isLeadingJoin()) {
+            Hint leadingHint = jobContext.getCascadesContext().getStatementContext().getHintMap().get("Leading");
             Plan leadingPlan = plan.accept(this, new LeadingContext(
                     (LeadingHint) leadingHint, ((LeadingHint) leadingHint).getLeadingTableBitmap()));
             if (leadingHint.isSuccess()) {
@@ -51,9 +51,9 @@ public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements 
 
     @Override
     public Plan visit(Plan plan, LeadingContext context) {
-        Long currentBitMap = context.leading.computeTableBitmap(plan.getInputRelations());
+        Long currentBitMap = LongBitmap.computeTableBitmap(plan.getInputRelations());
         if (LongBitmap.isSubset(currentBitMap, context.totalBitmap)
-                && plan instanceof LogicalJoin) {
+                && plan instanceof LogicalJoin && !context.leading.isSyntaxError()) {
             Plan leadingJoin = context.leading.generateLeadingJoinPlan();
             if (context.leading.isSuccess() && leadingJoin != null) {
                 return leadingJoin;

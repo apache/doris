@@ -101,8 +101,9 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor implements Cust
     }
 
     private void extractLeading(SelectHintLeading selectHint, StatementContext context) {
-        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters());
+        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
         context.getHintMap().put("Leading", hint);
+        context.setLeadingJoin(true);
         assert (selectHint != null);
         assert (context != null);
     }

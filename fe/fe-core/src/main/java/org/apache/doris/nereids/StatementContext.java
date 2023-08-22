@@ -73,6 +73,8 @@ public class StatementContext {
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
+    private boolean isLeadingJoin = false;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -143,6 +145,14 @@ public class StatementContext {
 
     public void setDpHyp(boolean dpHyp) {
         isDpHyp = dpHyp;
+    }
+
+    public boolean isLeadingJoin() {
+        return isLeadingJoin;
+    }
+
+    public void setLeadingJoin(boolean leadingJoin) {
+        isLeadingJoin = leadingJoin;
     }
 
     public boolean isOtherJoinReorder() {

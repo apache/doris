@@ -459,7 +459,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     }
 
     private void updateLeadingRelationIdMap(RelationId id, String tableName, LogicalPlan plan) {
-        if (ConnectContext.get().getStatementContext().getHintMap().get("Leading") == null) {
+        if (!ConnectContext.get().getStatementContext().isLeadingJoin()) {
             return;
         }
         Hint leading = ConnectContext.get().getStatementContext().getHintMap().get("Leading");

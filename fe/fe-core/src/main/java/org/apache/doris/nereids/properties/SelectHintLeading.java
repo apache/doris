@@ -41,7 +41,7 @@ public class SelectHintLeading extends SelectHint {
     public String toString() {
         String leadingString = parameters
                 .stream()
-                .collect(Collectors.joining(", "));
+                .collect(Collectors.joining(" "));
         return super.getHintName() + "(" + leadingString + ")";
     }
 }

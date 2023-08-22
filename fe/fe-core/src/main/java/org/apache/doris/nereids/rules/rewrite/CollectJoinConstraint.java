@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.JoinConstraint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
@@ -82,8 +83,8 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
                 }
-                Long leftHand = leading.computeTableBitmap(join.left().getInputRelations());
-                Long rightHand = leading.computeTableBitmap(join.right().getInputRelations());
+                Long leftHand = LongBitmap.computeTableBitmap(join.left().getInputRelations());
+                Long rightHand = LongBitmap.computeTableBitmap(join.right().getInputRelations());
                 join.setBitmap(LongBitmap.or(leftHand, rightHand));
                 collectJoinConstraintList(leading, leftHand, rightHand, join, totalFilterBitMap, nonNullableSlotBitMap);
 
@@ -204,6 +205,11 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 leading.getExprIdToTableNameMap().put(slot.getExprId(), tableName);
             }
             RelationId id = leading.findRelationIdAndTableName(tableName);
+            if (id == null) {
+                leading.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                leading.setErrorMessage("can not find table: " + tableName);
+                return bitmap;
+            }
             long currBitmap = LongBitmap.set(bitmap, id.asInt());
             bitmap = LongBitmap.or(bitmap, currBitmap);
         }

@@ -23,9 +23,9 @@ import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 
 import com.google.common.collect.ImmutableList;
 
@@ -42,15 +42,23 @@ public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory 
                 logicalSubQueryAlias().thenApply(ctx -> {
                     LogicalProject project = new LogicalProject<>(
                             ImmutableList.copyOf(ctx.root.getOutput()), ctx.root.child());
-                    if (ctx.cascadesContext.getStatementContext().getHintMap().get("Leading") != null) {
+                    if (ctx.cascadesContext.getStatementContext().isLeadingJoin()) {
                         String aliasName = ctx.root.getAlias();
-                        Hint leading = ctx.cascadesContext.getStatementContext().getHintMap().get("Leading");
-                        RelationId id = ((LeadingHint) leading).findRelationIdAndTableName(aliasName);
-                        if (id == null) {
-                            id = StatementScopeIdGenerator.newRelationId();
+                        LeadingHint leading = (LeadingHint) ctx.cascadesContext.getStatementContext()
+                                .getHintMap().get("Leading");
+                        if (!(project.child() instanceof LogicalRelation)) {
+                            if (leading.getTablelist().contains(aliasName)) {
+                                leading.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+                                leading.setErrorMessage("Leading alias can only be table name alias");
+                            }
+                        } else {
+                            RelationId id = leading.findRelationIdAndTableName(aliasName);
+                            if (id == null) {
+                                id = ((LogicalRelation) project.child()).getRelationId();
+                            }
+                            leading.putRelationIdAndTableName(Pair.of(id, aliasName));
+                            leading.getRelationIdToScanMap().put(id, project);
                         }
-                        ((LeadingHint) leading).putRelationIdAndTableName(Pair.of(id, aliasName));
-                        ((LeadingHint) leading).getRelationIdToScanMap().put(id, project);
                     }
                     return project;
                 })

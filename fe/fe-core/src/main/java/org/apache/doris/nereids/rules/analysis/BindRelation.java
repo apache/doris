@@ -54,7 +54,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -130,11 +129,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
             if (analyzedCte.isPresent()) {
                 LogicalCTEConsumer consumer = new LogicalCTEConsumer(unboundRelation.getRelationId(),
                         cteContext.getCteId(), tableName, analyzedCte.get());
-                if (cascadesContext.getStatementContext().getHintMap().get("Leading") != null) {
-                    ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
-                            .putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
-                    ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
-                        .getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
+                if (cascadesContext.getStatementContext().isLeadingJoin()) {
+                    LeadingHint leading = (LeadingHint) cascadesContext.getStatementContext()
+                            .getHintMap().get("Leading");
+                    leading.putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
+                    leading.getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
                 }
                 return consumer;
             }
@@ -158,11 +157,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         // TODO: should generate different Scan sub class according to table's type
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
-        if (cascadesContext.getStatementContext().getHintMap().get("Leading") != null) {
-            ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
-                .putRelationIdAndTableName(Pair.of(((LogicalRelation) scan).getRelationId(), tableName));
-            ((LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading"))
-                .getRelationIdToScanMap().put(((LogicalRelation) scan).getRelationId(), scan);
+        if (cascadesContext.getStatementContext().isLeadingJoin()) {
+            LeadingHint leading = (LeadingHint) cascadesContext.getStatementContext().getHintMap().get("Leading");
+            leading.putRelationIdAndTableName(Pair.of(unboundRelation.getRelationId(), tableName));
+            leading.getRelationIdToScanMap().put(unboundRelation.getRelationId(), scan);
         }
         return scan;
     }

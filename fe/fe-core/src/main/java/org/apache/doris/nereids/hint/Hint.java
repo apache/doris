@@ -29,7 +29,7 @@ public class Hint {
 
     private HintStatus status;
 
-    private final String errorMessage = "";
+    private String errorMessage = "";
 
     /**
      * hint status which need to show in explain when it is not used or have syntax error
@@ -67,5 +67,19 @@ public class Hint {
 
     public String getHintName() {
         return hintName;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
+    public void setErrorMessage(String errorMessage) {
+        this.errorMessage = errorMessage;
+    }
+
+    public String getExplainString() {
+        StringBuilder out = new StringBuilder();
+        out.append("\nHint:\n");
+        return out.toString();
     }
 }

@@ -47,7 +47,7 @@ import java.util.Stack;
  * e.g. set_var(query_timeout='1800', exec_mem_limit='2147483648')
  */
 public class LeadingHint extends Hint {
-    // e.g. query_timeout='1800', exec_mem_limit='2147483648'
+    private String originalString = "";
     private final List<String> tablelist = new ArrayList<>();
     private final List<Integer> levellist = new ArrayList<>();
 
@@ -72,8 +72,9 @@ public class LeadingHint extends Hint {
      * @param hintName Leading
      * @param parameters table name mixed with left and right brace
      */
-    public LeadingHint(String hintName, List<String> parameters) {
+    public LeadingHint(String hintName, List<String> parameters, String originalString) {
         super(hintName);
+        this.originalString = originalString;
         int level = 0;
         for (String parameter : parameters) {
             if (parameter.equals("{")) {
@@ -99,8 +100,26 @@ public class LeadingHint extends Hint {
         return relationIdToScanMap;
     }
 
+    @Override
+    public String getExplainString() {
+        StringBuilder out = new StringBuilder();
+        out.append(originalString);
+        return out.toString();
+    }
+
+    /**
+     * Get logical plan by table name recorded in leading hint. if can not get, means leading has syntax error
+     * or need to update. So return null should be deal with when call
+     * @param name table name
+     * @return logical plan recorded when binding
+     */
     public LogicalPlan getLogicalPlanByName(String name) {
         RelationId id = findRelationIdAndTableName(name);
+        if (id == null) {
+            this.setStatus(HintStatus.SYNTAX_ERROR);
+            this.setErrorMessage("can not find table: " + name);
+            return null;
+        }
         return relationIdToScanMap.get(id);
     }
 
@@ -310,6 +329,9 @@ public class LeadingHint extends Hint {
         Stack<Pair<Integer, LogicalPlan>> stack = new Stack<>();
         int index = 0;
         LogicalPlan logicalPlan = getLogicalPlanByName(getTablelist().get(index));
+        if (logicalPlan == null) {
+            return null;
+        }
         logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
         assert (logicalPlan != null);
         stack.push(Pair.of(getLevellist().get(index), logicalPlan));
@@ -319,6 +341,9 @@ public class LeadingHint extends Hint {
             if (currentLevel == stackTopLevel) {
                 // should return error if can not found table
                 logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
+                if (logicalPlan == null) {
+                    return null;
+                }
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
                 Pair<Integer, LogicalPlan> newStackTop = stack.peek();
                 while (!(stack.isEmpty() || stackTopLevel != newStackTop.first)) {
@@ -353,6 +378,9 @@ public class LeadingHint extends Hint {
             } else {
                 // push
                 logicalPlan = getLogicalPlanByName(getTablelist().get(index++));
+                if (logicalPlan == null) {
+                    return null;
+                }
                 logicalPlan = makeFilterPlanIfExist(getFilters(), logicalPlan);
                 stack.push(Pair.of(currentLevel, logicalPlan));
                 stackTopLevel = currentLevel;
@@ -440,15 +468,13 @@ public class LeadingHint extends Hint {
     public Long getLeadingTableBitmap() {
         Long totalBitmap = 0L;
         for (int index = 0; index < getTablelist().size(); index++) {
-            totalBitmap = LongBitmap.set(totalBitmap, findRelationIdAndTableName(getTablelist().get(index)).asInt());
-        }
-        return totalBitmap;
-    }
-
-    public Long computeTableBitmap(Set<RelationId> relationIdSet) {
-        Long totalBitmap = 0L;
-        for (RelationId id : relationIdSet) {
-            totalBitmap = LongBitmap.set(totalBitmap, (id.asInt()));
+            RelationId id = findRelationIdAndTableName(getTablelist().get(index));
+            if (id == null) {
+                this.setStatus(HintStatus.SYNTAX_ERROR);
+                this.setErrorMessage("can not find table: " + getTablelist().get(index));
+                return totalBitmap;
+            }
+            totalBitmap = LongBitmap.set(totalBitmap, id.asInt());
         }
         return totalBitmap;
     }
