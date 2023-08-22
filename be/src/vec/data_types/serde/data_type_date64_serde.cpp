@@ -21,7 +21,6 @@
 
 #include <type_traits>
 
-#include "gutil/casts.h"
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
@@ -207,7 +206,7 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
     int64_t divisor = 1;
     int64_t multiplier = 1;
     if (arrow_array->type()->id() == arrow::Type::DATE64) {
-        auto concrete_array = down_cast<const arrow::Date64Array*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::Date64Array*>(arrow_array);
         divisor = 1000; //ms => secs
         for (size_t value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;
@@ -216,7 +215,7 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
             col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
         }
     } else if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
-        auto concrete_array = down_cast<const arrow::TimestampArray*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
         const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
         divisor = time_unit_divisor(type->unit());
         if (divisor == 0L) {
@@ -229,7 +228,7 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
             col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
         }
     } else if (arrow_array->type()->id() == arrow::Type::DATE32) {
-        auto concrete_array = down_cast<const arrow::Date32Array*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
         multiplier = 24 * 60 * 60; // day => secs
         for (size_t value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;

@@ -256,9 +256,9 @@ void DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Arra
                                               const cctz::time_zone& ctz) const {
     auto& column_map = static_cast<ColumnMap&>(column);
     auto& offsets_data = column_map.get_offsets();
-    auto concrete_map = down_cast<const arrow::MapArray*>(arrow_array);
+    auto concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
     auto arrow_offsets_array = concrete_map->offsets();
-    auto arrow_offsets = down_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    auto arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
     auto prev_size = offsets_data.back();
     auto arrow_nested_start_offset = arrow_offsets->Value(start);
     auto arrow_nested_end_offset = arrow_offsets->Value(end);

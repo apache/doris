@@ -26,6 +26,7 @@ namespace doris {
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
+class RuntimeProfile;
 class TDataSink;
 class TExpr;
 
@@ -51,12 +52,13 @@ public:
 
     void force_close();
 
+    virtual bool in_transaction() { return false; }
+
+    bool need_normal_close() { return _need_normal_close; }
+
     Status init(RuntimeState* state) override { return Status::OK(); }
 
-    virtual Status open(RuntimeState* state) {
-        _state = state;
-        return Status::OK();
-    }
+    virtual Status open(RuntimeState* state, RuntimeProfile* profile) = 0;
 
     Status write(std::unique_ptr<Block> block) { return append_block(*block); }
 
@@ -67,7 +69,7 @@ public:
 
     [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
 
-    void process_block(RuntimeState* state);
+    void process_block(RuntimeState* state, RuntimeProfile* profile);
 
     // sink the block date to date queue
     Status sink(Block* block, bool eos);
@@ -75,7 +77,7 @@ public:
     std::unique_ptr<Block> get_block_from_queue();
 
     // Add the IO thread task process block() to thread pool to dispose the IO
-    void start_writer(RuntimeState* state);
+    void start_writer(RuntimeState* state, RuntimeProfile* profile);
 
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -83,13 +85,13 @@ protected:
 
 private:
     static constexpr auto QUEUE_SIZE = 3;
-    RuntimeState* _state = nullptr;
     std::mutex _m;
     std::condition_variable _cv;
     std::deque<std::unique_ptr<Block>> _data_queue;
     Status _writer_status = Status::OK();
     bool _eos = false;
-    bool _close = false;
+    bool _force_close = false;
+    bool _need_normal_close = true;
     bool _writer_thread_closed = false;
 };
 

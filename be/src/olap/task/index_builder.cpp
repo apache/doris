@@ -253,7 +253,7 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         auto inverted_index = _alter_inverted_indexes[i];
         auto index_id = inverted_index.index_id;
         auto converted_result = _olap_data_convertor->convert_column_data(i);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
             return converted_result.first;
         }

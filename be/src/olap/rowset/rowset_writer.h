@@ -33,7 +33,12 @@
 
 namespace doris {
 
-class MemTable;
+struct SegmentStatistics {
+    int64_t row_num;
+    int64_t data_size;
+    int64_t index_size;
+    KeyBoundsPB key_bounds;
+};
 
 class RowsetWriter {
 public:
@@ -58,6 +63,10 @@ public:
     // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) = 0;
 
+    virtual Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) {
+        return Status::NotSupported("RowsetWriter does not support create_file_writer");
+    }
+
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
@@ -79,6 +88,10 @@ public:
     virtual Status flush_single_block(const vectorized::Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_single_block");
+    }
+
+    virtual Status add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+        return Status::NotSupported("RowsetWriter does not support add_segment");
     }
 
     // finish building and return pointer to the built rowset (guaranteed to be inited).
