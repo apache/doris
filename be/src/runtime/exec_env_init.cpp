@@ -119,6 +119,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     TimezoneUtils::load_timezone_names();
 
+    _global_zone_cache = std::make_unique<vectorized::ZoneList>();
     TimezoneUtils::load_timezones_to_cache(*_global_zone_cache);
 
     ThreadPoolBuilder("SendBatchThreadPool")

@@ -23,8 +23,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "vec/common/hash_table/phmap_fwd_decl.h"
-
 namespace cctz {
 class time_zone;
 } // namespace cctz
@@ -32,7 +30,7 @@ class time_zone;
 namespace doris {
 
 namespace vectorized {
-using ZoneList = flat_hash_map<std::string, cctz::time_zone>;
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 }
 
 class TimezoneUtils {

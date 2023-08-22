@@ -44,7 +44,7 @@ namespace doris {
 
 namespace vectorized {
 
-using ZoneList = flat_hash_map<std::string, cctz::time_zone>;
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
 enum TimeUnit {
     MICROSECOND,

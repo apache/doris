@@ -173,6 +173,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                     std::unique_lock<std::shared_mutex> lock_(*cache_lock);
                     //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
                     if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
+                        time_zone_cache->erase(str_tz);
                         throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                     }
                 } else {
@@ -2071,6 +2072,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                     std::unique_lock<std::shared_mutex> lock_(*cache_lock);
                     //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
                     if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
+                        time_zone_cache->erase(str_tz);
                         throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
                     }
                 } else {

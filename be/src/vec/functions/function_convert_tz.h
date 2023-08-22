@@ -69,7 +69,7 @@ class DateV2Value;
 
 namespace doris::vectorized {
 
-using ZoneList = flat_hash_map<std::string, cctz::time_zone>;
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
 template <typename DateValueType, typename ArgType>
 struct ConvertTZImpl {
@@ -139,6 +139,7 @@ struct ConvertTZImpl {
             std::unique_lock<std::shared_mutex> lock_(cache_lock);
             //TODO: the lock upgrade could be done in find_... function only when we push value into the hashmap
             if (!TimezoneUtils::find_cctz_time_zone(from_tz, time_zone_cache[from_tz])) {
+                time_zone_cache.erase(to_tz);
                 result_null_map[index_now] = true;
                 result_column->insert_default();
                 return;
@@ -152,6 +153,7 @@ struct ConvertTZImpl {
             cache_lock.unlock_shared();
             std::unique_lock<std::shared_mutex> lock_(cache_lock);
             if (!TimezoneUtils::find_cctz_time_zone(to_tz, time_zone_cache[to_tz])) {
+                time_zone_cache.erase(to_tz);
                 result_null_map[index_now] = true;
                 result_column->insert_default();
                 return;

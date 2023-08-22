@@ -21,6 +21,7 @@
 #include <snappy/snappy.h>
 
 #include <iostream>
+#include <unordered_map>
 
 #include "common/exception.h"
 #include "util/binary_cast.hpp"
@@ -42,7 +43,7 @@ static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
 
-using ZoneList = flat_hash_map<std::string, cctz::time_zone>;
+using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
 
 inline std::string int128_to_string(__int128_t value) {
     fmt::memory_buffer buffer;

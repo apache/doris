@@ -19,8 +19,13 @@
 
 #include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
+#include <fcntl.h>
 #include <glog/logging.h>
 #include <re2/stringpiece.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include <boost/algorithm/string.hpp>
 #include <cctype>
@@ -91,8 +96,9 @@ T next_from_charstream(int8_t*& src) {
     } else if (std::endian::native == std::endian::big) {
         return value;
     } else {
-        __builtin_unreachable();
+        LOG(FATAL) << "Unknown endianess";
     }
+    __builtin_unreachable();
 }
 
 std::pair<int8_t*, int> load_file_to_memory(const std::string& path) {
@@ -200,6 +206,8 @@ bool parse_load_timezone(vectorized::ZoneList& zone_list, int8_t* data, int len,
 } // namespace
 
 void TimezoneUtils::load_timezones_to_cache(vectorized::ZoneList& cache_list) {
+    cache_list["CST"] = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
+
     std::string base_str;
     const char* tzdir = "/usr/share/zoneinfo"; // default
     // try get from System
@@ -287,6 +295,7 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
         } else {
             auto it = timezone_names_map_.find(timezone_lower);
             if (it == timezone_names_map_.end()) {
+                VLOG_DEBUG << "Illegal timezone " << timezone_lower;
                 return false;
             }
             tz_parsed = cctz::load_time_zone(it->second, &ctz);
