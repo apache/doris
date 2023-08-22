@@ -36,7 +36,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="default",
-                    "password"="123456",
+                    "password"="",
                     "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${clickhouse_port}/doris_test",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
@@ -64,6 +64,10 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         order_qt_filter  """ select k1,k2 from type where 1 = 1 order by 1 ; """
         order_qt_filter2  """ select k1,k2 from type where 1 = 1 and  k1 = true order by 1 ; """
         order_qt_filter3  """ select k1,k2 from type where k1 = true order by 1 ; """
+        sql "set jdbc_clickhouse_query_final = true;"
+        order_qt_final1 """select * from final_test"""
+        sql "set jdbc_clickhouse_query_final = false;"
+        order_qt_final2 """select * from final_test"""
 
         sql """ drop catalog if exists ${catalog_name} """
     }
