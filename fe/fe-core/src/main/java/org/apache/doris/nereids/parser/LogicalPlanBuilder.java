@@ -18,10 +18,8 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
-import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
@@ -128,6 +126,8 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
+import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -208,14 +208,12 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
@@ -258,13 +256,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.qe.VariableVarConverters;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -681,35 +674,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitSystemVariable(SystemVariableContext ctx) {
-        String name = ctx.identifier().getText();
-        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-        Literal literal = null;
+        VariableType type = null;
         if (ctx.kind == null) {
-            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.DEFAULT);
+            type = VariableType.DEFAULT;
         } else if (ctx.kind.getType() == DorisParser.SESSION) {
-            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.SESSION);
+            type = VariableType.SESSION;
         } else if (ctx.kind.getType() == DorisParser.GLOBAL) {
-            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.GLOBAL);
+            type = VariableType.GLOBAL;
         }
-        if (literal == null) {
+        if (type == null) {
             throw new ParseException("Unsupported system variable: " + ctx.getText(), ctx);
         }
-        if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
-            try {
-                Preconditions.checkArgument(literal instanceof IntegerLikeLiteral);
-                IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) literal;
-                literal = new StringLiteral(VariableVarConverters.decode(name, integerLikeLiteral.getLongValue()));
-            } catch (DdlException e) {
-                throw new ParseException(e.getMessage(), ctx);
-            }
-        }
-        return literal.alias(ctx.getText());
+        return new UnboundVariable(ctx.identifier().getText(), type);
     }
 
     @Override
     public Expression visitUserVariable(UserVariableContext ctx) {
-        String name = ctx.identifierOrText().getText();
-        return VariableMgr.getLiteralForUserVar(name);
+        return new UnboundVariable(ctx.identifierOrText().getText(), VariableType.USER);
     }
 
     /**
