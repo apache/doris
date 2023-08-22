@@ -119,8 +119,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, JDBC_EXECUTOR_CLASS, &_executor_clazz));
-
+    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_CLASS, &_executor_clazz));
     GET_BASIC_JAVA_CLAZZ("java/util/List", list)
     GET_BASIC_JAVA_CLAZZ("java/lang/Object", object)
     GET_BASIC_JAVA_CLAZZ("java/lang/String", string)
@@ -261,7 +260,8 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
             type_str, slot_desc->type().debug_string(), slot_desc->col_name());
     switch (slot_desc->type().type) {
     case TYPE_BOOLEAN: {
-        if (type_str != "java.lang.Boolean" && type_str != "java.lang.Byte") {
+        if (type_str != "java.lang.Boolean" && type_str != "java.lang.Byte" &&
+            type_str != "java.lang.Integer") {
             return Status::InternalError(error_msg);
         }
         break;
@@ -272,7 +272,7 @@ Status JdbcConnector::_check_type(SlotDescriptor* slot_desc, const std::string& 
         if (type_str != "java.lang.Short" && type_str != "java.lang.Integer" &&
             type_str != "java.math.BigDecimal" && type_str != "java.lang.Byte" &&
             type_str != "com.clickhouse.data.value.UnsignedByte" &&
-            type_str != "com.clickhouse.data.value.UnsignedShort") {
+            type_str != "com.clickhouse.data.value.UnsignedShort" && type_str != "java.lang.Long") {
             return Status::InternalError(error_msg);
         }
         break;

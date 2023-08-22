@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -146,7 +145,7 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                 new VarcharLiteral("day")),
                         new Cast(new Add(
                                 new Multiply(
-                                        new Floor(new Cast(new Divide(
+                                        new Floor(new Divide(
                                                 new Cast(
                                                         new Hour(new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.SYSTEM_DEFAULT)),
                                                         DoubleType.INSTANCE
@@ -154,11 +153,11 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
                                                 new Divide(
                                                         new Cast(new TinyIntLiteral(((byte) 24)), DoubleType.INSTANCE),
                                                         new Cast(new IntegerLiteral(((byte) 3)), DoubleType.INSTANCE)
-                                                )), DecimalV3Type.createDecimalV3Type(30, 15))
+                                                ))
                                         ),
-                                        new Cast(new TinyIntLiteral(((byte) 1)), DecimalV3Type.createDecimalV3Type(3, 0))
+                                        new Cast(new TinyIntLiteral(((byte) 1)), DoubleType.INSTANCE)
                                 ),
-                                new Cast(new TinyIntLiteral(((byte) 1)), DecimalV3Type.createDecimalV3Type(33, 0))
+                                new Cast(new TinyIntLiteral(((byte) 1)), DoubleType.INSTANCE)
                         ), IntegerType.INSTANCE)
                 ),
                 new VarcharLiteral("%Y%m%d:%H")

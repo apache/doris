@@ -105,7 +105,6 @@ constexpr bool has_variable_type(PrimitiveType type) {
 
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
 
-TExprOpcode::type to_in_opcode(PrimitiveType t);
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
 TPrimitiveType::type to_thrift(PrimitiveType ptype);
 std::string type_to_string(PrimitiveType t);
@@ -286,6 +285,22 @@ template <>
 struct VecPrimitiveTypeTraits<TYPE_DATETIME> {
     using CppType = vectorized::VecDateTimeValue;
     using ColumnType = vectorized::ColumnVector<vectorized::DateTime>;
+};
+
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DECIMAL32> {
+    using CppType = vectorized::Decimal32;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
+};
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DECIMAL64> {
+    using CppType = vectorized::Decimal64;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
+};
+template <>
+struct VecPrimitiveTypeTraits<TYPE_DECIMAL128I> {
+    using CppType = vectorized::Decimal128I;
+    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128I>;
 };
 
 } // namespace doris

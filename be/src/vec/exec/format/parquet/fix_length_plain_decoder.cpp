@@ -248,17 +248,25 @@ Status FixLengthPlainDecoder::_decode_date(MutableColumnPtr& doris_column,
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     ColumnSelectVector::DataReadType read_type;
+    auto* __restrict date_day_offset_dict = get_date_day_offset_dict();
+
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _data->data + _offset;
-                int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start));
-                auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
-                v.from_unixtime(date_value * 24 * 60 * 60, *_decode_params->ctz); // day to seconds
+                int64_t date_value = static_cast<int64_t>(*reinterpret_cast<int32_t*>(buf_start)) +
+                                     _decode_params->offset_days;
+                DCHECK_LT(date_value, 25500);
+                DCHECK_GE(date_value, 0);
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                    auto& v = reinterpret_cast<CppType&>(column_data[data_index++]);
+                    v.create_from_date_v2(date_day_offset_dict[date_value], TIME_DATE);
                     // we should cast to date if using date v1.
                     v.cast_to_date();
+                } else {
+                    reinterpret_cast<CppType&>(column_data[data_index++]) =
+                            date_day_offset_dict[date_value];
                 }
                 _offset += _type_length;
             }

@@ -501,6 +501,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             olapTable = (OlapTable) db.getTableNullable(tableId);
             // Only OlapTable has DynamicPartitionProperty
             if (olapTable == null
+                    || olapTable.isBeingSynced()
                     || !olapTable.dynamicPartitionExists()
                     || !olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
                 iterator.remove();

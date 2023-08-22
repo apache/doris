@@ -44,6 +44,7 @@ import java.util.stream.Collectors;
  * TODO: Update other props in the ColumnStats properly.
  */
 public class JoinEstimation {
+    private static double DEFAULT_ANTI_JOIN_SELECTIVITY_COEFFICIENT = 0.3;
 
     private static EqualTo normalizeHashJoinCondition(EqualTo equalTo, Statistics leftStats, Statistics rightStats) {
         boolean changeOrder = equalTo.left().getInputSlots().stream().anyMatch(
@@ -221,7 +222,8 @@ public class JoinEstimation {
             if (join.getJoinType().isSemiJoin()) {
                 rowCount = semiRowCount;
             } else {
-                rowCount = leftStats.getRowCount() - semiRowCount;
+                rowCount = Math.max(leftStats.getRowCount() - semiRowCount,
+                        leftStats.getRowCount() * DEFAULT_ANTI_JOIN_SELECTIVITY_COEFFICIENT);
             }
         } else {
             //right semi or anti
@@ -230,7 +232,8 @@ public class JoinEstimation {
             if (join.getJoinType().isSemiJoin()) {
                 rowCount = semiRowCount;
             } else {
-                rowCount = rightStats.getRowCount() - semiRowCount;
+                rowCount = Math.max(rightStats.getRowCount() - semiRowCount,
+                        rightStats.getRowCount() * DEFAULT_ANTI_JOIN_SELECTIVITY_COEFFICIENT);
             }
         }
         return Math.max(1, rowCount);

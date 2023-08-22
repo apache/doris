@@ -327,28 +327,34 @@ void TaskScheduler::_do_work(size_t index) {
 }
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state) {
-    // state only should be CANCELED or FINISHED
-    task->try_close();
     if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
         _blocked_task_scheduler->add_blocked_task(task);
+        return;
+    }
+    auto status = task->try_close();
+    if (!status.ok() && state != PipelineTaskState::CANCELED) {
+        // Call `close` if `try_close` failed to make sure allocated resources are released
+        task->close();
+        task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                         status.to_string());
+        state = PipelineTaskState::CANCELED;
+    } else if (task->is_pending_finish()) {
+        task->set_state(PipelineTaskState::PENDING_FINISH);
+        _blocked_task_scheduler->add_blocked_task(task);
+        return;
     } else {
-        auto status = task->close();
+        status = task->close();
         if (!status.ok() && state != PipelineTaskState::CANCELED) {
             task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                              status.to_string());
             state = PipelineTaskState::CANCELED;
-        } else {
-            if (task->is_pending_finish()) {
-                task->set_state(PipelineTaskState::PENDING_FINISH);
-                _blocked_task_scheduler->add_blocked_task(task);
-                return;
-            }
         }
-        task->set_state(state);
-        task->set_close_pipeline_time();
-        task->fragment_context()->close_a_pipeline();
+        DCHECK(!task->is_pending_finish()) << task->debug_string();
     }
+    task->set_state(state);
+    task->set_close_pipeline_time();
+    task->fragment_context()->close_a_pipeline();
 }
 
 void TaskScheduler::shutdown() {

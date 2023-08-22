@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -131,9 +132,11 @@ class SlotBinder extends SubExprAnalyzer {
     @Override
     public Expression visitUnboundStar(UnboundStar unboundStar, CascadesContext context) {
         List<String> qualifier = unboundStar.getQualifier();
+        boolean showHidden = Util.showHiddenColumns();
         List<Slot> slots = getScope().getSlots()
                 .stream()
-                .filter(slot -> !(slot instanceof SlotReference) || ((SlotReference) slot).isVisible())
+                .filter(slot -> !(slot instanceof SlotReference)
+                || (((SlotReference) slot).isVisible()) || showHidden)
                 .collect(Collectors.toList());
         switch (qualifier.size()) {
             case 0: // select *

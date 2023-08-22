@@ -72,6 +72,7 @@ class TabletMetaPB;
 class TupleDescriptor;
 class CalcDeleteBitmapToken;
 enum CompressKind : int;
+class RowsetBinlogMetasPB;
 
 namespace io {
 class RemoteFileSystem;
@@ -184,10 +185,10 @@ public:
     Status capture_consistent_rowsets(const Version& spec_version,
                                       std::vector<RowsetSharedPtr>* rowsets) const;
     Status capture_rs_readers(const Version& spec_version,
-                              std::vector<RowsetReaderSharedPtr>* rs_readers) const;
+                              std::vector<RowSetSplits>* rs_splits) const;
 
     Status capture_rs_readers(const std::vector<Version>& version_path,
-                              std::vector<RowsetReaderSharedPtr>* rs_readers) const;
+                              std::vector<RowSetSplits>* rs_splits) const;
 
     const std::vector<RowsetMetaSharedPtr> delete_predicates() {
         return _tablet_meta->delete_predicates();
@@ -520,12 +521,16 @@ public:
 
     std::vector<std::string> get_binlog_filepath(std::string_view binlog_version) const;
     std::pair<std::string, int64_t> get_binlog_info(std::string_view binlog_version) const;
-    std::string get_binlog_rowset_meta(std::string_view binlog_version,
+    std::string get_rowset_binlog_meta(std::string_view binlog_version,
                                        std::string_view rowset_id) const;
+    Status get_rowset_binlog_metas(const std::vector<int64_t>& binlog_versions,
+                                   RowsetBinlogMetasPB* metas_pb);
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
+    std::string get_segment_filepath(std::string_view rowset_id, int64_t segment_index) const;
     bool can_add_binlog(uint64_t total_binlog_size) const;
     void gc_binlogs(int64_t version);
+    Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);
 
     inline void increase_io_error_times() { ++_io_error_times; }
 

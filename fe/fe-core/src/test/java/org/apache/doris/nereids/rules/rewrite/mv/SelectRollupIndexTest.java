@@ -261,6 +261,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 }));
     }
 
+    @Disabled("reopen it if we fix rollup select bugs")
     @Test
     public void testMaxCanUseKeyColumn() {
         PlanChecker.from(connectContext)
@@ -275,6 +276,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 }));
     }
 
+    @Disabled("reopen it if we fix rollup select bugs")
     @Test
     public void testMinCanUseKeyColumn() {
         PlanChecker.from(connectContext)

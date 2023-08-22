@@ -76,8 +76,7 @@ bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
 
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
                                                std::vector<RowwiseIteratorUPtr>* out_iters,
-                                               const std::pair<int, int>& segment_offset,
-                                               bool use_cache) {
+                                               const RowSetSplits& rs_splits, bool use_cache) {
     RETURN_IF_ERROR(_rowset->load());
     _context = read_context;
     // The segment iterator is created with its own statistics,
@@ -218,7 +217,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 
     // create iterator for each segment
     auto& segments = _segment_cache_handle.get_segments();
-    auto [seg_start, seg_end] = segment_offset;
+    auto [seg_start, seg_end] = rs_splits.segment_offsets;
     if (seg_start == seg_end) {
         seg_start = 0;
         seg_end = segments.size();
@@ -241,12 +240,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     return Status::OK();
 }
 
-Status BetaRowsetReader::init(RowsetReaderContext* read_context,
-                              const std::pair<int, int>& segment_offset) {
+Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) {
     _context = read_context;
     _context->rowset_id = _rowset->rowset_id();
     std::vector<RowwiseIteratorUPtr> iterators;
-    RETURN_IF_ERROR(get_segment_iterators(_context, &iterators, segment_offset));
+    RETURN_IF_ERROR(get_segment_iterators(_context, &iterators, rs_splits));
 
     // merge or union segment iterator
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {

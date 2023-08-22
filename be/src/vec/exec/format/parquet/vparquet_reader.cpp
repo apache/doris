@@ -100,7 +100,7 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
 }
 
 ParquetReader::~ParquetReader() {
-    close();
+    _close_internal();
 }
 
 void ParquetReader::_init_profile() {
@@ -162,6 +162,10 @@ void ParquetReader::_init_profile() {
 }
 
 void ParquetReader::close() {
+    _close_internal();
+}
+
+void ParquetReader::_close_internal() {
     if (!_closed) {
         if (_profile != nullptr) {
             COUNTER_UPDATE(_parquet_profile.filtered_row_groups, _statistics.filtered_row_groups);
@@ -524,6 +528,24 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         }
     }
     DCHECK(_current_group_reader != nullptr);
+    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+        auto rows = std::min(_current_group_reader->get_remaining_rows(), (int64_t)_batch_size);
+
+        _current_group_reader->set_remaining_rows(_current_group_reader->get_remaining_rows() -
+                                                  rows);
+
+        for (auto& col : block->mutate_columns()) {
+            col->resize(rows);
+        }
+
+        *read_rows = rows;
+        if (_current_group_reader->get_remaining_rows() == 0) {
+            _current_group_reader.reset(nullptr);
+        }
+
+        return Status::OK();
+    }
+
     {
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
         Status batch_st =

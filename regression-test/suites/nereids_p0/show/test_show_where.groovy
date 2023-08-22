@@ -16,13 +16,17 @@
 // under the License.
 
 
-suite("test_show_where", "query") {
+suite("test_show_where", "query,external,mysql,external_docker,external_docker_mysql") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     String ex_db_name = "doris_test";
     String ex_tb0 = "ex_tb0";
     String ex_tb1 = "ex_tb1";
     String catalog_name = "test_show_where_mysql_jdbc_catalog";
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String s3_endpoint = getS3Endpoint()
+    String bucket = getS3BucketName()
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     try {
         sql  """ drop database if exists ${ex_db_name} """
         sql  """ create database ${ex_db_name} """
@@ -62,8 +66,8 @@ suite("test_show_where", "query") {
                     "type"="jdbc",
                     "jdbc.user"="root",
                     "jdbc.password"="123456",
-                    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
-                    "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
+                    "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+                    "jdbc.driver_url" = "${driver_url}",
                     "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
                 """
 

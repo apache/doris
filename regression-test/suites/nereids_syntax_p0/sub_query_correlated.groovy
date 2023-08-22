@@ -205,11 +205,22 @@ suite ("sub_query_correlated") {
     """
 
     //----------complex subqueries----------
-    //----------remove temporarily---------
-    /*qt_scalar_subquery """
+    qt_scalar_subquery1 """
         select * from sub_query_correlated_subquery1
             where k1 = (select sum(k1) from sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1 and sub_query_correlated_subquery3.v2 = 2)
             order by k1, k2
+    """
+
+    qt_scalar_subquery2 """
+        SELECT *
+        FROM sub_query_correlated_subquery1 t1
+        WHERE coalesce(bitand( 
+        cast(
+            (SELECT sum(k1)
+            FROM sub_query_correlated_subquery3 ) AS int), 
+            cast(t1.k1 AS int)), 
+            coalesce(t1.k1, t1.k2)) is NULL
+        ORDER BY  t1.k1, t1.k2;
     """
 
     qt_in_subquery """
@@ -222,12 +233,10 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery3
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
-    """*/
+    """
 
     //----------complex nonEqual subqueries----------
-
-    //----------remove temporarily---------
-    /*qt_in_subquery """
+    qt_in_subquery """
         select * from sub_query_correlated_subquery3
             where (k1 = 1 or k1 = 2 or k1 = 3) and v1 in (select k1 from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k2 > sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k1 = 3)
             order by k1, k2
@@ -237,7 +246,7 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery3
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
-    """*/
+    """
 
     //----------subquery with order----------
     order_qt_scalar_subquery_with_order """

@@ -80,6 +80,8 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
+    void close() override;
+
 private:
     // used for stream/broker load of csv file.
     Status _create_decompressor();
@@ -142,7 +144,11 @@ private:
 
     std::string _value_separator;
     std::string _line_delimiter;
-    std::string _array_delimiter;
+
+    // struct, array and map delimiter
+    std::string _collection_delimiter;
+    // map key and value delimiter
+    std::string _map_kv_delimiter;
 
     int _value_separator_length;
     int _line_delimiter_length;

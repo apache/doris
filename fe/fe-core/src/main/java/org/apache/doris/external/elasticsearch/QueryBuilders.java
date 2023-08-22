@@ -224,6 +224,11 @@ public final class QueryBuilders {
         if (expr == null) {
             return null;
         }
+        // esquery functionCallExpr will be rewritten to castExpr in where clause rewriter,
+        // so we get the functionCallExpr here.
+        if (expr instanceof CastExpr) {
+            return toEsDsl(expr.getChild(0), notPushDownList, fieldsContext, builderOptions);
+        }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
             return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions);

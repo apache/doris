@@ -208,14 +208,15 @@ TEST_F(VDataStreamTest, BasicTest) {
     vectorized::Block block({type_and_name});
     sender.send(&runtime_stat, &block);
 
+    Status exec_status;
+    sender.close(&runtime_stat, exec_status);
+
     Block block_2;
     bool eos;
     recv->get_next(&block_2, &eos);
 
     EXPECT_EQ(block_2.rows(), 1024);
 
-    Status exec_status;
-    sender.close(&runtime_stat, exec_status);
     recv->close();
 }
 } // namespace doris::vectorized

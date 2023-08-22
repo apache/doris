@@ -148,6 +148,9 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    VecDateTimeValue t;
+    t.from_unixtime(0, ctz);
+    _offset_days = t.day() == 31 ? 0 : 1;
     _init_profile();
     _init_system_properties();
     _init_file_description();
@@ -236,6 +239,8 @@ Status OrcReader::_create_file_reader() {
     } catch (std::exception& e) {
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
     }
+    _remaining_rows = _reader->getNumberOfRows();
+
     return Status::OK();
 }
 
@@ -755,14 +760,14 @@ Status OrcReader::set_fill_columns(
     _fill_all_columns = true;
 
     // create orc row reader
-    _row_reader_options.range(_range_start_offset, _range_size);
-    _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
-    _row_reader_options.include(_read_cols);
-    if (_lazy_read_ctx.can_lazy_read) {
-        _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
-        _orc_filter = std::unique_ptr<ORCFilterImpl>(new ORCFilterImpl(this));
-    }
     try {
+        _row_reader_options.range(_range_start_offset, _range_size);
+        _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+        _row_reader_options.include(_read_cols);
+        if (_lazy_read_ctx.can_lazy_read) {
+            _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
+            _orc_filter = std::unique_ptr<ORCFilterImpl>(new ORCFilterImpl(this));
+        }
         _row_reader_options.setEnableLazyDecoding(true);
         if (!_lazy_read_ctx.conjuncts.empty()) {
             _string_dict_filter = std::make_unique<StringDictFilterImpl>(this);
@@ -770,12 +775,12 @@ Status OrcReader::set_fill_columns(
         _row_reader = _reader->createRowReader(_row_reader_options, _orc_filter.get(),
                                                _string_dict_filter.get());
         _batch = _row_reader->createRowBatch(_batch_size);
+        auto& selected_type = _row_reader->getSelectedType();
+        int idx = 0;
+        _init_select_types(selected_type, idx);
     } catch (std::exception& e) {
         return Status::InternalError("Failed to create orc row reader. reason = {}", e.what());
     }
-    auto& selected_type = _row_reader->getSelectedType();
-    int idx = 0;
-    _init_select_types(selected_type, idx);
 
     if (!_slot_id_to_filter_conjuncts) {
         return Status::OK();
@@ -924,9 +929,9 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::DATE:
         return TypeDescriptor(PrimitiveType::TYPE_DATEV2);
     case orc::TypeKind::VARCHAR:
-        return TypeDescriptor(PrimitiveType::TYPE_VARCHAR);
+        return TypeDescriptor::create_varchar_type(orc_type->getMaximumLength());
     case orc::TypeKind::CHAR:
-        return TypeDescriptor(PrimitiveType::TYPE_CHAR);
+        return TypeDescriptor::create_char_type(orc_type->getMaximumLength());
     case orc::TypeKind::TIMESTAMP_INSTANT:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {
@@ -1370,6 +1375,22 @@ std::string OrcReader::_get_field_name_lower_case(const orc::Type* orc_type, int
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+        auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
+
+        set_remaining_rows(get_remaining_rows() - rows);
+
+        for (auto& col : block->mutate_columns()) {
+            col->resize(rows);
+        }
+
+        *read_rows = rows;
+        if (get_remaining_rows() == 0) {
+            *eof = true;
+        }
+        return Status::OK();
+    }
+
     if (_lazy_read_ctx.can_lazy_read) {
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
@@ -1383,11 +1404,16 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
             // reset decimal_scale_params_index;
             _decimal_scale_params_index = 0;
-            rr = _row_reader->nextBatch(*_batch, block);
-            if (rr == 0) {
-                *eof = true;
-                *read_rows = 0;
-                return Status::OK();
+            try {
+                rr = _row_reader->nextBatch(*_batch, block);
+                if (rr == 0) {
+                    *eof = true;
+                    *read_rows = 0;
+                    return Status::OK();
+                }
+            } catch (std::exception& e) {
+                return Status::InternalError("Orc row reader nextBatch failed. reason = {}",
+                                             e.what());
             }
         }
 
@@ -1434,11 +1460,16 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             SCOPED_RAW_TIMER(&_statistics.get_batch_time);
             // reset decimal_scale_params_index;
             _decimal_scale_params_index = 0;
-            rr = _row_reader->nextBatch(*_batch, block);
-            if (rr == 0) {
-                *eof = true;
-                *read_rows = 0;
-                return Status::OK();
+            try {
+                rr = _row_reader->nextBatch(*_batch, block);
+                if (rr == 0) {
+                    *eof = true;
+                    *read_rows = 0;
+                    return Status::OK();
+                }
+            } catch (std::exception& e) {
+                return Status::InternalError("Orc row reader nextBatch failed. reason = {}",
+                                             e.what());
             }
         }
 
@@ -1924,7 +1955,6 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
             texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
             texpr_node.__set_opcode(TExprOpcode::EQ);
-            texpr_node.__set_vector_opcode(TExprOpcode::EQ);
             texpr_node.__set_fn(fn);
             texpr_node.__set_child_type(TPrimitiveType::INT);
             texpr_node.__set_num_children(2);
@@ -1960,8 +1990,6 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             node.__set_node_type(TExprNodeType::IN_PRED);
             node.in_predicate.__set_is_not_in(false);
             node.__set_opcode(TExprOpcode::FILTER_IN);
-            node.__isset.vector_opcode = true;
-            node.__set_vector_opcode(TExprOpcode::FILTER_IN);
             // VdirectInPredicate assume is_nullable = false.
             node.__set_is_nullable(false);
 

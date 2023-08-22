@@ -42,6 +42,10 @@
 #include <unordered_map>
 #include <utility>
 
+#ifdef DEBUG
+#include <unordered_set>
+#endif
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
@@ -1014,6 +1018,22 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     _num_node_channels = ADD_COUNTER(_profile, "NumberNodeChannels", TUnit::UNIT);
     _load_mem_limit = state->get_load_mem_limit();
 
+#ifdef DEBUG
+    // check: tablet ids should be unique
+    {
+        std::unordered_set<int64_t> tablet_ids;
+        const auto& partitions = _vpartition->get_partitions();
+        for (int i = 0; i < _schema->indexes().size(); ++i) {
+            for (const auto& partition : partitions) {
+                for (const auto& tablet : partition->indexes[i].tablets) {
+                    CHECK(tablet_ids.count(tablet) == 0) << "found duplicate tablet id: " << tablet;
+                    tablet_ids.insert(tablet);
+                }
+            }
+        }
+    }
+#endif
+
     // open all channels
     const auto& partitions = _vpartition->get_partitions();
     for (int i = 0; i < _schema->indexes().size(); ++i) {
@@ -1320,11 +1340,7 @@ void VOlapTableSink::_cancel_all_channel(Status status) {
             print_id(_load_id), _txn_id, status);
 }
 
-void VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
-    if (_try_close) {
-        return;
-    }
-
+Status VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
     if (status.ok()) {
@@ -1357,6 +1373,8 @@ void VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
         _close_status = status;
         _try_close = true;
     }
+
+    return Status::OK();
 }
 
 bool VOlapTableSink::is_close_done() {

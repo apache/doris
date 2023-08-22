@@ -395,7 +395,7 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isFloatLikeType() {
-        return this.isFloatType() || isDoubleType() || isDecimalLikeType();
+        return this.isFloatType() || isDoubleType();
     }
 
     public boolean isTinyIntType() {

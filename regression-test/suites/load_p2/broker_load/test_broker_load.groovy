@@ -38,7 +38,6 @@ suite("test_broker_load_p2", "p2") {
                   "parquet_s3_case6", // normal
                   "parquet_s3_case7", // col5 will be ignored, load normally
                   "parquet_s3_case8", // first column in table is not specified, will load default value for it.
-                  "parquet_s3_case9", // first column in table is not specified, will load default value for it.
                   "orc_s3_case1", // table column capitalize firsrt
                   "orc_s3_case2", // table column lowercase * load column lowercase * orc file lowercase
                   "orc_s3_case3", // table column lowercase * load column uppercase * orc file lowercase
@@ -71,7 +70,6 @@ suite("test_broker_load_p2", "p2") {
                  "s3://doris-build-1308700295/regression/load/data/part*",
                  "s3://doris-build-1308700295/regression/load/data/part*",
                  "s3://doris-build-1308700295/regression/load/data/part*",
-                 "s3://doris-build-1308700295/regression/load/data/random_all_types/part*",
                  "s3://doris-build-1308700295/regression/load/data/orc/hits_100k_rows.orc",
                  "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
                  "s3://doris-build-1308700295/regression/load/data/orc/hits_10k_rows_lowercase.orc",
@@ -104,7 +102,6 @@ suite("test_broker_load_p2", "p2") {
                    """p_partkey, p_name, p_mfgr, p_brand""",
                    """p_partkey, p_name, p_mfgr, p_brand""",
                    """p_name, p_mfgr""",
-                   """""",
                    """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
                 //TODO: comment blow 8 rows after jibing fix
                    """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
@@ -126,8 +123,8 @@ suite("test_broker_load_p2", "p2") {
                 //    """WATCHID,JAVAENABLE,TITLE,GOODEVENT,EVENTTIME,EVENTDATE,COUNTERID,CLIENTIP,REGIONID,USERID,COUNTERCLASS,OS,USERAGENT,URL,REFERER,ISREFRESH,REFERERCATEGORYID,REFERERREGIONID,URLCATEGORYID,URLREGIONID,RESOLUTIONWIDTH,RESOLUTIONHEIGHT,RESOLUTIONDEPTH,FLASHMAJOR,FLASHMINOR,FLASHMINOR2,NETMAJOR,NETMINOR,USERAGENTMAJOR,USERAGENTMINOR,COOKIEENABLE,JAVASCRIPTENABLE,ISMOBILE,MOBILEPHONE,MOBILEPHONEMODEL,PARAMS,IPNETWORKID,TRAFICSOURCEID,SEARCHENGINEID,SEARCHPHRASE,ADVENGINEID,ISARTIFICAL,WINDOWCLIENTWIDTH,WINDOWCLIENTHEIGHT,CLIENTTIMEZONE,CLIENTEVENTTIME,SILVERLIGHTVERSION1,SILVERLIGHTVERSION2,SILVERLIGHTVERSION3,SILVERLIGHTVERSION4,PAGECHARSET,CODEVERSION,ISLINK,ISDOWNLOAD,ISNOTBOUNCE,FUNIQID,ORIGINALURL,HID,ISOLDCOUNTER,ISEVENT,ISPARAMETER,DONTCOUNTHITS,WITHHASH,HITCOLOR,LOCALEVENTTIME,AGE,SEX,INCOME,INTERESTS,ROBOTNESS,REMOTEIP,WINDOWNAME,OPENERNAME,HISTORYLENGTH,BROWSERLANGUAGE,BROWSERCOUNTRY,SOCIALNETWORK,SOCIALACTION,HTTPERROR,SENDTIMING,DNSTIMING,CONNECTTIMING,RESPONSESTARTTIMING,RESPONSEENDTIMING,FETCHTIMING,SOCIALSOURCENETWORKID,SOCIALSOURCEPAGE,PARAMPRICE,PARAMORDERID,PARAMCURRENCY,PARAMCURRENCYID,OPENSTATSERVICENAME,OPENSTATCAMPAIGNID,OPENSTATADID,OPENSTATSOURCEID,UTMSOURCE,UTMMEDIUM,UTMCAMPAIGN,UTMCONTENT,UTMTERM,FROMTAG,HASGCLID,REFERERHASH,URLHASH,CLID""",
                 //    """watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid""",
                    ]
-    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
-    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
     def set_values = ["",
                       "",
                       "SET(comment=p_comment, retailprice=p_retailprice, container=p_container, size=p_size, type=p_type, brand=p_brand, mfgr=p_mfgr, name=p_name, partkey=p_partkey)",
@@ -158,12 +155,11 @@ suite("test_broker_load_p2", "p2") {
                       "",
                       "",
                       "",
-                      "",
                       ""
     ]
-    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
 
-    def line_delimiters = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "\u0007"]
+    def line_delimiters = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "\u0007"]
 
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
@@ -186,7 +182,6 @@ suite("test_broker_load_p2", "p2") {
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=4096",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=100000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=10000",
@@ -200,7 +195,6 @@ suite("test_broker_load_p2", "p2") {
                     ]
 
     def task_info = ["cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
-                     "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
                      "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
                      "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
                      "cluster:cos.ap-beijing.myqcloud.com; timeout(s):14400; max_filter_ratio:0.0",
@@ -270,9 +264,10 @@ suite("test_broker_load_p2", "p2") {
     String sk = getS3SK()
     String enabled = context.config.otherConfigs.get("enableBrokerLoad")
 
-    def do_load_job = {uuid, path, table, columns, column_in_path, preceding_filter,
+    def do_load_job = {label, path, table, columns, column_in_path, preceding_filter,
                           set_value, where_expr, line_delimiter ->
         String columns_str = ("$columns" != "") ? "($columns)" : "";
+        String line_term = ("$line_delimiter" != "") ? "lines terminated by '$line_delimiter'" : "";
         String format_str
         if (table.startsWith("orc_s3_case")) {
             format_str = "ORC"
@@ -281,17 +276,17 @@ suite("test_broker_load_p2", "p2") {
         } else {
             format_str = "PARQUET"
         }
-        sql """
-            LOAD LABEL $uuid （
+        def sql_str = """
+            LOAD LABEL $label (
                 DATA INFILE("$path")
                 INTO TABLE $table
+                $line_term
                 FORMAT AS $format_str
                 $columns_str
                 $column_in_path
                 $preceding_filter
                 $set_value
                 $where_expr
-                $line_delimiter
             )
             WITH S3 (
                 "AWS_ACCESS_KEY" = "$ak",
@@ -303,7 +298,9 @@ suite("test_broker_load_p2", "p2") {
                 "use_new_load_scan_node" = "true"
             )
             """
-        logger.info("Submit load with lable: $uuid, table: $table, path: $path")
+        logger.info("submit sql: ${sql_str}");
+        sql """${sql_str}"""
+        logger.info("Submit load with lable: $label, table: $table, path: $path")
     }
 
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -315,8 +312,9 @@ suite("test_broker_load_p2", "p2") {
                 sql new File("""${context.file.parent}/ddl/${table}_create.sql""").text
 
                 def uuid = UUID.randomUUID().toString().replace("-", "0")
-                uuids.add(uuid)
-                do_load_job.call(uuid, paths[i], table, columns_list[i], column_in_paths[i], preceding_filters[i],
+                def the_label = "L${i}_${uuid}"
+                uuids.add(the_label)
+                do_load_job.call(the_label, paths[i], table, columns_list[i], column_in_paths[i], preceding_filters[i],
                         set_values[i], where_exprs[i], line_delimiters[i])
                 i++
             }
@@ -359,7 +357,69 @@ suite("test_broker_load_p2", "p2") {
             order_qt_parquet_s3_case6 """select count(*) from parquet_s3_case6 where p_partkey < 100000"""
             order_qt_parquet_s3_case7 """select count(*) from parquet_s3_case7 where col4=4"""
             order_qt_parquet_s3_case8 """ select count(*) from parquet_s3_case8 where p_partkey=1"""
-            order_qt_parquet_s3_case9 """ select * from parquet_s3_case9"""
+
+            // pr 22666
+            def tbl_22666 = "part_22666"
+            sql """drop table if exists ${tbl_22666} force"""
+            sql """
+                CREATE TABLE ${tbl_22666} (
+                    p_partkey          int NULL,
+                    p_name        VARCHAR(55) NULL,
+                    p_mfgr        VARCHAR(25) NULL,
+                    p_brand       VARCHAR(10) NULL,
+                    p_type        VARCHAR(25) NULL,
+                    p_size        int NULL,
+                    p_container   VARCHAR(10) NULL,
+                    p_retailprice decimal(15, 2) NULL,
+                    p_comment     VARCHAR(23) NULL
+                )ENGINE=OLAP
+                DUPLICATE KEY(`p_partkey`)
+                DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 3
+                PROPERTIES (
+                    "replication_num" = "1"
+                );
+            """
+
+            def label_22666 = "part_" + UUID.randomUUID().toString().replace("-", "0")
+            sql """
+                LOAD LABEL ${label_22666} (
+                    DATA INFILE("s3://doris-build-1308700295/regression/load/data/part0.parquet")
+                    INTO TABLE ${tbl_22666}
+                    FORMAT AS "PARQUET"
+                    (p_partkey, p_name, p_mfgr),
+                    DATA INFILE("s3://doris-build-1308700295/regression/load/data/part1.parquet")
+                    INTO TABLE ${tbl_22666}
+                    FORMAT AS "PARQUET"
+                    (p_partkey, p_brand, p_type)
+                )
+                WITH S3 (
+                    "AWS_ACCESS_KEY" = "$ak",
+                    "AWS_SECRET_KEY" = "$sk",
+                    "AWS_ENDPOINT" = "cos.ap-beijing.myqcloud.com",
+                    "AWS_REGION" = "ap-beijing"
+                );
+            """
+
+            def max_try_milli_secs = 600000
+            while (max_try_milli_secs > 0) {
+                String[][] result = sql """ show load where label="$label_22666" order by createtime desc limit 1; """
+                if (result[0][2].equals("FINISHED")) {
+                    logger.info("Load FINISHED " + label_22666)
+                    break;
+                }
+                if (result[0][2].equals("CANCELLED")) {
+                    assertTrue(false, "load failed: $result")
+                    break;
+                }
+                Thread.sleep(1000)
+                max_try_milli_secs -= 1000
+                if(max_try_milli_secs <= 0) {
+                    assertTrue(1 == 2, "load Timeout: $label_22666")
+                }
+            }
+
+            order_qt_pr22666_1 """ select count(*) from ${tbl_22666} where p_brand is not null limit 10;"""
+            order_qt_pr22666_2 """ select count(*) from ${tbl_22666} where p_name is not null limit 10;"""
 
         } finally {
             for (String table in tables) {

@@ -129,7 +129,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalRelation visitPhysicalScan(PhysicalRelation scan, CascadesContext context) {
+    public PhysicalRelation visitPhysicalRelation(PhysicalRelation scan, CascadesContext context) {
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
         List<Slot> slots = rfCtx.getTargetOnOlapScanNodeMap().get(scan.getRelationId());
         if (slots != null) {

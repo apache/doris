@@ -33,7 +33,7 @@ The automatic pull-up service of FE and BE must be configured after the Doris cl
 
 ## Systemd Configures the Doris service
 
-For details about systemd usage and parameter parsing, see [here](https://blog.51cto.com/arm2012/1963238) 
+For details about systemd usage and parameter parsing, see [here](https://systemd.io/) 
 
 ### sudo permission control
 
@@ -315,6 +315,8 @@ Supervisor configuration automatically pulls up the supervisor configuration. Yo
 ```
 supervisor installed directly using the yum command only supports python2,Therefore, the file contents in /usr/bin/supervisorctl and /usr/bin/supervisorctl should be changed at the beginning Change #! /usr/bin/python to #! /usr/bin/python2, python2 must be installed
 ```
+
+- If the supervisor is configured to automatically pull up the Doris process, if the BE node breaks down due to abnormal factors on Doris, the error stack information that should be output to be.out will be intercepted by the supervisor. We need to look it up in supervisor's log for further analysis. 
 
 
 

@@ -269,7 +269,8 @@ private:
                        size_t num_of_defaults);
 
     // return true means one column's predicates all pushed down
-    bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false);
+    bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false,
+                                          bool is_match = false);
     void _calculate_pred_in_remaining_conjunct_root(const vectorized::VExprSPtr& expr);
 
     // todo(wb) remove this method after RowCursor is removed

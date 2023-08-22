@@ -132,7 +132,7 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitSubQueryAlias(this, context);
+        return visitor.visitLogicalSubQueryAlias(this, context);
     }
 
     @Override

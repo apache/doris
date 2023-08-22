@@ -22,7 +22,6 @@
 #include <butil/iobuf_inl.h>
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 #include <stddef.h>
@@ -72,11 +71,25 @@ bool ExchangeSinkBuffer::can_write() const {
     return total_package_size <= max_package_size;
 }
 
-bool ExchangeSinkBuffer::is_pending_finish() const {
+bool ExchangeSinkBuffer::is_pending_finish() {
+    //note(wb) angly implementation here, because operator couples the scheduling logic
+    // graceful implementation maybe as follows:
+    // 1 make ExchangeSinkBuffer support try close which calls brpc::StartCancel
+    // 2 make BlockScheduler calls tryclose when query is cancel
+    bool need_cancel = _context->is_canceled();
+
     for (auto& pair : _instance_to_package_queue_mutex) {
         std::unique_lock<std::mutex> lock(*(pair.second));
         auto& id = pair.first;
         if (!_instance_to_sending_by_pipeline.at(id)) {
+            // when pending finish, we need check whether current query is cancelled
+            if (need_cancel && _instance_to_rpc_ctx.find(id) != _instance_to_rpc_ctx.end()) {
+                auto& rpc_ctx = _instance_to_rpc_ctx[id];
+                if (!rpc_ctx.is_cancelled) {
+                    brpc::StartCancel(rpc_ctx._closure->cntl.call_id());
+                    rpc_ctx.is_cancelled = true;
+                }
+            }
             return true;
         }
     }
@@ -177,7 +190,16 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             brpc_request->set_allocated_block(request.block.get());
         }
         auto* closure = request.channel->get_closure(id, request.eos, nullptr);
+
+        ExchangeRpcContext rpc_ctx;
+        rpc_ctx._closure = closure;
+        rpc_ctx.is_cancelled = false;
+        _instance_to_rpc_ctx[id] = rpc_ctx;
+
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        if (config::exchange_sink_ignore_eovercrowded) {
+            closure->cntl.ignore_eovercrowded();
+        }
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
         closure->start_rpc_time = GetCurrentTimeNanos();
@@ -221,7 +243,16 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
         }
         auto* closure = request.channel->get_closure(id, request.eos, request.block_holder);
+
+        ExchangeRpcContext rpc_ctx;
+        rpc_ctx._closure = closure;
+        rpc_ctx.is_cancelled = false;
+        _instance_to_rpc_ctx[id] = rpc_ctx;
+
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
+        if (config::exchange_sink_ignore_eovercrowded) {
+            closure->cntl.ignore_eovercrowded();
+        }
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
         closure->start_rpc_time = GetCurrentTimeNanos();

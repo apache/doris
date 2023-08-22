@@ -283,6 +283,8 @@ private:
     int _queue_level = 0;
     int _core_id = 0;
 
+    bool _try_close_flag = false;
+
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;
     RuntimeProfile::Counter* _task_cpu_timer;

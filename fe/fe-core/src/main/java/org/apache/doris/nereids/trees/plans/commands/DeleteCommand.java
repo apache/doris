@@ -111,9 +111,15 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
+        boolean isPartialUpdate = false;
+        if (targetTable.getEnableUniqueKeyMergeOnWrite()
+                && cols.size() < targetTable.getColumns().size()) {
+            isPartialUpdate = true;
+        }
+
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, cols, ImmutableList.of(),
-                partitions, logicalQuery);
+                partitions, isPartialUpdate, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {

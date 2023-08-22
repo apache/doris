@@ -65,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -554,6 +555,14 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalSubQueryAlias<Plan> subQueryAlias = ctx.root;
                     checkSameNameSlot(subQueryAlias.child(0).getOutput(), subQueryAlias.getAlias());
                     return subQueryAlias;
+                })
+            ),
+            RuleType.BINDING_RESULT_SINK.build(
+                unboundResultSink().then(sink -> {
+                    List<NamedExpression> outputExprs = sink.child().getOutput().stream()
+                            .map(NamedExpression.class::cast)
+                            .collect(ImmutableList.toImmutableList());
+                    return new LogicalResultSink<>(outputExprs, sink.child());
                 })
             )
         ).stream().map(ruleCondition).collect(ImmutableList.toImmutableList());

@@ -60,7 +60,9 @@ public:
 
     // called when consumer finished
     Status close() override {
-        cancel("closed");
+        if (!(_finished || _cancelled)) {
+            cancel("closed");
+        }
         return Status::OK();
     }
 

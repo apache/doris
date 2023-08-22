@@ -36,6 +36,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -84,6 +85,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     private final TableName tableName;
     private List<String> columnNames;
     private List<String> partitionNames;
+    private boolean isAllColumns;
 
     // after analyzed
     private long dbId;
@@ -98,6 +100,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         this.partitionNames = partitionNames == null ? null : partitionNames.getPartitionNames();
         this.columnNames = columnNames;
         this.analyzeProperties = properties;
+        this.isAllColumns = columnNames == null;
     }
 
     public AnalyzeTblStmt(AnalyzeProperties analyzeProperties, TableName tableName, List<String> columnNames, long dbId,
@@ -107,6 +110,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         this.columnNames = columnNames;
         this.dbId = dbId;
         this.table = table;
+        this.isAllColumns = columnNames == null;
     }
 
     @Override
@@ -128,6 +132,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         dbId = db.getId();
         table = db.getTableOrAnalysisException(tblName);
+        isAllColumns = columnNames == null;
         check();
     }
 
@@ -188,10 +193,10 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             }
         }
         if (containsUnsupportedTytpe) {
-            if (ConnectContext.get().getSessionVariable().ignoreColumnWithComplexType) {
+            if (ConnectContext.get() == null
+                    || !ConnectContext.get().getSessionVariable().enableAnalyzeComplexTypeColumn) {
                 columnNames = columnNames.stream()
-                        .filter(c -> !ColumnStatistic.UNSUPPORTED_TYPE.contains(
-                                table.getColumn(c).getType()))
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(table.getColumn(c).getType()))
                         .collect(Collectors.toList());
             } else {
                 throw new AnalysisException(
@@ -300,5 +305,9 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
 
     public Database getDb() throws AnalysisException {
         return analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(dbId);
+    }
+
+    public boolean isAllColumns() {
+        return isAllColumns;
     }
 }

@@ -118,6 +118,8 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -518,6 +520,21 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_UPDATE_SCHEDULER_JOB:
+            case OperationType.OP_DELETE_SCHEDULER_JOB:
+            case OperationType.OP_CREATE_SCHEDULER_JOB: {
+                Job job = Job.readFields(in);
+                data = job;
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_SCHEDULER_TASK:
+            case OperationType.OP_DELETE_SCHEDULER_TASK: {
+                JobTask task = JobTask.readFields(in);
+                data = task;
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_LOAD_JOB: {
                 data = org.apache.doris.load.loadv2.LoadJob.read(in);
                 isRead = true;
@@ -836,7 +853,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_BARRIER: {
-                data = new BarrierLog();
+                data = BarrierLog.read(in);
                 isRead = true;
                 break;
             }

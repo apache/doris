@@ -210,14 +210,6 @@ public class StoragePolicy extends Policy {
                     throw new AnalysisException(String.format(
                         "Missing [%s] in '%s' resource", HdfsResource.HADOOP_USER_NAME, storageResource));
                 }
-                if (!properties.containsKey(HdfsResource.HADOOP_KERBEROS_PRINCIPAL)) {
-                    throw new AnalysisException(String.format(
-                        "Missing [%s] in '%s' resource", HdfsResource.HADOOP_KERBEROS_PRINCIPAL, storageResource));
-                }
-                if (!properties.containsKey(HdfsResource.HADOOP_KERBEROS_KEYTAB)) {
-                    throw new AnalysisException(String.format(
-                        "Missing [%s] in '%s' resource", HdfsResource.HADOOP_KERBEROS_KEYTAB, storageResource));
-                }
                 break;
             default:
                 throw new AnalysisException(

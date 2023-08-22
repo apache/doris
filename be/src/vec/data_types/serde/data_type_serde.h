@@ -29,7 +29,9 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#include "vec/io/reader_buffer.h"
 
 namespace arrow {
 class ArrayBuilder;
@@ -60,8 +62,25 @@ class IDataType;
 
 class DataTypeSerDe {
 public:
+    // Text serialization/deserialization of data types depend on some settings witch we define
+    // in formatOptions.
+    struct FormatOptions {
+        /**
+         * if true, we will use olap format which defined in src/olap/types.h, but we do not suggest
+         * use this format in olap, because it is more slower, keep this option is for compatibility.
+         */
+        bool date_olap_format = false;
+    };
+
+public:
     DataTypeSerDe();
     virtual ~DataTypeSerDe();
+    // Text serializer and deserializer with formatOptions to handle different text format
+    virtual void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                            const FormatOptions& options) const = 0;
+
+    virtual Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                                  const FormatOptions& options) const = 0;
 
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int start,

@@ -63,8 +63,11 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     public AbstractPhysicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
             Statistics statistics, Plan... children) {
-        super(type, groupExpression, Optional.of(logicalProperties), statistics, children);
-        this.physicalProperties = physicalProperties == null ? PhysicalProperties.ANY : physicalProperties;
+        super(type, groupExpression,
+                logicalProperties == null ? Optional.empty() : Optional.of(logicalProperties),
+                statistics, children);
+        this.physicalProperties =
+                physicalProperties == null ? PhysicalProperties.ANY : physicalProperties;
     }
 
     public PhysicalProperties getPhysicalProperties() {

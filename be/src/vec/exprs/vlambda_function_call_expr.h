@@ -34,10 +34,7 @@ public:
     VLambdaFunctionCallExpr(const TExprNode& node) : VExpr(node) {}
     ~VLambdaFunctionCallExpr() override = default;
 
-    VExprSPtr clone() const override { return VLambdaFunctionCallExpr::create_shared(*this); }
-
-    doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                          VExprContext* context) override {
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
         std::vector<std::string_view> child_expr_name;
@@ -56,8 +53,7 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status execute(VExprContext* context, doris::vectorized::Block* block,
-                   int* result_column_id) override {
+    Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         return _lambda_function->execute(context, block, result_column_id, _data_type, _children);
     }
 

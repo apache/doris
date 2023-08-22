@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 
 /** CommandVisitor. */
 public interface CommandVisitor<R, C> {
+
     R visitCommand(Command command, C context);
 
     default R visitExplainCommand(ExplainCommand explain, C context) {

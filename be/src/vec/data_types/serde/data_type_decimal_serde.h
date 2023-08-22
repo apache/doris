@@ -47,9 +47,32 @@ class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(IsDecimalNumber<T>);
 
 public:
-    DataTypeDecimalSerDe(int scale_)
+    static constexpr PrimitiveType get_primitive_type() {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return TYPE_DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return TYPE_DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return TYPE_DECIMAL128I;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
+            return TYPE_DECIMALV2;
+        }
+        __builtin_unreachable();
+    }
+
+    DataTypeDecimalSerDe(int scale_, int precision_)
             : scale(scale_),
+              precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
+
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
@@ -76,7 +99,8 @@ private:
                                   int row_idx, bool col_const) const;
 
     int scale;
-    const T::NativeType scale_multiplier;
+    int precision;
+    const typename T::NativeType scale_multiplier;
     mutable char buf[T::max_string_length()];
 };
 

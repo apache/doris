@@ -22,7 +22,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.MutableState;
@@ -141,25 +140,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        AbstractPlan that = (AbstractPlan) o;
-        // stats should don't need.
-        return Objects.equals(getLogicalProperties(), that.getLogicalProperties());
-    }
-
-    @Override
-    public int hashCode() {
-        // stats should don't need.
-        return Objects.hash(getLogicalProperties());
-    }
-
-    @Override
     public List<Slot> getOutput() {
         return getLogicalProperties().getOutput();
     }
@@ -188,6 +168,18 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     }
 
     @Override
+    public LogicalProperties computeLogicalProperties() {
+        boolean hasUnboundChild = children.stream()
+                .map(Plan::getLogicalProperties)
+                .anyMatch(UnboundLogicalProperties.class::isInstance);
+        if (hasUnboundChild || hasUnboundExpression()) {
+            return UnboundLogicalProperties.INSTANCE;
+        } else {
+            return new LogicalProperties(this::computeOutput);
+        }
+    }
+
+    @Override
     public Optional<Object> getMutableState(String key) {
         return mutableState.get(key);
     }
@@ -195,31 +187,5 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public void setMutableState(String key, Object state) {
         this.mutableState = this.mutableState.set(key, state);
-    }
-
-    /**
-     * used in treeString()
-     *
-     * @return "" if groupExpression is empty, o.w. string format of group id
-     */
-    public String getGroupIdAsString() {
-        String groupId;
-        if (getGroupExpression().isPresent()) {
-            groupId = "@" + groupExpression.get().getOwnerGroup().getGroupId().asInt();
-        } else if (getMutableState("group").isPresent()) {
-            groupId = "@" + getMutableState("group").get();
-        } else {
-            groupId = "";
-        }
-        return groupId;
-    }
-
-    @Override
-    public boolean deepEquals(TreeNode o) {
-        AbstractPlan that = (AbstractPlan) o;
-        if (Objects.equals(getLogicalProperties(), that.getLogicalProperties())) {
-            return super.deepEquals(o);
-        }
-        return false;
     }
 }

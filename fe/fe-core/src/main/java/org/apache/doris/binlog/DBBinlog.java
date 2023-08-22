@@ -17,8 +17,7 @@
 
 package org.apache.doris.binlog;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -55,9 +54,12 @@ public class DBBinlog {
 
     private List<TBinlog> tableDummyBinlogs;
 
-    public DBBinlog(TBinlog binlog) {
+    private BinlogConfigCache binlogConfigCache;
+
+    public DBBinlog(BinlogConfigCache binlogConfigCache, TBinlog binlog) {
         lock = new ReentrantReadWriteLock();
         this.dbId = binlog.getDbId();
+        this.binlogConfigCache = binlogConfigCache;
 
         // allBinlogs treeset order by commitSeq
         allBinlogs = Sets.newTreeSet(Comparator.comparingLong(TBinlog::getCommitSeq));
@@ -74,14 +76,16 @@ public class DBBinlog {
         allBinlogs.add(dummy);
     }
 
-    public static DBBinlog recoverDbBinlog(TBinlog dbDummy, List<TBinlog> tableDummies, boolean dbBinlogEnable) {
-        DBBinlog dbBinlog = new DBBinlog(dbDummy);
+    public static DBBinlog recoverDbBinlog(BinlogConfigCache binlogConfigCache, TBinlog dbDummy,
+                                           List<TBinlog> tableDummies, boolean dbBinlogEnable) {
+        DBBinlog dbBinlog = new DBBinlog(binlogConfigCache, dbDummy);
+        long dbId = dbDummy.getDbId();
         for (TBinlog tableDummy : tableDummies) {
             long tableId = tableDummy.getBelong();
-            if (!dbBinlogEnable && !BinlogUtils.tableEnabledBinlog(dbBinlog.getDbId(), tableId)) {
+            if (!dbBinlogEnable && !binlogConfigCache.isEnableTable(dbId, tableId)) {
                 continue;
             }
-            dbBinlog.tableBinlogMap.put(tableId, new TableBinlog(tableDummy, tableId));
+            dbBinlog.tableBinlogMap.put(tableId, new TableBinlog(binlogConfigCache, tableDummy, dbId, tableId));
             dbBinlog.tableDummyBinlogs.add(tableDummy);
         }
 
@@ -111,11 +115,12 @@ public class DBBinlog {
         }
     }
 
+    // TODO(Drogon): remove TableBinlog after DropTable, think table drop && recovery
     private TableBinlog getTableBinlog(TBinlog binlog, long tableId, boolean dbBinlogEnable) {
         TableBinlog tableBinlog = tableBinlogMap.get(tableId);
         if (tableBinlog == null) {
-            if (dbBinlogEnable || BinlogUtils.tableEnabledBinlog(dbId, tableId)) {
-                tableBinlog = new TableBinlog(binlog, tableId);
+            if (dbBinlogEnable || binlogConfigCache.isEnableTable(dbId, tableId)) {
+                tableBinlog = new TableBinlog(binlogConfigCache, binlog, dbId,  tableId);
                 tableBinlogMap.put(tableId, tableBinlog);
                 tableDummyBinlogs.add(tableBinlog.getDummyBinlog());
             }
@@ -123,21 +128,25 @@ public class DBBinlog {
         return tableBinlog;
     }
 
-    public void addBinlog(TBinlog binlog, boolean dbBinlogEnable) {
+    // guard by BinlogManager, if addBinlog called, more than one(db/tables) enable binlog
+    public void addBinlog(TBinlog binlog) {
+        boolean dbBinlogEnable = binlogConfigCache.isEnableDB(dbId);
         List<Long> tableIds = binlog.getTableIds();
+
         lock.writeLock().lock();
         try {
+            allBinlogs.add(binlog);
+
             if (binlog.getTimestamp() > 0 && dbBinlogEnable) {
                 timestamps.add(Pair.of(binlog.getCommitSeq(), binlog.getTimestamp()));
             }
-
-            allBinlogs.add(binlog);
 
             if (tableIds == null) {
                 return;
             }
 
             // HACK: for metadata fix
+            // we should not add binlog for create table and drop table in table binlog
             if (!binlog.isSetType()) {
                 return;
             }
@@ -205,22 +214,22 @@ public class DBBinlog {
 
     public BinlogTombstone gc() {
         // check db
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-        if (db == null) {
+        BinlogConfig dbBinlogConfig = binlogConfigCache.getDBBinlogConfig(dbId);
+        if (dbBinlogConfig == null) {
             LOG.error("db not found. dbId: {}", dbId);
             return null;
         }
 
-        boolean dbBinlogEnable = db.getBinlogConfig().isEnable();
+        boolean dbBinlogEnable = dbBinlogConfig.isEnable();
         BinlogTombstone tombstone;
         if (dbBinlogEnable) {
             // db binlog is enabled, only one binlogTombstones
-            long ttlSeconds = db.getBinlogConfig().getTtlSeconds();
+            long ttlSeconds = dbBinlogConfig.getTtlSeconds();
             long expiredMs = BinlogUtils.getExpiredMs(ttlSeconds);
 
             tombstone = dbBinlogEnableGc(expiredMs);
         } else {
-            tombstone = dbBinlogDisableGc(db);
+            tombstone = dbBinlogDisableGc();
         }
 
         return tombstone;
@@ -250,7 +259,7 @@ public class DBBinlog {
         return dbTombstone;
     }
 
-    private BinlogTombstone dbBinlogDisableGc(Database db) {
+    private BinlogTombstone dbBinlogDisableGc() {
         List<BinlogTombstone> tombstones = Lists.newArrayList();
         List<TableBinlog> tableBinlogs;
 
@@ -262,7 +271,7 @@ public class DBBinlog {
         }
 
         for (TableBinlog tableBinlog : tableBinlogs) {
-            BinlogTombstone tombstone = tableBinlog.gc(db);
+            BinlogTombstone tombstone = tableBinlog.ttlGc();
             if (tombstone != null) {
                 tombstones.add(tombstone);
             }
@@ -348,7 +357,7 @@ public class DBBinlog {
         List<BinlogTombstone> tableTombstones = Lists.newArrayList();
         for (TableBinlog tableBinlog : tableBinlogMap.values()) {
             // step 2.1: gc tableBinlog，and get table tombstone
-            BinlogTombstone tableTombstone = tableBinlog.gc(expiredCommitSeq);
+            BinlogTombstone tableTombstone = tableBinlog.commitSeqGc(expiredCommitSeq);
             if (tableTombstone != null) {
                 tableTombstones.add(tableTombstone);
             }
@@ -415,17 +424,6 @@ public class DBBinlog {
         }
 
         Map<Long, Long> tableCommitSeqMap = tombstone.getTableCommitSeqMap();
-        // TODO(deadlinefen): delete this code
-        // This is a reserved code for the transition between new and old versions.
-        // It will be deleted later
-        if (tableCommitSeqMap.isEmpty()) {
-            long commitSeq = tombstone.getCommitSeq();
-            List<Long> tableIds = tombstone.getTableIds();
-            for (long tableId : tableIds) {
-                tableCommitSeqMap.put(tableId, commitSeq);
-            }
-        }
-
         for (TableBinlog tableBinlog : tableBinlogs) {
             long tableId = tableBinlog.getTableId();
             if (tableCommitSeqMap.containsKey(tableId)) {

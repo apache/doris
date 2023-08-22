@@ -365,6 +365,29 @@ suite("test_window_fn") {
     """
 
     sql "DROP TABLE IF EXISTS example_window_tb;"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS test_window_in_agg
+        (
+            `c1`  int ,
+            `c2`  int ,
+            `c3`  int
+        )
+        ENGINE=OLAP
+        DUPLICATE KEY(`c1`)
+        COMMENT ""
+        DISTRIBUTED BY HASH(`c1`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        );
+        """
+    test {
+        sql """SELECT SUM(MAX(c1) OVER (PARTITION BY c2, c3)) FROM  test_window_in_agg;"""
+        exception "errCode = 2, detailMessage = AGGREGATE clause must not contain analytic expressions"
+    }
+    sql "DROP TABLE IF EXISTS test_window_in_agg;"
 }
 
 

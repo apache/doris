@@ -722,7 +722,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     // reader_context is stack variables, it's lifetime should keep the same
     // with rs_readers
     RowsetReaderContext reader_context;
-    std::vector<RowsetReaderSharedPtr> rs_readers;
+    std::vector<RowSetSplits> rs_splits;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     std::vector<ColumnId> return_columns;
@@ -814,11 +814,11 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             }
 
             // acquire data sources correspond to history versions
-            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
-            if (rs_readers.empty()) {
+            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_splits);
+            if (rs_splits.empty()) {
                 res = Status::Error<ALTER_DELTA_DOES_NOT_EXISTS>(
                         "fail to acquire all data sources. version_num={}, data_source_num={}",
-                        versions_to_be_changed.size(), rs_readers.size());
+                        versions_to_be_changed.size(), rs_splits.size());
                 break;
             }
             auto& all_del_preds = base_tablet->delete_predicates();
@@ -846,8 +846,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
-            for (auto& rs_reader : rs_readers) {
-                res = rs_reader->init(&reader_context);
+            for (auto& rs_split : rs_splits) {
+                res = rs_split.rs_reader->init(&reader_context);
                 if (!res) {
                     LOG(WARNING) << "failed to init rowset reader: " << base_tablet->full_name();
                     break;
@@ -865,7 +865,10 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl);
         sc_params.base_tablet = base_tablet;
         sc_params.new_tablet = new_tablet;
-        sc_params.ref_rowset_readers = rs_readers;
+        sc_params.ref_rowset_readers.reserve(rs_splits.size());
+        for (RowSetSplits& split : rs_splits) {
+            sc_params.ref_rowset_readers.emplace_back(split.rs_reader);
+        }
         sc_params.delete_handler = &delete_handler;
         sc_params.base_tablet_schema = base_tablet_schema;
         sc_params.be_exec_version = request.be_exec_version;
@@ -1268,6 +1271,12 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         // is less, which means the data in new tablet should be more aggregated.
         // so we use sorting schema change to sort and merge the data.
         *sc_sorting = true;
+        return Status::OK();
+    }
+
+    if (new_tablet->enable_unique_key_merge_on_write() &&
+        new_tablet->num_key_columns() > base_tablet_schema->num_key_columns()) {
+        *sc_directly = true;
         return Status::OK();
     }
 

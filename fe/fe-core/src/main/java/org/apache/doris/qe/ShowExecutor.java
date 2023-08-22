@@ -62,6 +62,8 @@ import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
+import org.apache.doris.analysis.ShowJobStmt;
+import org.apache.doris.analysis.ShowJobTaskStmt;
 import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
@@ -188,6 +190,9 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.scheduler.constants.JobCategory;
+import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -213,6 +218,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -423,6 +429,10 @@ public class ShowExecutor {
             handleShowBuildIndexStmt();
         } else if (stmt instanceof ShowAnalyzeTaskStatus) {
             handleShowAnalyzeTaskStatus();
+        } else if (stmt instanceof ShowJobStmt) {
+            handleShowJob();
+        } else if (stmt instanceof ShowJobTaskStmt) {
+            handleShowJobTask();
         } else {
             handleEmtpy();
         }
@@ -446,7 +456,7 @@ public class ShowExecutor {
                 .listConnection(ctx.getQualifiedUser(), showStmt.isFull());
         long nowMs = System.currentTimeMillis();
         for (ConnectContext.ThreadInfo info : threadInfos) {
-            rowSet.add(info.toRow(nowMs));
+            rowSet.add(info.toRow(nowMs, false));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
@@ -872,7 +882,11 @@ public class ShowExecutor {
                 // Row_format
                 row.add(null);
                 // Rows
-                row.add(String.valueOf(table.getRowCount()));
+                // Use estimatedRowCount(), not getRowCount().
+                // because estimatedRowCount() is an async call, it will not block, and it will call getRowCount()
+                // finally. So that for some table(especially external table),
+                // we can get the row count without blocking.
+                row.add(String.valueOf(table.estimatedRowCount()));
                 // Avg_row_length
                 row.add(String.valueOf(table.getAvgRowLength()));
                 // Data_length
@@ -964,7 +978,7 @@ public class ShowExecutor {
             }
             List<String> createTableStmt = Lists.newArrayList();
             Env.getDdlStmt(null, null, table, createTableStmt, null, null, false,
-                    true /* hide password */, false, -1L, showStmt.isNeedBriefDdl());
+                    true /* hide password */, false, -1L, showStmt.isNeedBriefDdl(), false);
             if (createTableStmt.isEmpty()) {
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;
@@ -1376,6 +1390,61 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+
+    private void handleShowJobTask() {
+        ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<Job> jobs = Env.getCurrentEnv().getJobRegister()
+                .getJobs(showJobTaskStmt.getDbFullName(), showJobTaskStmt.getName(), JobCategory.SQL,
+                        null);
+        if (CollectionUtils.isEmpty(jobs)) {
+            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+            return;
+        }
+        long jobId = jobs.get(0).getJobId();
+        List<JobTask> jobTasks = Env.getCurrentEnv().getJobTaskManager().getJobTasks(jobId);
+        if (CollectionUtils.isEmpty(jobTasks)) {
+            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+            return;
+        }
+        for (JobTask job : jobTasks) {
+            rows.add(job.getShowInfo());
+        }
+        resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+    }
+
+    private void handleShowJob() throws AnalysisException {
+        ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        // if job exists
+        List<Job> jobList;
+        PatternMatcher matcher = null;
+        if (showJobStmt.getPattern() != null) {
+            matcher = PatternMatcherWrapper.createMysqlPattern(showJobStmt.getPattern(),
+                    CaseSensibility.JOB.getCaseSensibility());
+        }
+        jobList = Env.getCurrentEnv().getJobRegister()
+                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), JobCategory.SQL,
+                        matcher);
+
+        if (jobList.isEmpty()) {
+            resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
+            return;
+        }
+
+        // check auth
+        for (Job job : jobList) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), job.getDbName(), PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                        ConnectContext.get().getQualifiedUser(), job.getDbName());
+            }
+        }
+        for (Job job : jobList) {
+            rows.add(job.getShowInfo());
+        }
+        resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
     }
 
     private void handleShowRoutineLoad() throws AnalysisException {
@@ -1878,8 +1947,9 @@ public class ShowExecutor {
 
     private void handleShowFrontends() {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
+
         List<List<String>> infos = Lists.newArrayList();
-        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
+        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), showStmt.getDetailType(), infos);
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
@@ -2533,7 +2603,7 @@ public class ShowExecutor {
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog() != null
-            ? ctx.getCurrentCatalog().getName() : null);
+                ? ctx.getCurrentCatalog().getName() : null);
     }
 
     // Show create catalog
@@ -2562,6 +2632,7 @@ public class ShowExecutor {
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
             row.add(analysisInfo.state.toString());
+            row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
             row.add(analysisInfo.scheduleType.toString());
             resultRows.add(row);
         }
@@ -2740,13 +2811,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
-    private void  handleShowBuildIndexStmt() throws AnalysisException {
+    private void handleShowBuildIndexStmt() throws AnalysisException {
         ShowBuildIndexStmt showStmt = (ShowBuildIndexStmt) stmt;
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
         // List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResult().getRows();
         List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
+                showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -2762,6 +2833,7 @@ public class ShowExecutor {
             row.add(TimeUtils.DATETIME_FORMAT.format(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                             ZoneId.systemDefault())));
+            row.add(String.valueOf(analysisInfo.timeCostInMs));
             row.add(analysisInfo.state.toString());
             rows.add(row);
         }

@@ -34,6 +34,7 @@ package-lock.json
 .settings/
 **/.idea/
 !.idea/vcs.xml
+!.idea/icon.svg
 **/.vscode/
 **/.fleet/
 

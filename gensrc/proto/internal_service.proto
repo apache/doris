@@ -501,6 +501,7 @@ message PPublishFilterRequest {
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8;
+    optional int64 merge_time = 9;
 };
 
 message PPublishFilterRequestV2 {
@@ -669,6 +670,28 @@ message PGetTabletVersionsResponse {
     repeated PVersion versions = 2;
 };
 
+message PReportStreamLoadStatusRequest {
+    optional PUniqueId load_id = 1;
+    optional PStatus status = 2;
+}
+
+message PReportStreamLoadStatusResponse {
+    optional PStatus status = 1;
+}
+
+message PGlobRequest {
+    optional string pattern = 1;
+}
+
+message PGlobResponse {
+    message PFileInfo {
+        optional string file = 1;
+        optional int64 size = 2;
+    };
+    required PStatus status = 1;
+    repeated PFileInfo files = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -706,5 +729,7 @@ service PBackendService {
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);
+    rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
+    rpc glob(PGlobRequest) returns (PGlobResponse);
 };
 

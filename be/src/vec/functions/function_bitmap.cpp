@@ -279,8 +279,8 @@ struct BitmapFromArray {
             //input is valid value
             if (!null_map[i]) {
                 res.emplace_back(bits);
-                bits.clear();
             }
+            bits.clear();
         }
         return Status::OK();
     }

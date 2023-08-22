@@ -55,6 +55,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
@@ -319,12 +320,15 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    CHECK(block->columns() > _tablet_schema->num_key_columns() &&
-          block->columns() < _tablet_schema->num_columns())
-            << "block columns: " << block->columns()
-            << ", num key columns: " << _tablet_schema->num_key_columns()
-            << ", total schema columns: " << _tablet_schema->num_columns();
-    CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
+    if (block->columns() <= _tablet_schema->num_key_columns() ||
+        block->columns() >= _tablet_schema->num_columns()) {
+        return Status::InternalError(
+                fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
+                            "schema columns: {}",
+                            block->columns(), _tablet_schema->num_key_columns(),
+                            _tablet_schema->num_columns()));
+    }
+    DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
     std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
@@ -364,6 +368,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(num_rows);
+    const vectorized::Int8* delete_sign_column_data = nullptr;
+    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
+                full_block.try_get_by_name(DELETE_SIGN);
+        delete_sign_column != nullptr) {
+        auto& delete_sign_col =
+                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+        if (delete_sign_col.size() == num_rows) {
+            delete_sign_column_data = delete_sign_col.get_data().data();
+        }
+    }
+
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -412,10 +427,19 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             LOG(WARNING) << "failed to lookup row key, error: " << st;
             return st;
         }
-        // partial update should not contain invisible columns
-        use_default_or_null_flag.emplace_back(false);
-        _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
+
+        // if the delete sign is marked, it means that the value columns of the row
+        // will not be read. So we don't need to read the missing values from the previous rows.
+        // But we still need to mark the previous row on delete bitmap
+        if (delete_sign_column_data != nullptr && delete_sign_column_data[pos - row_pos] != 0) {
+            has_default_or_nullable = true;
+            use_default_or_null_flag.emplace_back(true);
+        } else {
+            // partial update should not contain invisible columns
+            use_default_or_null_flag.emplace_back(false);
+            _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+            _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
+        }
 
         if (st.is<ALREADY_EXIST>()) {
             // although we need to mark delete current row, we still need to read missing columns
@@ -551,14 +575,18 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 // if the column has default value, fiil it with default value
                 // otherwise, if the column is nullable, fill it with null value
                 const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
-                CHECK(tablet_column.has_default_value() || tablet_column.is_nullable());
                 if (tablet_column.has_default_value()) {
                     mutable_full_columns[cids_missing[i]]->insert_from(
                             *mutable_default_value_columns[i].get(), 0);
-                } else {
+                } else if (tablet_column.is_nullable()) {
                     auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
                             mutable_full_columns[cids_missing[i]].get());
                     nullable_column->insert_null_elements(1);
+                } else {
+                    // If the control flow reaches this branch, the column neither has default value
+                    // nor is nullable. It means that the row's delete sign is marked, and the value
+                    // columns are useless and won't be read. So we can just put arbitary values in the cells
+                    mutable_full_columns[cids_missing[i]]->insert_default();
                 }
             }
             continue;
@@ -805,7 +833,14 @@ Status SegmentWriter::finalize_columns_data() {
     if (_has_key) {
         _row_count = _num_rows_written;
     } else {
-        CHECK_EQ(_row_count, _num_rows_written);
+        DCHECK(_row_count == _num_rows_written)
+                << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
+        if (_row_count != _num_rows_written) {
+            std::stringstream ss;
+            ss << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
     }
     _num_rows_written = 0;
 

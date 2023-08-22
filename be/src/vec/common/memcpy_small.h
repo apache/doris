@@ -81,3 +81,8 @@ inline void memcpy_small_allow_read_write_overflow15(void* __restrict dst,
 }
 
 #endif
+
+template <typename T>
+void memcpy_fixed(char* lhs, const char* rhs) {
+    *(T*)lhs = *(T*)rhs;
+}

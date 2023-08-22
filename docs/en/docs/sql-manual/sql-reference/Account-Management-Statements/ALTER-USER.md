@@ -71,7 +71,7 @@ In an ALTER USER command, only one of the following account attributes can be mo
 1. Change the user's password
 
     ```
-    ALTER USER jack@‘%’ IDENTIFIED BY "12345";
+    ALTER USER jack@'%' IDENTIFIED BY "12345";
     ```
 
 2. Modify the user's password policy
