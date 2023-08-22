@@ -261,9 +261,13 @@ public:
         EngineOptions options;
         options.store_paths = paths;
         doris::StorageEngine::open(options, &k_engine);
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     }
 
     static void TearDownTestSuite() {
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_memtable_memory_limiter(nullptr);
         if (k_engine != nullptr) {
             k_engine->stop();
             delete k_engine;

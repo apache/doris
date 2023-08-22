@@ -310,10 +310,11 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_concat(array(cast ('2023-03-05 12:23:24.999' as datetimev2(3)),cast ('2023-03-05 15:23:23.997' as datetimev2(3))))"
 
     // array_shuffle
-    qt_select_array_shuffle1 "SELECT array_sum(array_shuffle([1, 2, 3, 3, null, null, 4, 4])), array_shuffle([1, 2, 3, 3, null, null, 4, 4], 0), shuffle([1, 2, 3, 3, null, null, 4, 4], 0)"
-    qt_select_array_shuffle2 "SELECT array_sum(array_shuffle([1.111, 2.222, 3.333])), array_shuffle([1.111, 2.222, 3.333], 0), shuffle([1.111, 2.222, 3.333], 0)"
-    qt_select_array_shuffle3 "SELECT array_size(array_shuffle(['aaa', null, 'bbb', 'fff'])), array_shuffle(['aaa', null, 'bbb', 'fff'], 0), shuffle(['aaa', null, 'bbb', 'fff'], 0)"
-    qt_select_array_shuffle4 """select array_size(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17")), array_shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0), shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0)"""
+    // do not check result, since shuffle result is random
+    sql "SELECT array_sum(array_shuffle([1, 2, 3, 3, null, null, 4, 4])), array_shuffle([1, 2, 3, 3, null, null, 4, 4], 0), shuffle([1, 2, 3, 3, null, null, 4, 4], 0)"
+    sql "SELECT array_sum(array_shuffle([1.111, 2.222, 3.333])), array_shuffle([1.111, 2.222, 3.333], 0), shuffle([1.111, 2.222, 3.333], 0)"
+    sql "SELECT array_size(array_shuffle(['aaa', null, 'bbb', 'fff'])), array_shuffle(['aaa', null, 'bbb', 'fff'], 0), shuffle(['aaa', null, 'bbb', 'fff'], 0)"
+    sql """select array_size(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17")), array_shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0), shuffle(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17"), 0)"""
 
     // array_zip
     qt_sql "select array_zip(['a', 'b', 'c'], ['d', 'e', 'f'])"

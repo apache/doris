@@ -113,8 +113,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, Dependency* dependency)
             fragment_id_to_channel_index.end()) {
             channel_shared_ptrs.emplace_back(new vectorized::PipChannel<ExchangeSinkLocalState>(
                     this, p._row_desc, p._dests[i].brpc_server, fragment_instance_id,
-                    p._dest_node_id, p._per_channel_buffer_size, false,
-                    p._send_query_statistics_with_every_batch));
+                    p._dest_node_id, false, p._send_query_statistics_with_every_batch));
         }
         fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                              channel_shared_ptrs.size() - 1);
@@ -190,15 +189,13 @@ segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         const int id, RuntimeState* state, ObjectPool* pool, const RowDescriptor& row_desc,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
-        int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
-        PipelineXFragmentContext* context)
+        bool send_query_statistics_with_every_batch, PipelineXFragmentContext* context)
         : DataSinkOperatorX(id),
           _context(context),
           _pool(pool),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
           _dests(destinations),
-          _per_channel_buffer_size(per_channel_buffer_size),
           _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc) {
@@ -213,7 +210,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         const int id, ObjectPool* pool, const RowDescriptor& row_desc, PlanNodeId dest_node_id,
-        const std::vector<TPlanFragmentDestination>& destinations, int per_channel_buffer_size,
+        const std::vector<TPlanFragmentDestination>& destinations,
         bool send_query_statistics_with_every_batch, PipelineXFragmentContext* context)
         : DataSinkOperatorX(id),
           _context(context),
@@ -221,7 +218,6 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _row_desc(row_desc),
           _part_type(TPartitionType::UNPARTITIONED),
           _dests(destinations),
-          _per_channel_buffer_size(per_channel_buffer_size),
           _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
           _dest_node_id(dest_node_id) {
     _cur_pb_block = &_pb_block1;
@@ -230,14 +226,12 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
 
 ExchangeSinkOperatorX::ExchangeSinkOperatorX(const int id, ObjectPool* pool,
                                              const RowDescriptor& row_desc,
-                                             int per_channel_buffer_size,
                                              bool send_query_statistics_with_every_batch,
                                              PipelineXFragmentContext* context)
         : DataSinkOperatorX(id),
           _context(context),
           _pool(pool),
           _row_desc(row_desc),
-          _per_channel_buffer_size(per_channel_buffer_size),
           _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
           _dest_node_id(0) {
     _cur_pb_block = &_pb_block1;

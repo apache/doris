@@ -178,6 +178,11 @@ public:
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
     MemTableMemoryLimiter* memtable_memory_limiter() { return _memtable_memory_limiter.get(); }
+#ifdef BE_TEST
+    void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
+        _memtable_memory_limiter.reset(limiter);
+    }
+#endif
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
