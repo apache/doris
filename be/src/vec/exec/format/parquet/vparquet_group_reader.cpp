@@ -78,7 +78,7 @@ namespace doris::vectorized {
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
-                               const std::vector<ParquetReadColumn>& read_columns,
+                               const std::vector<std::string>& read_columns,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
@@ -126,21 +126,16 @@ Status RowGroupReader::init(
     const size_t MAX_COLUMN_BUF_SIZE = config::parquet_column_max_buffer_mb << 20;
     size_t max_buf_size = std::min(MAX_COLUMN_BUF_SIZE, MAX_GROUP_BUF_SIZE / _read_columns.size());
     for (auto& read_col : _read_columns) {
-        auto field = const_cast<FieldSchema*>(schema.get_column(read_col._file_slot_name));
+        auto field = const_cast<FieldSchema*>(schema.get_column(read_col));
         std::unique_ptr<ParquetColumnReader> reader;
         RETURN_IF_ERROR(ParquetColumnReader::create(_file_reader, field, _row_group_meta,
                                                     _read_ranges, _ctz, _io_ctx, reader,
                                                     max_buf_size));
-        auto col_iter = col_offsets.find(read_col._parquet_col_id);
-        if (col_iter != col_offsets.end()) {
-            tparquet::OffsetIndex oi = col_iter->second;
-            reader->add_offset_index(&oi);
-        }
         if (reader == nullptr) {
             VLOG_DEBUG << "Init row group(" << _row_group_id << ") reader failed";
             return Status::Corruption("Init row group reader failed");
         }
-        _column_readers[read_col._file_slot_name] = std::move(reader);
+        _column_readers[read_col] = std::move(reader);
     }
     // Check if single slot can be filtered by dict.
     if (!_slot_id_to_filter_conjuncts) {
