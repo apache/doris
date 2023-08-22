@@ -646,7 +646,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, needForward = true,
-            varType = VariableAnnotation.EXPERIMENTAL)
+            expType = ExperimentalType.EXPERIMENTAL)
     private boolean enablePipelineEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL)
