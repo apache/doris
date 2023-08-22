@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <string.h>
-
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -30,9 +28,12 @@
 #include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -42,17 +43,6 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
 #include "vec/utils/template_helpers.hpp"
-
-namespace doris {
-class FunctionContext;
-
-namespace vectorized {
-class ColumnArray;
-class ColumnMap;
-class ColumnString;
-class ColumnStruct;
-} // namespace vectorized
-} // namespace doris
 
 namespace doris::vectorized {
 
