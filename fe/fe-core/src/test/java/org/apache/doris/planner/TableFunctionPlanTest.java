@@ -50,7 +50,7 @@ public class TableFunctionPlanTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Env.getCurrentEnv().createDb(createDbStmt);
         // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar(1), k3 varchar) "
+        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar(1), k3 varchar(1)) "
                 + "DUPLICATE KEY(k1) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Env.getCurrentEnv().createTable(createTableStmt);
