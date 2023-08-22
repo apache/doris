@@ -2116,4 +2116,7 @@ public class Config extends ConfigBase {
             "是否开启列权限",
             "Whether to enable col auth"})
     public static boolean enable_col_auth = false;
+
+    @ConfField
+    public static boolean forbid_running_alter_job = false;
 }
