@@ -83,4 +83,16 @@ suite("test_json_function") {
     qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"projects\": [{\"name\": \"Project A\", \"year\": 2020}, {\"name\": \"Project B\", \"year\": 2021}]}', '{\"projects\": [{\"name\": \"Project A\"}]}', '\$.');"
     qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"address\": {\"city\": \"New York\", \"country\": \"USA\"}}', '{\"address\": {\"city\": \"New York\"}}', '\$.');"
 
+    qt_sql "SELECT JSON_MERGE_PATCH('[]','[]');"
+    qt_sql "SELECT JSON_MERGE_PATCH('{}','{}');"
+    qt_sql "SELECT JSON_MERGE_PATCH('[1]','[1]');"
+    qt_sql "SELECT JSON_MERGE_PATCH('[1, true, 0.1, [1], {\"a\": 1}, \"123\"]','[1]');"
+    qt_sql "SELECT JSON_MERGE_PATCH('1', 'true', '0.1', '[1]', '{\"a\": 1}', '\"123\"');"
+    qt_sql "SELECT JSON_MERGE_PATCH('1', 'true', '0.1', '[]', '{}', '\"123\"', NULL);"
+    qt_sql "SELECT JSON_MERGE_PATCH('{\"a\": 1}','{\"a\": 2}');"
+    qt_sql "SELECT JSON_MERGE_PATCH('{\"a\": {\"b\": 1}, \"c\": 1}', '{\"a\": {\"b\": 2}}');"
+    qt_sql "SELECT JSON_MERGE_PATCH('{\"a\": {\"b\": true}, \"c\": 1}', '{\"a\": {\"b\": {}}}');"
+    qt_sql "SELECT JSON_MERGE_PATCH('{\"a\": {\"b\": 0.1}, \"c\": 1}', '{\"a\": {\"b\": {}}}');"
+    qt_sql "SELECT JSON_MERGE_PATCH('{\"a\": {\"b\": []}, \"c\": 1}', '{\"a\": {\"b\": {}}}');"
+    qt_sql "SELECT JSON_MERGE_PATCH('{\"a\": 1, \"b\": 2 }', '{ \"a\": 3, \"c\": 4 }', '{ \"a\": 5, \"d\": 6}');"
 }
