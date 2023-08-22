@@ -25,7 +25,7 @@ suite("test_local_tvf_with_complex_type", "p0") {
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
         // cluster mode need to make sure all be has this data
-        def outFilePath="/mnt/disk1/wangqiannan/"
+        def outFilePath="/"
         def transFile01="${dataFilePath}/complex_type.orc"
         def transFile02="${dataFilePath}/complex_type.parquet"
         for (List<Object> backend : backends) {
