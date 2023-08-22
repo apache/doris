@@ -120,8 +120,8 @@ public class BindSink implements AnalysisRuleFactory {
                                                 column.getDefineExpr().toSql());
                                         Expression boundSlotExpression = SlotReplacer.INSTANCE
                                                 .replace(parsedExpression, columnToOutput);
-                                        // the boundSlotExpression is an expression whose slots are bound but function may
-                                        // not be bound, we have to bind it again.
+                                        // the boundSlotExpression is an expression whose slots are bound but function
+                                        // may not be bound, we have to bind it again.
                                         // for example: to_bitmap.
                                         Expression boundExpression = FunctionBinder.INSTANCE.rewrite(
                                                 boundSlotExpression, new ExpressionRewriteContext(ctx.cascadesContext));
