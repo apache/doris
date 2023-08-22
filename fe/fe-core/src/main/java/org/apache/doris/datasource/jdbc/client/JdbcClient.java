@@ -232,13 +232,18 @@ public abstract class JdbcClient {
      * get all tables of one database
      */
     public List<String> getTablesNameList(String dbName) {
+        String currentDbName = dbName;
         List<String> tablesName = Lists.newArrayList();
         String[] tableTypes = getTableTypes();
         if (isLowerCaseTableNames) {
-            dbName = lowerDBToRealDB.get(dbName);
+            currentDbName = lowerDBToRealDB.get(dbName);
+            if (currentDbName == null) {
+                getDatabaseNameList();
+                currentDbName = lowerDBToRealDB.get(dbName);
+            }
         }
-        String finalDbName = dbName;
-        processTable(dbName, null, tableTypes, (rs) -> {
+        String finalDbName = currentDbName;
+        processTable(finalDbName, null, tableTypes, (rs) -> {
             try {
                 while (rs.next()) {
                     String tableName = rs.getString("TABLE_NAME");
@@ -256,15 +261,25 @@ public abstract class JdbcClient {
     }
 
     public boolean isTableExist(String dbName, String tableName) {
+        String currentDbName = dbName;
+        String currentTableName = tableName;
         final boolean[] isExist = {false};
         if (isLowerCaseTableNames) {
-            dbName = lowerDBToRealDB.get(dbName);
-            tableName = lowerTableToRealTable.get(tableName);
+            currentDbName = lowerDBToRealDB.get(dbName);
+            currentTableName = lowerTableToRealTable.get(tableName);
+            if (currentDbName == null) {
+                getDatabaseNameList();
+                currentDbName  = lowerDBToRealDB.get(dbName);
+            }
+            if (currentTableName == null) {
+                getTablesNameList(dbName);
+                currentTableName = lowerTableToRealTable.get(tableName);
+            }
         }
         String[] tableTypes = getTableTypes();
-        String finalTableName = tableName;
-        String finalDbName = dbName;
-        processTable(dbName, tableName, tableTypes, (rs) -> {
+        String finalTableName = currentTableName;
+        String finalDbName = currentDbName;
+        processTable(finalDbName, finalTableName, tableTypes, (rs) -> {
             try {
                 if (rs.next()) {
                     isExist[0] = true;
@@ -286,19 +301,27 @@ public abstract class JdbcClient {
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
         // if isLowerCaseTableNames == true, tableName is lower case
         // but databaseMetaData.getColumns() is case sensitive
+        String currentDbName = dbName;
+        String currentTableName = tableName;
         if (isLowerCaseTableNames) {
-            dbName = lowerDBToRealDB.get(dbName);
-            tableName = lowerTableToRealTable.get(tableName);
+            currentDbName = lowerDBToRealDB.get(dbName);
+            currentTableName = lowerTableToRealTable.get(tableName);
+            if (currentDbName == null) {
+                getDatabaseNameList();
+                currentDbName  = lowerDBToRealDB.get(dbName);
+            }
+            if (currentTableName == null) {
+                getTablesNameList(dbName);
+                currentTableName = lowerTableToRealTable.get(tableName);
+            }
         }
+        String finalDbName = currentDbName;
+        String finalTableName = currentTableName;
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            tableName = modifyTableNameIfNecessary(tableName);
-            rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
+            rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
             while (rs.next()) {
-                if (isTableModified(tableName, rs.getString("TABLE_NAME"))) {
-                    continue;
-                }
                 JdbcFieldSchema field = new JdbcFieldSchema();
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
@@ -323,7 +346,7 @@ public abstract class JdbcClient {
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
-            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, tableName,
+            throw new JdbcClientException("failed to get table name list from jdbc for table %s:%s", e, finalTableName,
                     Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
