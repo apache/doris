@@ -19,45 +19,31 @@ import org.junit.Assert
 
 // This suit test the `backends` tvf
 suite("test_local_tvf_with_complex_type", "p0") {
-    List<List<Object>> table =  sql """ show backends """
+    List<List<Object>> backends =  sql """ show backends """
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/"
 
-    assertTrue(table.size() > 0)
-    def be_id = table[0][0]
-    if (table.size() > 1) {
+    assertTrue(backends.size() > 0)
+    def be_id = backends[0][0]
         // cluster mode need to make sure all be has this data
-        // get s3 files to local
-        String s3_file_orc = "${getS3Url()}/regression/tvf/complex_type.orc"
-        String s3_file_parquet = "${getS3Url()}/regression/tvf/complex_type.parquet"
-
-        String cmd_orc = "wget ${s3_file_orc}"
-        String cmd_parquet = "wget ${s3_file_parquet}"
-        logger.info("Execute: ${cmd_orc}".toString())
-        logger.info("Execute: ${cmd_parquet}".toString())
-        Process process = cmd_orc.execute()
-        def code = process.waitFor()
-        Assert.assertEquals(0, code)
-        Process pro = cmd_parquet.execute()
-        c = pro.waitFor()
-        Assert.assertEquals(0, c)
-
-        for (final def be_info in table) {
-            def be_host = be_info[1]
-            scpFiles("root", be_host, "complex_type.orc", dataFilePath, false);
-            scpFiles("root", be_host, "complex_type.parquet", dataFilePath, false);
+        def outFilePath="/mnt/disk1/wangqiannan/"
+        def transFile01="${dataFilePath}/complex_type.orc"
+        def transFile02="${dataFilePath}/complex_type.parquet"
+        for (List<Object> backend : backends) {
+            def be_host = backend[1]
+            scpFiles ("root", be_host, transFile01, outFilePath, false);
+            scpFiles ("root", be_host, transFile02, outFilePath, false);
         }
-    }
 
     qt_sql """
         select * from local(
-            "file_path" = "${dataFilePath}/complex_type.orc",
+            "file_path" = "${outFilePath}/complex_type.orc",
             "backend_id" = "${be_id}",
             "format" = "orc");"""
 
 
     qt_sql """
         select * from local(
-            "file_path" = "${dataFilePath}/complex_type.parquet",
+            "file_path" = "${outFilePath}/complex_type.parquet",
             "backend_id" = "${be_id}",
             "format" = "parquet"); """
 
