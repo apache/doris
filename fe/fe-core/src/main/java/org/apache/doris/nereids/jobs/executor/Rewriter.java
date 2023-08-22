@@ -79,6 +79,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
+import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
@@ -271,7 +272,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(
                             new PruneOlapScanPartition(),
                             new PruneFileScanPartition(),
-                            new PushConjunctsIntoJdbcScan()
+                            new PushConjunctsIntoJdbcScan(),
+                            new PushConjunctsIntoEsScan()
                     )
             ),
             topic("MV optimization",
