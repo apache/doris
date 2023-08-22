@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -14,42 +15,41 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #pragma once
 
-#include <memory>
+#include <fmt/format.h>
+#include <stddef.h>
+
+#include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "exec/odbc_connector.h"
-#include "vec/sink/vtable_sink.h"
+#include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
-class ObjectPool;
-class RowDescriptor;
-class RuntimeState;
-class TDataSink;
-class TExpr;
-
 namespace vectorized {
+
 class Block;
 
-// This class is a sinker, which put input data to odbc table
-class VOdbcTableSink : public VTableSink {
+class VOdbcTableWriter final : public AsyncResultWriter, public ODBCConnector {
 public:
-    VOdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                   const std::vector<TExpr>& t_exprs);
+    static ODBCConnectorParam create_connect_param(const TDataSink&);
 
-    Status init(const TDataSink& thrift_sink) override;
+    VOdbcTableWriter(const doris::TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
 
-    Status open(RuntimeState* state) override;
+    // connect to odbc server
+    Status open(RuntimeState* state, RuntimeProfile* profile) override {
+        RETURN_IF_ERROR(ODBCConnector::open(state, false));
+        return init_to_write(profile);
+    }
 
-    Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
+    Status append_block(vectorized::Block& block) override;
 
-    Status close(RuntimeState* state, Status exec_status) override;
+    Status close() override { return ODBCConnector::close(); }
 
-private:
-    ODBCConnectorParam _odbc_param;
-    std::unique_ptr<ODBCConnector> _writer;
+    bool in_transaction() override { return TableConnector::_is_in_transaction; }
 };
 } // namespace vectorized
 } // namespace doris
