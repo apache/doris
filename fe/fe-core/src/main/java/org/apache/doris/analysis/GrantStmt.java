@@ -150,7 +150,7 @@ public class GrantStmt extends DdlStmt {
         } else if (roles != null) {
             for (int i = 0; i < roles.size(); i++) {
                 String originalRoleName = roles.get(i);
-                FeNameFormat.checkRoleName(originalRoleName, false /* can not be admin */, "Can not grant role");
+                FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not grant role");
                 roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
             }
         }
@@ -182,8 +182,8 @@ public class GrantStmt extends DdlStmt {
     public static void checkAccessPrivileges(
             List<AccessPrivilegeWithCols> accessPrivileges) throws AnalysisException {
         for (AccessPrivilegeWithCols access : accessPrivileges) {
-            if ((!access.getAccessPrivilege().canHasColPriv() && !CollectionUtils.isEmpty(access.getCols()))
-                    || !Config.enable_col_auth) {
+            if ((!access.getAccessPrivilege().canHasColPriv() || !Config.enable_col_auth) && !CollectionUtils
+                    .isEmpty(access.getCols())) {
                 throw new AnalysisException(
                         String.format("%s do not support col auth.", access.getAccessPrivilege().name()));
             }
