@@ -39,8 +39,8 @@ suite("test_compress_type", "p2,external,hive,external_remote,external_remote_hi
         sql """set file_split_size=0"""
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=14, totalFileSize=682053470"
-            contains "partition=6/6"
+            contains "inputSplitNum=15, totalFileSize=706873074"
+            contains "partition=7/7"
         }
         qt_q21 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
         qt_q22 """select count(*) from test_compress_partitioned"""
@@ -49,8 +49,8 @@ suite("test_compress_type", "p2,external,hive,external_remote,external_remote_hi
         sql """set file_split_size=8388608"""
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=80, totalFileSize=682053470"
-            contains "partition=6/6"
+            contains "inputSplitNum=81, totalFileSize=706873074"
+            contains "partition=7/7"
         }
 
         qt_q31 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""

@@ -116,6 +116,7 @@ enum TFileFormatType {
     FORMAT_PROTO,
     FORMAT_JNI,
     FORMAT_AVRO,
+    FORMAT_CSV_LZ4BLOCK
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -132,6 +133,7 @@ enum TFileCompressType {
     LZ4FRAME,
     DEFLATE,
     LZOP,
+    LZ4BLOCK
 }
 
 struct THdfsConf {

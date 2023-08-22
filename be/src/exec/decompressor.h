@@ -34,7 +34,7 @@
 
 namespace doris {
 
-enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP };
+enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP, LZ4BLOCK };
 
 class Decompressor {
 public:
@@ -138,6 +138,23 @@ private:
     LZ4F_dctx* _dctx;
     size_t _expect_dec_buf_size;
     const static unsigned DORIS_LZ4F_VERSION;
+};
+
+class Lz4BlockDecompressor : public Decompressor {
+public:
+    ~Lz4BlockDecompressor() override {}
+
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
+
+    std::string debug_info() override;
+
+private:
+    friend class Decompressor;
+    Lz4BlockDecompressor() : Decompressor(CompressType::LZ4FRAME) {}
+    Status init() override;
+    uint32_t _read_int32(uint8_t* buf);
 };
 
 #ifdef DORIS_WITH_LZO

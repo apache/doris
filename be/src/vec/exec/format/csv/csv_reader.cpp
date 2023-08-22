@@ -397,21 +397,44 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     size_t rows = 0;
-    auto columns = block->mutate_columns();
-    while (rows < batch_size && !_line_reader_eof) {
-        const uint8_t* ptr = nullptr;
-        size_t size = 0;
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
-        if (_skip_lines > 0) {
-            _skip_lines--;
-            continue;
-        }
-        if (size == 0) {
-            // Read empty row, just continue
-            continue;
-        }
 
-        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+         while (rows < batch_size && !_line_reader_eof) {
+             const uint8_t* ptr = nullptr;
+             size_t size = 0;
+             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+             if (_skip_lines > 0) {
+                 _skip_lines--;
+                 continue;
+             }
+             if (size == 0) {
+                 // Read empty row, just continue
+                 continue;
+             }
+             ++rows;
+         }
+
+         for (auto& col : block->mutate_columns()) {
+             col->resize(rows);
+         }
+
+     } else {
+        auto columns = block->mutate_columns();
+        while (rows < batch_size && !_line_reader_eof) {
+            const uint8_t* ptr = nullptr;
+            size_t size = 0;
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (size == 0) {
+                // Read empty row, just continue
+                continue;
+            }
+
+            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+        }
     }
 
     *eof = (rows == 0);
@@ -473,6 +496,9 @@ Status CsvReader::_create_decompressor() {
         case TFileCompressType::LZ4FRAME:
             compress_type = CompressType::LZ4FRAME;
             break;
+        case TFileCompressType::LZ4BLOCK:
+            compress_type = CompressType::LZ4BLOCK;
+            break;
         case TFileCompressType::DEFLATE:
             compress_type = CompressType::DEFLATE;
             break;
@@ -494,6 +520,9 @@ Status CsvReader::_create_decompressor() {
             break;
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
             compress_type = CompressType::LZ4FRAME;
+            break;
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+            compress_type = CompressType::LZ4BLOCK;
             break;
         case TFileFormatType::FORMAT_CSV_LZOP:
             compress_type = CompressType::LZOP;
