@@ -377,7 +377,7 @@ Status VAnalyticEvalNode::_get_next_for_range(size_t current_block_rows) {
                                   << ", " << _partition_by_start.row_num << "), end: ("
                                   << _partition_by_end.block_num << "," << _partition_by_end.pos
                                   << ", " << _partition_by_end.row_num << ")";
-                        LOG(INFO) << "*********** order range start: (" << _order_by_start.block_num
+                        LOG(INFO) << "***********> order range start: (" << _order_by_start.block_num
                                   << "," << _order_by_start.pos << ", " << _order_by_start.row_num
                                   << "), end: (" << _order_by_end.block_num << ","
                                   << _order_by_end.pos << ", " << _order_by_end.row_num << ")";
