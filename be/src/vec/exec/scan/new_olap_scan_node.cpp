@@ -451,7 +451,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
-    bool is_duplicate_key = false;
+    bool is_dup_mow_key = false;
     size_t segment_count = 0;
     std::vector<std::vector<RowSetSplits>> rowset_splits_vector(_scan_ranges.size());
     std::vector<std::vector<size_t>> tablet_rs_seg_count(_scan_ranges.size());
@@ -468,8 +468,10 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                                                                                        true);
             RETURN_IF_ERROR(status);
 
-            is_duplicate_key = tablet->keys_type() == DUP_KEYS;
-            if (!is_duplicate_key) {
+            is_dup_mow_key =
+                    tablet->keys_type() == DUP_KEYS || (tablet->keys_type() == UNIQUE_KEYS &&
+                                                        tablet->enable_unique_key_merge_on_write());
+            if (!is_dup_mow_key) {
                 break;
             }
 
@@ -500,7 +502,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
         }
     }
 
-    if (is_duplicate_key) {
+    if (is_dup_mow_key) {
         auto build_new_scanner = [&](const TPaloScanRange& scan_range,
                                      const std::vector<OlapScanRange*>& key_ranges,
                                      const std::vector<RowSetSplits>& rs_splits) {
