@@ -17,10 +17,6 @@
 
 suite("load_test_query_db") {
     // init query case data
-    def dbName = "test_query_db"
-    sql "DROP DATABASE IF EXISTS ${dbName}"
-    sql "CREATE DATABASE ${dbName}"
-    sql "USE $dbName"
     sql """
         CREATE TABLE IF NOT EXISTS `baseall` (
             `k0` boolean null comment "",
