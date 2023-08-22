@@ -382,7 +382,7 @@ Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* i
 }
 
 Status StreamingAggSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
-    auto local_state = AggSinkLocalState::create_shared(this, state);
+    auto local_state = StreamingAggSinkLocalState::create_shared(this, state);
     state->emplace_sink_local_state(id(), local_state);
     return local_state->init(state, info);
 }

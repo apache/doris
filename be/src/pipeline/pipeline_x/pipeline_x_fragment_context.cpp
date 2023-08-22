@@ -469,7 +469,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        if (tnode.agg_node.__isset.use_streaming_preaggregation) {
+        if (tnode.agg_node.__isset.use_streaming_preaggregation &&
+            tnode.agg_node.use_streaming_preaggregation) {
             op.reset(new StreamingAggSourceOperatorX(pool, tnode, descs,
                                                      "StreamingAggSourceXOperator"));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
