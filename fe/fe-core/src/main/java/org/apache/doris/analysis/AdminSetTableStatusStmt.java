@@ -58,10 +58,6 @@ public class AdminSetTableStatusStmt extends DdlStmt {
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         checkProperties();
-        // only support changing table state to normal
-        // if (tableState != OlapTableState.NORMAL) {
-        //     throw new AnalysisException("Only support changing table state to normal.");
-        // }
     }
 
     private void checkProperties() throws AnalysisException {
@@ -81,7 +77,7 @@ public class AdminSetTableStatusStmt extends DdlStmt {
         }
 
         if (tableState == null) {
-            throw new AnalysisException("Should add properties: STATE");
+            throw new AnalysisException("Should add properties: STATE.");
         }
     }
 

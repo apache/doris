@@ -35,7 +35,7 @@ public class SetTableStatusOperationLog implements Writable {
     @SerializedName(value = "table")
     private String table;
     @Getter
-    @SerializedName(value = "tabletId")
+    @SerializedName(value = "state")
     private OlapTableState state;
 
     public SetTableStatusOperationLog(String db, String table, OlapTableState state) {
