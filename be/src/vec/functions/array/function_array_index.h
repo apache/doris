@@ -51,28 +51,31 @@ namespace doris::vectorized {
 
 struct ArrayContainsAction {
     using ResultType = UInt8;
+    static constexpr auto name = "array_contains";
     static constexpr const bool resume_execution = false;
     static constexpr void apply(ResultType& current, size_t) noexcept { current = 1; }
 };
 
 struct ArrayPositionAction {
     using ResultType = Int64;
+    static constexpr auto name = "array_position";
     static constexpr const bool resume_execution = false;
     static constexpr void apply(ResultType& current, size_t j) noexcept { current = j + 1; }
 };
 
 struct ArrayCountEqual {
     using ResultType = Int64;
+    static constexpr auto name = "countequal";
     static constexpr const bool resume_execution = true;
     static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
 };
 
-template <typename ConcreteAction, typename Name>
+template <typename ConcreteAction>
 class FunctionArrayIndex : public IFunction {
 public:
     using ResultType = typename ConcreteAction::ResultType;
 
-    static constexpr auto name = Name::name;
+    static constexpr auto name = ConcreteAction::name;
     static FunctionPtr create() { return std::make_shared<FunctionArrayIndex>(); }
 
     /// Get function name.
