@@ -96,4 +96,8 @@ CREATE TABLE dbo.DateAndTime
     DateTimeOffsetColumn DATETIMEOFFSET
 );
 
+CREATE TABLE dbo.t_id (
+    ID uniqueidentifier PRIMARY KEY,
+    Name nvarchar(100)
+);
 
