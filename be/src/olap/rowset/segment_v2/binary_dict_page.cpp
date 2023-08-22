@@ -26,7 +26,6 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "gutil/casts.h"
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
@@ -76,7 +75,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         const Slice* src = reinterpret_cast<const Slice*>(vals);
         size_t num_added = 0;
         uint32_t value_code = -1;
-        auto* actual_builder = down_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
+        auto* actual_builder = dynamic_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
                 _data_page_builder.get());
 
         if (_data_page_builder->count() == 0) {
