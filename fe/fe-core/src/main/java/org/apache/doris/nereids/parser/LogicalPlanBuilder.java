@@ -1858,7 +1858,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         typeDefs.add(ctx.identifier().getText());
         typeDefs.addAll(ctx.constant().stream().map(constant -> ((Literal) visit(constant)).getStringValue())
                 .collect(Collectors.toList()));
-        return DataType.convertPrimitiveFromStrings(typeDefs, true);
+        return DataType.convertPrimitiveFromStrings(typeDefs);
     }
 
     @Override
