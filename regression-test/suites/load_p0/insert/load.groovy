@@ -76,7 +76,7 @@ suite("load_test_query_db") {
         """
     streamLoad {
         table "baseall"
-        db "regression_load_p0_insert"
+        db "regression_test_load_p0_insert"
         set 'column_separator', ','
         file "baseall.txt"
     }
