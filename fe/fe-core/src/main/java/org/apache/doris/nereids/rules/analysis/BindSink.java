@@ -108,22 +108,23 @@ public class BindSink implements AnalysisRuleFactory {
                             if (ConnectContext.get() != null) {
                                 ConnectContext.get().getState().setIsQuery(true);
                             }
-                            // generate slots not mentioned in sql, mv slots and shaded slots.
-                            for (Column column : boundSink.getTargetTable().getFullSchema()) {
-                                if (column.isMaterializedViewColumn()) {
-                                    List<SlotRef> refs = column.getRefColumns();
-                                    // now we have to replace the column to slots.
-                                    Preconditions.checkArgument(refs != null,
-                                            "mv column's ref column cannot be null");
-                                    Expression parsedExpression = expressionParser.parseExpression(
-                                            column.getDefineExpr().toSql());
-                                    Expression boundSlotExpression = SlotReplacer.INSTANCE
-                                            .replace(parsedExpression, columnToOutput);
-                                    // the boundSlotExpression is an expression whose slots are bound but function may
-                                    // not be bound, we have to bind it again.
-                                    // for example: to_bitmap.
-                                    Expression boundExpression = FunctionBinder.INSTANCE.rewrite(
-                                            boundSlotExpression, new ExpressionRewriteContext(ctx.cascadesContext));
+                            try {
+                                // generate slots not mentioned in sql, mv slots and shaded slots.
+                                for (Column column : boundSink.getTargetTable().getFullSchema()) {
+                                    if (column.isMaterializedViewColumn()) {
+                                        List<SlotRef> refs = column.getRefColumns();
+                                        // now we have to replace the column to slots.
+                                        Preconditions.checkArgument(refs != null,
+                                                "mv column's ref column cannot be null");
+                                        Expression parsedExpression = expressionParser.parseExpression(
+                                                column.getDefineExpr().toSql());
+                                        Expression boundSlotExpression = SlotReplacer.INSTANCE
+                                                .replace(parsedExpression, columnToOutput);
+                                        // the boundSlotExpression is an expression whose slots are bound but function may
+                                        // not be bound, we have to bind it again.
+                                        // for example: to_bitmap.
+                                        Expression boundExpression = FunctionBinder.INSTANCE.rewrite(
+                                                boundSlotExpression, new ExpressionRewriteContext(ctx.cascadesContext));
 
                                         NamedExpression slot = boundExpression instanceof NamedExpression
                                                 ? ((NamedExpression) boundExpression)
