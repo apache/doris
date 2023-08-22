@@ -249,6 +249,12 @@ Status RowsetBuilder::wait_calc_delete_bitmap() {
 }
 
 Status RowsetBuilder::commit_txn() {
+    if (_tablet->enable_unique_key_merge_on_write() &&
+        config::enable_merge_on_write_correctness_check) {
+        RETURN_IF_ERROR(_tablet->check_delete_bitmap_correctness(
+                _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, _rowset_ids));
+    }
+
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,

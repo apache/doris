@@ -3256,7 +3256,7 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
               << "(us), total rows: " << total_rows;
     if (config::enable_merge_on_write_correctness_check) {
         // check if all the rowset has ROWSET_SENTINEL_MARK
-        RETURN_IF_ERROR(_check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
+        RETURN_IF_ERROR(check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, -1,
                                                          cur_rowset_ids, &specified_rowsets));
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
@@ -3360,7 +3360,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
     if (config::enable_merge_on_write_correctness_check && rowset->num_rows() != 0) {
         // only do correctness check if the rowset has at least one row written
         // check if all the rowset has ROWSET_SENTINEL_MARK
-        RETURN_IF_ERROR(_check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, txn_id,
+        RETURN_IF_ERROR(check_delete_bitmap_correctness(delete_bitmap, cur_version - 1, txn_id,
                                                          cur_rowset_ids));
         _remove_sentinel_mark_from_delete_bitmap(delete_bitmap);
     }
@@ -3717,7 +3717,7 @@ void Tablet::_remove_sentinel_mark_from_delete_bitmap(DeleteBitmapPtr delete_bit
     }
 }
 
-Status Tablet::_check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
+Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, int64_t max_version,
                                                 int64_t txn_id,
                                                 const RowsetIdUnorderedSet& rowset_ids,
                                                 std::vector<RowsetSharedPtr>* rowsets) {
