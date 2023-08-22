@@ -714,6 +714,10 @@ public class SessionVariable implements Serializable, Writable {
         return beNumberForTest;
     }
 
+    public void setBeNumberForTest(int beNumberForTest) {
+        this.beNumberForTest = beNumberForTest;
+    }
+
     @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
     private int beNumberForTest = -1;
 
