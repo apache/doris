@@ -113,8 +113,6 @@ public:
 
     void refresh_profile();
 
-    void register_memtable_memory_limiter();
-
 private:
     template <typename Request>
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
@@ -133,7 +131,6 @@ private:
                            int64_t tablet_id, Status error);
     bool _is_broken_tablet(int64_t tablet_id);
     void _init_profile(RuntimeProfile* profile);
-    void _memtable_writers_foreach(std::function<void(std::shared_ptr<MemTableWriter>)> fn);
 
     // id of this load channel
     TabletsChannelKey _key;

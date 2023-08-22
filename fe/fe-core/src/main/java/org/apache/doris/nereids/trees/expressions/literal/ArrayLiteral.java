@@ -53,28 +53,11 @@ public class ArrayLiteral extends Literal {
                     .map(Literal::toLegacyLiteral)
                     .toArray(LiteralExpr[]::new);
             try {
-                return new org.apache.doris.analysis.ArrayLiteral(itemExprs);
+                return new org.apache.doris.analysis.ArrayLiteral(getDataType().toCatalogDataType(), itemExprs);
             } catch (Throwable t) {
                 throw new AnalysisException(t.getMessage(), t);
             }
         }
-    }
-
-    @Override
-    protected Expression uncheckedCastTo(DataType targetType) {
-        if (targetType instanceof ArrayType) {
-            return new Array(items.stream().toArray(Expression[]::new)).castTo(targetType);
-        }
-        return super.uncheckedCastTo(targetType);
-    }
-
-    @Override
-    public Expression checkedCastTo(DataType targetType) {
-        if (targetType instanceof ArrayType) {
-            return new Array(
-                    items.stream().toArray(Expression[]::new)).checkedCastTo(targetType);
-        }
-        return super.checkedCastTo(targetType);
     }
 
     @Override

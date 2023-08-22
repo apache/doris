@@ -48,7 +48,7 @@ related functions:
        The larger the value, the higher the precision of quantile approximation calculations, the greater the memory consumption, and the longer the calculation time.
        An unspecified or set value for the compression parameter is outside the range [2048, 10000], run with the default value of 2048
 
-    QUANTILE_PERCENT(QUANTILE_STATE):
+    QUANTILE_PERCENT(QUANTILE_STATE, percent):
        This function converts the intermediate result variable (QUANTILE_STATE) of the quantile calculation into a specific quantile value
 
     
@@ -64,7 +64,7 @@ In this way the config will be reset after the FE process restarts. For permanen
     
 
 ### example
-    select QUANTILE_PERCENT(QUANTILE_UNION(v1)) from test_table group by k1, k2, k3;
+    select QUANTILE_PERCENT(QUANTILE_UNION(v1), 0.5) from test_table group by k1, k2, k3;
     
 
 ### keywords

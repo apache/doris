@@ -101,9 +101,10 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                               const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
+    ReadBuffer rb(slice.data, slice.size);
     if constexpr (std::is_same<T, UInt128>::value) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
@@ -136,9 +137,16 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_text(IColumn& column, R
 }
 
 template <typename T>
+void DataTypeNumberSerDe<T>::serialize_column_to_text(const IColumn& column, int start_idx,
+                                                      int end_idx, BufferWritable& bw,
+                                                      FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_TEXT()
+}
+
+template <typename T>
 void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, int row_num,
                                                         BufferWritable& bw,
-                                                        const FormatOptions& options) const {
+                                                        FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -154,7 +162,14 @@ void DataTypeNumberSerDe<T>::serialize_one_cell_to_text(const IColumn& column, i
     } else if constexpr (std::is_integral<T>::value || std::numeric_limits<T>::is_iec559) {
         bw.write_number(data);
     }
-    bw.commit();
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_text_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
+    return Status::OK();
 }
 
 template <typename T>

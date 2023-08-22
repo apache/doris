@@ -54,7 +54,7 @@ suite("inlineview_with_project") {
                 select * from issue_19611_t0, issue_19611_t1 where issue_19611_t1.c0 != 0 
                     union select * from issue_19611_t0, issue_19611_t1 where issue_19611_t1.c0 = 0) tmp;
         """
-        exception "errCode = 2, detailMessage = Unexpected exception: Duplicated inline view column alias: 'c0' in inline view: 'tmp'"
+        exception "Duplicated inline view column alias: 'c0' in inline view: 'tmp'"
 
     }
 

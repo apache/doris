@@ -82,9 +82,12 @@ static void set_up() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
     k_engine->start_bg_threads();
+    exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
 }
 
 static void tear_down() {
+    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->set_memtable_memory_limiter(nullptr);
     if (k_engine != nullptr) {
         k_engine->stop();
         delete k_engine;
