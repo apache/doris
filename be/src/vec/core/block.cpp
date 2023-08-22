@@ -400,6 +400,10 @@ void Block::skip_num_rows(int64_t& length) {
 size_t Block::bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
+        if (!elem.column) {
+            LOG(FATAL) << fmt::format(
+                    "Column {} in block is nullptr, in method bytes.", elem.name);
+        }
         res += elem.column->byte_size();
     }
 
@@ -409,6 +413,10 @@ size_t Block::bytes() const {
 size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
+        if (!elem.column) {
+            LOG(FATAL) << fmt::format(
+                    "Column {} in block is nullptr, in method allocated_bytes.", elem.name);
+        }
         res += elem.column->allocated_bytes();
     }
 
