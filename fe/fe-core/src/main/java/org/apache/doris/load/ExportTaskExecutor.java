@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.ExportFailMsg.CancelType;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -44,6 +45,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -91,11 +93,9 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                     List<Long> tabletIds;
                     if (exportJob.getSessionVariables().isEnableNereidsPlanner()) {
                         LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
-                        tabletIds = ((UnboundRelation) (logicalPlanAdapter.getLogicalPlan() // LogicalFileSink
-                                .children().get(0) // LogicalProject
-                                .children().get(0) // LogicalCheckPolicy
-                                .children().get(0))) // UnboundRelation
-                                .getTabletIds();
+                        Optional<UnboundRelation> unboundRelation = findUnboundRelation(
+                                logicalPlanAdapter.getLogicalPlan());
+                        tabletIds = unboundRelation.get().getTabletIds();
                         logicalPlanAdapter.getLogicalPlan().getLogicalProperties();
                     } else {
                         SelectStmt selectStmt = (SelectStmt) selectStmtLists.get(idx);
@@ -186,5 +186,18 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         outfileInfo.setFileSize(resultAttachedInfo.get(OutFileClause.FILE_SIZE) + "bytes");
         outfileInfo.setUrl(resultAttachedInfo.get(OutFileClause.URL));
         return outfileInfo;
+    }
+
+    private Optional<UnboundRelation> findUnboundRelation(LogicalPlan plan) {
+        if (plan instanceof UnboundRelation) {
+            return Optional.of((UnboundRelation) plan);
+        }
+        for (int i = 0; i < plan.children().size(); ++i) {
+            Optional<UnboundRelation> optional = findUnboundRelation((LogicalPlan) plan.children().get(i));
+            if (optional.isPresent()) {
+                return optional;
+            }
+        }
+        return Optional.of(null);
     }
 }

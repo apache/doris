@@ -134,19 +134,8 @@ public class ExportStmt extends StatementBase {
      */
     public ExportStmt(TableRef tableRef, String whereSql, String path,
             Map<String, String> properties, BrokerDesc brokerDesc) {
-        this.tableRef = tableRef;
+        this(tableRef, (Expr) null, path, properties, brokerDesc);
         this.whereSql = whereSql;
-        this.path = path.trim();
-        if (properties != null) {
-            this.properties = properties;
-        }
-        this.brokerDesc = brokerDesc;
-        this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
-        this.lineDelimiter = DEFAULT_LINE_DELIMITER;
-
-        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
-                ConnectContext.get().getSessionVariable());
-        this.sessionVariables = optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable());
     }
 
     @Override

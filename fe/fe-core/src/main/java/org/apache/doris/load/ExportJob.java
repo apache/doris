@@ -465,7 +465,7 @@ public class ExportJob implements Writable {
         StringBuilder selectSql = new StringBuilder();
         selectSql.append("SELECT ").append(generateColumnSql())
                 .append(" FROM ").append(generateFromSql(tablets))
-                .append(" ").append(whereSql).append(" ")
+                .append(generateWhereSql())
                 .append(" INTO OUTFILE ").append(generateUrlSql())
                 .append(" FORMAT AS ").append(generateFormatSql())
                 .append(" PROPERTIES ").append("(")
@@ -509,6 +509,14 @@ public class ExportJob implements Writable {
         }
         fromSqlString.append(")");
         return fromSqlString;
+    }
+
+    private StringBuilder generateWhereSql() {
+        StringBuilder sb = new StringBuilder();
+        if (whereSql != null) {
+            sb.append(" ").append(whereSql).append(" ");
+        }
+        return sb;
     }
 
     private StringBuilder generateUrlSql() {
