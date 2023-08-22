@@ -63,6 +63,8 @@ public class ExchangeNode extends PlanNode {
     // exchange node. Null if this exchange does not merge sorted streams
     private SortInfo mergeInfo;
 
+    private boolean isRightChildOfBroadcastHashJoin = false;
+
     /**
      * use for Nereids only.
      */
@@ -145,6 +147,10 @@ public class ExchangeNode extends PlanNode {
         }
     }
 
+    public SortInfo getMergeInfo() {
+        return mergeInfo;
+    }
+
     /**
      * Set the parameters used to merge sorted input streams. This can be called
      * after init().
@@ -183,5 +189,13 @@ public class ExchangeNode extends PlanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return prefix + "offset: " + offset + "\n";
+    }
+
+    public boolean isRightChildOfBroadcastHashJoin() {
+        return isRightChildOfBroadcastHashJoin;
+    }
+
+    public void setRightChildOfBroadcastHashJoin(boolean value) {
+        isRightChildOfBroadcastHashJoin = value;
     }
 }

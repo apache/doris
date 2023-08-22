@@ -38,6 +38,30 @@ LDAP组授权是将LDAP中的group映射到Doris中的Role，如果用户在LDAP
 - 权限 Privilege：权限作用的对象是节点、数据库或表。不同的权限代表不同的操作许可。
 - 角色 Role：Doris可以创建自定义命名的角色。角色可以被看做是一组权限的集合。
 
+## LDAP相关概念
+
+在LDAP中，数据是按照树型结构组织的。
+
+### 示例（下文的介绍都将根据这个例子进行展开）
+ - dc=example,dc=com
+  - ou = ou1
+    - cn = group1
+    - cn = user1
+  - ou = ou2
+    - cn = group2
+      - cn = user2
+  - cn = user3
+
+### LDAP名词解释
+- dc(Domain Component): 可以理解为一个组织的域名，作为树的根结点
+- dn(Distinguished Name): 相当于唯一名称，例如user1的dn为 cn=user1,ou=ou1,dc=example,dc=com user2的dn为 cn=user2,cn=group2,ou=ou2,dc=example,dc=com
+- rdn(Relative Distinguished Name): dn的一部分，user1的四个rdn为cn=user1 ou=ou1 dc=example和dc=com
+- ou(Organization Unit): 可以理解为子组织，user可以放在ou中，也可以直接放在example.com域中
+- cn(common name):名字
+- group: 组，可以理解为doris的角色
+- user: 用户，和doris的用户等价
+- objectClass：可以理解为每行数据的类型，比如怎么区分group1是group还是user，每种类型的数据下面要求有不同的属性，比如group要求有cn和member（user列表），user要求有cn,password,uid等
+
 ## 启用LDAP认证
 
 ### server端配置
@@ -59,7 +83,7 @@ LDAP组授权是将LDAP中的group映射到Doris中的Role，如果用户在LDAP
   LDAP管理员账户“Distinguished Name”。当用户使用LDAP验证登录Doris时，Doris会绑定该管理员账户在LDAP中搜索用户信息。
 
 - ldap_user_basedn = ou=people,dc=domain,dc=com
-  Doris在LDAP中搜索用户信息时的base dn。
+  Doris在LDAP中搜索用户信息时的base dn，例如只允许上例中的user2登陆doris，此处配置为ou=ou2,dc=example,dc=com 如果允许上例中的user1,user2,user3都能登陆doris，此处配置为dc=example,dc=com
 
 - ldap_user_filter = (&(uid={login}))
 
@@ -71,7 +95,7 @@ LDAP组授权是将LDAP中的group映射到Doris中的Role，如果用户在LDAP
   ldap_user_filter = (&(mail={login}@baidu.com))。
 
 - ldap_group_basedn = ou=group,dc=domain,dc=com
-  Doris在LDAP中搜索组信息时的base dn。如果不配置该项，将不启用LDAP组授权。
+  Doris在LDAP中搜索组信息时的base dn。如果不配置该项，将不启用LDAP组授权。同ldap_user_basedn类似，限制doris搜索group时的范围。
 
 #### 设置LDAP管理员密码：
 
@@ -107,7 +131,7 @@ LDAP密码验证和组授权是Doris密码验证和授权的补充，开启LDAP�
 
 ### LDAP验证登录详解
 
-开启LDAP后，用户在Doris和DLAP中存在以下几种情况：
+开启LDAP后，用户在Doris和LDAP中存在以下几种情况：
 
 | LDAP用户 | Doris用户 | 密码      | 登录情况 | 登录Doris的用户 |
 | -------- | --------- | --------- | -------- | --------------- |
@@ -185,9 +209,26 @@ member: uid=jack,ou=aidp,dc=domain,dc=com
 
 假如jack还属于LDAP组doris_qa、doris_pm；Doris存在role：doris_rd、doris_qa、doris_pm，在使用LDAP验证登录后，用户不但具有该账户原有的权限，还将获得role doris_rd、doris_qa和doris_pm的权限。
 
+>注意：
+>
+>user属于哪个group和LDAP树的组织结构无关，示例部分的user2并不一定属于group2
+> 若想让user2属于group2，需要在group2的member属性中添加user2
+
 ### LDAP信息缓存
 为了避免频繁访问LDAP服务，Doris会将LDAP信息缓存到内存中，可以通过ldap.conf中的`ldap_user_cache_timeout_s`配置项指定LDAP用户的缓存时间，默认为12小时；在修改了LDAP服务中的信息或者修改了Doris中LDAP用户组对应的Role权限后，可能因为缓存而没有及时生效，可以通过refresh ldap语句刷新缓存，详细查看[REFRESH-LDAP](../../sql-manual/sql-reference/Utility-Statements/REFRESH-LDAP.md)。
 
 ## LDAP验证的局限
 
 - 目前Doris的LDAP功能只支持明文密码验证，即用户登录时，密码在client与fe之间、fe与LDAP服务之间以明文的形式传输。
+
+## 常见问题
+
+- 怎么判断LDAP用户在doris中有哪些角色？
+  
+  使用LDAP用户在doris中登陆，`show grants;`能查看当前用户有哪些角色。其中ldapDefaultRole是每个ldap用户在doris中都有的默认角色。
+- LDAP用户在doris中的角色比预期少怎么排查？
+
+  1. 通过`show roles;`查看预期的角色在doris中是否存在，如果不存在，需要通过` CREATE ROLE rol_name;`创建角色。
+  2. 检查预期的group是否在`ldap_group_basedn`对应的组织结构下。
+  3. 检查预期group是否包含member属性。
+  4. 检查预期group的member属性是否包含当前用户。

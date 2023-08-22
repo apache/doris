@@ -22,9 +22,8 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -45,8 +44,8 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
         // check if children contain logical sort and add limit.
         ConnectContext ctx = context.getConnectContext();
         if (ctx != null) {
-            long defaultLimit = ctx.getSessionVariable().sqlSelectLimit;
-            if (defaultLimit >= 0 && defaultLimit < Long.MAX_VALUE) {
+            long defaultLimit = ctx.getSessionVariable().getSqlSelectLimit();
+            if (defaultLimit >= 0) {
                 return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, plan);
             }
         }
@@ -63,16 +62,8 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
     // we should keep that sink node is the top node of the plan tree.
     // currently, it's one of the olap table sink and file sink.
     @Override
-    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink,
-            StatementContext context) {
-        Plan child = olapTableSink.child().accept(this, context);
-        return olapTableSink.withChildren(child);
-    }
-
-    @Override
-    public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, StatementContext context) {
-        Plan child = fileSink.child().accept(this, context);
-        return fileSink.withChildren(child);
+    public Plan visitLogicalSink(LogicalSink<? extends Plan> logicalSink, StatementContext context) {
+        return super.visit(logicalSink, context);
     }
 
     @Override
@@ -84,8 +75,8 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
     public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, StatementContext context) {
         ConnectContext ctx = context.getConnectContext();
         if (ctx != null) {
-            long defaultLimit = ctx.getSessionVariable().defaultOrderByLimit;
-            long sqlLimit = ctx.getSessionVariable().sqlSelectLimit;
+            long defaultLimit = ctx.getSessionVariable().getDefaultOrderByLimit();
+            long sqlLimit = ctx.getSessionVariable().getSqlSelectLimit();
             if (defaultLimit >= 0 || sqlLimit >= 0) {
                 if (defaultLimit < 0) {
                     defaultLimit = Long.MAX_VALUE;

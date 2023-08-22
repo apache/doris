@@ -297,7 +297,7 @@ private:
 
     Int32 size = -1;    /// -1 indicates that there is no value.
     Int32 capacity = 0; /// power of two or zero
-    char* large_data = nullptr;
+    std::unique_ptr<char[]> large_data;
 
 public:
     static constexpr Int32 AUTOMATIC_STORAGE_SIZE = 64;
@@ -314,7 +314,9 @@ public:
 
     bool has() const { return size >= 0; }
 
-    const char* get_data() const { return size <= MAX_SMALL_STRING_SIZE ? small_data : large_data; }
+    const char* get_data() const {
+        return size <= MAX_SMALL_STRING_SIZE ? small_data : large_data.get();
+    }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
@@ -328,7 +330,6 @@ public:
         if (size != -1) {
             size = -1;
             capacity = 0;
-            delete[] large_data;
             large_data = nullptr;
         }
     }
@@ -356,11 +357,11 @@ public:
             } else {
                 if (capacity < rhs_size) {
                     capacity = round_up_to_power_of_two_or_zero(rhs_size);
-                    large_data = arena->alloc(capacity);
+                    large_data.reset(new char[capacity]);
                 }
 
                 size = rhs_size;
-                buf.read(large_data, size);
+                buf.read(large_data.get(), size);
             }
         } else {
             /// Don't free large_data here.
@@ -385,11 +386,11 @@ public:
             if (capacity < value_size) {
                 /// Don't free large_data here.
                 capacity = round_up_to_power_of_two_or_zero(value_size);
-                large_data = arena->alloc(capacity);
+                large_data.reset(new char[capacity]);
             }
 
             size = value_size;
-            memcpy(large_data, value.data, size);
+            memcpy(large_data.get(), value.data, size);
         }
     }
 
@@ -622,6 +623,22 @@ public:
         } else {
             Base::deserialize_and_merge_from_column_range(place, column, begin, end, arena);
         }
+    }
+
+    void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
+                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec(places, offset, rhs, arena, num_rows);
+    }
+
+    void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
+                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            Arena* arena, const size_t num_rows) const override {
+        this->deserialize_from_column(rhs, *column, arena, num_rows);
+        DEFER({ this->destroy_vec(rhs, num_rows); });
+        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,

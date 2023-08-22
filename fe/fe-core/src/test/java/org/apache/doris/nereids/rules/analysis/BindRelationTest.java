@@ -93,7 +93,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
         OlapTable externalOlapTable = new OlapTable(1, tableName, externalTableColumns, KeysType.DUP_KEYS,
                 new PartitionInfo(), new RandomDistributionInfo(10)) {
             @Override
-            public List<Column> getBaseSchema() {
+            public List<Column> getBaseSchema(boolean full) {
                 return externalTableColumns;
             }
 
@@ -115,7 +115,7 @@ class BindRelationTest extends TestWithFeService implements GeneratedPlanPattern
                 .parse("select * from " + tableName + " as et join db1.t on et.id = t.a")
                 .customAnalyzer(Optional.of(customTableResolver)) // analyze internal relation
                 .rewrite()
-                .matchesFromRoot(
+                .matches(
                     logicalProject(
                         logicalJoin(
                             logicalOlapScan().when(r -> r.getTable() == externalOlapTable),

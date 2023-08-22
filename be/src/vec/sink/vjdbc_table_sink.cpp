@@ -56,56 +56,44 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
     _jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
     _jdbc_param.table_type = t_jdbc_sink.table_type;
     _jdbc_param.query_string = t_jdbc_sink.insert_sql;
-    _table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
-    _use_transaction = t_jdbc_sink.use_transaction;
+    _jdbc_param.table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
+    _jdbc_param.use_transaction = t_jdbc_sink.use_transaction;
+
+    // create writer
+    _writer.reset(new VJdbcTableWriter(_jdbc_param, _output_vexpr_ctxs));
 
     return Status::OK();
 }
 
 Status VJdbcTableSink::open(RuntimeState* state) {
     RETURN_IF_ERROR(VTableSink::open(state));
-
-    // create writer
-    _writer.reset(new JdbcConnector(_jdbc_param));
-    RETURN_IF_ERROR(_writer->open(state, false));
-    if (_use_transaction) {
-        RETURN_IF_ERROR(_writer->begin_trans());
+    if (state->enable_pipeline_exec()) {
+        _writer->start_writer(state);
+    } else {
+        RETURN_IF_ERROR(_writer->open(state));
     }
-
     _writer->init_profile(_profile);
     return Status::OK();
 }
 
 Status VJdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    Status status = Status::OK();
-    if (block == nullptr || block->rows() == 0) {
-        return status;
-    }
-    Block output_block;
-    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _output_vexpr_ctxs, *block, &output_block));
-    materialize_block_inplace(output_block);
-
-    uint32_t start_send_row = 0;
-    uint32_t num_row_sent = 0;
-    while (start_send_row < output_block.rows()) {
-        RETURN_IF_ERROR(_writer->append(_table_name, &output_block, _output_vexpr_ctxs,
-                                        start_send_row, &num_row_sent, false,
-                                        _jdbc_param.table_type));
-        start_send_row += num_row_sent;
-        num_row_sent = 0;
-    }
-
-    return Status::OK();
+    return _writer->append_block(*block);
 }
 
 Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
-    RETURN_IF_ERROR(VTableSink::close(state, exec_status));
-    if (exec_status.ok() && _use_transaction) {
+    if (exec_status.ok()) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }
     RETURN_IF_ERROR(_writer->close());
     return DataSink::close(state, exec_status);
 }
+
+Status VJdbcTableSink::try_close(RuntimeState* state, Status exec_status) {
+    if (state->is_cancelled() || !exec_status.ok()) {
+        _writer->force_close();
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

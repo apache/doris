@@ -71,7 +71,7 @@ public class SqlParserUtils {
          *
          *      (2014, "Commands out of sync; you can't run this command now")
          *
-         * I though it is a flaw of python MysqlDb.
+         * I thought it is a flaw of python MysqlDb.
          * However, in order to maintain the consistency of user use, here we remove all EmptyStmt
          * at the end to prevent errors.(Leave at least one statement)
          *

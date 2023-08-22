@@ -24,7 +24,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -181,6 +180,16 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
+    private void handleStmtClose() {
+        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        int stmtId = packetBuf.getInt();
+        LOG.debug("close stmt id: {}", stmtId);
+        ConnectContext.get().removePrepareStmt(String.valueOf(stmtId));
+        // No response packet is sent back to the client, see
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_close.html
+        ctx.getState().setNoop();
+    }
+
     private void debugPacket() {
         byte[] bytes = packetBuf.array();
         StringBuilder printB = new StringBuilder();
@@ -296,10 +305,12 @@ public class ConnectProcessor {
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
+            MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
             if (ctx.getState().getStateType() == MysqlStateType.ERR
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
                 MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+                MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
             } else if (ctx.getState().getStateType() == MysqlStateType.OK
                     || ctx.getState().getStateType() == MysqlStateType.EOF) {
                 // ok query
@@ -350,7 +361,7 @@ public class ConnectProcessor {
 
     // Process COM_QUERY statement,
     // only throw an exception when there is a problem interacting with the requesting client
-    private void handleQuery() {
+    private void handleQuery(MysqlCommand mysqlCommand) {
         MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         // convert statement to Java string
         byte[] bytes = packetBuf.array();
@@ -369,10 +380,10 @@ public class ConnectProcessor {
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setSqlHash(ctx.getSqlHash());
 
-        Exception nereidsParseException = null;
         List<StatementBase> stmts = null;
 
-        if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
+        // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
+        if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
                 stmts = new NereidsParser().parseSQL(originStmt);
                 for (StatementBase stmt : stmts) {
@@ -385,7 +396,6 @@ public class ConnectProcessor {
                 }
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
-                nereidsParseException = e;
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
                         e.getMessage(), originStmt);
             }
@@ -422,17 +432,6 @@ public class ConnectProcessor {
             }
 
             StatementBase parsedStmt = stmts.get(i);
-            if (parsedStmt instanceof SelectStmt && nereidsParseException != null
-                    && ctx.getSessionVariable().isEnableNereidsPlanner()
-                    && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                Exception exception = new Exception(
-                        String.format("Nereids cannot parse the SQL, and fallback disabled. caused by: \n\n%s",
-                                nereidsParseException.getMessage()), nereidsParseException);
-                // audit it and break
-                handleQueryException(exception, auditStmt, null, null);
-                break;
-            }
-
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
@@ -587,7 +586,7 @@ public class ConnectProcessor {
                 ctx.initTracer("trace");
                 Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").setNoParent().startSpan();
                 try (Scope scope = rootSpan.makeCurrent()) {
-                    handleQuery();
+                    handleQuery(command);
                 } catch (Exception e) {
                     rootSpan.recordException(e);
                     throw e;
@@ -608,8 +607,7 @@ public class ConnectProcessor {
                 handleStmtReset();
                 break;
             case COM_STMT_CLOSE:
-                // TODO
-                handleStmtReset();
+                handleStmtClose();
                 break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
@@ -755,6 +753,9 @@ public class ConnectProcessor {
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
             ctx.setExecutor(executor);
+            if (request.isSetDefaultCatalog()) {
+                ctx.getEnv().changeCatalog(ctx, request.getDefaultCatalog());
+            }
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();

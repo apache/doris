@@ -19,7 +19,7 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.datasource.JdbcExternalCatalog;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import org.apache.logging.log4j.LogManager;

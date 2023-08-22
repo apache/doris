@@ -70,4 +70,6 @@ suite("test_simplify_comparison") {
         contains ">= 111.12"
         contains ">= '2023-06-16 00:00:00'"
     }
+
+    sql "select cast('1234' as decimalv3(18,4)) > 2000;"
 }

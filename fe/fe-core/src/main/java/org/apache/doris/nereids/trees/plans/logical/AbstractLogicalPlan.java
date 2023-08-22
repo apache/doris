@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -28,15 +27,11 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 /**
  * Abstract class for all concrete logical plan.
  */
 public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
-
-    private final Supplier<Boolean> hasUnboundExpressions = super::hasUnboundExpression;
-
     public AbstractLogicalPlan(PlanType type, Plan... children) {
         super(type, children);
     }
@@ -49,23 +44,6 @@ public abstract class AbstractLogicalPlan extends AbstractPlan implements Logica
     public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         super(type, groupExpression, logicalProperties, null, children);
-    }
-
-    @Override
-    public boolean hasUnboundExpression() {
-        return hasUnboundExpressions.get();
-    }
-
-    @Override
-    public LogicalProperties computeLogicalProperties() {
-        boolean hasUnboundChild = children.stream()
-                .map(Plan::getLogicalProperties)
-                .anyMatch(UnboundLogicalProperties.class::isInstance);
-        if (hasUnboundChild || hasUnboundExpression()) {
-            return UnboundLogicalProperties.INSTANCE;
-        } else {
-            return new LogicalProperties(this::computeOutput);
-        }
     }
 
     @Override

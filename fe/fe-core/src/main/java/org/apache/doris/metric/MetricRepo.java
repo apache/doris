@@ -71,6 +71,8 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
+    public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ALL;
+    public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_ERR;
     public static Histogram HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<Histogram> USER_HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
@@ -285,6 +287,20 @@ public final class MetricRepo {
         COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS,
                 "total query from olap table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_OLAP_TABLE);
+        USER_COUNTER_QUERY_ALL = new AutoMappedMetric<>(name -> {
+            LongCounterMetric userCountQueryAll  = new LongCounterMetric("query_total", MetricUnit.REQUESTS,
+                    "total query for single user");
+            userCountQueryAll.addLabel(new MetricLabel("user", name));
+            DORIS_METRIC_REGISTER.addMetrics(userCountQueryAll);
+            return userCountQueryAll;
+        });
+        USER_COUNTER_QUERY_ERR = new AutoMappedMetric<>(name -> {
+            LongCounterMetric userCountQueryErr  = new LongCounterMetric("query_err", MetricUnit.REQUESTS,
+                    "total error query for single user");
+            userCountQueryErr.addLabel(new MetricLabel("user", name));
+            DORIS_METRIC_REGISTER.addMetrics(userCountQueryErr);
+            return userCountQueryErr;
+        });
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("query", "latency", "ms"));
         USER_HISTO_QUERY_LATENCY = new AutoMappedMetric<>(name -> {
@@ -633,8 +649,7 @@ public final class MetricRepo {
         JvmStats jvmStats = jvmService.stats();
         visitor.visitJvm(sb, jvmStats);
 
-        visitor.setMetricNumber(
-                DORIS_METRIC_REGISTER.getMetrics().size() + DORIS_METRIC_REGISTER.getSystemMetrics().size());
+        visitor.setMetricNumber(DORIS_METRIC_REGISTER.getAllMetricSize());
         // doris metrics
         for (Metric metric : DORIS_METRIC_REGISTER.getMetrics()) {
             visitor.visit(sb, MetricVisitor.FE_PREFIX, metric);

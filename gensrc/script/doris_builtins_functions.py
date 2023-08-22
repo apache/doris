@@ -112,24 +112,7 @@ visible_functions = {
         [['array'], 'ARRAY', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['array'], 'ARRAY', ['STRING', '...'], 'ALWAYS_NOT_NULLABLE'],
 
-        [['element_at', '%element_extract%'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'TINYINT', ['ARRAY_TINYINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'SMALLINT', ['ARRAY_SMALLINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'INT', ['ARRAY_INT', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'BIGINT', ['ARRAY_BIGINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'LARGEINT', ['ARRAY_LARGEINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DATETIME', ['ARRAY_DATETIME', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DATE', ['ARRAY_DATE', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DATETIMEV2', ['ARRAY_DATETIMEV2', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DATEV2', ['ARRAY_DATEV2', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'FLOAT', ['ARRAY_FLOAT', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DOUBLE', ['ARRAY_DOUBLE', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DECIMALV2', ['ARRAY_DECIMALV2', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DECIMAL32', ['ARRAY_DECIMAL32', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DECIMAL64', ['ARRAY_DECIMAL64', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'DECIMAL128', ['ARRAY_DECIMAL128', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], 'ALWAYS_NULLABLE'],
-        [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
+        [['element_at', '%element_extract%'], 'T', ['ARRAY<T>', 'BIGINT'], 'ALWAYS_NULLABLE', ['T']],
 
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
@@ -857,8 +840,8 @@ visible_functions = {
         [['from_unixtime'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
         [['from_unixtime'], 'VARCHAR', ['INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['from_unixtime'], 'VARCHAR', ['INT', 'STRING'], 'ALWAYS_NULLABLE'],
-        [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [], 'ALWAYS_NOT_NULLABLE'],
-        [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIMEV2', ['INT'], 'ALWAYS_NOT_NULLABLE'],
+        [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIME', [], 'DEPEND_ON_ARGUMENT'],
+        [['now', 'current_timestamp', 'localtime', 'localtimestamp'], 'DATETIMEV2', ['INT'], 'DEPEND_ON_ARGUMENT'],
         [['curtime', 'current_time'], 'TIME', [], 'ALWAYS_NOT_NULLABLE'],
         [['curdate', 'current_date'], 'DATE', [], 'ALWAYS_NOT_NULLABLE'],
         [['utc_timestamp'], 'DATETIME', [], 'ALWAYS_NOT_NULLABLE'],
@@ -1242,6 +1225,11 @@ visible_functions = {
         [['floor', 'dfloor'], 'DOUBLE', ['DOUBLE'], ''],
         [['round', 'dround'], 'DOUBLE', ['DOUBLE'], ''],
         [['round_bankers'], 'DOUBLE', ['DOUBLE'], ''],
+        [['ceil', 'ceiling', 'dceil'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
+        [['floor', 'dfloor'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
+        [['round', 'dround'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
+        [['round_bankers'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
+        [['truncate'], 'DOUBLE', ['DOUBLE'], ''],
         [['ceil', 'ceiling', 'dceil'], 'DECIMAL32', ['DECIMAL32'], ''],
         [['floor', 'dfloor'], 'DECIMAL32', ['DECIMAL32'], ''],
         [['round', 'dround'], 'DECIMAL32', ['DECIMAL32'], ''],
@@ -1770,11 +1758,11 @@ visible_functions = {
 
     #bitmap function
     "Bitmap": [
-        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['STRING'], 'ALWAYS_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
-        [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+        [['to_bitmap'], 'BITMAP', ['BIGINT'], 'ALWAYS_NULLABLE'],
         [['to_bitmap_with_check'], 'BITMAP', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['bitmap_hash64'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
@@ -1934,6 +1922,10 @@ visible_functions = {
         [['like'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
         [['rlike'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
         [['regexp'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], '']
+    ],
+    # tokenizer functions
+    "Tokenize": [
+        [['tokenize'],'ARRAY_VARCHAR',['STRING','STRING'], ''],
     ],
 
     "UUID": [

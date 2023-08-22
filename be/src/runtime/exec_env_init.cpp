@@ -37,6 +37,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_meta_cache.h"
+#include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
@@ -106,10 +107,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         return Status::OK();
     }
     _store_paths = store_paths;
-    // path_name => path_index
-    for (int i = 0; i < store_paths.size(); i++) {
-        _store_path_map[store_paths[i].path] = i;
-    }
 
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
     _vstream_mgr = new doris::vectorized::VDataStreamMgr();
@@ -168,6 +165,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+    _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -184,6 +182,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     _init_mem_env();
 
+    RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
@@ -289,6 +288,8 @@ Status ExecEnv::_init_mem_env() {
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
     SchemaCache::create_global_instance(config::schema_cache_capacity);
+
+    LookupConnectionCache::create_global_instance(config::lookup_connection_cache_bytes_limit);
 
     // use memory limit
     int64_t inverted_index_cache_limit =
@@ -405,6 +406,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_master_info);
 
     _new_load_stream_mgr.reset();
+    _memtable_memory_limiter.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);

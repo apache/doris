@@ -144,9 +144,9 @@ public:
                     // do not create 'bloom filter' and 'minmax filter' when 'in filter' has created
                     // because in filter is exactly filter, so it is enough to filter data
                     VLOG_DEBUG << "fragment instance " << print_id(state->fragment_instance_id())
-                               << " ignore runtime filter(" << to_string(runtime_filter->type())
-                               << " id " << filter_desc.filter_id
-                               << ") because: already exists in filter";
+                               << " ignore runtime filter("
+                               << IRuntimeFilter::to_string(runtime_filter->type()) << " id "
+                               << filter_desc.filter_id << ") because: already exists in filter";
                     ignore_local_filter(filter_desc.filter_id);
                     continue;
                 }

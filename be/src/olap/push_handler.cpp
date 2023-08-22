@@ -189,13 +189,13 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // add pending data to tablet
 
     if (push_type == PushType::PUSH_FOR_DELETE) {
-        rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
+        rowset_to_add->rowset_meta()->set_delete_predicate(std::move(del_preds.front()));
         del_preds.pop();
     }
     Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
             request.partition_id, tablet, request.transaction_id, load_id, rowset_to_add, false);
-    if (commit_status != Status::OK() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
-        res = commit_status;
+    if (!commit_status.ok() && !commit_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
+        res = std::move(commit_status);
     }
     return res;
 }
@@ -290,7 +290,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             reader->close();
         }
 
-        if (rowset_writer->flush() != Status::OK()) {
+        if (!rowset_writer->flush().ok()) {
             LOG(WARNING) << "failed to finalize writer";
             break;
         }

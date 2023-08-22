@@ -320,7 +320,7 @@ The following configurations belong to the system-level configuration of Broker 
   ````text
   Parameter name: min_bytes_per_broker_scanner, the default is 64MB, the unit is bytes.
   Parameter name: max_broker_concurrency, default 10.
-  Parameter name: max_bytes_per_broker_scanner, the default is 5G, the unit is bytes.
+  Parameter name: max_bytes_per_broker_scanner, the default is 500G, the unit is bytes.
   ````
 
 ## Best Practices

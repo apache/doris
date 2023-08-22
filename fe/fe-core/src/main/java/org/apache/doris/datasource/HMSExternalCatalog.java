@@ -34,7 +34,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
@@ -100,24 +99,28 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Strings.isNullOrEmpty(dfsNameservices)) {
             return;
         }
-        String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsNameservices, "");
-        if (Strings.isNullOrEmpty(namenodes)) {
-            throw new DdlException("Missing dfs.ha.namenodes." + dfsNameservices + " property");
-        }
-        String[] names = namenodes.split(",");
-        for (String name : names) {
-            String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsNameservices + "." + name,
-                    "");
-            if (Strings.isNullOrEmpty(address)) {
-                throw new DdlException(
-                        "Missing dfs.namenode.rpc-address." + dfsNameservices + "." + name + " property");
+
+        String[] nameservices = dfsNameservices.split(",");
+        for (String dfsservice : nameservices) {
+            String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsservice, "");
+            if (Strings.isNullOrEmpty(namenodes)) {
+                throw new DdlException("Missing dfs.ha.namenodes." + dfsservice + " property");
             }
-        }
-        String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsNameservices,
-                "");
-        if (Strings.isNullOrEmpty(failoverProvider)) {
-            throw new DdlException(
-                    "Missing dfs.client.failover.proxy.provider." + dfsNameservices + " property");
+            String[] names = namenodes.split(",");
+            for (String name : names) {
+                String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsservice + "." + name,
+                        "");
+                if (Strings.isNullOrEmpty(address)) {
+                    throw new DdlException(
+                            "Missing dfs.namenode.rpc-address." + dfsservice + "." + name + " property");
+                }
+            }
+            String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsservice,
+                    "");
+            if (Strings.isNullOrEmpty(failoverProvider)) {
+                throw new DdlException(
+                        "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
+            }
         }
     }
 
@@ -144,9 +147,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String authentication = catalogProperty.getOrDefault(
                 HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            Configuration conf = new Configuration();
-            conf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
-            UserGroupInformation.setConfiguration(conf);
+            hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
+            UserGroupInformation.setConfiguration(hiveConf);
             try {
                 /**
                  * Because metastore client is created by using

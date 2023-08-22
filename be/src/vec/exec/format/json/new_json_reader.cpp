@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <string_view>
 #include <utility>
@@ -214,7 +215,8 @@ Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
         bool is_empty_row = false;
 
-        RETURN_IF_ERROR(_read_json_column(*block, _file_slot_descs, &is_empty_row, &_reader_eof));
+        RETURN_IF_ERROR(
+                _read_json_column(_state, *block, _file_slot_descs, &is_empty_row, &_reader_eof));
         if (is_empty_row) {
             // Read empty row, just continue
             continue;
@@ -404,9 +406,10 @@ Status NewJsonReader::_open_line_reader() {
     } else {
         _skip_first_line = false;
     }
-    _line_reader = NewPlainTextLineReader::create_unique(_profile, _file_reader, nullptr, size,
-                                                         _line_delimiter, _line_delimiter_length,
-                                                         _current_offset);
+    _line_reader = NewPlainTextLineReader::create_unique(
+            _profile, _file_reader, nullptr,
+            std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
+            _current_offset);
     return Status::OK();
 }
 
@@ -440,13 +443,14 @@ Status NewJsonReader::_parse_jsonpath_and_json_root() {
     return Status::OK();
 }
 
-Status NewJsonReader::_read_json_column(Block& block,
+Status NewJsonReader::_read_json_column(RuntimeState* state, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof) {
-    return (this->*_vhandle_json_callback)(block, slot_descs, is_empty_row, eof);
+    return (this->*_vhandle_json_callback)(state, block, slot_descs, is_empty_row, eof);
 }
 
-Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& block,
+Status NewJsonReader::_parse_dynamic_json(RuntimeState* state, bool* is_empty_row, bool* eof,
+                                          Block& block,
                                           const std::vector<SlotDescriptor*>& slot_descs) {
     size_t size = 0;
     // read a whole message
@@ -485,8 +489,8 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
             }
             // Unfold object columns for the purpose of extracting static columns and
             // fill default values missing in static columns
-            RETURN_IF_ERROR(schema_util::unfold_object(block.columns() - 1, block,
-                                                       true /*cast to original column type*/));
+            RETURN_IF_ERROR(schema_util::unfold_object(
+                    block.columns() - 1, block, true /*cast to original column type*/, state));
             _cur_parsed_variant_rows = 0;
         }
         return Status::OK();
@@ -518,12 +522,12 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
     return Status::OK();
 }
 
-Status NewJsonReader::_vhandle_dynamic_json(Block& block,
+Status NewJsonReader::_vhandle_dynamic_json(RuntimeState* state, Block& block,
                                             const std::vector<SlotDescriptor*>& slot_descs,
                                             bool* is_empty_row, bool* eof) {
     bool valid = false;
     do {
-        Status st = _parse_dynamic_json(is_empty_row, eof, block, slot_descs);
+        Status st = _parse_dynamic_json(state, is_empty_row, eof, block, slot_descs);
         if (st.is<DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }
@@ -537,7 +541,7 @@ Status NewJsonReader::_vhandle_dynamic_json(Block& block,
     return Status::OK();
 }
 
-Status NewJsonReader::_vhandle_simple_json(Block& block,
+Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block,
                                            const std::vector<SlotDescriptor*>& slot_descs,
                                            bool* is_empty_row, bool* eof) {
     do {
@@ -610,8 +614,8 @@ Status NewJsonReader::_vhandle_simple_json(Block& block,
 }
 
 Status NewJsonReader::_vhandle_flat_array_complex_json(
-        Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-        bool* eof) {
+        RuntimeState* /*state*/, Block& block, const std::vector<SlotDescriptor*>& slot_descs,
+        bool* is_empty_row, bool* eof) {
     do {
         if (_next_row >= _total_rows) {
             Status st = _parse_json(is_empty_row, eof);
@@ -620,8 +624,8 @@ Status NewJsonReader::_vhandle_flat_array_complex_json(
             }
             RETURN_IF_ERROR(st);
             if (*is_empty_row == true) {
-                if (st == Status::OK()) {
-                    return Status::OK();
+                if (st.ok()) {
+                    return st;
                 }
                 if (_total_rows == 0) {
                     continue;
@@ -640,7 +644,7 @@ Status NewJsonReader::_vhandle_flat_array_complex_json(
     return Status::OK();
 }
 
-Status NewJsonReader::_vhandle_nested_complex_json(Block& block,
+Status NewJsonReader::_vhandle_nested_complex_json(RuntimeState* /*state*/, Block& block,
                                                    const std::vector<SlotDescriptor*>& slot_descs,
                                                    bool* is_empty_row, bool* eof) {
     while (true) {
@@ -1050,6 +1054,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         file_buf->reset(new uint8_t[file_size]);
         Slice result(file_buf->get(), file_size);
         RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, read_size, _io_ctx));
+        _current_offset += *read_size;
         break;
     }
     case TFileType::FILE_STREAM: {
@@ -1099,7 +1104,7 @@ Status NewJsonReader::_simdjson_init_reader() {
     return Status::OK();
 }
 
-Status NewJsonReader::_simdjson_handle_simple_json(Block& block,
+Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Block& block,
                                                    const std::vector<SlotDescriptor*>& slot_descs,
                                                    bool* is_empty_row, bool* eof) {
     // simple json
@@ -1198,8 +1203,8 @@ Status NewJsonReader::_simdjson_handle_simple_json(Block& block,
 }
 
 Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
-        Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-        bool* eof) {
+        RuntimeState* /*state*/, Block& block, const std::vector<SlotDescriptor*>& slot_descs,
+        bool* is_empty_row, bool* eof) {
 // Advance one row in array list, if it is the endpoint, stop advance and break the loop
 #define ADVANCE_ROW()                  \
     if (_array_iter == _array.end()) { \
@@ -1221,8 +1226,8 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
                 }
                 RETURN_IF_ERROR(st);
                 if (*is_empty_row == true) {
-                    if (st == Status::OK()) {
-                        return Status::OK();
+                    if (st.ok()) {
+                        return st;
                     }
                     if (_total_rows == 0) {
                         continue;
@@ -1239,7 +1244,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
-                    if (st.is_not_found()) {
+                    if (st.is<NOT_FOUND>()) {
                         RETURN_IF_ERROR(
                                 _append_error_msg(nullptr, "JsonPath not found", "", nullptr));
                         ADVANCE_ROW();
@@ -1291,8 +1296,8 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
 }
 
 Status NewJsonReader::_simdjson_handle_nested_complex_json(
-        Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-        bool* eof) {
+        RuntimeState* /*state*/, Block& block, const std::vector<SlotDescriptor*>& slot_descs,
+        bool* is_empty_row, bool* eof) {
     // nested complex json
     while (true) {
         size_t num_rows = block.rows();
@@ -1720,6 +1725,10 @@ Status NewJsonReader::_get_column_default_value(
         auto it = col_default_value_ctx.find(slot_desc->col_name());
         if (it != col_default_value_ctx.end() && it->second != nullptr) {
             auto& ctx = it->second;
+            // NULL_LITERAL means no valid value of current column
+            if (ctx->root()->node_type() == TExprNodeType::type::NULL_LITERAL) {
+                continue;
+            }
             // empty block to save default value of slot_desc->col_name()
             Block block;
             // If block is empty, some functions will produce no result. So we insert a column with

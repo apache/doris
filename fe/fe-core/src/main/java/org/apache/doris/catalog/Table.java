@@ -36,10 +36,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -66,10 +68,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public volatile boolean isDropped = false;
 
     private boolean hasCompoundKey = false;
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "name")
     protected volatile String name;
     protected volatile String qualifiedDbName;
+    @SerializedName(value = "type")
     protected TableType type;
+    @SerializedName(value = "createTime")
     protected long createTime;
     protected QueryableReentrantReadWriteLock rwLock;
 
@@ -93,6 +99,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
      * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
+    @SerializedName(value = "fullSchema")
     protected List<Column> fullSchema;
     // tree map for case-insensitive lookup.
     /**
@@ -103,6 +110,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // DO NOT persist this variable.
     protected boolean isTypeRead = false;
     // table(view)'s comment
+    @SerializedName(value = "comment")
     protected String comment = "";
     // sql for creating this table, default is "";
     protected String ddlSql = "";
@@ -489,6 +497,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     @Override
     public String toString() {
         return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
+    }
+
+    public JSONObject toSimpleJson() {
+        JSONObject table = new JSONObject();
+        table.put("Type", type.toEngineName());
+        table.put("Id", Long.toString(id));
+        table.put("Name", name);
+        return table;
     }
 
     /*

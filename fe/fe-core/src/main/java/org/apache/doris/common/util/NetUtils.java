@@ -137,16 +137,16 @@ public class NetUtils {
     }
 
     public static SystemInfoService.HostInfo resolveHostInfoFromHostPort(String hostPort) throws AnalysisException {
+        String[] pair;
         if (hostPort.charAt(0) == '[') {
-            String[] pair = hostPort.substring(1).split("]:");
-            return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
+            pair = hostPort.substring(1).split("]:");
         } else {
-            String[] pair = hostPort.split(":");
-            if (pair.length != 2) {
-                throw new AnalysisException("invalid host port: " + hostPort);
-            }
-            return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
+            pair = hostPort.split(":");
         }
+        if (pair.length != 2) {
+            throw new AnalysisException("invalid host port: " + hostPort);
+        }
+        return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
     }
 
 }

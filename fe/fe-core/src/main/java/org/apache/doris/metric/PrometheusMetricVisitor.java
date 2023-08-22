@@ -173,7 +173,6 @@ public class PrometheusMetricVisitor extends MetricVisitor {
 
         // value
         sb.append(" ").append(metric.getValue().toString()).append("\n");
-        return;
     }
 
     @Override
@@ -192,9 +191,10 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         final String fullName = prefix + String.join("_", names);
         final String fullTag = String.join(",", tags);
         // we should define metric name only once
-        if (tags.isEmpty()) {
+        if (!metricNames.contains(fullName)) {
             sb.append(HELP).append(fullName).append(" ").append("\n");
             sb.append(TYPE).append(fullName).append(" ").append("summary\n");
+            metricNames.add(fullName);
         }
         String delimiter = tags.isEmpty() ? "" : ",";
         Snapshot snapshot = histogram.getSnapshot();
@@ -208,6 +208,10 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             .append(snapshot.get99thPercentile()).append("\n");
         sb.append(fullName).append("{quantile=\"0.999\"").append(delimiter).append(fullTag).append("} ")
             .append(snapshot.get999thPercentile()).append("\n");
+        sb.append(fullName).append("_sum {").append(fullTag).append("} ")
+                .append(histogram.getCount() * snapshot.getMean()).append("\n");
+        sb.append(fullName).append("_count {").append(fullTag).append("} ")
+                .append(histogram.getCount()).append("\n");
     }
 
     @Override

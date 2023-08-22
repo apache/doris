@@ -46,7 +46,8 @@ namespace doris {
 
 namespace pipeline {
 class PipelineFragmentContext;
-}
+class PipelineXFragmentContext;
+} // namespace pipeline
 class QueryContext;
 class ExecEnv;
 class FragmentExecState;
@@ -96,6 +97,9 @@ public:
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
+    void remove_pipeline_context(
+            std::shared_ptr<pipeline::PipelineXFragmentContext> pipeline_context);
+
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
 
@@ -138,6 +142,8 @@ public:
     std::string to_http_path(const std::string& file_name);
 
     void coordinator_callback(const ReportStatusRequest& req);
+
+    ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);

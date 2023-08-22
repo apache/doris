@@ -65,8 +65,7 @@ VCollectIterator::~VCollectIterator() {
 }
 
 void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, bool force_merge,
-                            bool is_reverse,
-                            std::vector<std::pair<int, int>> rs_readers_segment_offsets) {
+                            bool is_reverse) {
     _reader = reader;
 
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
@@ -92,21 +91,18 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
          (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
           _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
-        // When we use scanner pooling + query with topn_with_limit, we need it because we initialize our rs_reader
-        // in out method but not upstream user. At time we init readers, we will need to use it.
-        _rs_readers_segment_offsets = rs_readers_segment_offsets;
     } else {
         _topn_limit = 0;
     }
 }
 
-Status VCollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
+Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {
     if (use_topn_next()) {
-        _rs_readers.push_back(rs_reader);
+        _rs_splits.push_back(rs_splits);
         return Status::OK();
     }
 
-    std::unique_ptr<LevelIterator> child(new Level0Iterator(rs_reader, _reader));
+    std::unique_ptr<LevelIterator> child(new Level0Iterator(rs_splits.rs_reader, _reader));
     _children.push_back(child.release());
     return Status::OK();
 }
@@ -288,23 +284,20 @@ Status VCollectIterator::_topn_next(Block* block) {
             row_pos_comparator);
 
     if (_is_reverse) {
-        std::reverse(_rs_readers.begin(), _rs_readers.end());
+        std::reverse(_rs_splits.begin(), _rs_splits.end());
     }
 
-    bool segment_empty = _rs_readers_segment_offsets.empty();
-    for (size_t i = 0; i < _rs_readers.size(); i++) {
-        const auto& rs_reader = _rs_readers[i];
+    for (size_t i = 0; i < _rs_splits.size(); i++) {
+        const auto& rs_split = _rs_splits[i];
         // init will prune segment by _reader_context.conditions and _reader_context.runtime_conditions
-        RETURN_IF_ERROR(
-                rs_reader->init(&_reader->_reader_context,
-                                segment_empty ? std::pair {0, 0} : _rs_readers_segment_offsets[i]));
+        RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader->_reader_context, rs_split));
 
         // read _topn_limit rows from this rs
         size_t read_rows = 0;
         bool eof = false;
         while (read_rows < _topn_limit && !eof) {
             block->clear_column_data();
-            auto status = rs_reader->next_block(block);
+            auto status = rs_split.rs_reader->next_block(block);
             if (!status.ok()) {
                 if (status.is<END_OF_FILE>()) {
                     eof = true;

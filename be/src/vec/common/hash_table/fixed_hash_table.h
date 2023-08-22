@@ -22,40 +22,6 @@
 
 #include "vec/common/hash_table/hash_table.h"
 
-template <typename Key, typename TState = HashTableNoState>
-struct FixedHashTableCell {
-    using State = TState;
-
-    using value_type = Key;
-    using mapped_type = VoidMapped;
-    bool full;
-
-    FixedHashTableCell() {}
-    FixedHashTableCell(const Key&, const State&) : full(true) {}
-
-    const VoidKey get_key() const { return {}; }
-    VoidMapped get_mapped() const { return {}; }
-
-    bool is_zero(const State&) const { return !full; }
-    void set_zero() { full = false; }
-    static constexpr bool need_zero_value_storage = false;
-
-    /// This Cell is only stored inside an iterator. It's used to accommodate the fact
-    ///  that the iterator based API always provide a reference to a continuous memory
-    ///  containing the Key. As a result, we have to instantiate a real Key field.
-    /// All methods that return a mutable reference to the Key field are named with
-    ///  -Mutable suffix, indicating this is uncommon usage. As this is only for lookup
-    ///  tables, it's totally fine to discard the Key mutations.
-    struct CellExt {
-        Key key;
-
-        const VoidKey get_key() const { return {}; }
-        VoidMapped get_mapped() const { return {}; }
-        const value_type& get_value() const { return key; }
-        void update(Key&& key_, FixedHashTableCell*) { key = key_; }
-    };
-};
-
 /// How to obtain the size of the table.
 
 template <typename Cell>

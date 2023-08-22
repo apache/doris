@@ -603,6 +603,11 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 * `file_cache_base_path`
 
     指定block file cache在BE上的存储路径，默认 'random'，随机选择BE配置的存储路径。
+
+* `enable_inverted_index_query`
+
+    控制是否启用inverted index query，默认 true.
+
 	
 * `topn_opt_limit_threshold`
 
@@ -652,6 +657,12 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 * `enable_strong_consistency_read`
 
   用以开启强一致读。Doris 默认支持同一个会话内的强一致性，即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。
+
+* `truncate_char_or_varchar_columns`
+
+  是否按照表的 schema 来截断 char 或者 varchar 列。默认为 false。
+
+  因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。
 
 ***
 

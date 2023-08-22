@@ -55,6 +55,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
@@ -319,12 +320,15 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    CHECK(block->columns() > _tablet_schema->num_key_columns() &&
-          block->columns() < _tablet_schema->num_columns())
-            << "block columns: " << block->columns()
-            << ", num key columns: " << _tablet_schema->num_key_columns()
-            << ", total schema columns: " << _tablet_schema->num_columns();
-    CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
+    if (block->columns() <= _tablet_schema->num_key_columns() ||
+        block->columns() >= _tablet_schema->num_columns()) {
+        return Status::InternalError(
+                fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
+                            "schema columns: {}",
+                            block->columns(), _tablet_schema->num_key_columns(),
+                            _tablet_schema->num_columns()));
+    }
+    DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
     std::vector<uint32_t> missing_cids = _tablet_schema->get_missing_cids();
@@ -343,10 +347,13 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
+    size_t segment_start_pos;
     for (auto cid : including_cids) {
+        // here we get segment column row num before append data.
+        segment_start_pos = _column_writers[cid]->get_next_rowid();
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         if (cid < _num_key_columns) {
@@ -364,6 +371,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(num_rows);
+    const vectorized::Int8* delete_sign_column_data = nullptr;
+    if (const vectorized::ColumnWithTypeAndName* delete_sign_column =
+                full_block.try_get_by_name(DELETE_SIGN);
+        delete_sign_column != nullptr) {
+        auto& delete_sign_col =
+                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column->column));
+        if (delete_sign_col.size() >= row_pos + num_rows) {
+            delete_sign_column_data = delete_sign_col.get_data().data();
+        }
+    }
+
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -373,10 +391,18 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     // locate rows in base data
 
     int64_t num_rows_filtered = 0;
-    for (size_t pos = row_pos; pos < row_pos + num_rows; pos++) {
-        std::string key = _full_encode_keys(key_columns, pos);
+    for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
+        // block   segment
+        //   2   ->   0
+        //   3   ->   1
+        //   4   ->   2
+        //   5   ->   3
+        // here row_pos = 2, num_rows = 4.
+        size_t delta_pos = block_pos - row_pos;
+        size_t segment_pos = segment_start_pos + delta_pos;
+        std::string key = _full_encode_keys(key_columns, delta_pos);
         if (have_input_seq_column) {
-            _encode_seq_column(seq_column, pos, &key);
+            _encode_seq_column(seq_column, delta_pos, &key);
         }
         // If the table have sequence column, and the include-cids don't contain the sequence
         // column, we need to update the primary key index builder at the end of this method.
@@ -396,7 +422,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 ++num_rows_filtered;
                 // delete the invalid newly inserted row
                 _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
-                                                 pos);
+                                                 segment_pos);
             }
 
             if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
@@ -412,25 +438,40 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             LOG(WARNING) << "failed to lookup row key, error: " << st;
             return st;
         }
-        // partial update should not contain invisible columns
-        use_default_or_null_flag.emplace_back(false);
-        _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
+
+        // if the delete sign is marked, it means that the value columns of the row
+        // will not be read. So we don't need to read the missing values from the previous rows.
+        // But we still need to mark the previous row on delete bitmap
+        if (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0) {
+            has_default_or_nullable = true;
+            use_default_or_null_flag.emplace_back(true);
+        } else {
+            // partial update should not contain invisible columns
+            use_default_or_null_flag.emplace_back(false);
+            _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
+            _tablet->prepare_to_read(loc, segment_pos, &_rssid_to_rid);
+        }
 
         if (st.is<ALREADY_EXIST>()) {
             // although we need to mark delete current row, we still need to read missing columns
             // for this row, we need to ensure that each column is aligned
-            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0}, pos);
+            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
+                                             segment_pos);
         } else {
             _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
     }
     CHECK(use_default_or_null_flag.size() == num_rows);
 
+    if (config::enable_merge_on_write_correctness_check) {
+        _tablet->add_sentinel_mark_to_delete_bitmap(_mow_context->delete_bitmap.get(),
+                                                    _mow_context->rowset_ids);
+    }
+
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
-                                         has_default_or_nullable));
+                                         has_default_or_nullable, segment_start_pos));
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -443,7 +484,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                                    cids_missing);
     for (auto cid : cids_missing) {
         auto converted_result = _olap_data_convertor->convert_column_data(cid);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         if (_tablet_schema->has_sequence_col() && !have_input_seq_column &&
@@ -471,9 +512,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     "index builder num rows: {}",
                     _num_rows_written, row_pos, _primary_key_index_builder->num_rows());
         }
-        for (size_t pos = row_pos; pos < row_pos + num_rows; pos++) {
-            std::string key = _full_encode_keys(key_columns, pos);
-            _encode_seq_column(seq_column, pos, &key);
+        for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
+            std::string key = _full_encode_keys(key_columns, block_pos - row_pos);
+            _encode_seq_column(seq_column, block_pos - row_pos, &key);
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
         }
     }
@@ -488,7 +529,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
 Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
                                            const std::vector<bool>& use_default_or_null_flag,
-                                           bool has_default_or_nullable) {
+                                           bool has_default_or_nullable,
+                                           const size_t& segment_start_pos) {
     // create old value columns
     auto old_value_block = _tablet_schema->create_missing_columns_block();
     std::vector<uint32_t> cids_missing = _tablet_schema->get_missing_cids();
@@ -551,19 +593,23 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 // if the column has default value, fiil it with default value
                 // otherwise, if the column is nullable, fill it with null value
                 const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
-                CHECK(tablet_column.has_default_value() || tablet_column.is_nullable());
                 if (tablet_column.has_default_value()) {
                     mutable_full_columns[cids_missing[i]]->insert_from(
                             *mutable_default_value_columns[i].get(), 0);
-                } else {
+                } else if (tablet_column.is_nullable()) {
                     auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
                             mutable_full_columns[cids_missing[i]].get());
                     nullable_column->insert_null_elements(1);
+                } else {
+                    // If the control flow reaches this branch, the column neither has default value
+                    // nor is nullable. It means that the row's delete sign is marked, and the value
+                    // columns are useless and won't be read. So we can just put arbitary values in the cells
+                    mutable_full_columns[cids_missing[i]]->insert_default();
                 }
             }
             continue;
         }
-        auto pos_in_old_block = read_index[idx];
+        auto pos_in_old_block = read_index[idx + segment_start_pos];
         for (auto i = 0; i < cids_missing.size(); ++i) {
             mutable_full_columns[cids_missing[i]]->insert_from(
                     *old_value_block.get_columns_with_type_and_name()[i].column.get(),
@@ -614,7 +660,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     for (size_t id = 0; id < _column_writers.size(); ++id) {
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(id);
-        if (converted_result.first != Status::OK()) {
+        if (!converted_result.first.ok()) {
             return converted_result.first;
         }
         auto cid = _column_ids[id];
@@ -805,7 +851,14 @@ Status SegmentWriter::finalize_columns_data() {
     if (_has_key) {
         _row_count = _num_rows_written;
     } else {
-        CHECK_EQ(_row_count, _num_rows_written);
+        DCHECK(_row_count == _num_rows_written)
+                << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
+        if (_row_count != _num_rows_written) {
+            std::stringstream ss;
+            ss << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
     }
     _num_rows_written = 0;
 

@@ -618,6 +618,10 @@ Translated with www.DeepL.com/Translator (free version)
 
     Specify the storage path of the block file cache on BE, default 'random', and randomly select the storage path configured by BE.
 
+* `enable_inverted_index_query`
+
+    Set wether to use inverted index query, default true.
+
 * `topn_opt_limit_threshold`
 
     Set threshold for limit of topn query (eg. SELECT * FROM t ORDER BY k LIMIT n). If n <= threshold, topn optimizations(runtime predicate pushdown, two phase result fetch and read order by key) will enable automatically, otherwise disable. Default value is 1024.
@@ -666,6 +670,12 @@ Translated with www.DeepL.com/Translator (free version)
 * `enable_strong_consistency_read`
 
   Used to enable strong consistent reading. By default, Doris supports strong consistency within the same session, that is, changes to data within the same session are visible in real time. If you want strong consistent reads between sessions, set this variable to true. 
+
+* `truncate_char_or_varchar_columns`
+
+  Whether to truncate char or varchar columns according to the table's schema. The default is false.
+
+  Because the maximum length of the char or varchar column in the schema of the table is inconsistent with the schema in the underlying parquet or orc file. At this time, if the option is turned on, it will be truncated according to the maximum length in the schema of the table.
 
 ***
 

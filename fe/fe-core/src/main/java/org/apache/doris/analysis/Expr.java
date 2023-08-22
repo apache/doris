@@ -722,6 +722,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+    public static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
+        if (root instanceof SlotRef) {
+            slotIdSet.add(((SlotRef) root).getDesc().getId());
+            return;
+        }
+        for (Expr child : root.getChildren()) {
+            extractSlots(child, slotIdSet);
+        }
+    }
+
     /**
      * Returns an analyzed clone of 'this' with exprs substituted according to smap.
      * Removes implicit casts and analysis state while cloning/substituting exprs within

@@ -320,7 +320,7 @@ Broker Load 需要借助 Broker 进程访问远端存储，不同的 Broker 需�
   ```text
   参数名：min_bytes_per_broker_scanner， 默认 64MB，单位bytes。
   参数名：max_broker_concurrency， 默认 10。
-  参数名：max_bytes_per_broker_scanner，默认 5G，单位bytes。
+  参数名：max_bytes_per_broker_scanner，默认 500G，单位bytes。
   ```
 
 ## 最佳实践

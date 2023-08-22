@@ -50,30 +50,38 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
 
     protected final Qualifier qualifier;
 
+    protected final List<NamedExpression> outputs;
+
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
+            List<NamedExpression> outputs,
             LogicalProperties logicalProperties,
             List<Plan> inputs) {
         super(planType, Optional.empty(), logicalProperties, inputs.toArray(new Plan[0]));
         this.qualifier = qualifier;
+        this.outputs = ImmutableList.copyOf(outputs);
     }
 
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
+            List<NamedExpression> outputs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
             List<Plan> inputs) {
         super(planType, groupExpression, logicalProperties, inputs.toArray(new Plan[0]));
         this.qualifier = qualifier;
+        this.outputs = ImmutableList.copyOf(outputs);
     }
 
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
+            List<NamedExpression> outputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, List<Plan> inputs) {
         super(planType, groupExpression, logicalProperties,
                 physicalProperties, statistics, inputs.toArray(new Plan[0]));
         this.qualifier = qualifier;
+        this.outputs = ImmutableList.copyOf(outputs);
     }
 
     @Override
@@ -146,7 +154,7 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
         boolean pushedDown = false;
         for (int i = 0; i < this.children().size(); i++) {
             AbstractPhysicalPlan child = (AbstractPhysicalPlan) this.child(i);
-            // TODO: replace this special logic with dynamic handling
+            // TODO: replace this special logic with dynamic handling and the name matching
             if (child instanceof PhysicalDistribute) {
                 child = (AbstractPhysicalPlan) child.child(0);
             }
@@ -154,7 +162,7 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                 PhysicalProject project = (PhysicalProject) child;
                 int projIndex = -1;
                 Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-                if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+                if (probeSlot == null) {
                     continue;
                 }
                 for (int j = 0; j < project.getProjects().size(); j++) {
@@ -171,10 +179,21 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                 if (newProbeExpr instanceof Alias) {
                     newProbeExpr = (NamedExpression) newProbeExpr.child(0);
                 }
+                Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
+                if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, newProbeSlot)) {
+                    continue;
+                }
                 pushedDown |= child.pushDownRuntimeFilter(context, generator, builderNode, src,
                         newProbeExpr, type, buildSideNdv, exprOrder);
             }
         }
         return pushedDown;
+    }
+
+    @Override
+    public List<Slot> computeOutput() {
+        return outputs.stream()
+                .map(NamedExpression::toSlot)
+                .collect(ImmutableList.toImmutableList());
     }
 }

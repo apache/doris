@@ -109,6 +109,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("auto_increment", new Integer(SqlParserSymbols.KW_AUTO_INCREMENT));
         keywordMap.put("as", new Integer(SqlParserSymbols.KW_AS));
         keywordMap.put("asc", new Integer(SqlParserSymbols.KW_ASC));
+        keywordMap.put("at", new Integer(SqlParserSymbols.KW_AT));
         keywordMap.put("authors", new Integer(SqlParserSymbols.KW_AUTHORS));
         keywordMap.put("backend", new Integer(SqlParserSymbols.KW_BACKEND));
         keywordMap.put("backends", new Integer(SqlParserSymbols.KW_BACKENDS));
@@ -196,6 +197,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("distributed", new Integer(SqlParserSymbols.KW_DISTRIBUTED));
         keywordMap.put("distribution", new Integer(SqlParserSymbols.KW_DISTRIBUTION));
         keywordMap.put("div", new Integer(SqlParserSymbols.KW_DIV));
+        keywordMap.put("do", new Integer(SqlParserSymbols.KW_DO));
         keywordMap.put("double", new Integer(SqlParserSymbols.KW_DOUBLE));
         keywordMap.put("drop", new Integer(SqlParserSymbols.KW_DROP));
         keywordMap.put("dropp", new Integer(SqlParserSymbols.KW_DROPP));
@@ -206,11 +208,13 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("encryptkey", new Integer(SqlParserSymbols.KW_ENCRYPTKEY));
         keywordMap.put("encryptkeys", new Integer(SqlParserSymbols.KW_ENCRYPTKEYS));
         keywordMap.put("end", new Integer(SqlParserSymbols.KW_END));
+        keywordMap.put("ends", new Integer(SqlParserSymbols.KW_ENDS));
         keywordMap.put("engine", new Integer(SqlParserSymbols.KW_ENGINE));
         keywordMap.put("engines", new Integer(SqlParserSymbols.KW_ENGINES));
         keywordMap.put("enter", new Integer(SqlParserSymbols.KW_ENTER));
         keywordMap.put("errors", new Integer(SqlParserSymbols.KW_ERRORS));
         keywordMap.put("events", new Integer(SqlParserSymbols.KW_EVENTS));
+        keywordMap.put("every", new Integer(SqlParserSymbols.KW_EVERY));
         keywordMap.put("except", new Integer(SqlParserSymbols.KW_EXCEPT));
         keywordMap.put("exclude", new Integer(SqlParserSymbols.KW_EXCLUDE));
         keywordMap.put("exists", new Integer(SqlParserSymbols.KW_EXISTS));
@@ -279,6 +283,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("isnull", new Integer(SqlParserSymbols.KW_ISNULL));
         keywordMap.put("isolation", new Integer(SqlParserSymbols.KW_ISOLATION));
         keywordMap.put("job", new Integer(SqlParserSymbols.KW_JOB));
+        keywordMap.put("jobs", new Integer(SqlParserSymbols.KW_JOBS));        
         keywordMap.put("join", new Integer(SqlParserSymbols.KW_JOIN));
         keywordMap.put("json", new Integer(SqlParserSymbols.KW_JSON));
         keywordMap.put("jsonb", new Integer(SqlParserSymbols.KW_JSONB));
@@ -410,6 +415,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("rows", new Integer(SqlParserSymbols.KW_ROWS));
         keywordMap.put("s3", new Integer(SqlParserSymbols.KW_S3));
         keywordMap.put("schema", new Integer(SqlParserSymbols.KW_SCHEMA));
+        keywordMap.put("scheduler", new Integer(SqlParserSymbols.KW_SCHEDULER));
         keywordMap.put("schemas", new Integer(SqlParserSymbols.KW_SCHEMAS));
         keywordMap.put("second", new Integer(SqlParserSymbols.KW_SECOND));
         keywordMap.put("select", new Integer(SqlParserSymbols.KW_SELECT));
@@ -428,11 +434,13 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("sql_block_rule", new Integer(SqlParserSymbols.KW_SQL_BLOCK_RULE));
         keywordMap.put("sample", new Integer(SqlParserSymbols.KW_SAMPLE));
         keywordMap.put("start", new Integer(SqlParserSymbols.KW_START));
+        keywordMap.put("starts", new Integer(SqlParserSymbols.KW_STARTS));
         keywordMap.put("stats", new Integer(SqlParserSymbols.KW_STATS));
         keywordMap.put("status", new Integer(SqlParserSymbols.KW_STATUS));
         keywordMap.put("stop", new Integer(SqlParserSymbols.KW_STOP));
         keywordMap.put("storage", new Integer(SqlParserSymbols.KW_STORAGE));
         keywordMap.put("stream", new Integer(SqlParserSymbols.KW_STREAM));
+        keywordMap.put("streaming", new Integer(SqlParserSymbols.KW_STREAMING));
         keywordMap.put("string", new Integer(SqlParserSymbols.KW_STRING));
         keywordMap.put("struct", new Integer(SqlParserSymbols.KW_STRUCT));
         keywordMap.put("sum", new Integer(SqlParserSymbols.KW_SUM));
@@ -446,6 +454,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("tablet", new Integer(SqlParserSymbols.KW_TABLET));
         keywordMap.put("tablets", new Integer(SqlParserSymbols.KW_TABLETS));
         keywordMap.put("task", new Integer(SqlParserSymbols.KW_TASK));
+        keywordMap.put("tasks", new Integer(SqlParserSymbols.KW_TASKS));        
         keywordMap.put("temporary", new Integer(SqlParserSymbols.KW_TEMPORARY));
         keywordMap.put("terminated", new Integer(SqlParserSymbols.KW_TERMINATED));
         keywordMap.put("text", new Integer(SqlParserSymbols.KW_TEXT));
@@ -500,6 +509,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
         keywordMap.put("ignore", new Integer(SqlParserSymbols.KW_IGNORE));
         keywordMap.put("expired", new Integer(SqlParserSymbols.KW_EXPIRED));
+        keywordMap.put("cron", new Integer(SqlParserSymbols.KW_CRON));
    }
     
   // map from token id to token description
@@ -633,7 +643,8 @@ FLit1 = [0-9]+ \. [0-9]*
 FLit2 = \. [0-9]+
 FLit3 = [0-9]+
 Exponent = [eE] [+-]? [0-9]+
-DoubleLiteral = ({FLit1}|{FLit2}|{FLit3}) {Exponent}?
+DoubleLiteral = ({FLit1}|{FLit2}|{FLit3})
+ExponentLiteral = ({FLit1}|{FLit2}|{FLit3}) {Exponent}
 
 EolHintBegin = "--" " "* "+"
 CommentedHintBegin = "/*" " "* "+"
@@ -695,6 +706,17 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 "'" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "`" { return newToken(SqlParserSymbols.UNMATCHED_STRING_LITERAL, null); }
 "?" { return newToken(SqlParserSymbols.PLACEHOLDER, null); }
+
+{ExponentLiteral} {
+  BigDecimal decimal_val;
+  try {
+    decimal_val = new BigDecimal(yytext());
+  } catch (NumberFormatException e) {
+    return newToken(SqlParserSymbols.NUMERIC_OVERFLOW, yytext());
+  }
+
+  return newToken(SqlParserSymbols.DECIMAL_LITERAL, decimal_val);
+}
 
 {QuotedIdentifier} {
     // Remove the quotes

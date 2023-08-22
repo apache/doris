@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
+#include <cstddef>
 
 #include "vec/columns/column.h"
 
@@ -29,11 +29,19 @@ class SlotDescriptor;
 // numeric types, etc.
 class TextConverter {
 public:
-    TextConverter(char escape_char, char array_delimiter = '\2');
+    static constexpr char NULL_STR[3] = {'\\', 'N', '\0'};
+
+    TextConverter(char escape_char, char collection_delimiter = '\2', char map_kv_delimiter = '\3');
+
+    inline void write_string_column(const SlotDescriptor* slot_desc,
+                                    vectorized::MutableColumnPtr* column_ptr, const char* data,
+                                    size_t len) {
+        return write_string_column(slot_desc, column_ptr, data, len, false);
+    }
 
     void write_string_column(const SlotDescriptor* slot_desc,
-                             vectorized::MutableColumnPtr* column_ptr, const char* data,
-                             size_t len);
+                             vectorized::MutableColumnPtr* column_ptr, const char* data, size_t len,
+                             bool need_escape);
 
     inline bool write_column(const SlotDescriptor* slot_desc,
                              vectorized::MutableColumnPtr* column_ptr, const char* data, size_t len,
@@ -55,11 +63,25 @@ public:
                           size_t rows);
     void unescape_string_on_spot(const char* src, size_t* len);
 
-    void set_array_delimiter(char array_delimiter) { _array_delimiter = array_delimiter; }
+    void set_collection_delimiter(char collection_delimiter) {
+        _collection_delimiter = collection_delimiter;
+    }
+    void set_map_kv_delimiter(char mapkv_delimiter) { _map_kv_delimiter = mapkv_delimiter; }
+
+    inline void set_escape_char(const char escape) { this->_escape_char = escape; }
 
 private:
+    bool _write_data(const TypeDescriptor& type_desc, vectorized::IColumn* nullable_col_ptr,
+                     const char* data, size_t len, bool copy_string, bool need_escape, size_t rows,
+                     char array_delimiter);
+
     char _escape_char;
-    char _array_delimiter;
+
+    //struct,array and map delimiter
+    char _collection_delimiter;
+
+    //map key and value delimiter
+    char _map_kv_delimiter;
 };
 
 } // namespace doris

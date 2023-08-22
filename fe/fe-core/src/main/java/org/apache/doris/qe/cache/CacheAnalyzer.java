@@ -39,6 +39,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
@@ -58,6 +59,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Analyze which caching mode a SQL is suitable for
@@ -188,6 +190,10 @@ public class CacheAnalyzer {
         cacheMode = innerCheckCacheMode(now);
     }
 
+    public void checkCacheModeForNereids(long now) {
+        cacheMode = innerCheckCacheModeForNereids(now);
+    }
+
     private CacheMode innerCheckCacheMode(long now) {
         if (!enableCache()) {
             LOG.debug("cache is disabled. queryid {}", DebugUtil.printId(queryId));
@@ -230,8 +236,10 @@ public class CacheAnalyzer {
         }
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
-            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
-                    Config.cache_last_version_interval_second * 1000);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestTime,
+                        Config.cache_last_version_interval_second * 1000);
+            }
             cache = new SqlCache(this.queryId, this.selectStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
@@ -288,8 +296,131 @@ public class CacheAnalyzer {
         return CacheMode.Partition;
     }
 
+    private CacheMode innerCheckCacheModeSetOperation(long now) {
+        // only sql cache
+        if (!enableSqlCache()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("sql cache is disabled. queryid {}", DebugUtil.printId(queryId));
+            }
+            return CacheMode.NoNeed;
+        }
+        if (!(parsedStmt instanceof SetOperationStmt) || scanNodes.size() == 0) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not a set operation stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
+            }
+            return CacheMode.NoNeed;
+        }
+        MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
+
+        //Check the last version time of the table
+        List<CacheTable> tblTimeList = Lists.newArrayList();
+        for (int i = 0; i < scanNodes.size(); i++) {
+            ScanNode node = scanNodes.get(i);
+            if (!(node instanceof OlapScanNode)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("query contains non-olap table. queryid {}", DebugUtil.printId(queryId));
+                }
+                return CacheMode.None;
+            }
+            CacheTable cTable = getSelectedPartitionLastUpdateTime((OlapScanNode) node);
+            tblTimeList.add(cTable);
+        }
+        MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
+        Collections.sort(tblTimeList);
+        latestTable = tblTimeList.get(0);
+        latestTable.debug();
+
+        addAllViewStmt((SetOperationStmt) parsedStmt);
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
+
+        if (now == 0) {
+            now = nowtime();
+        }
+        if (enableSqlCache()
+                && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestTime,
+                        Config.cache_last_version_interval_second * 1000);
+            }
+            cache = new SqlCache(this.queryId, parsedStmt.toSql());
+            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
+            MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
+            return CacheMode.Sql;
+        }
+        return CacheMode.None;
+    }
+
+    private CacheMode innerCheckCacheModeForNereids(long now) {
+        // only sql cache
+        if (!enableSqlCache()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("sql cache is disabled. queryid {}", DebugUtil.printId(queryId));
+            }
+            return CacheMode.NoNeed;
+        }
+        if (!(parsedStmt instanceof LogicalPlanAdapter) || scanNodes.size() == 0) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not a select stmt or no scan node. queryid {}", DebugUtil.printId(queryId));
+            }
+            return CacheMode.NoNeed;
+        }
+        MetricRepo.COUNTER_QUERY_TABLE.increase(1L);
+
+        //Check the last version time of the table
+        List<CacheTable> tblTimeList = Lists.newArrayList();
+        for (int i = 0; i < scanNodes.size(); i++) {
+            ScanNode node = scanNodes.get(i);
+            if (!(node instanceof OlapScanNode)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("query contains non-olap table. queryid {}", DebugUtil.printId(queryId));
+                }
+                return CacheMode.None;
+            }
+            CacheTable cTable = getSelectedPartitionLastUpdateTime((OlapScanNode) node);
+            tblTimeList.add(cTable);
+        }
+        MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
+        Collections.sort(tblTimeList);
+        latestTable = tblTimeList.get(0);
+        latestTable.debug();
+
+        if (((LogicalPlanAdapter) parsedStmt).getStatementContext().getParsedStatement().isExplain()) {
+            return CacheMode.NoNeed;
+        }
+
+        allViewStmtSet.addAll(((LogicalPlanAdapter) parsedStmt).getViews()
+                    .stream().map(view -> view.getDdlSql()).collect(Collectors.toSet()));
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
+
+        if (now == 0) {
+            now = nowtime();
+        }
+        if (enableSqlCache()
+                && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query cache time :{},{},{}", now, latestTable.latestTime,
+                        Config.cache_last_version_interval_second * 1000);
+            }
+            cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
+                        .getOriginStatement().originStmt);
+            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
+            MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
+            return CacheMode.Sql;
+        }
+        return CacheMode.None;
+    }
+
     public InternalService.PFetchCacheResult getCacheData() {
-        cacheMode = innerCheckCacheMode(0);
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            cacheMode = innerCheckCacheModeForNereids(0);
+        } else if (parsedStmt instanceof SelectStmt) {
+            cacheMode = innerCheckCacheMode(0);
+        } else if (parsedStmt instanceof SetOperationStmt) {
+            cacheMode = innerCheckCacheModeSetOperation(0);
+        } else {
+            return null;
+        }
+
         if (cacheMode == CacheMode.NoNeed) {
             return null;
         }

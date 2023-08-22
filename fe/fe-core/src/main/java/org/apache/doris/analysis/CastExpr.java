@@ -275,7 +275,7 @@ public class CastExpr extends Expr {
         if (type.isArrayType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
+                    Lists.newArrayList(getActualArgTypes(collectChildReturnTypes())[0]), false,
                     "doris::CastFunctions::cast_to_array_val", null, null, true);
         } else if (type.isMapType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.MAP),
@@ -314,7 +314,7 @@ public class CastExpr extends Expr {
         // it is necessary to check if it is castable before creating fn.
         // char type will fail in canCastTo, so for compatibility, only the cast of array type is checked here.
         if (type.isArrayType() || childType.isArrayType()) {
-            if (childType.isNull() || !Type.canCastTo(childType, type)) {
+            if (!Type.canCastTo(childType, type)) {
                 throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
                         + " from " + childType + " to " + type);
             }

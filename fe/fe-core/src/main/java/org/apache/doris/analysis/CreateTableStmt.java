@@ -269,6 +269,9 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     public Map<String, String> getProperties() {
+        if (this.properties == null) {
+            this.properties = Maps.newHashMap();
+        }
         return this.properties;
     }
 
@@ -602,7 +605,7 @@ public class CreateTableStmt extends DdlStmt {
                         }
                     }
                     if (!found) {
-                        throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
+                        throw new AnalysisException("Column does not exist in table. invalid column: "
                                 + indexColName);
                     }
                 }
@@ -700,6 +703,9 @@ public class CreateTableStmt extends DdlStmt {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
+        if (ifNotExists) {
+            sb.append("IF NOT EXISTS ");
+        }
         sb.append(tableName.toSql()).append(" (\n");
         int idx = 0;
         for (ColumnDef columnDef : columnDefs) {

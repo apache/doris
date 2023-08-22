@@ -46,17 +46,36 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
                            RuntimeProfile* parent_profile)
         : _index(index),
           _pipeline(pipeline),
-          _operators(operators),
-          _source(_operators.front()),
-          _root(_operators.back()),
-          _sink(sink),
           _prepared(false),
           _opened(false),
           _state(state),
           _cur_state(PipelineTaskState::NOT_READY),
           _data_state(SourceState::DEPEND_ON_SOURCE),
           _fragment_context(fragment_context),
-          _parent_profile(parent_profile) {
+          _parent_profile(parent_profile),
+          _operators(operators),
+          _source(_operators.front()),
+          _root(_operators.back()),
+          _sink(sink) {
+    _pipeline_task_watcher.start();
+}
+
+PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
+                           PipelineFragmentContext* fragment_context,
+                           RuntimeProfile* parent_profile)
+        : _index(index),
+          _pipeline(pipeline),
+          _prepared(false),
+          _opened(false),
+          _state(state),
+          _cur_state(PipelineTaskState::NOT_READY),
+          _data_state(SourceState::DEPEND_ON_SOURCE),
+          _fragment_context(fragment_context),
+          _parent_profile(parent_profile),
+          _operators({}),
+          _source(nullptr),
+          _root(nullptr),
+          _sink(nullptr) {
     _pipeline_task_watcher.start();
 }
 
@@ -255,6 +274,7 @@ Status PipelineTask::execute(bool* eos) {
             RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
         }
         *eos = _data_state == SourceState::FINISHED;
+
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
             auto status = _sink->sink(_state, block, _data_state);
@@ -284,8 +304,13 @@ Status PipelineTask::finalize() {
 }
 
 Status PipelineTask::try_close() {
-    _sink->try_close(_state);
-    return _source->try_close(_state);
+    if (_try_close_flag) {
+        return Status::OK();
+    }
+    _try_close_flag = true;
+    Status status1 = _sink->try_close(_state);
+    Status status2 = _source->try_close(_state);
+    return status1.ok() ? status2 : status1;
 }
 
 Status PipelineTask::close() {

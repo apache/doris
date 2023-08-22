@@ -171,15 +171,7 @@ public:
 
     bool operator==(const DecimalV2Value& other) const { return _value == other.value(); }
 
-    bool operator!=(const DecimalV2Value& other) const { return _value != other.value(); }
-
-    bool operator<=(const DecimalV2Value& other) const { return _value <= other.value(); }
-
-    bool operator>=(const DecimalV2Value& other) const { return _value >= other.value(); }
-
-    bool operator<(const DecimalV2Value& other) const { return _value < other.value(); }
-
-    bool operator>(const DecimalV2Value& other) const { return _value > other.value(); }
+    auto operator<=>(const DecimalV2Value& other) const { return _value <=> other.value(); }
 
     // change to maximum value for given precision and scale
     // precision/scale - see decimal_bin_size() below

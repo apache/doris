@@ -102,22 +102,25 @@ private:
     Status _open_line_reader();
     Status _parse_jsonpath_and_json_root();
 
-    Status _read_json_column(Block& block, const std::vector<SlotDescriptor*>& slot_descs,
-                             bool* is_empty_row, bool* eof);
+    Status _read_json_column(RuntimeState* state, Block& block,
+                             const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                             bool* eof);
 
-    Status _vhandle_simple_json(Block& block, const std::vector<SlotDescriptor*>& slot_descs,
-                                bool* is_empty_row, bool* eof);
+    Status _vhandle_simple_json(RuntimeState* /*state*/, Block& block,
+                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                                bool* eof);
 
-    Status _parse_dynamic_json(bool* is_empty_row, bool* eof, Block& block,
+    Status _parse_dynamic_json(RuntimeState* state, bool* is_empty_row, bool* eof, Block& block,
                                const std::vector<SlotDescriptor*>& slot_descs);
-    Status _vhandle_dynamic_json(Block& block, const std::vector<SlotDescriptor*>& slot_descs,
-                                 bool* is_empty_row, bool* eof);
+    Status _vhandle_dynamic_json(RuntimeState* /*state*/, Block& block,
+                                 const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                                 bool* eof);
 
-    Status _vhandle_flat_array_complex_json(Block& block,
+    Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
                                             const std::vector<SlotDescriptor*>& slot_descs,
                                             bool* is_empty_row, bool* eof);
 
-    Status _vhandle_nested_complex_json(Block& block,
+    Status _vhandle_nested_complex_json(RuntimeState* /*state*/, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof);
 
@@ -147,15 +150,15 @@ private:
     Status _simdjson_parse_json(bool* is_empty_row, bool* eof);
     Status _simdjson_parse_json_doc(size_t* size, bool* eof);
 
-    Status _simdjson_handle_simple_json(Block& block,
+    Status _simdjson_handle_simple_json(RuntimeState* state, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof);
 
-    Status _simdjson_handle_flat_array_complex_json(Block& block,
+    Status _simdjson_handle_flat_array_complex_json(RuntimeState* state, Block& block,
                                                     const std::vector<SlotDescriptor*>& slot_descs,
                                                     bool* is_empty_row, bool* eof);
 
-    Status _simdjson_handle_nested_complex_json(Block& block,
+    Status _simdjson_handle_nested_complex_json(RuntimeState* state, Block& block,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
                                                 bool* is_empty_row, bool* eof);
 
@@ -174,7 +177,7 @@ private:
 
     size_t _column_index(const StringRef& name, size_t key_index);
 
-    Status (NewJsonReader::*_vhandle_json_callback)(Block& block,
+    Status (NewJsonReader::*_vhandle_json_callback)(RuntimeState* state, Block& block,
                                                     const std::vector<SlotDescriptor*>& slot_descs,
                                                     bool* is_empty_row, bool* eof);
     Status _get_column_default_value(

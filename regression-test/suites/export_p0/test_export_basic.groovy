@@ -69,7 +69,8 @@ suite("test_export_basic", "p0") {
             PARTITION between_20_70 VALUES [("20"),("70")),
             PARTITION more_than_70 VALUES LESS THAN ("151")
         )
-        DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
+        DISTRIBUTED BY HASH(id) BUCKETS 3
+        PROPERTIES("replication_num" = "1");
     """
     StringBuilder sb = new StringBuilder()
     int i = 1

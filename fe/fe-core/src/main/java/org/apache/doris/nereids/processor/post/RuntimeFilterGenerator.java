@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -220,6 +221,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap
                 = context.getRuntimeFilterContext().getAliasTransferMap();
         // change key when encounter alias.
+        // TODO: same action will be taken for set operation
         for (Expression expression : project.getProjects()) {
             if (expression.children().isEmpty()) {
                 continue;
@@ -236,11 +238,18 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     @Override
-    public PhysicalRelation visitPhysicalScan(PhysicalRelation scan, CascadesContext context) {
+    public Plan visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, CascadesContext context) {
+        // TODO: OneRowRelation will be translated to union. Union node cannot apply runtime filter now
+        //  so, just return itself now, until runtime filter could apply on any node.
+        return oneRowRelation;
+    }
+
+    @Override
+    public PhysicalRelation visitPhysicalRelation(PhysicalRelation relation, CascadesContext context) {
         // add all the slots in map.
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        scan.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(scan, slot)));
-        return scan;
+        relation.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(relation, slot)));
+        return relation;
     }
 
     private long getBuildSideNdv(PhysicalHashJoin<? extends Plan, ? extends Plan> join, EqualTo equalTo) {
@@ -457,7 +466,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             Map<EqualTo, PhysicalHashJoin> equalCondToJoinMap = entry.getValue();
             for (Map.Entry<EqualTo, PhysicalHashJoin> innerEntry : equalCondToJoinMap.entrySet()) {
                 EqualTo equalTo = innerEntry.getKey();
-                PhysicalHashJoin join = innerEntry.getValue();
+                PhysicalHashJoin<? extends Plan, ? extends Plan> join = innerEntry.getValue();
                 Preconditions.checkState(join != null);
                 TRuntimeFilterType type = TRuntimeFilterType.IN_OR_BLOOM;
                 if (ctx.getSessionVariable().getEnablePipelineEngine()) {

@@ -406,6 +406,7 @@ private:
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
+        auto* __restrict date_day_offset_dict = get_date_day_offset_dict();
         auto& column_data = static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
@@ -421,11 +422,15 @@ private:
                         continue;
                     }
                 }
-                int64_t& date_value = data->data[i];
-                v.from_unixtime(date_value * 24 * 60 * 60, _time_zone); // day to seconds
+                int64_t date_value = data->data[i] + _offset_days;
+                DCHECK_LT(date_value, 25500);
+                DCHECK_GE(date_value, 0);
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                    v.create_from_date_v2(date_day_offset_dict[date_value], TIME_DATE);
                     // we should cast to date if using date v1.
                     v.cast_to_date();
+                } else {
+                    v = date_day_offset_dict[date_value];
                 }
             } else { // timestamp
                 if constexpr (is_filter) {
@@ -482,8 +487,11 @@ private:
                                                            const NullMap* null_map,
                                                            orc::ColumnVectorBatch* cvb,
                                                            const orc::Type* orc_column_typ);
+    int64_t get_remaining_rows() { return _remaining_rows; }
+    void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
 private:
+    int64_t _remaining_rows = 0;
     RuntimeProfile* _profile = nullptr;
     RuntimeState* _state = nullptr;
     const TFileScanRangeParams& _scan_params;
@@ -495,6 +503,7 @@ private:
     int64_t _range_size;
     const std::string& _ctz;
     const std::vector<std::string>* _column_names;
+    size_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;
@@ -539,6 +548,7 @@ private:
 
     const TupleDescriptor* _tuple_descriptor;
     const RowDescriptor* _row_descriptor;
+    VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;

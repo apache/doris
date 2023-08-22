@@ -235,7 +235,8 @@ public:
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not implemented";
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "compare_at for " + std::string(get_family_name()));
     }
 
     void get_extremes(Field& min, Field& max) const override {

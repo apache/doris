@@ -21,12 +21,14 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -200,6 +202,10 @@ public class FunctionSet<T> {
     public static final String COLLECT_SET = "collect_set";
     public static final String HISTOGRAM = "histogram";
     public static final String HIST = "hist";
+    public static final String MAP_AGG = "map_agg";
+
+    public static final String BITMAP_AGG = "bitmap_agg";
+    public static final String COUNT_BY_ENUM = "count_by_enum";
 
     private static final Map<Type, String> TOPN_UPDATE_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -451,6 +457,13 @@ public class FunctionSet<T> {
                 // The implementations of hex for string and int are different.
                 return false;
             }
+        }
+        // If set `roundPreciseDecimalV2Value`, only use decimalv3 as target type to execute round function
+        if (ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().roundPreciseDecimalV2Value
+                && FunctionCallExpr.ROUND_FUNCTION_SET.contains(desc.functionName())
+                && descArgType.isDecimalV2()) {
+            return candicateArgType.getPrimitiveType() == PrimitiveType.DECIMAL128;
         }
         if ((descArgType.isDecimalV3() && candicateArgType.isDecimalV2())
                 || (descArgType.isDecimalV2() && candicateArgType.isDecimalV3())) {
@@ -1021,6 +1034,24 @@ public class FunctionSet<T> {
                         true, false, true, true));
             }
 
+            if (!Type.JSONB.equals(t)) {
+                for (Type valueType : Type.getMapSubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, valueType),
+                            new MapType(t, valueType),
+                            Type.VARCHAR,
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
+
+                for (Type v : Type.getArraySubTypes()) {
+                    addBuiltin(AggregateFunction.createBuiltin(MAP_AGG, Lists.newArrayList(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
+                            new MapType(t, new ArrayType(v)),
+                            "", "", "", "", "", null, "",
+                            true, true, false, true));
+                }
+            }
+
             if (STDDEV_UPDATE_SYMBOL.containsKey(t)) {
                 //vec stddev stddev_samp stddev_pop
                 addBuiltin(AggregateFunction.createBuiltin("stddev",
@@ -1258,6 +1289,16 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createBuiltin("group_bit_xor",
                     Lists.newArrayList(t), t, t, "", "", "", "", "",
                     false, true, false, true));
+            if (!t.equals(Type.LARGEINT)) {
+                addBuiltin(
+                        AggregateFunction.createBuiltin("bitmap_agg", Lists.newArrayList(t), Type.BITMAP, Type.BITMAP,
+                                "",
+                                "",
+                                "",
+                                "",
+                                "",
+                                true, false, true, true));
+            }
         }
 
         addBuiltin(AggregateFunction.createBuiltin(QUANTILE_UNION, Lists.newArrayList(Type.QUANTILE_STATE),
@@ -1593,6 +1634,21 @@ public class FunctionSet<T> {
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                         "lead", Lists.newArrayList(t, Type.BIGINT), t, t, true));
         }
+
+        // count_by_enum
+        addBuiltin(AggregateFunction.createBuiltin(COUNT_BY_ENUM,
+                Lists.newArrayList(Type.STRING),
+                Type.STRING,
+                Type.STRING,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                false, true, false, true));
 
     }
 

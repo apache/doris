@@ -50,6 +50,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
+#include "vec/io/io_helper.h"
 
 namespace doris {
 namespace vectorized {
@@ -65,7 +66,7 @@ class DateV2Value;
 namespace doris::vectorized {
 
 struct ConvertTzCtx {
-    std::map<std::string, cctz::time_zone> time_zone_cache;
+    ZoneList time_zone_cache;
 };
 
 template <typename DateValueType, typename ArgType>
@@ -91,7 +92,7 @@ struct ConvertTZImpl {
                         size_t input_rows_count) {
         auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
                 context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
-        std::map<std::string, cctz::time_zone> time_zone_cache_;
+        ZoneList time_zone_cache_;
         auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
         for (size_t i = 0; i < input_rows_count; i++) {
             if (result_null_map[i]) {
@@ -111,7 +112,7 @@ struct ConvertTZImpl {
                                  NullMap& result_null_map, size_t input_rows_count) {
         auto convert_ctx = reinterpret_cast<ConvertTzCtx*>(
                 context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
-        std::map<std::string, cctz::time_zone> time_zone_cache_;
+        ZoneList time_zone_cache_;
         auto& time_zone_cache = convert_ctx ? convert_ctx->time_zone_cache : time_zone_cache_;
 
         auto from_tz = from_tz_column->get_data_at(0).to_string();
@@ -126,8 +127,7 @@ struct ConvertTZImpl {
         }
     }
 
-    static void execute_inner_loop(const ColumnType* date_column,
-                                   std::map<std::string, cctz::time_zone>& time_zone_cache,
+    static void execute_inner_loop(const ColumnType* date_column, ZoneList& time_zone_cache,
                                    const std::string& from_tz, const std::string& to_tz,
                                    ReturnColumnType* result_column, NullMap& result_null_map,
                                    const size_t index_now) {
@@ -205,7 +205,7 @@ public:
         if (scope != FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
-        context->set_function_state(scope, std::make_shared<ConvertTzCtx>());
+        context->set_function_state(scope, std::make_unique<ConvertTzCtx>());
         return Status::OK();
     }
 

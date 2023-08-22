@@ -18,6 +18,10 @@
 import java.math.BigDecimal;
 
 suite("test_point_query") {
+
+    // nereids do not support point query now
+    sql """set enable_nereids_planner=false"""
+
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_serving_p0"
@@ -108,7 +112,7 @@ suite("test_point_query") {
     }
     // def url = context.config.jdbcUrl
     def result1 = connect(user=user, password=password, url=url) {
-      def stmt = prepareStatement "select * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+      def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
       assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
       stmt.setInt(1, 1231)
       stmt.setBigDecimal(2, new BigDecimal("119291.11"))
@@ -142,14 +146,15 @@ suite("test_point_query") {
       stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
       stmt.setString(3, generateString(298))
       qe_point_select stmt
+      stmt.close()
 
-      stmt = prepareStatement "select * from ${tableName} where k1 = 1235 and k2 = ? and k3 = ?"
+      stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = 1235 and k2 = ? and k3 = ?"
       assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
       stmt.setBigDecimal(1, new BigDecimal("991129292901.11138"))
       stmt.setString(2, "dd")
       qe_point_select stmt
 
-      def stmt_fn = prepareStatement "select hex(k3), hex(k4) from ${tableName} where k1 = ? and k2 =? and k3 = ?"
+      def stmt_fn = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=false) */ hex(k3), hex(k4) from ${tableName} where k1 = ? and k2 =? and k3 = ?"
       assertEquals(stmt_fn.class, com.mysql.cj.jdbc.ServerPreparedStatement);
       stmt_fn.setInt(1, 1231)
       stmt_fn.setBigDecimal(2, new BigDecimal("119291.11"))
@@ -191,9 +196,9 @@ suite("test_point_query") {
     // disable useServerPrepStmts
     url = context.config.jdbcUrl
     def result2 = connect(user=user, password=password, url=url) {
-        qt_sql """select * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
-        qt_sql """select * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
-        qt_sql """select  hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
+        qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
+        qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
+        qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
         // prepared text
         sql """ prepare stmt1 from  select * from ${tableName} where k1 = % and k2 = % and k3 = % """ 
         qt_sql """execute stmt1 using (1231, 119291.11, 'ddd')"""
@@ -222,6 +227,6 @@ suite("test_point_query") {
             "disable_auto_compaction" = "false"
             );"""
         sql """insert into ${tableName} values (0, "1", "2", "3")"""
-        qt_sql "select * from test_query where customer_key = 0"
+        qt_sql "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test_query where customer_key = 0"
     }
 }
