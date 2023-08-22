@@ -45,7 +45,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.clone.RebalancerTestUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -85,13 +84,12 @@ public class AlterTest {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 100;
         FeConstants.tablet_checker_interval_ms = 100;
-        FeConstants.tablet_checker_interval_ms = 100;
+        Config.tablet_checker_interval_ms = 100;
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.disable_storage_medium_check = true;
         Config.enable_storage_policy = true;
         Config.disable_balance = true;
-        Config.schedule_batch_size = 400;
-        Config.schedule_slot_num_per_hdd_path = 100;
+        Config.schedule_batch_size = 200;
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
 
         List<Backend> backends = Env.getCurrentSystemInfo().getIdToBackend().values().asList();
@@ -141,37 +139,6 @@ public class AlterTest {
                 + "    PARTITION p1 values less than('2020-02-01'),\n"
                 + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1');");
-
-        createTable("CREATE TABLE test.colocate_tbl1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
-                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n"
-                + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
-                + "PROPERTIES('replication_num' = '1', 'colocate_with' = 'group_1');");
-
-        createTable("CREATE TABLE test.colocate_tbl2\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int \n"
-                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
-                + "    PARTITION p1 values less than('2020-02-01'),\n"
-                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
-                + "PROPERTIES('replication_num' = '1', 'colocate_with' = 'group_2');");
-
-        createTable("CREATE TABLE test.colocate_tbl3 (\n"
-                + "`uuid` varchar(255) NULL,\n"
-                + "`action_datetime` date NULL\n"
-                + ")\n"
-                + "DUPLICATE KEY(uuid)\n"
-                + "PARTITION BY RANGE(action_datetime)()\n"
-                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
-                + "PROPERTIES\n"
-                + "(\n"
-                + "\"colocate_with\" = \"group_3\",\n"
-                + "\"dynamic_partition.enable\" = \"true\",\n"
-                + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
-                + "\"dynamic_partition.end\" = \"3\",\n"
-                + "\"dynamic_partition.prefix\" = \"p\",\n"
-                + "\"dynamic_partition.buckets\" = \"32\",\n"
-                + "\"dynamic_partition.replication_num\" = \"1\",\n"
-                + "\"dynamic_partition.create_history_partition\"=\"true\",\n"
-                + "\"dynamic_partition.start\" = \"-3\"\n"
-                + ");\n");
 
         createTable(
                 "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 datetime(3),\n"
@@ -306,36 +273,6 @@ public class AlterTest {
 
         stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
         alterTable(stmt, true);
-    }
-
-    @Test
-    public void alterTableModifyRepliaAlloc() throws Exception {
-        String[] tables = new String[]{"test.colocate_tbl1", "test.colocate_tbl2"};
-        final String errChangeReplicaAlloc = "Cannot change replication allocation of colocate table";
-        for (int i = 0; i < tables.length; i++) {
-            String sql = "alter table " + tables[i] + " set ('default.replication_allocation' = 'tag.location.default:1')";
-            AlterTableStmt alterTableStmt2 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-            ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
-                    () -> Env.getCurrentEnv().alterTable(alterTableStmt2));
-
-            sql = "alter table " + tables[i] + " modify partition (*) set (\n"
-                + "'replication_allocation' = 'tag.location.default:1')";
-            AlterTableStmt alterTableStmt3 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-            ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
-                    () -> Env.getCurrentEnv().alterTable(alterTableStmt3));
-        }
-
-        String sql = "alter table test.colocate_tbl1 set ('replication_allocation' = 'tag.location.default:1')";
-        AlterTableStmt alterTableStmt1 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
-                () -> Env.getCurrentEnv().alterTable(alterTableStmt1));
-
-        sql = "alter table test.colocate_tbl3 set (\n"
-            + "'dynamic_partition.replication_allocation' = 'tag.location.default:1'\n"
-            + " );";
-        AlterTableStmt alterTableStmt4 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, errChangeReplicaAlloc,
-                () -> Env.getCurrentEnv().alterTable(alterTableStmt4));
     }
 
     @Test
@@ -1246,7 +1183,6 @@ public class AlterTest {
                 + "DISTRIBUTED BY HASH(uuid) BUCKETS 4\n"
                 + "PROPERTIES\n"
                 + "(\n"
-                + "\"replication_num\" = \"2\",\n"
                 + "\"colocate_with\" = \"mod_group_2\",\n"
                 + "\"dynamic_partition.enable\" = \"true\",\n"
                 + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
@@ -1256,30 +1192,19 @@ public class AlterTest {
                 + "\"dynamic_partition.replication_num\" = \"2\"\n"
                 + ");\n");
 
+
         Env env = Env.getCurrentEnv();
-        Database db = env.getInternalCatalog().getDbOrMetaException("default_cluster:test");
-        OlapTable tbl2 = (OlapTable) db.getTableOrMetaException("col_tbl2");
-        for (int j = 0; true; j++) {
-            Thread.sleep(2000);
-            if (tbl2.getAllPartitions().size() > 0) {
-                break;
-            }
-            if (j >= 5) {
-                Assert.assertTrue("dynamic table not create partition", false);
-            }
-        }
-
-        RebalancerTestUtil.updateReplicaPathHash();
-
         ReplicaAllocation newReplicaAlloc = new ReplicaAllocation();
         newReplicaAlloc.put(Tag.DEFAULT_BACKEND_TAG, (short) 1);
         newReplicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, "group_a"), (short) 1);
         newReplicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, "group_b"), (short) 1);
 
+        Database db = env.getInternalCatalog().getDbOrMetaException("default_cluster:test");
         for (int i = 0; i < 3; i++) {
             String groupName = GroupId.getFullGroupName(db.getId(), "mod_group_" + i);
             String sql = "alter colocate group " + groupName
                     + " set ( 'replication_allocation' = '" + newReplicaAlloc.toCreateStmt() + "')";
+            System.out.println(sql);
             AlterColocateGroupStmt stmt = (AlterColocateGroupStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
             DdlExecutor.execute(env, stmt);
 
@@ -1301,6 +1226,15 @@ public class AlterTest {
             if (i == 2) {
                 Assert.assertEquals(newReplicaAlloc,
                         tbl.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation());
+                for (int j = 0; true; j++) {
+                    Thread.sleep(2000);
+                    if (tbl.getAllPartitions().size() > 0) {
+                        break;
+                    }
+                    if (j >= 5) {
+                        Assert.assertTrue("dynamic table not create partition", false);
+                    }
+                }
             }
         }
 
@@ -1319,6 +1253,7 @@ public class AlterTest {
                     if (k >= 120) {
                         Assert.assertTrue(groupName + " is unstable" , false);
                     }
+                    System.out.println("xxxxxxxxxx unstable: " + i);
                     continue;
                 }
 
@@ -1352,6 +1287,11 @@ public class AlterTest {
                     Tag tag = backendTags.get(backendId);
                     int sameTagReplicaNum = tabletNum * newReplicaAlloc.getAllocMap().getOrDefault(tag, (short) 0);
                     int sameTagBeNum = (int) (backendTags.values().stream().filter(t -> t.equals(tag)).count());
+                    System.out.println("xx i " + i);
+                    System.out.println("xx backend " + backendId);
+                    System.out.println("xx sameTagReplicaNum " + sameTagReplicaNum);
+                    System.out.println("xx sameTagBeNum " + sameTagBeNum);
+                    System.out.println("xx tabletNum " + tabletNum);
                     Assert.assertEquals("backend " + backendId + " failed: " + " all backend replica num: "
                             + backendReplicaNum + ", all backend tag: " + backendTags,
                             sameTagReplicaNum / sameTagBeNum, replicaNum);
