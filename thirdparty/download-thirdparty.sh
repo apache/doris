@@ -231,12 +231,21 @@ cd -
 echo "Finished patching ${ABSEIL_SOURCE}"
 
 # glog patch
-cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
-if [[ ! -f "${PATCHED_MARK}" ]]; then
-    patch -p1 <"${TP_PATCH_DIR}/glog-0.6.0.patch"
-    touch "${PATCHED_MARK}"
+if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/glog-0.4.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/glog-0.6.0.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
 fi
-cd -
 echo "Finished patching ${GLOG_SOURCE}"
 
 # gtest patch

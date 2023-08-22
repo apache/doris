@@ -467,14 +467,27 @@ build_glog() {
     check_if_source_exist "${GLOG_SOURCE}"
     cd "${TP_SOURCE_DIR}/${GLOG_SOURCE}"
 
-    LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -S . -B build -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -DWITH_UNWIND=OFF \
-        -DBUILD_SHARED_LIBS=OFF
+    if [[ "${GLOG_SOURCE}" == "glog-0.4.0" ]]; then
+        # to generate config.guess and config.sub to support aarch64
+        rm -rf config.*
+        autoreconf -i
 
-    cmake --build build --target install
+        CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
+            LDFLAGS="-L${TP_LIB_DIR}" \
+            ./configure --prefix="${TP_INSTALL_DIR}" --enable-frame-pointers --disable-shared --enable-static
+
+        make -j "${PARALLEL}"
+        make install
+    elif [[ "${GLOG_SOURCE}" == "glog-0.6.0" ]]; then
+        LDFLAGS="-L${TP_LIB_DIR}" \
+            "${CMAKE_CMD}" -S . -B build -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DWITH_UNWIND=OFF \
+            -DBUILD_SHARED_LIBS=OFF
+
+        cmake --build build --target install
+    fi
 
     strip_lib libglog.a
 }
@@ -799,8 +812,12 @@ build_brpc() {
 
     # Currently, BRPC can't be built for static libraries only (without .so). Therefore, we should add `-fPIC`
     # to the dependencies which are required by BRPC. Dependencies: zlib, glog, protobuf, leveldb
+    # If BUILD_SHARED_LIBS=OFF, on centos 5.4 will error: `undefined reference to `google::FlagRegisterer`, no error on MacOS.
+    # If glog is compiled before gflags, the above error will not exist, this works in glog 0.4,
+    # but glog 0.6 enforces dependency on gflags.
+    # glog must be enabled, otherwise error: `flag 'v' was defined more than once` (in files 'glog-0.6.0/src/vlog_is_on.cc' and 'brpc-1.6.0/src/butil/logging.cc')
     LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=1 -DWITH_GLOG=OFF -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=ON -DWITH_GLOG=ON -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_LIBRARY_PATH="${TP_INSTALL_DIR}/lib64" -DCMAKE_INCLUDE_PATH="${TP_INSTALL_DIR}/include" \
         -DBUILD_BRPC_TOOLS=OFF \
         -DPROTOBUF_PROTOC_EXECUTABLE="${TP_INSTALL_DIR}/bin/protoc" ..
@@ -1696,10 +1713,10 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         zstd
         boost # must before thrift
         abseil
-        protobuf
         gflags
         gtest
         glog
+        protobuf # after gtest
         rapidjson
         snappy
         gperftools
