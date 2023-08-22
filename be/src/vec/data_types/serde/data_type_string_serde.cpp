@@ -22,7 +22,6 @@
 #include <stddef.h>
 
 #include "arrow/array/builder_binary.h"
-#include "gutil/casts.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
 #include "vec/columns/column.h"
@@ -123,7 +122,7 @@ void DataTypeStringSerDe::read_column_from_arrow(IColumn& column, const arrow::A
     auto& column_offsets = assert_cast<ColumnString&>(column).get_offsets();
     if (arrow_array->type_id() == arrow::Type::STRING ||
         arrow_array->type_id() == arrow::Type::BINARY) {
-        auto concrete_array = down_cast<const arrow::BinaryArray*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
         std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
         for (size_t offset_i = start; offset_i < end; ++offset_i) {
@@ -134,7 +133,7 @@ void DataTypeStringSerDe::read_column_from_arrow(IColumn& column, const arrow::A
             column_offsets.emplace_back(column_chars_t.size());
         }
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
-        auto concrete_array = down_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         uint32_t width = concrete_array->byte_width();
         const auto* array_data = concrete_array->GetValue(start);
 
