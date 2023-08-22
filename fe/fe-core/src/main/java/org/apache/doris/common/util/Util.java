@@ -599,6 +599,7 @@ public class Util {
                 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
                 || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
+                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4BLOCK
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;

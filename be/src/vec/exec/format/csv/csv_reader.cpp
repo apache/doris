@@ -340,6 +340,8 @@ Status CsvReader::init_reader(bool is_load) {
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
         [[fallthrough]];
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZOP:
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
@@ -494,7 +496,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::BZIP2;
             break;
         case TFileCompressType::LZ4FRAME:
-            compress_type = CompressType::LZ4FRAME;
+            compress_type = config::default_lz4_codec == "block" ? CompressType::LZ4BLOCK : CompressType::LZ4FRAME;
             break;
         case TFileCompressType::LZ4BLOCK:
             compress_type = CompressType::LZ4BLOCK;
@@ -519,7 +521,7 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::BZIP2;
             break;
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-            compress_type = CompressType::LZ4FRAME;
+            compress_type = config::default_lz4_codec == "block" ? CompressType::LZ4BLOCK : CompressType::LZ4FRAME;
             break;
         case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
             compress_type = CompressType::LZ4BLOCK;

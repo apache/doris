@@ -44,8 +44,13 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
             *format_type = TFileFormatType::FORMAT_CSV_BZ2;
             *compress_type = TFileCompressType::BZ2;
         } else if (iequal(compress_type_str, "LZ4")) {
-            *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
-            *compress_type = TFileCompressType::LZ4FRAME;
+            if (config::default_lz4_codec == "block") {
+                *format_type = TFileFormatType::FORMAT_CSV_LZ4BLOCK;
+                *compress_type = TFileCompressType::LZ4BLOCK;
+            } else {
+                *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
+                *compress_type = TFileCompressType::LZ4FRAME;
+            }
         } else if (iequal(compress_type_str, "LZOP")) {
             *format_type = TFileFormatType::FORMAT_CSV_LZOP;
             *compress_type = TFileCompressType::LZO;
@@ -72,6 +77,7 @@ bool LoadUtil::is_format_support_streaming(TFileFormatType::type format) {
     case TFileFormatType::FORMAT_CSV_DEFLATE:
     case TFileFormatType::FORMAT_CSV_GZ:
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
     case TFileFormatType::FORMAT_CSV_LZO:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_JSON:

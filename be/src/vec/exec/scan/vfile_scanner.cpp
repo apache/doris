@@ -755,6 +755,7 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_GZ:
         case TFileFormatType::FORMAT_CSV_BZ2:
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE:
         case TFileFormatType::FORMAT_PROTO: {
