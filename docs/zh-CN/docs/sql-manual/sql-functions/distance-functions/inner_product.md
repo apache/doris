@@ -28,20 +28,25 @@ under the License.
 #### Syntax
 
 ```sql
-DOUBLE inner_product(vector1, vector2)
+DOUBLE inner_product(ARRAY<T> array1, ARRAY<T> array2)
 ```
 
 计算两个大小相同的向量的标量积
+如果输入array为NULL，或者array中任何元素为NULL，则返回NULL
+
+#### Notice
+* 输入数组的子类型支持：TINYINT、SMALLINT、INT、BIGINT、LARGEINT、FLOAT、DOUBLE
+* 输入数组array1和array2，元素数量需保持一致
 
 ### example
 
 ```
-sql> SELECT cosine_distance([1, 2], [2, 3]);
-+-------------------------------------------+
-| cosine_distance(ARRAY(1, 2), ARRAY(2, 3)) |
-+-------------------------------------------+
-|                     0.0077221232863322609 |
-+-------------------------------------------+
+sql> SELECT inner_product([1, 2], [2, 3]);
++-----------------------------------------+
+| inner_product(ARRAY(1, 2), ARRAY(2, 3)) |
++-----------------------------------------+
+|                                       8 |
++-----------------------------------------+
 ```
 
 ### keywords

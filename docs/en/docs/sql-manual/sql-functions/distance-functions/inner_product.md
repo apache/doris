@@ -28,20 +28,25 @@ under the License.
 #### Syntax
 
 ```sql
-DOUBLE inner_product(vector1, vector2)
+DOUBLE inner_product(ARRAY<T> array1, ARRAY<T> array2)
 ```
 
-Calculates the scalar product of two vectors of the same size
+Calculates the scalar product of two vectors of the same size.
+Return NULL if input array is NULL or any element of array is NULL.
+
+#### Notice
+* nested type of input array support: TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE
+* input array1 and array2 should have the same element size
 
 ### example
 
 ```
-sql> SELECT cosine_distance([1, 2], [2, 3]);
-+-------------------------------------------+
-| cosine_distance(ARRAY(1, 2), ARRAY(2, 3)) |
-+-------------------------------------------+
-|                     0.0077221232863322609 |
-+-------------------------------------------+
+sql> SELECT inner_product([1, 2], [2, 3]);
++-----------------------------------------+
+| inner_product(ARRAY(1, 2), ARRAY(2, 3)) |
++-----------------------------------------+
+|                                       8 |
++-----------------------------------------+
 ```
 
 ### keywords

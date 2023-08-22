@@ -28,10 +28,15 @@ under the License.
 #### Syntax
 
 ```sql
-DOUBLE l2_distance(vector1, vector2)
+DOUBLE l2_distance(ARRAY<T> array1, ARRAY<T> array2)
 ```
 
-Calculates the distance between two points (the values of the vectors are the coordinates) in Euclidean space
+Calculates the distance between two points (the values of the vectors are the coordinates) in Euclidean space.
+Return NULL if input array is NULL or any element of array is NULL.
+
+#### Notice
+* nested type of input array support: TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE
+* input array1 and array2 should have the same element size
 
 ### example
 

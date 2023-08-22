@@ -96,7 +96,7 @@ public:
                         size_t result, size_t input_rows_count) override {
         const auto& arg1 = block.get_by_position(arguments[0]);
         const auto& arg2 = block.get_by_position(arguments[1]);
-        if (_check_input_type(arg1.type) || _check_input_type(arg2.type)) {
+        if (!_check_input_type(arg1.type) || !_check_input_type(arg2.type)) {
             return Status::RuntimeError(fmt::format("unsupported types for function {}({}, {})",
                                                     get_name(), arg1.type->get_name(),
                                                     arg2.type->get_name()));
@@ -171,11 +171,12 @@ public:
 
 private:
     bool _check_input_type(const DataTypePtr& type) {
-        if (!is_array(type)) {
+        auto array_type = remove_nullable(type);
+        if (!is_array(array_type)) {
             return false;
         }
         auto nested_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
         if (is_integer(nested_type) || is_float(nested_type)) {
             return true;
         }

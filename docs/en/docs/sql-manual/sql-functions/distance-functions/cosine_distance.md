@@ -28,10 +28,15 @@ under the License.
 #### Syntax
 
 ```sql
-DOUBLE cosine_distance(vector1, vector2)
+DOUBLE cosine_distance(ARRAY<T> array1, ARRAY<T> array2)
 ```
 
-Calculates the cosine distance between two vectors (the values of the vectors are the coordinates)
+Calculates the cosine distance between two vectors (the values of the vectors are the coordinates).
+Return NULL if input array is NULL or any element of array is NULL.
+
+#### Notice
+* nested type of input array support: TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE
+* input array1 and array2 should have the same element size
 
 ### example
 
