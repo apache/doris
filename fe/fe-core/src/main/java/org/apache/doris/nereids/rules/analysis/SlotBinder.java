@@ -17,13 +17,17 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
+import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
@@ -31,7 +35,17 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Variable;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.VariableVarConverters;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -49,7 +63,7 @@ class SlotBinder extends SubExprAnalyzer {
     but enabled for order by clause
     TODO after remove original planner, always enable exact match mode.
      */
-    private boolean enableExactMatch;
+    private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
 
     public SlotBinder(Scope scope, CascadesContext cascadesContext) {
@@ -65,6 +79,35 @@ class SlotBinder extends SubExprAnalyzer {
 
     public Expression bind(Expression expression) {
         return expression.accept(this, null);
+    }
+
+    @Override
+    public Expression visitUnboundVariable(UnboundVariable unboundVariable, CascadesContext context) {
+        String name = unboundVariable.getName();
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        Literal literal = null;
+        if (unboundVariable.getType() == VariableType.DEFAULT) {
+            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.DEFAULT);
+        } else if (unboundVariable.getType() == VariableType.SESSION) {
+            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.SESSION);
+        } else if (unboundVariable.getType() == VariableType.GLOBAL) {
+            literal = VariableMgr.getLiteral(sessionVariable, name, SetType.GLOBAL);
+        } else if (unboundVariable.getType() == VariableType.USER) {
+            literal = VariableMgr.getLiteralForUserVar(name);
+        }
+        if (literal == null) {
+            throw new AnalysisException("Unsupported system variable: " + unboundVariable.getName());
+        }
+        if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
+            try {
+                Preconditions.checkArgument(literal instanceof IntegerLikeLiteral);
+                IntegerLikeLiteral integerLikeLiteral = (IntegerLikeLiteral) literal;
+                literal = new StringLiteral(VariableVarConverters.decode(name, integerLikeLiteral.getLongValue()));
+            } catch (DdlException e) {
+                throw new AnalysisException(e.getMessage());
+            }
+        }
+        return new Variable(unboundVariable.getName(), unboundVariable.getType(), literal);
     }
 
     @Override

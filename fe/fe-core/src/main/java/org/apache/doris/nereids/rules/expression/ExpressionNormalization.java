@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticComparisonRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyArithmeticRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
@@ -43,6 +44,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
     // from_unixtime(timestamp, 'yyyyMMdd') to 'yyyyMMdd'
     public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES = ImmutableList.of(
             SupportJavaDateFormatter.INSTANCE,
+            ReplaceVariableByLiteral.INSTANCE,
             NormalizeBinaryPredicatesRule.INSTANCE,
             BetweenToCompoundRule.INSTANCE,
             InPredicateDedup.INSTANCE,
