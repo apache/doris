@@ -58,6 +58,15 @@ class time_zone;
         ++*num_deserialized;                                                        \
     }
 
+#define DESERIALIZE_COLUMN_FROM_CSV_VECTOR()                                                      \
+    for (int i = 0; i < slices.size(); ++i) {                                                     \
+        if (Status st = deserialize_one_cell_from_csv(column, slices[i], options, nesting_level); \
+            st != Status::OK()) {                                                                 \
+            return st;                                                                            \
+        }                                                                                         \
+        ++*num_deserialized;                                                                      \
+    }
+
 namespace doris {
 class PValues;
 class JsonbValue;
@@ -105,6 +114,45 @@ public:
          *  by dropping the "" or ''.
          */
         bool converted_from_string = false;
+
+        char escape_char = 0;
+
+        [[nodiscard]] char get_collection_delimiter(int nesting_level) const {
+            CHECK(0 <= nesting_level && nesting_level <= 153);
+
+            char ans = '\002';
+            //https://github.com/apache/hive/blob/master/serde/src/java/org/apache/hadoop/hive/serde2/lazy/LazySerDeParameters.java#L250
+            //use only control chars that are very unlikely to be part of the string
+            // the following might/likely to be used in text files for strings
+            // 9 (horizontal tab, HT, \t, ^I)
+            // 10 (line feed, LF, \n, ^J),
+            // 12 (form feed, FF, \f, ^L),
+            // 13 (carriage return, CR, \r, ^M),
+            // 27 (escape, ESC, \e [GCC only], ^[).
+
+            if (nesting_level == 1) {
+                ans = collection_delim;
+            } else if (nesting_level == 2) {
+                ans = map_key_delim;
+            } else if (nesting_level <= 7) {
+                // [3, 7] -> [4, 8]
+                ans = nesting_level + 1;
+            } else if (nesting_level == 8) {
+                // [8] -> [11]
+                ans = 11;
+            } else if (nesting_level <= 21) {
+                // [9, 21] -> [14, 26]
+                ans = nesting_level + 5;
+            } else if (nesting_level <= 25) {
+                // [22, 25] -> [28, 31]
+                ans = nesting_level + 6;
+            } else if (nesting_level <= 153) {
+                // [26, 153] -> [-128, -1]
+                ans = nesting_level + (-26 - 128);
+            }
+
+            return ans;
+        }
     };
 
 public:
@@ -124,6 +172,22 @@ public:
     virtual Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
                                                        int* num_deserialized,
                                                        const FormatOptions& options) const = 0;
+
+    virtual Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                                 const FormatOptions& options,
+                                                 int nesting_level = 1) const {
+        return deserialize_one_cell_from_text(column, slice, options);
+    };
+    virtual Status deserialize_column_from_csv_vector(IColumn& column, std::vector<Slice>& slices,
+                                                      int* num_deserialized,
+                                                      const FormatOptions& options,
+                                                      int nesting_level = 1) const {
+        return deserialize_column_from_text_vector(column, slices, num_deserialized, options);
+    };
+    virtual void serialize_one_cell_to_csv(const IColumn& column, int row_num, BufferWritable& bw,
+                                           FormatOptions& options, int nesting_level = 1) const {
+        serialize_one_cell_to_text(column, row_num, bw, options);
+    }
 
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int start,

@@ -65,16 +65,7 @@ Status DataTypeArraySerDe::deserialize_column_from_text_vector(IColumn& column,
                                                                std::vector<Slice>& slices,
                                                                int* num_deserialized,
                                                                const FormatOptions& options) const {
-    DCHECK(!slices.empty());
-    int end = num_deserialized && *num_deserialized > 0 ? *num_deserialized : slices.size();
-
-    for (int i = 0; i < end; ++i) {
-        if (Status st = deserialize_one_cell_from_text(column, slices[i], options);
-            st != Status::OK()) {
-            *num_deserialized = i + 1;
-            return st;
-        }
-    }
+    DESERIALIZE_COLUMN_FROM_TEXT_VECTOR();
     return Status::OK();
 }
 
@@ -139,6 +130,62 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_text(IColumn& column, Slice
                                                                   &elem_deserialized, options);
     offsets.emplace_back(offsets.back() + elem_deserialized);
     return st;
+}
+Status DataTypeArraySerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                                         const FormatOptions& options,
+                                                         int nesting_level) const {
+    auto& array_column = assert_cast<ColumnArray&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_column = array_column.get_data();
+    DCHECK(nested_column.is_nullable());
+
+    char collection_delimiter = options.get_collection_delimiter(nesting_level);
+
+    std::vector<Slice> slices;
+    for (int idx = 0, start = 0; idx <= slice.size; idx++) {
+        char c = (idx == slice.size) ? collection_delimiter : slice[idx];
+        if (c == collection_delimiter) {
+            slices.emplace_back(slice.data + start, idx - start);
+            start = idx + 1;
+        }
+    }
+
+    int elem_deserialized = 0;
+    Status status = nested_serde->deserialize_column_from_csv_vector(
+            nested_column, slices, &elem_deserialized, options, nesting_level + 1);
+    offsets.emplace_back(offsets.back() + elem_deserialized);
+    return status;
+}
+Status DataTypeArraySerDe::deserialize_column_from_csv_vector(IColumn& column,
+                                                              std::vector<Slice>& slices,
+                                                              int* num_deserialized,
+                                                              const FormatOptions& options,
+                                                              int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_CSV_VECTOR();
+    return Status::OK();
+}
+void DataTypeArraySerDe::serialize_one_cell_to_csv(const IColumn& column, int row_num,
+                                                   BufferWritable& bw, FormatOptions& options,
+                                                   int nesting_level) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    auto& data_column = assert_cast<const ColumnArray&>(*ptr);
+    auto& offsets = data_column.get_offsets();
+
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+
+    const IColumn& nested_column = data_column.get_data();
+
+    char delimiter = options.get_collection_delimiter(nesting_level);
+    for (size_t i = start; i < end; ++i) {
+        if (i != start) {
+            bw.write(delimiter);
+        }
+        nested_serde->serialize_one_cell_to_csv(nested_column, i, bw, options, nesting_level + 1);
+    }
 }
 
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,

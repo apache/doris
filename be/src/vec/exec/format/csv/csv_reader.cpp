@@ -1,4 +1,4 @@
-// Licensed to the Apache Software Foundation (ASF) under one
+﻿// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -50,6 +50,7 @@
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/file_reader/new_plain_binary_line_reader.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
@@ -168,7 +169,6 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _file_reader(nullptr),
           _line_reader(nullptr),
           _line_reader_eof(false),
-          _text_converter(new(std::nothrow) TextConverter('\\')),
           _decompressor(nullptr),
           _skip_lines(0),
           _io_ctx(io_ctx) {
@@ -197,7 +197,6 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _file_slot_descs(file_slot_descs),
           _line_reader(nullptr),
           _line_reader_eof(false),
-          _text_converter(new(std::nothrow) TextConverter('\\')),
           _decompressor(nullptr),
           _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
@@ -294,16 +293,14 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.text_params.__isset.escape) {
         _escape = _params.file_attributes.text_params.escape;
     }
-    _text_converter->set_escape_char(_escape);
 
     _trim_tailing_spaces =
             (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
-    _collection_delimiter = _params.file_attributes.text_params.collection_delimiter;
-    _text_converter->set_collection_delimiter(_collection_delimiter[0]);
-
-    _map_kv_delimiter = _params.file_attributes.text_params.mapkv_delimiter;
-    _text_converter->set_map_kv_delimiter(_map_kv_delimiter[0]);
+    _options.escape_char = _escape;
+    _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
+    _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
+    _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
@@ -571,32 +568,15 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         return Status::OK();
     }
 
-    if (_is_load) {
-        for (int i = 0; i < _file_slot_descs.size(); ++i) {
-            auto src_slot_desc = _file_slot_descs[i];
-            int col_idx = _col_idxs[i];
-            // col idx is out of range, fill with null.
-            const Slice& value =
-                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-            // For load task, we always read "string" from file, so use "write_string_column"
-            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data, value.size,
-                                                 _escape != 0);
-        }
-    } else {
-        // if _split_values.size > _file_slot_descs.size()
-        // we only take the first few columns
-        for (int i = 0; i < _file_slot_descs.size(); ++i) {
-            auto src_slot_desc = _file_slot_descs[i];
-            int col_idx = _col_idxs[i];
-            // col idx is out of range, fill with null.
-            const Slice& value =
-                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-            IColumn* col_ptr = const_cast<IColumn*>(
-                    block->get_by_position(_file_slot_idx_map[i]).column.get());
-            // For query task, we will convert values to final column type, so use "write_vec_column"
-            _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
-                                              false);
-        }
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        //            auto src_slot_desc = _file_slot_descs[i];
+        int col_idx = _col_idxs[i];
+        // col idx is out of range, fill with null.
+        const Slice& value =
+                col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+        // For load task, we always read "string" from file, so use "write_string_column"
+        Slice slice {value.data, value.size};
+        _serdes[i]->deserialize_one_cell_from_csv(*columns[i], slice, _options);
     }
     ++(*rows);
 
@@ -754,13 +734,11 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         _escape = _params.file_attributes.text_params.escape;
     }
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
-    _text_converter->set_escape_char(_escape);
 
-    _collection_delimiter = _params.file_attributes.text_params.collection_delimiter;
-    _text_converter->set_collection_delimiter(_collection_delimiter[0]);
-
-    _map_kv_delimiter = _params.file_attributes.text_params.mapkv_delimiter;
-    _text_converter->set_map_kv_delimiter(_map_kv_delimiter[0]);
+    _options.escape_char = _escape;
+    _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
+    _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
+    _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
@@ -784,7 +762,6 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
 
     _line_reader = NewPlainTextLineReader::create_unique(
             _profile, _file_reader, _decompressor.get(), text_line_reader_ctx, _size, start_offset);
-
     return Status::OK();
 }
 

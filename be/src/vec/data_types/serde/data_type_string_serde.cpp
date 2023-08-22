@@ -56,10 +56,35 @@ Status DataTypeStringSerDe::deserialize_column_from_text_vector(
     DESERIALIZE_COLUMN_FROM_TEXT_VECTOR()
     return Status::OK();
 }
+static void escape_string(const char* src, size_t& len, char escape_char) {
+    const char* start = src;
+    char* dest_ptr = const_cast<char*>(src);
+    const char* end = src + len;
+    bool escape_next_char = false;
+
+    while (src < end) {
+        if (*src == escape_char) {
+            escape_next_char = !escape_next_char;
+        } else {
+            escape_next_char = false;
+        }
+
+        if (escape_next_char) {
+            ++src;
+        } else {
+            *dest_ptr++ = *src++;
+        }
+    }
+
+    len = dest_ptr - start;
+}
 
 Status DataTypeStringSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnString&>(column);
+    if (options.escape_char != 0) {
+        escape_string(slice.data, slice.size, options.escape_char);
+    }
     column_data.insert_data(slice.data, slice.size);
     return Status::OK();
 }

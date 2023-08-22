@@ -67,6 +67,53 @@ Status DataTypeNullableSerDe::deserialize_column_from_text_vector(
     return Status::OK();
 }
 
+void DataTypeNullableSerDe::serialize_one_cell_to_csv(const IColumn& column, int row_num,
+                                                      BufferWritable& bw, FormatOptions& options,
+                                                      int nesting_level) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const auto& col_null = assert_cast<const ColumnNullable&>(*ptr);
+    if (col_null.is_null_at(row_num)) {
+        bw.write("\\N", 2);
+    } else {
+        nested_serde->serialize_one_cell_to_csv(col_null.get_nested_column(), row_num, bw, options,
+                                                nesting_level);
+    }
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                                            const FormatOptions& options,
+                                                            int nesting_level) const {
+    auto& null_column = assert_cast<ColumnNullable&>(column);
+    // TODO(Amory) make null literal configurable
+    if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+        null_column.insert_data(nullptr, 0);
+        return Status::OK();
+    }
+
+    auto st = nested_serde->deserialize_one_cell_from_csv(null_column.get_nested_column(), slice,
+                                                          options, nesting_level);
+    if (!st.ok()) {
+        // fill null if fail
+        null_column.insert_data(nullptr, 0); // 0 is meaningless here
+        return Status::OK();
+    }
+
+    // fill not null if success
+    null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+Status DataTypeNullableSerDe::deserialize_column_from_csv_vector(IColumn& column,
+                                                                 std::vector<Slice>& slices,
+                                                                 int* num_deserialized,
+                                                                 const FormatOptions& options,
+                                                                 int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_CSV_VECTOR();
+    return Status::OK();
+}
+
 Status DataTypeNullableSerDe::deserialize_one_cell_from_text(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);

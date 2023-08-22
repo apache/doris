@@ -60,6 +60,100 @@ void DataTypeMapSerDe::serialize_one_cell_to_text(const IColumn& column, int row
     }
     bw.write("}", 1);
 }
+Status DataTypeMapSerDe::deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                                       const FormatOptions& options,
+                                                       int nesting_level) const {
+    DCHECK(!slice.empty());
+    auto& array_column = assert_cast<ColumnMap&>(column);
+    auto& offsets = array_column.get_offsets();
+    IColumn& nested_key_column = array_column.get_keys();
+    IColumn& nested_val_column = array_column.get_values();
+    DCHECK(nested_key_column.is_nullable());
+    DCHECK(nested_val_column.is_nullable());
+
+    char collection_delimiter = options.get_collection_delimiter(nesting_level);
+    char map_kv_delimiter = options.get_collection_delimiter(nesting_level + 1);
+
+    std::vector<Slice> key_slices;
+    std::vector<Slice> value_slices;
+
+    for (size_t i = 0, from = 0, kv = 0; i <= slice.size; i++) {
+        /*
+         *  In hive , when you special map key and value delimiter as ':'
+         *  for map<int,timestamp> column , the query result is correct , but
+         *  for map<timestamp, int> column and map<timestamp,timestamp> column , the query result is incorrect,
+         *  because this field have many '_map_kv_delimiter'.
+         *
+         *  So i use 'kv <= from' in order to get _map_kv_delimiter that appears first.
+         * */
+        if (i < slice.size && slice[i] == map_kv_delimiter && kv <= from) {
+            kv = i;
+            continue;
+        }
+        if (i == slice.size || slice[i] == collection_delimiter) {
+            key_slices.push_back({slice.data + from, kv - from});
+            value_slices.push_back({slice.data + kv + 1, i - 1 - kv});
+            from = i + 1;
+        }
+    }
+
+    int num_keys = 0, num_values = 0;
+    Status st;
+    st = key_serde->deserialize_column_from_csv_vector(nested_key_column, key_slices, &num_keys,
+                                                       options, nesting_level + 2);
+    if (st != Status::OK()) {
+        return st;
+    }
+
+    st = value_serde->deserialize_column_from_csv_vector(nested_val_column, value_slices,
+                                                         &num_values, options, nesting_level + 2);
+    if (st != Status::OK()) {
+        return st;
+    }
+
+    CHECK(num_keys == num_values);
+
+    offsets.push_back(offsets.back() + num_values);
+    return Status::OK();
+}
+
+Status DataTypeMapSerDe::deserialize_column_from_csv_vector(IColumn& column,
+                                                            std::vector<Slice>& slices,
+                                                            int* num_deserialized,
+                                                            const FormatOptions& options,
+                                                            int nesting_level) const {
+    DESERIALIZE_COLUMN_FROM_CSV_VECTOR();
+    return Status::OK();
+}
+void DataTypeMapSerDe::serialize_one_cell_to_csv(const IColumn& column, int row_num,
+                                                 BufferWritable& bw, FormatOptions& options,
+                                                 int nesting_level) const {
+    auto result = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = result.first;
+    row_num = result.second;
+
+    const ColumnMap& map_column = assert_cast<const ColumnMap&>(*ptr);
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+
+    size_t start = offsets[row_num - 1];
+    size_t end = offsets[row_num];
+
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+
+    char collection_delimiter = options.get_collection_delimiter(nesting_level);
+    char map_kv_delimiter = options.get_collection_delimiter(nesting_level + 1);
+
+    for (size_t i = start; i < end; ++i) {
+        if (i != start) {
+            bw.write(collection_delimiter);
+        }
+        key_serde->serialize_one_cell_to_csv(nested_keys_column, i, bw, options, nesting_level + 2);
+        bw.write(map_kv_delimiter);
+        value_serde->serialize_one_cell_to_csv(nested_values_column, i, bw, options,
+                                               nesting_level + 2);
+    }
+}
 
 Status DataTypeMapSerDe::deserialize_column_from_text_vector(IColumn& column,
                                                              std::vector<Slice>& slices,

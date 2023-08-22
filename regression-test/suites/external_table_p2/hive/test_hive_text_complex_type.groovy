@@ -44,6 +44,10 @@ suite("test_hive_text_complex_type", "p2,external,hive,external_remote,external_
             count(column1_struct),
             count(column_primitive_bigint)
             from parquet_predicate_table where column_primitive_bigint = 6;"""
+        qt_sql3 """ select * from hive_text_complex_type2 order by id; """   
+         
+        qt_sql4 """ select * from hive_text_complex_type_delimiter2 order by id; """   
+
         sql """drop catalog ${catalog_name};"""
     }
 }

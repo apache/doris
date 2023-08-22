@@ -50,6 +50,16 @@ public:
     Status deserialize_column_from_text_vector(IColumn& column, std::vector<Slice>& slices,
                                                int* num_deserialized,
                                                const FormatOptions& options) const override;
+    Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                         const FormatOptions& options,
+                                         int nesting_level = 1) const override;
+
+    Status deserialize_column_from_csv_vector(IColumn& column, std::vector<Slice>& slices,
+                                              int* num_deserialized, const FormatOptions& options,
+                                              int nesting_level = 1) const override;
+    void serialize_one_cell_to_csv(const IColumn& column, int row_num, BufferWritable& bw,
+                                   FormatOptions& options, int nesting_level = 1) const override;
+
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {
         return Status::NotSupported("write_column_to_pb with type " + column.get_name());
