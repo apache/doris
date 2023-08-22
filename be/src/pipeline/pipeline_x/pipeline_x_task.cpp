@@ -240,7 +240,7 @@ Status PipelineXTask::close() {
 std::string PipelineXTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id));
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
 
     fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
                    PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));

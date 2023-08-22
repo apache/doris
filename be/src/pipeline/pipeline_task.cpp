@@ -385,7 +385,7 @@ void PipelineTask::set_state(PipelineTaskState state) {
 std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id));
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(fragment_context()->get_fragment_instance_id()));
 
