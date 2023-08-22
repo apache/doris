@@ -180,7 +180,7 @@ public class S3TvfLoadStmtTest {
 
         Deencapsulation.invoke(s3TvfLoadStmt, "rewriteExpr", columnsDescList);
         Assert.assertEquals(columnsDescList.size(), 5);
-        final String orig4 = "upper(`c1`) + 1 + 1";
+        final String orig4 = "((upper(`c1`) + 1) + 1)";
         Assert.assertEquals(orig4, columnsDescList.get(4).getExpr().toString());
 
         final List<ImportColumnDesc> filterColumns = Deencapsulation.invoke(s3TvfLoadStmt,
