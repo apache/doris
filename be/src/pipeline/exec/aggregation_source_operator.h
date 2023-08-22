@@ -115,7 +115,7 @@ public:
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 
     virtual Status get_block(RuntimeState* state, vectorized::Block* block,
-                     SourceState& source_state) override;
+                             SourceState& source_state) override;
 
     Status close(RuntimeState* state) override;
     bool is_source() const override { return true; }
