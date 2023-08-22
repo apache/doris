@@ -59,6 +59,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Analyze which caching mode a SQL is suitable for
@@ -189,6 +190,10 @@ public class CacheAnalyzer {
         cacheMode = innerCheckCacheMode(now);
     }
 
+    public void checkCacheModeForNereids(long now) {
+        cacheMode = innerCheckCacheModeForNereids(now);
+    }
+
     private CacheMode innerCheckCacheMode(long now) {
         if (!enableCache()) {
             LOG.debug("cache is disabled. queryid {}", DebugUtil.printId(queryId));
@@ -232,7 +237,7 @@ public class CacheAnalyzer {
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
             cache = new SqlCache(this.queryId, this.selectStmt);
@@ -326,7 +331,7 @@ public class CacheAnalyzer {
         latestTable.debug();
 
         addAllViewStmt((SetOperationStmt) parsedStmt);
-        String allViewExpandStmtListStr = parsedStmt.toSql() + "|" + StringUtils.join(allViewStmtSet, "|");
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
 
         if (now == 0) {
             now = nowtime();
@@ -334,10 +339,10 @@ public class CacheAnalyzer {
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                LOG.debug("Query cache time:{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
-            cache = new SqlCache(this.queryId);
+            cache = new SqlCache(this.queryId, parsedStmt.toSql());
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
@@ -383,19 +388,22 @@ public class CacheAnalyzer {
             return CacheMode.NoNeed;
         }
 
-        String cacheKey = ((LogicalPlanAdapter) parsedStmt).getStatementContext()
-                .getOriginStatement().originStmt.toLowerCase();
+        allViewStmtSet.addAll(((LogicalPlanAdapter) parsedStmt).getViews()
+                    .stream().map(view -> view.getDdlSql()).collect(Collectors.toSet()));
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");
+
         if (now == 0) {
             now = nowtime();
         }
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                LOG.debug("Query cache time :{},{},{}", now, latestTable.latestTime,
                         Config.cache_last_version_interval_second * 1000);
             }
-            cache = new SqlCache(this.queryId);
-            ((SqlCache) cache).setCacheInfo(this.latestTable, cacheKey);
+            cache = new SqlCache(this.queryId, ((LogicalPlanAdapter) parsedStmt).getStatementContext()
+                        .getOriginStatement().originStmt);
+            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_ADDED_SQL.increase(1L);
             return CacheMode.Sql;
         }

@@ -80,7 +80,9 @@ public:
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
-    bool countdown() { return fragment_num.fetch_sub(1) <= 1; }
+    bool countdown() { return countdown(1); }
+
+    bool countdown(int delta) { return fragment_num.fetch_sub(delta) <= 1; }
 
     ExecEnv* exec_env() { return _exec_env; }
 
@@ -114,6 +116,15 @@ public:
         }
         _start_cond.notify_all();
     }
+
+    [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
+    void set_is_cancelled(bool v) {
+        _is_cancelled.store(v);
+        // Create a error status, so that we could print error stack, and
+        // we could know which path call cancel.
+        LOG(INFO) << "task is cancelled, st = " << Status::Error<ErrorCode::CANCELLED>("");
+    }
+
     void set_ready_to_execute_only() {
         {
             std::lock_guard<std::mutex> l(_start_lock);

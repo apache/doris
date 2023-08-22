@@ -699,9 +699,9 @@ Status VFileScanner::_get_next_reader() {
             if (range.__isset.table_format_params &&
                 range.table_format_params.table_format_type == "iceberg") {
                 std::unique_ptr<IcebergTableReader> iceberg_reader =
-                        IcebergTableReader::create_unique(std::move(parquet_reader), _profile,
-                                                          _state, *_params, range, _kv_cache,
-                                                          _io_ctx.get());
+                        IcebergTableReader::create_unique(
+                                std::move(parquet_reader), _profile, _state, *_params, range,
+                                _kv_cache, _io_ctx.get(), _parent->get_push_down_count());
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
@@ -819,7 +819,7 @@ Status VFileScanner::_get_next_reader() {
         if (_state->query_options().truncate_char_or_varchar_columns && need_to_get_parsed_schema) {
             Status status = _cur_reader->get_parsed_schema(&_source_file_col_names,
                                                            &_source_file_col_types);
-            if (status != Status::OK() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
+            if (!status.ok() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
                 return status;
             }
             DCHECK(_source_file_col_names.size() == _source_file_col_types.size());

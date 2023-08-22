@@ -37,7 +37,7 @@ bool SegmentCache::lookup(const SegmentCache::CacheKey& key, SegmentCacheHandle*
     if (lru_handle == nullptr) {
         return false;
     }
-    *handle = SegmentCacheHandle(_cache.get(), lru_handle);
+    handle->init(_cache.get(), lru_handle);
     return true;
 }
 
@@ -56,7 +56,7 @@ void SegmentCache::insert(const SegmentCache::CacheKey& key, SegmentCache::Cache
 
     auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentCache::CacheValue),
                                      deleter, CachePriority::NORMAL, meta_mem_usage);
-    *handle = SegmentCacheHandle(_cache.get(), lru_handle);
+    handle->init(_cache.get(), lru_handle);
 }
 
 void SegmentCache::erase(const SegmentCache::CacheKey& key) {
@@ -65,12 +65,14 @@ void SegmentCache::erase(const SegmentCache::CacheKey& key) {
 
 Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                     SegmentCacheHandle* cache_handle, bool use_cache) {
-    SegmentCache::CacheKey cache_key(rowset->rowset_id());
-    if (_segment_cache->lookup(cache_key, cache_handle)) {
-        cache_handle->owned = false;
+    if (cache_handle->is_inited()) {
         return Status::OK();
     }
-    cache_handle->owned = !use_cache;
+
+    SegmentCache::CacheKey cache_key(rowset->rowset_id());
+    if (_segment_cache->lookup(cache_key, cache_handle)) {
+        return Status::OK();
+    }
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(rowset->load_segments(&segments));
@@ -81,9 +83,8 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         cache_value->segments = std::move(segments);
         _segment_cache->insert(cache_key, *cache_value, cache_handle);
     } else {
-        cache_handle->segments = std::move(segments);
+        cache_handle->init(std::move(segments));
     }
-
     return Status::OK();
 }
 

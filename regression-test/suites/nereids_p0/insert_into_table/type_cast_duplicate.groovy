@@ -87,4 +87,14 @@ suite("nereids_insert_duplicate") {
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
     sql 'sync'
     qt_43 'select * from dup_light_sc_not_null_t_type_cast order by id, kint'
+
+    sql 'set delete_without_partition=true'
+    sql '''delete from dup_t_type_cast where id is not null'''
+    sql '''delete from dup_t_type_cast where id is null'''
+    sql '''delete from dup_light_sc_t_type_cast where id is not null'''
+    sql '''delete from dup_light_sc_t_type_cast where id is null'''
+    sql '''delete from dup_not_null_t_type_cast where id is not null'''
+    sql '''delete from dup_not_null_t_type_cast where id is null'''
+    sql '''delete from dup_light_sc_not_null_t_type_cast where id is not null'''
+    sql '''delete from dup_light_sc_not_null_t_type_cast where id is null'''
 }

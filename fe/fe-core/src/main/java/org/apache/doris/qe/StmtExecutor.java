@@ -126,6 +126,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
+import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
@@ -391,7 +392,14 @@ public class StmtExecutor {
     }
 
     public boolean isInsertStmt() {
-        return parsedStmt != null && parsedStmt instanceof InsertStmt;
+        if (parsedStmt == null) {
+            return false;
+        }
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            return logicalPlan instanceof InsertIntoTableCommand;
+        }
+        return parsedStmt instanceof InsertStmt;
     }
 
     /**
@@ -519,19 +527,22 @@ public class StmtExecutor {
             try {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
-                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+                LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
                 context.setState(e.getQueryState());
-                throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed", e);
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
+                        new AnalysisException(e.getMessage(), e));
             } catch (UserException e) {
                 // Return message to info client what happened.
-                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+                LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed", e);
+                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
+                        new AnalysisException(e.getMessage(), e));
             } catch (Exception e) {
                 // Maybe our bug
-                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
-                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-                throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+                LOG.debug("Command (" + originStmt.originStmt + ") process failed.", e);
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
+                        new AnalysisException(e.getMessage(), e));
             }
         } else {
             context.getState().setIsQuery(true);
@@ -544,7 +555,7 @@ public class StmtExecutor {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
             } catch (Exception e) {
                 LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
-                throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
+                throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
             handleQueryWithRetry(queryId);
@@ -2213,7 +2224,8 @@ public class StmtExecutor {
 
     private void handleExportStmt() throws Exception {
         ExportStmt exportStmt = (ExportStmt) parsedStmt;
-        context.getEnv().getExportMgr().addExportJob(exportStmt);
+        // context.getEnv().getExportMgr().addExportJob(exportStmt);
+        context.getEnv().getExportMgr().addExportJobAndRegisterTask(exportStmt);
     }
 
     private void handleCtasStmt() {

@@ -932,17 +932,19 @@ public class Config extends ConfigBase {
     public static long tablet_repair_delay_factor_second = 60;
 
     /**
-     * the default slot number per path in tablet scheduler
+     * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int schedule_slot_num_per_path = 4;
+    public static int schedule_slot_num_per_hdd_path = 4;
+
 
     /**
-     * the default slot number per path in tablet scheduler for decommission backend
+     * the default slot number per path for ssd in tablet scheduler
+     * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int schedule_decommission_slot_num_per_path = 8;
+    public static int schedule_slot_num_per_ssd_path = 8;
 
     /**
      * the default batch size in tablet scheduler for a single schedule.
@@ -1617,7 +1619,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 2;
+    public static int max_be_exec_version = 3;
 
     /**
      * Min data version of backends serialize block.
@@ -2099,6 +2101,11 @@ public class Config extends ConfigBase {
             "Export任务允许的最大并行数",
             "The maximum parallelism allowed by Export job"})
     public static int maximum_parallelism_of_export_job = 50;
+
+    @ConfField(mutable = true, description = {
+            "ExportExecutorTask任务中一个OutFile语句允许的最大tablets数量",
+            "The maximum number of tablets allowed by an OutfileStatement in an ExportExecutorTask"})
+    public static int maximum_tablets_of_outfile_in_export = 10;
 
     @ConfField(mutable = true, description = {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",

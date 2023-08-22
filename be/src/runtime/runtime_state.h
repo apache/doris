@@ -45,6 +45,11 @@
 
 namespace doris {
 
+namespace pipeline {
+class PipelineXLocalState;
+class PipelineXSinkLocalState;
+} // namespace pipeline
+
 class DescriptorTbl;
 class ObjectPool;
 class ExecEnv;
@@ -68,6 +73,10 @@ public:
 
     RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
                  int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+
+    // Used by pipelineX. This runtime state is only used for setup.
+    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // RuntimeState for executing expr in fe-support.
@@ -158,7 +167,7 @@ public:
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
-    bool is_cancelled() const { return _is_cancelled.load(); }
+    [[nodiscard]] bool is_cancelled() const;
     int codegen_level() const { return _query_options.codegen_level; }
     void set_is_cancelled(bool v, std::string msg) {
         _is_cancelled.store(v);
@@ -429,6 +438,15 @@ public:
         return _query_options.__isset.enable_insert_strict && _query_options.enable_insert_strict;
     }
 
+    void emplace_local_state(int id, std::shared_ptr<doris::pipeline::PipelineXLocalState> state);
+
+    std::shared_ptr<doris::pipeline::PipelineXLocalState> get_local_state(int id);
+
+    void emplace_sink_local_state(int id,
+                                  std::shared_ptr<doris::pipeline::PipelineXSinkLocalState> state);
+
+    std::shared_ptr<doris::pipeline::PipelineXSinkLocalState> get_sink_local_state(int id);
+
 private:
     Status create_error_log_file();
 
@@ -525,7 +543,11 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
-    QueryContext* _query_ctx;
+    std::map<int, std::shared_ptr<doris::pipeline::PipelineXLocalState>> _op_id_to_local_state;
+    std::map<int, std::shared_ptr<doris::pipeline::PipelineXSinkLocalState>>
+            _op_id_to_sink_local_state;
+
+    QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;

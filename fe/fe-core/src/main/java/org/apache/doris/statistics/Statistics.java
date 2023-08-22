@@ -61,6 +61,7 @@ public class Statistics {
     public Statistics(Statistics another) {
         this.rowCount = another.rowCount;
         this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.tupleSize = another.tupleSize;
         this.width = another.width;
         this.penalty = another.penalty;
     }

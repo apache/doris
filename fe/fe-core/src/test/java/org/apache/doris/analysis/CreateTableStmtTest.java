@@ -314,7 +314,7 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null, new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
+        expectedEx.expectMessage("Key column can not set complex type:col3");
         stmt.analyze(analyzer);
 
         cols.remove(bitmap);
@@ -324,7 +324,7 @@ public class CreateTableStmtTest {
         stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap", new KeysDesc(KeysType.AGG_KEYS, colsName),
                 null, new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
+        expectedEx.expectMessage("Key column can not set complex type:col3");
         stmt.analyze(analyzer);
     }
 

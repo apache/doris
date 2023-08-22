@@ -939,7 +939,7 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.QUANTILE_UNION)) {
             if (children.size() != 1) {
-                throw new AnalysisException(fnName + "function could only have one child");
+                throw new AnalysisException(fnName + " function could only have one child");
             }
             Type inputType = getChild(0).getType();
             if (!inputType.isQuantileStateType()) {
@@ -1668,10 +1668,6 @@ public class FunctionCallExpr extends Expr {
                         .equalsIgnoreCase("histogram")
                         || fnName.getFunction().equalsIgnoreCase("hist"))
                         && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
-                    continue;
-                } else if (fnName.getFunction().equalsIgnoreCase("array")
-                        && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()
-                        || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
                     continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
                         .equalsIgnoreCase("array_max") || fnName.getFunction().equalsIgnoreCase("element_at"))
