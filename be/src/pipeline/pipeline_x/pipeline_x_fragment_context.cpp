@@ -51,6 +51,8 @@
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -467,14 +469,26 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        op.reset(new AggSourceOperatorX(pool, tnode, descs, "AggSourceXOperator"));
-        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (tnode.agg_node.__isset.use_streaming_preaggregation) {
+            op.reset(new StreamingAggSourceOperatorX(pool, tnode, descs,
+                                                     "StreamingAggSourceXOperator"));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
-        cur_pipe = add_pipeline();
-        DataSinkOperatorXPtr sink;
-        sink.reset(new AggSinkOperatorX(pool, tnode, descs));
-        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
-        RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+            cur_pipe = add_pipeline();
+            DataSinkOperatorXPtr sink;
+            sink.reset(new StreamingAggSinkOperatorX(pool, tnode, descs));
+            RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+            RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        } else {
+            op.reset(new AggSourceOperatorX(pool, tnode, descs, "AggSourceXOperator"));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+            cur_pipe = add_pipeline();
+            DataSinkOperatorXPtr sink;
+            sink.reset(new AggSinkOperatorX(pool, tnode, descs));
+            RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+            RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        }
         break;
     }
     case TPlanNodeType::SORT_NODE: {

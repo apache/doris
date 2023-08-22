@@ -59,6 +59,7 @@ public:
 
 private:
     friend class AggSourceOperatorX;
+    friend class StreamingAggSourceOperatorX;
 
     void _close_without_key();
     void _close_with_serialized_key();
@@ -105,15 +106,15 @@ private:
     bool _agg_data_created_without_key = false;
 };
 
-class AggSourceOperatorX final : public OperatorXBase {
+class AggSourceOperatorX : public OperatorXBase {
 public:
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
                        std::string op_name);
-    bool can_read(RuntimeState* state) override;
+    virtual bool can_read(RuntimeState* state) override;
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block,
+    virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 
     Status close(RuntimeState* state) override;
