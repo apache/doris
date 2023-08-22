@@ -56,7 +56,8 @@ The storage policy is the entry to use the cold and hot separation function. Use
 
 In addition, fe configuration needs to be added: `enable_storage_policy=true`  
 
-Note: This property will not be synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, this property will be erased in this table.
+Note: This property will not be synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, this property will be erased in this table.  
+What needs to be noted when creating an S3 resource is that it must have read, write and delete permissions for files on the bucket.
 
 For example:
 

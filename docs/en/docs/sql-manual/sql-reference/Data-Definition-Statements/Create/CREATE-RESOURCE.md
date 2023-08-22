@@ -129,7 +129,7 @@ illustrate:
    );
    ```
 
-   If S3 resource is used for [cold hot separation](../../../../../docs/advanced/cold_hot_separation.md), we should add more required fields.
+   If S3 resource is used for [cold hot separation](../../../../../docs/advanced/cold-hot-separation.md), we should add more required fields.
    ```sql
    CREATE RESOURCE "remote_s3"
    PROPERTIES
@@ -157,6 +157,7 @@ illustrate:
        - `s3.connection.maximum`: the maximum number of s3 connections, the default is 50
        - `s3.connection.request.timeout`: s3 request timeout, in milliseconds, the default is 3000
        - `s3.connection.timeout`: s3 connection timeout, in milliseconds, the default is 1000
+   **What needs to be noted when creating an S3 resource is that it must have read, write and delete permissions for files on the bucket**  
 
 4. Create JDBC resource
 
