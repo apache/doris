@@ -1124,7 +1124,6 @@ DECLARE_mBool(enable_merge_on_write_correctness_check);
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
 
-<<<<<<< HEAD
 // This threshold determines how many partitions will be allocated for window function get topn.
 // and if this threshold is exceeded, the remaining data will be pass through to other node directly.
 DECLARE_Int32(partition_topn_partition_threshold);
