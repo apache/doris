@@ -284,6 +284,8 @@ As for data mapping from Oracle to Doris, one Database in Doris corresponds to o
 | Database |   User   |
 |  Table   |  Table   |
 
+**NOTE:** Synchronizing Oracle's SYNONYM TABLE is not currently supported.
+
 #### Type Mapping
 
 | ORACLE Type                       | Doris Type                           | Comment                                                                                                                                                                       |

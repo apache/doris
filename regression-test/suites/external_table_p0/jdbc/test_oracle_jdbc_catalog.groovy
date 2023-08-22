@@ -156,5 +156,19 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         sql """ switch ${catalog_name} """
         qt_query_clob """ select * from doris_test.test_clob order by id; """
 
+        // test for `AA/D`
+        sql """create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_table_names" = "true"
+        );"""
+        sql """ switch ${catalog_name} """
+        qt_query_ad1 """ select * from doris_test.`aa/d` order by id; """
+        qt_query_ad2 """ select * from doris_test.aaad order by id; """
+
     }
 }
