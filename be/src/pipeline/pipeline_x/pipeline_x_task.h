@@ -50,7 +50,7 @@ class PipelineXTask : public PipelineTask {
 public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                  const std::vector<TScanRangeParams>& scan_ranges);
+                  const std::vector<TScanRangeParams>& scan_ranges, const int sender_id);
 
     Status prepare(RuntimeState* state) override;
 
@@ -96,10 +96,11 @@ public:
 
     DependencySPtr& get_downstream_dependency() { return _downstream_dependency; }
     void set_upstream_dependency(DependencySPtr& upstream_dependency) {
-        _upstream_dependency = upstream_dependency;
+        _upstream_dependency.insert({upstream_dependency->id(), upstream_dependency});
     }
 
 private:
+    using DependencyMap = std::map<int, DependencySPtr>;
     Status _open() override;
 
     const std::vector<TScanRangeParams> _scan_ranges;
@@ -109,7 +110,9 @@ private:
     OperatorXPtr _root;
     DataSinkOperatorXPtr _sink;
 
-    DependencySPtr _upstream_dependency;
+    const int _sender_id;
+
+    DependencyMap _upstream_dependency;
     DependencySPtr _downstream_dependency;
 };
 } // namespace doris::pipeline

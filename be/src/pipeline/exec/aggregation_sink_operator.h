@@ -52,7 +52,7 @@ class AggSinkLocalState : public PipelineXSinkLocalState {
 public:
     AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
 
-    Status init(RuntimeState* state, Dependency* dependency) override;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status try_spill_disk(bool eos = false);
 
@@ -312,8 +312,7 @@ private:
 
 class AggSinkOperatorX final : public DataSinkOperatorX {
 public:
-    AggSinkOperatorX(const int id, ObjectPool* pool, const TPlanNode& tnode,
-                     const DescriptorTbl& descs);
+    AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode", _name);
     }
@@ -322,7 +321,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, Dependency* dependency) override;
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
@@ -331,7 +330,7 @@ public:
     bool can_write(RuntimeState* state) override { return true; }
 
     void get_dependency(DependencySPtr& dependency) override {
-        dependency.reset(new AggDependency());
+        dependency.reset(new AggDependency(id()));
     }
 
 private:

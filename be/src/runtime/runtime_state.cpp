@@ -417,21 +417,25 @@ int64_t RuntimeState::get_load_mem_limit() {
 
 void RuntimeState::emplace_local_state(
         int id, std::shared_ptr<doris::pipeline::PipelineXLocalState> state) {
+    std::unique_lock<std::mutex> l(_local_state_lock);
     _op_id_to_local_state.emplace(id, state);
 }
 
 std::shared_ptr<doris::pipeline::PipelineXLocalState> RuntimeState::get_local_state(int id) {
+    std::unique_lock<std::mutex> l(_local_state_lock);
     DCHECK(_op_id_to_local_state.find(id) != _op_id_to_local_state.end());
     return _op_id_to_local_state[id];
 }
 
 void RuntimeState::emplace_sink_local_state(
         int id, std::shared_ptr<doris::pipeline::PipelineXSinkLocalState> state) {
+    std::unique_lock<std::mutex> l(_local_sink_state_lock);
     _op_id_to_sink_local_state.emplace(id, state);
 }
 
 std::shared_ptr<doris::pipeline::PipelineXSinkLocalState> RuntimeState::get_sink_local_state(
         int id) {
+    std::unique_lock<std::mutex> l(_local_sink_state_lock);
     DCHECK(_op_id_to_sink_local_state.find(id) != _op_id_to_sink_local_state.end());
     return _op_id_to_sink_local_state[id];
 }

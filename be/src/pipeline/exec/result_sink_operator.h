@@ -48,7 +48,7 @@ public:
     ResultSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state)
             : PipelineXSinkLocalState(parent, state) {}
 
-    Status init(RuntimeState* state, Dependency* dependency) override;
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
 private:
     friend class ResultSinkOperatorX;
@@ -62,12 +62,11 @@ private:
 
 class ResultSinkOperatorX final : public DataSinkOperatorX {
 public:
-    ResultSinkOperatorX(const int id, const RowDescriptor& row_desc,
-                        const std::vector<TExpr>& select_exprs, const TResultSink& sink,
-                        int buffer_size);
+    ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
+                        const TResultSink& sink, int buffer_size);
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, Dependency* dependency) override;
+    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;

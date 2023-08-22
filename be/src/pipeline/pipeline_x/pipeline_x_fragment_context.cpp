@@ -49,6 +49,8 @@
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
 #include "pipeline/exec/scan_operator.h"
+#include "pipeline/exec/sort_sink_operator.h"
+#include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -235,8 +237,8 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
                 params.__isset.send_query_statistics_with_every_batch
                         ? params.send_query_statistics_with_every_batch
                         : false;
-        _sink.reset(new ExchangeSinkOperatorX(_sink_idx++, state, pool, row_desc,
-                                              thrift_sink.stream_sink, params.destinations,
+        _sink.reset(new ExchangeSinkOperatorX(state, pool, row_desc, thrift_sink.stream_sink,
+                                              params.destinations,
                                               send_query_statistics_with_every_batch, this));
         break;
     }
@@ -246,8 +248,7 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         }
 
         // TODO: figure out good buffer size based on size of output row
-        _sink.reset(new ResultSinkOperatorX(_sink_idx++, row_desc, output_exprs,
-                                            thrift_sink.result_sink,
+        _sink.reset(new ResultSinkOperatorX(row_desc, output_exprs, thrift_sink.result_sink,
                                             vectorized::RESULT_SINK_BUFFER_SIZE));
         break;
     }
@@ -299,7 +300,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
 
             auto task = std::make_unique<PipelineXTask>(
                     _pipelines[pip_id], _total_tasks++, _runtime_states[i].get(), this,
-                    _pipelines[pip_id]->pipeline_profile(), scan_ranges);
+                    _pipelines[pip_id]->pipeline_profile(), scan_ranges, local_params.sender_id);
             RETURN_IF_ERROR(task->prepare(_runtime_states[i].get()));
             _runtime_profile->add_child(_pipelines[pip_id]->pipeline_profile(), true, nullptr);
             if (pip_id < _pipelines.size() - 1) {
@@ -471,7 +472,18 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         cur_pipe = add_pipeline();
         DataSinkOperatorXPtr sink;
-        sink.reset(new AggSinkOperatorX(_sink_idx++, pool, tnode, descs));
+        sink.reset(new AggSinkOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        break;
+    }
+    case TPlanNodeType::SORT_NODE: {
+        op.reset(new SortSourceOperatorX(pool, tnode, descs, "SortSourceXOperator"));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+        cur_pipe = add_pipeline();
+        DataSinkOperatorXPtr sink;
+        sink.reset(new SortSinkOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         break;
