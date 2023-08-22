@@ -388,6 +388,16 @@ public class ExportJob implements Writable {
     private void generateLogicalPlanAdapter() throws UserException {
         // generate 'select...into outfile' sql
         List<List<String>> outfileSqlPerParallel = generateOutfileSqlPerParallel();
+        // debug outfile sql
+        if (LOG.isDebugEnabled()) {
+            for (int i = 0; i < outfileSqlPerParallel.size(); ++i) {
+                LOG.debug("ExportTaskExecutor {} is responsible for outfile sql:", i);
+                for (String outfileSql : outfileSqlPerParallel.get(i)) {
+                    LOG.debug("outfile sql: [{}]", outfileSql);
+                }
+            }
+        }
+
 
         // use nereids to parse 'select...into outfile' sql
         // and get LogicalPlanAdapter
@@ -455,6 +465,7 @@ public class ExportJob implements Writable {
         StringBuilder selectSql = new StringBuilder();
         selectSql.append("SELECT ").append(generateColumnSql())
                 .append(" FROM ").append(generateFromSql(tablets))
+                .append(" ").append(whereSql).append(" ")
                 .append(" INTO OUTFILE ").append(generateUrlSql())
                 .append(" FORMAT AS ").append(generateFormatSql())
                 .append(" PROPERTIES ").append("(")
