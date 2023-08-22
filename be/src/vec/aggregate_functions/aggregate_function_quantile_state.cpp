@@ -38,7 +38,8 @@ AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::s
 }
 
 void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("quantile_union", create_aggregate_function_quantile_state_union);
+    factory.register_function_both("quantile_union",
+                                   create_aggregate_function_quantile_state_union);
 }
 
 } // namespace doris::vectorized
