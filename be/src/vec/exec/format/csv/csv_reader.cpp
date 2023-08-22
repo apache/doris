@@ -400,27 +400,27 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     size_t rows = 0;
 
-     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-         while (rows < batch_size && !_line_reader_eof) {
-             const uint8_t* ptr = nullptr;
-             size_t size = 0;
-             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
-             if (_skip_lines > 0) {
-                 _skip_lines--;
-                 continue;
-             }
-             if (size == 0) {
-                 // Read empty row, just continue
-                 continue;
-             }
-             ++rows;
-         }
+    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
+        while (rows < batch_size && !_line_reader_eof) {
+            const uint8_t* ptr = nullptr;
+            size_t size = 0;
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (size == 0) {
+                // Read empty row, just continue
+                continue;
+            }
+            ++rows;
+        }
 
-         for (auto& col : block->mutate_columns()) {
-             col->resize(rows);
-         }
+        for (auto& col : block->mutate_columns()) {
+            col->resize(rows);
+        }
 
-     } else {
+    } else {
         auto columns = block->mutate_columns();
         while (rows < batch_size && !_line_reader_eof) {
             const uint8_t* ptr = nullptr;
@@ -496,7 +496,8 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::BZIP2;
             break;
         case TFileCompressType::LZ4FRAME:
-            compress_type = config::default_lz4_codec == "block" ? CompressType::LZ4BLOCK : CompressType::LZ4FRAME;
+            compress_type = config::default_lz4_codec == "block" ? CompressType::LZ4BLOCK
+                                                                 : CompressType::LZ4FRAME;
             break;
         case TFileCompressType::LZ4BLOCK:
             compress_type = CompressType::LZ4BLOCK;
@@ -521,7 +522,8 @@ Status CsvReader::_create_decompressor() {
             compress_type = CompressType::BZIP2;
             break;
         case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-            compress_type = config::default_lz4_codec == "block" ? CompressType::LZ4BLOCK : CompressType::LZ4FRAME;
+            compress_type = config::default_lz4_codec == "block" ? CompressType::LZ4BLOCK
+                                                                 : CompressType::LZ4FRAME;
             break;
         case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
             compress_type = CompressType::LZ4BLOCK;

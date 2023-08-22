@@ -380,9 +380,11 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
 
         // Decompress
         int uncompressed_len = LZ4_decompress_safe(reinterpret_cast<const char*>(src),
-                reinterpret_cast<char*>(output), compressed_len, remaining_output_size);
+                                                   reinterpret_cast<char*>(output), compressed_len,
+                                                   remaining_output_size);
         if (uncompressed_len < 0) {
-            return Status::InternalError("lz4 block decompress failed. uncompressed_len < 0: {}", uncompressed_len);
+            return Status::InternalError("lz4 block decompress failed. uncompressed_len < 0: {}",
+                                         uncompressed_len);
         }
 
         output += uncompressed_len;
