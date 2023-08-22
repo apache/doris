@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 
 /**
@@ -30,6 +31,14 @@ public class DateTimeType extends DateLikeType {
     private static final int WIDTH = 16;
 
     private DateTimeType() {
+    }
+
+    @Override
+    public DataType conversion() {
+        if (Config.enable_date_conversion) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
+        }
+        return this;
     }
 
     @Override

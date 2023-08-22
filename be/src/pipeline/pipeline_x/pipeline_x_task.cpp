@@ -170,7 +170,7 @@ Status PipelineXTask::execute(bool* eos) {
         {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
+            RETURN_IF_ERROR(_root->get_next_after_projects(_state, block, _data_state));
         }
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {

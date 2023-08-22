@@ -40,7 +40,11 @@ suite("test_hive_text_complex_type", "p2,external,hive,external_remote,external_
 
         qt_sql2 """ select * from hive_text_complex_type_delimiter order by column1; """   
 
-
+        qt_filter_complex """select count(column_primitive_integer),
+            count(column1_struct),
+            count(column_primitive_bigint)
+            from parquet_predicate_table where column_primitive_bigint = 6;"""
+        sql """drop catalog ${catalog_name};"""
     }
 }
 

@@ -29,7 +29,6 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
@@ -37,12 +36,10 @@ import org.apache.doris.analysis.ExecuteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InsertOverwriteTableStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.analysis.LockTablesStmt;
@@ -56,7 +53,6 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.ReplaceTableClause;
-import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
@@ -102,7 +98,6 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.LiteralUtils;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -188,6 +183,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -527,19 +523,22 @@ public class StmtExecutor {
             try {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
-                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+                LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
                 context.setState(e.getQueryState());
-                throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed", e);
+                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed",
+                        new AnalysisException(e.getMessage(), e));
             } catch (UserException e) {
                 // Return message to info client what happened.
-                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+                LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed", e);
+                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed",
+                        new AnalysisException(e.getMessage(), e));
             } catch (Exception e) {
                 // Maybe our bug
-                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
-                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-                throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+                LOG.debug("Command (" + originStmt.originStmt + ") process failed.", e);
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
+                throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
+                        new AnalysisException(e.getMessage(), e));
             }
         } else {
             context.getState().setIsQuery(true);
@@ -552,7 +551,7 @@ public class StmtExecutor {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
             } catch (Exception e) {
                 LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
-                throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
+                throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
             handleQueryWithRetry(queryId);
@@ -1289,39 +1288,6 @@ public class StmtExecutor {
         sendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
     }
 
-    private boolean handleSelectRequestInFe(SelectStmt parsedSelectStmt) throws IOException {
-        List<SelectListItem> selectItemList = parsedSelectStmt.getSelectList().getItems();
-        List<Column> columns = new ArrayList<>(selectItemList.size());
-        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
-
-        List<String> columnLabels = parsedSelectStmt.getColLabels();
-        List<String> data = new ArrayList<>();
-        for (int i = 0; i < selectItemList.size(); i++) {
-            SelectListItem item = selectItemList.get(i);
-            Expr expr = item.getExpr();
-            String columnName = columnLabels.get(i);
-            if (expr instanceof LiteralExpr) {
-                columns.add(new Column(columnName, expr.getType()));
-                if (expr instanceof NullLiteral) {
-                    data.add(null);
-                } else if (expr instanceof FloatLiteral) {
-                    data.add(LiteralUtils.getStringValue((FloatLiteral) expr));
-                } else if (expr instanceof DecimalLiteral) {
-                    data.add(((DecimalLiteral) expr).getValue().toPlainString());
-                } else if (expr instanceof ArrayLiteral) {
-                    data.add(LiteralUtils.getStringValue((ArrayLiteral) expr));
-                } else {
-                    data.add(expr.getStringValue());
-                }
-            } else {
-                return false;
-            }
-        }
-        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
-        sendResultSet(resultSet);
-        return true;
-    }
-
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
@@ -1344,11 +1310,10 @@ public class StmtExecutor {
         }
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
-        if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()) {
-            SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
-            if (handleSelectRequestInFe(parsedSelectStmt)) {
-                return;
-            }
+        Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
+        if (resultSet.isPresent()) {
+            sendResultSet(resultSet.get());
+            return;
         }
 
         MysqlChannel channel = context.getMysqlChannel();

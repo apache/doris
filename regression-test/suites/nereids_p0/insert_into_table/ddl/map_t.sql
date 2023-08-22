@@ -1,6 +1,6 @@
-create table arr_t (
+create table map_t (
     `id` int null,
-    `kaint` array<int> null
+    `km_int_int` map<int, int> null
 )
 engine=OLAP
 duplicate key(id)

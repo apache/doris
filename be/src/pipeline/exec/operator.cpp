@@ -19,6 +19,7 @@
 
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -153,7 +154,60 @@ Status PipelineXLocalState::init(RuntimeState* state, LocalStateInfo& /*info*/) 
                                profile()->total_time_counter()),
             "");
     _mem_tracker = std::make_unique<MemTracker>("PipelineXLocalState:" + _runtime_profile->name());
+    _memory_used_counter = ADD_LABEL_COUNTER(_runtime_profile, "MemoryUsage");
+    _peak_memory_usage_counter = _runtime_profile->AddHighWaterMarkCounter(
+            "PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
     return Status::OK();
+}
+
+void PipelineXLocalState::clear_origin_block() {
+    _origin_block.clear_column_data(_parent->_row_descriptor.num_materialized_slots());
+}
+
+Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
+                                     vectorized::Block* output_block) {
+    auto local_state = state->get_local_state(id());
+    SCOPED_TIMER(local_state->_projection_timer);
+    using namespace vectorized;
+    vectorized::MutableBlock mutable_block =
+            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+                                                                       *_output_row_descriptor);
+    auto rows = origin_block->rows();
+
+    if (rows != 0) {
+        auto& mutable_columns = mutable_block.mutable_columns();
+        DCHECK(mutable_columns.size() == _projections.size());
+        for (int i = 0; i < mutable_columns.size(); ++i) {
+            auto result_column_id = -1;
+            RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));
+            auto column_ptr = origin_block->get_by_position(result_column_id)
+                                      .column->convert_to_full_column_if_const();
+            //TODO: this is a quick fix, we need a new function like "change_to_nullable" to do it
+            if (mutable_columns[i]->is_nullable() xor column_ptr->is_nullable()) {
+                DCHECK(mutable_columns[i]->is_nullable() && !column_ptr->is_nullable());
+                reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
+                        ->insert_range_from_not_nullable(*column_ptr, 0, rows);
+            } else {
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
+            }
+        }
+        DCHECK(mutable_block.rows() == rows);
+    }
+
+    return Status::OK();
+}
+
+Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::Block* block,
+                                              SourceState& source_state) {
+    auto local_state = state->get_local_state(id());
+    if (_output_row_descriptor) {
+        local_state->clear_origin_block();
+        auto status = get_block(state, &local_state->_origin_block, source_state);
+        if (UNLIKELY(!status.ok())) return status;
+        return do_projections(state, &local_state->_origin_block, block);
+    }
+    local_state->_peak_memory_usage_counter->set(local_state->_mem_tracker->peak_consumption());
+    return get_block(state, block, source_state);
 }
 
 bool PipelineXLocalState::reached_limit() const {

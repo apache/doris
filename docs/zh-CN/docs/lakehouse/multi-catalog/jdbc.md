@@ -284,6 +284,8 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 | Database |   User   |
 |  Table   |  Table   |
 
+**注意：** 当前不支持同步 Oracle 的 SYNONYM TABLE
+
 #### 类型映射
 
 | ORACLE Type                       | Doris Type                           | Comment                                                                                                                                         |

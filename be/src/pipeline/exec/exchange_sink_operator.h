@@ -158,15 +158,15 @@ public:
     ExchangeSinkOperatorX(const int id, RuntimeState* state, ObjectPool* pool,
                           const RowDescriptor& row_desc, const TDataStreamSink& sink,
                           const std::vector<TPlanFragmentDestination>& destinations,
-                          int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
+                          bool send_query_statistics_with_every_batch,
                           PipelineXFragmentContext* context);
     ExchangeSinkOperatorX(const int id, ObjectPool* pool, const RowDescriptor& row_desc,
                           PlanNodeId dest_node_id,
                           const std::vector<TPlanFragmentDestination>& destinations,
-                          int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
+                          bool send_query_statistics_with_every_batch,
                           PipelineXFragmentContext* context);
     ExchangeSinkOperatorX(const int id, ObjectPool* pool, const RowDescriptor& row_desc,
-                          int per_channel_buffer_size, bool send_query_statistics_with_every_batch,
+                          bool send_query_statistics_with_every_batch,
                           PipelineXFragmentContext* context);
     Status init(const TDataSink& tsink) override;
 
@@ -223,7 +223,6 @@ private:
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
 
     const std::vector<TPlanFragmentDestination> _dests;
-    const int _per_channel_buffer_size;
     const bool _send_query_statistics_with_every_batch;
 
     std::unique_ptr<MemTracker> _mem_tracker;
