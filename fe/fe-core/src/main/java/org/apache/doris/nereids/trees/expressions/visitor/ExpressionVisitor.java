@@ -21,6 +21,7 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -71,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryOperator;
+import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -194,6 +196,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitSlot(Slot slot, C context) {
         return visitNamedExpression(slot, context);
+    }
+
+    public R visitVariable(Variable variable, C context) {
+        return visit(variable, context);
     }
 
     public R visitNamedExpression(NamedExpression namedExpression, C context) {
@@ -466,5 +472,9 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitUnboundStar(UnboundStar unboundStar, C context) {
         return visitNamedExpression(unboundStar, context);
+    }
+
+    public R visitUnboundVariable(UnboundVariable unboundVariable, C context) {
+        return visit(unboundVariable, context);
     }
 }

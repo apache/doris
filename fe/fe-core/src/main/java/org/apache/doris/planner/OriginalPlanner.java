@@ -24,7 +24,9 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -40,7 +42,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.thrift.TFetchOption;
@@ -57,6 +62,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -635,5 +641,34 @@ public class OriginalPlanner extends Planner {
         } catch (UserException e) {
             LOG.info("failed to collect query stat: {}", e.getMessage());
         }
+    }
+
+    @Override
+    public Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt) {
+        if (!(parsedStmt instanceof SelectStmt)) {
+            return Optional.empty();
+        }
+        SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+        if (!parsedSelectStmt.getTableRefs().isEmpty()) {
+            return Optional.empty();
+        }
+        List<SelectListItem> selectItems = parsedSelectStmt.getSelectList().getItems();
+        List<Column> columns = new ArrayList<>(selectItems.size());
+        List<String> columnLabels = parsedSelectStmt.getColLabels();
+        List<String> data = new ArrayList<>();
+        for (int i = 0; i < selectItems.size(); i++) {
+            SelectListItem item = selectItems.get(i);
+            Expr expr = item.getExpr();
+            String columnName = columnLabels.get(i);
+            if (expr instanceof LiteralExpr) {
+                columns.add(new Column(columnName, expr.getType()));
+                super.handleLiteralInFe((LiteralExpr) expr, data);
+            } else {
+                return Optional.empty();
+            }
+        }
+        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+        return Optional.of(resultSet);
     }
 }
