@@ -49,6 +49,8 @@ public:
 
     MemTrackerLimiter* mem_tracker() { return _mem_tracker.get(); }
 
+    int64_t mem_usage() const { return _mem_usage; }
+
 private:
     void _refresh_mem_tracker_without_lock();
 
