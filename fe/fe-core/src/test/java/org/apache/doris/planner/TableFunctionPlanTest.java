@@ -50,12 +50,12 @@ public class TableFunctionPlanTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Env.getCurrentEnv().createDb(createDbStmt);
         // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar, k3 varchar) "
+        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar(1), k3 varchar) "
                 + "DUPLICATE KEY(k1) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Env.getCurrentEnv().createTable(createTableStmt);
 
-        createTblStmtStr = "create table db1.tbl2(k1 int, k2 varchar, v1 bitmap bitmap_union) "
+        createTblStmtStr = "create table db1.tbl2(k1 int, k2 varchar(1), v1 bitmap bitmap_union) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Env.getCurrentEnv().createTable(createTableStmt);
@@ -402,6 +402,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("output slot id: 2 6"));
         Assert.assertTrue(explainString.contains("tuple ids: 1 3"));
         String formatString = explainString.replaceAll(" ", "");
+        System.out.println(formatString);
         Assert.assertTrue(formatString.contains(
                 "SlotDescriptor{id=0,col=k1,colUniqueId=0,type=int"
         ));
