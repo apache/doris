@@ -53,6 +53,12 @@ statement
         (PARTITION partition=identifierList)?
         (USING relation (COMMA relation)*)
         whereClause                                                    #delete
+    | EXPORT TABLE tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?
+        (whereClause)?
+        TO filePath=constant
+        (PROPERTIES LEFT_PAREN fileProperties+=tvfProperty (COMMA fileProperties+=tvfProperty)* RIGHT_PAREN)?
+        (withRemoteStorageSystem)?                                     #export
     ;
 
 propertiesStatment
@@ -86,6 +92,22 @@ planType
     | SHAPE
     | MEMO
     | ALL // default type
+    ;
+
+withRemoteStorageSystem
+    : WITH S3 LEFT_PAREN
+        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        RIGHT_PAREN
+    | WITH HDFS LEFT_PAREN
+        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        RIGHT_PAREN
+    | WITH LOCAL LEFT_PAREN
+        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        RIGHT_PAREN
+    | WITH BROKER brokerName=constant
+        (LEFT_PAREN
+        brokerProperties+=remoteStorageProperty (COMMA brokerProperties+=remoteStorageProperty)*
+        RIGHT_PAREN)?
     ;
 
 //  -----------------Query-----------------
@@ -280,6 +302,12 @@ property
     ;
 
 propertyItem : identifier | constant ;
+
+remoteStorageProperty
+    : key=remoteStoragePropertyItem EQ value=remoteStoragePropertyItem
+    ;
+
+remoteStoragePropertyItem : identifier | constant ;
 
 tableAlias
     : (AS? strictIdentifier identifierList?)?

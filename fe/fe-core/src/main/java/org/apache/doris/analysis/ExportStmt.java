@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -50,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 // EXPORT statement, export data to dirs by broker.
 //
@@ -65,7 +67,6 @@ public class ExportStmt extends StatementBase {
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    private static final String DEFAULT_COLUMNS = "";
     private static final String DEFAULT_PARALLELISM = "1";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
@@ -85,6 +86,7 @@ public class ExportStmt extends StatementBase {
     private TableName tblName;
     private List<String> partitionStringNames;
     private Expr whereExpr;
+    private String whereSql;
     private String path;
     private BrokerDesc brokerDesc;
     private Map<String, String> properties = Maps.newHashMap();
@@ -121,7 +123,26 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
-        this.columns = DEFAULT_COLUMNS;
+
+        Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
+                ConnectContext.get().getSessionVariable());
+        this.sessionVariables = optionalSessionVariable.orElse(VariableMgr.getDefaultSessionVariable());
+    }
+
+    /**
+     * This constructor used by nereids planner
+     */
+    public ExportStmt(TableRef tableRef, String whereSql, String path,
+            Map<String, String> properties, BrokerDesc brokerDesc) {
+        this.tableRef = tableRef;
+        this.whereSql = whereSql;
+        this.path = path.trim();
+        if (properties != null) {
+            this.properties = properties;
+        }
+        this.brokerDesc = brokerDesc;
+        this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
+        this.lineDelimiter = DEFAULT_LINE_DELIMITER;
 
         Optional<SessionVariable> optionalSessionVariable = Optional.ofNullable(
                 ConnectContext.get().getSessionVariable());
@@ -209,6 +230,7 @@ public class ExportStmt extends StatementBase {
 
         // set where expr
         exportJob.setWhereExpr(this.whereExpr);
+        exportJob.setWhereSql(this.whereSql);
 
         // set path
         exportJob.setExportPath(this.path);
@@ -223,7 +245,7 @@ public class ExportStmt extends StatementBase {
         exportJob.setMaxFileSize(this.maxFileSize);
         exportJob.setDeleteExistingFiles(this.deleteExistingFiles);
 
-        if (!Strings.isNullOrEmpty(this.columns)) {
+        if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
             exportJob.setExportColumns(split.splitToList(this.columns.toLowerCase()));
         }
@@ -343,7 +365,14 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
-        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, DEFAULT_COLUMNS);
+        // null means not specified
+        // "" means user specified zero columns
+        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
+
+        // check columns are exits
+        if (columns != null) {
+            checkColumns();
+        }
 
         // format
         this.format = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv").toLowerCase();
@@ -367,6 +396,24 @@ public class ExportStmt extends StatementBase {
         } else {
             // generate a random label
             this.label = "export_" + UUID.randomUUID();
+        }
+    }
+
+    private void checkColumns() throws DdlException {
+        if (this.columns.isEmpty()) {
+            throw new DdlException("columns can not be empty");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(this.tblName.getDb());
+        Table table = db.getTableOrDdlException(this.tblName.getTbl());
+        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
+                .collect(Collectors.toList());
+        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+
+        List<String> columnsSpecified = split.splitToList(this.columns.toLowerCase());
+        for (String columnName : columnsSpecified) {
+            if (!tableColumns.contains(columnName)) {
+                throw new DdlException("unknown column [" + columnName + "] in table [" + this.tblName.getTbl() + "]");
+            }
         }
     }
 

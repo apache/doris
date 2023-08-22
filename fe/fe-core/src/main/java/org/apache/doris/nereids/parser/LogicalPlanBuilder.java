@@ -18,6 +18,10 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -49,6 +53,7 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
 import org.apache.doris.nereids.DorisParser.GroupingSetContext;
@@ -88,6 +93,8 @@ import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
+import org.apache.doris.nereids.DorisParser.RemoteStoragePropertyContext;
+import org.apache.doris.nereids.DorisParser.RemoteStoragePropertyItemContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
@@ -231,6 +238,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -377,6 +385,56 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query),
                 ctx.explain());
+    }
+
+    @Override
+    public LogicalPlan visitExport(ExportContext ctx) {
+        List<String> tableName = visitMultipartIdentifier(ctx.tableName);
+        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
+        String path = parseConstant(ctx.filePath);
+        String whereSql = null;
+        if (ctx.whereClause() != null) {
+            WhereClauseContext whereClauseContext = ctx.whereClause();
+            int startIndex = whereClauseContext.start.getStartIndex();
+            int stopIndex = whereClauseContext.stop.getStopIndex();
+            org.antlr.v4.runtime.misc.Interval interval = new org.antlr.v4.runtime.misc.Interval(startIndex,
+                    stopIndex);
+            whereSql = whereClauseContext.start.getInputStream().getText(interval);
+        }
+
+        Map<String, String> filePropertiesMap = null;
+        if (!ctx.fileProperties.isEmpty()) {
+            filePropertiesMap = Maps.newHashMap();
+            for (TvfPropertyContext argument : ctx.fileProperties) {
+                String key = parseTVFPropertyItem(argument.key);
+                String value = parseTVFPropertyItem(argument.value);
+                filePropertiesMap.put(key, value);
+            }
+        }
+
+        Map<String, String> brokerPropertiesMap = null;
+        BrokerDesc brokerDesc = null;
+        if (ctx.withRemoteStorageSystem() != null) {
+            brokerPropertiesMap = Maps.newHashMap();
+            for (RemoteStoragePropertyContext arg : ctx.withRemoteStorageSystem().brokerProperties) {
+                String key = parseRemoteStoragePropertyItem(arg.key);
+                String value = parseRemoteStoragePropertyItem(arg.value);
+                brokerPropertiesMap.put(key, value);
+            }
+
+            if (ctx.withRemoteStorageSystem().S3() != null) {
+                brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
+            } else if (ctx.withRemoteStorageSystem().HDFS() != null) {
+                brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.HDFS, brokerPropertiesMap);
+            } else if (ctx.withRemoteStorageSystem().LOCAL() != null) {
+                brokerDesc = new BrokerDesc("HDFS", StorageType.LOCAL, brokerPropertiesMap);
+            } else if (ctx.withRemoteStorageSystem().BROKER() != null
+                    && ctx.withRemoteStorageSystem().constant().getText() != null) {
+                brokerDesc = new BrokerDesc(ctx.withRemoteStorageSystem().constant().getText(), brokerPropertiesMap);
+            }
+        }
+
+        return new ExportCommand(tableName, partitions, whereSql, path, filePropertiesMap, brokerDesc);
     }
 
     /**
@@ -1973,6 +2031,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private String parsePropertyItem(PropertyItemContext item) {
+        if (item.constant() != null) {
+            return parseConstant(item.constant());
+        }
+        return item.getText();
+    }
+
+    private String parseRemoteStoragePropertyItem(RemoteStoragePropertyItemContext item) {
         if (item.constant() != null) {
             return parseConstant(item.constant());
         }

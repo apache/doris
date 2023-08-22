@@ -19,6 +19,7 @@ package org.apache.doris.load;
 
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -26,6 +27,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.ExportFailMsg.CancelType;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -47,7 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class ExportTaskExecutor implements TransientTaskExecutor {
 
-    List<SelectStmt> selectStmtLists;
+    List<StatementBase> selectStmtLists;
 
     ExportJob exportJob;
 
@@ -60,7 +63,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
     private AtomicBoolean isFinished;
 
-    ExportTaskExecutor(List<SelectStmt> selectStmtLists, ExportJob exportJob) {
+    ExportTaskExecutor(List<StatementBase> selectStmtLists, ExportJob exportJob) {
         this.selectStmtLists = selectStmtLists;
         this.exportJob = exportJob;
         this.isCanceled = new AtomicBoolean(false);
@@ -85,8 +88,20 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                 OlapTable table = db.getOlapTableOrAnalysisException(exportJob.getTableName().getTbl());
                 table.readLock();
                 try {
-                    SelectStmt selectStmt = selectStmtLists.get(idx);
-                    List<Long> tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();
+                    List<Long> tabletIds;
+                    if (exportJob.getSessionVariables().isEnableNereidsPlanner()) {
+                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmtLists.get(idx);
+                        tabletIds = ((UnboundRelation) (logicalPlanAdapter.getLogicalPlan() // LogicalFileSink
+                                .children().get(0) // LogicalProject
+                                .children().get(0) // LogicalCheckPolicy
+                                .children().get(0))) // UnboundRelation
+                                .getTabletIds();
+                        logicalPlanAdapter.getLogicalPlan().getLogicalProperties();
+                    } else {
+                        SelectStmt selectStmt = (SelectStmt) selectStmtLists.get(idx);
+                        tabletIds = selectStmt.getTableRefs().get(0).getSampleTabletIds();
+                    }
+
                     for (Long tabletId : tabletIds) {
                         TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(
                                 tabletId);
@@ -100,6 +115,10 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                                     + "now version = {}", exportJob.getId(), tabletId, oldVersion, nowVersion);
                         }
                     }
+                } catch (Exception e) {
+                    exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
+                            ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+                    throw new JobException(e);
                 } finally {
                     table.readUnlock();
                 }

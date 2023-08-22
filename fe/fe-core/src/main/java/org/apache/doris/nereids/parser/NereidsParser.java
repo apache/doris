@@ -104,6 +104,17 @@ public class NereidsParser {
             // first, try parsing with potentially faster SLL mode
             parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
             tree = parseFunction.apply(parser);
+            // QueryTermContext queryTermContext = tree.getRuleContext(StatementDefaultContext.class, 0).query()
+            //         .queryTerm();
+            // QueryPrimaryContext queryPrimaryContext = ((QueryTermDefaultContext) queryTermContext).queryPrimary();
+            // QuerySpecificationContext querySpecificationContext
+            //         = ((QueryPrimaryDefaultContext) queryPrimaryContext).querySpecification();
+            // WhereClauseContext whereClauseContext
+            //         = ((RegularQuerySpecificationContext) querySpecificationContext).whereClause();
+            // int a = whereClauseContext.start.getStartIndex();
+            // int b = whereClauseContext.stop.getStopIndex();
+            // Interval interval = new Interval(a, b);
+            // String viewSql = whereClauseContext.start.getInputStream().getText(interval);
         } catch (ParseCancellationException ex) {
             // if we fail, parse with LL mode
             tokenStream.seek(0); // rewind input stream
