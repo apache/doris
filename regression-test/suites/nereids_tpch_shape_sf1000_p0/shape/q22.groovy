@@ -31,10 +31,8 @@ suite("q22") {
 
     
 sql 'set be_number_for_test=3'
-    
-    qt_select """
-    explain shape plan
-        select 
+    String q22 = """
+    select 
         cntrycode,
         count(*) as numcust,
         sum(c_acctbal) as totacctbal
@@ -72,4 +70,10 @@ sql 'set be_number_for_test=3'
     order by
         cntrycode;
     """
+
+    String memo = sql "explain memo plan ${q22}"
+    println("q22 memo >>>")
+    println(memo)
+
+    qt_select " explain shape plan ${q22} "
 }

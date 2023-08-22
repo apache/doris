@@ -28,8 +28,7 @@ suite("q10") {
     sql 'SET enable_pipeline_engine = true'
     sql 'set parallel_pipeline_task_num=8'
 sql 'set be_number_for_test=3'
-    qt_select """
-    explain shape plan
+    String q10 = """
     select 
         c_custkey,
         c_name,
@@ -63,4 +62,10 @@ sql 'set be_number_for_test=3'
         revenue desc
     limit 20;
     """
+
+    String memo = sql " explain memo plan ${q10} "
+    println("q10 memo >>>")
+    println(memo)
+    
+    qt_select " explain shape plan ${q10} "
 }
