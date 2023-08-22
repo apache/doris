@@ -236,8 +236,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new ExpressionNormalization())
             ),
 
-            custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
-
             // this rule should invoke after ColumnPruning
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
 
@@ -294,6 +292,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
+                    custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                     custom(RuleType.ENSURE_PROJECT_ON_TOP_JOIN, EnsureProjectOnTopJoin::new),
                     topDown(
                             new PushdownFilterThroughProject(),
