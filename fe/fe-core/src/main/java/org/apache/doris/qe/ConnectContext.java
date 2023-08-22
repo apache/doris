@@ -752,6 +752,10 @@ public class ConnectContext {
         return resultAttachedInfo;
     }
 
+    public void cancelSyncCommand() {
+        executor.cancel();
+    }
+
     public class ThreadInfo {
         public boolean isFull;
 

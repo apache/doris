@@ -167,6 +167,7 @@ public class ConnectProcessor {
 
     // COM_QUIT: set killed flag and then return OK packet.
     private void handleQuit() {
+        ctx.cancelSyncCommand();
         ctx.setKilled();
         ctx.getState().setOk();
     }
