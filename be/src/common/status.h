@@ -345,11 +345,11 @@ public:
     Status static Error(std::string_view msg, Args&&... args) {
         Status status;
         status._code = code;
-        status._err_msg = std::make_unique<ErrMsg>();
         if constexpr (sizeof...(args) == 0) {
-            status._err_msg->_msg = msg;
+            status._err_msg.reset(new ErrMsg {._msg {msg}});
         } else {
-            status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
+            status._err_msg.reset(
+                    new ErrMsg {._msg {fmt::format(msg, std::forward<Args>(args)...)}});
         }
 #ifdef ENABLE_STACKTRACE
         if constexpr (stacktrace && capture_stacktrace(code)) {
@@ -364,11 +364,11 @@ public:
     Status static Error(int code, std::string_view msg, Args&&... args) {
         Status status;
         status._code = code;
-        status._err_msg = std::make_unique<ErrMsg>();
         if constexpr (sizeof...(args) == 0) {
-            status._err_msg->_msg = msg;
+            status._err_msg.reset(new ErrMsg {._msg {msg}});
         } else {
-            status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
+            status._err_msg.reset(
+                    new ErrMsg {._msg {fmt::format(msg, std::forward<Args>(args)...)}});
         }
 #ifdef ENABLE_STACKTRACE
         if constexpr (stacktrace) {
