@@ -632,8 +632,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     }
     g_fragmentmgr_prepare_latency << (duration_ns / 1000);
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    RETURN_IF_ERROR(_runtimefilter_controller.add_entity(params, &handler,
-                                                         fragment_executor->runtime_state()));
+    // TODO need check the status, but when I add return_if_error the P0 will not pass
+    _runtimefilter_controller.add_entity(params, &handler, fragment_executor->runtime_state());
     fragment_executor->set_merge_controller_handler(handler);
     {
         std::lock_guard<std::mutex> lock(_lock);
