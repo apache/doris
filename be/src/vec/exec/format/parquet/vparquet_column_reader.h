@@ -189,7 +189,7 @@ private:
                         ColumnSelectVector& select_vector, bool is_dict_filter);
     Status _read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
                                ColumnSelectVector& select_vector, size_t batch_size,
-                               size_t* read_rows, bool* eof, bool is_dict_filter);
+                               size_t* read_rows, bool* eof, bool is_dict_filter, bool align_rows);
     Status _try_load_dict_page(bool* loaded, bool* has_dict);
 };
 
