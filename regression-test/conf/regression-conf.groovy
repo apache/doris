@@ -65,8 +65,8 @@ excludeDirectories = "segcompaction_p2"
 customConf1 = "test_custom_conf_value"
 
 // for test csv with header
-enableHdfs=false // set to true if hdfs is ready
-hdfsFs = "hdfs://127.0.0.1:9000"
+enableHdfs=true // set to true if hdfs is ready
+hdfsFs = "hdfs://127.0.0.1:8120"
 hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"
@@ -130,9 +130,13 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
+// s3Endpoint = "cos.ap-hongkong.myqcloud.com"
+// s3BucketName = "doris-build-hk-1308700295"
+// s3Region = "ap-hongkong"
+
+s3Endpoint = "cos.ap-beijing.myqcloud.com"
+s3BucketName = "test-for-student-1308700295"
+s3Region = "ap-beijing"
 
 // If the failure suite num exceeds this config
 // all following suite will be skipped to fast quit the run.
