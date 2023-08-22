@@ -42,6 +42,7 @@ Usage: $0
 OPTS=$(getopt \
     -n "$0" \
     -o '' \
+    -o 'hs:' \
     -- "$@")
 
 eval set -- "${OPTS}"
