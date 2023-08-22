@@ -80,12 +80,12 @@ suite("load_test_query_db") {
         set 'column_separator', ','
         file "baseall.txt"
     }
-    sql "insert into ${dbName}.test select * from ${dbName}.baseall where k1 <= 3"
-    sql "insert into ${dbName}.bigtable select * from ${dbName}.baseall"
+    sql "insert into test select * from baseall where k1 <= 3"
+    sql "insert into bigtable select * from baseall"
 
-    def baseall_count = sql "select count(*) from ${dbName}.baseall"
+    def baseall_count = sql "select count(*) from baseall"
     assertEquals(16, baseall_count[0][0])
-    def test_count = sql "select count(*) from ${dbName}.test"
+    def test_count = sql "select count(*) from test"
     assertEquals(3, test_count[0][0])
 }
 
