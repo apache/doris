@@ -265,9 +265,8 @@ ColumnPredicate* create_list_predicate(const TabletColumn& column, int index,
 }
 
 // This method is called in reader and in deletehandler.
-// When it is called by delete handler, then it should use the delete predicate's tablet schema
-// to parse the conditions.
-inline ColumnPredicate* parse_to_predicate(TabletSchemaSPtr tablet_schema,
+// The "column" parameter might represent a column resulting from the decomposition of a variant column.
+inline ColumnPredicate* parse_to_predicate(const TabletColumn& column, uint32_t index,
                                            const TCondition& condition, vectorized::Arena* arena,
                                            bool opposite = false) {
     int32_t col_unique_id = condition.column_unique_id;

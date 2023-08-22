@@ -461,12 +461,12 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 
 Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     for (auto& condition : read_params.conditions) {
-        // These conditions is passed from OlapScannode, but not set column unique id here, so that set it here because it
-        // is too complicated to modify related interface
         TCondition tmp_cond = condition;
         RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
-        auto condition_col_uid = _tablet_schema->column(tmp_cond.column_name).unique_id();
-        tmp_cond.__set_column_unique_id(condition_col_uid);
+        // The "column" parameter might represent a column resulting from the decomposition of a variant column.
+        // Instead of using a "unique_id" for identification, we are utilizing a "path" to denote this column.
+        const auto& column = _tablet_schema->column(tmp_cond.column_name);
+        uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
                 parse_to_predicate(_tablet_schema, tmp_cond, _predicate_arena.get());
         if (predicate != nullptr) {
