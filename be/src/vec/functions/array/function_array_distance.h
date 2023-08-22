@@ -176,7 +176,7 @@ private:
         }
         auto nested_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*type).get_nested_type());
-        if (is_integer(type) || is_float(type)) {
+        if (is_integer(nested_type) || is_float(nested_type)) {
             return true;
         }
         return false;
