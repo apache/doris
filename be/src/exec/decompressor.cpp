@@ -45,6 +45,9 @@ Status Decompressor::create_decompressor(CompressType type, Decompressor** decom
     case CompressType::LZ4BLOCK:
         *decompressor = new Lz4BlockDecompressor();
         break;
+    case CompressType::SNAPPYBLOCK:
+        *decompressor = new SnappyBlockDecompressor();
+        break;
 #ifdef DORIS_WITH_LZO
     case CompressType::LZOP:
         *decompressor = new LzopDecompressor();
@@ -60,6 +63,10 @@ Status Decompressor::create_decompressor(CompressType type, Decompressor** decom
     }
 
     return st;
+}
+
+uint32_t Decompressor::_read_int32(uint8_t* buf) {
+    return (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
 }
 
 std::string Decompressor::debug_info() {
@@ -332,10 +339,6 @@ Status Lz4BlockDecompressor::init() {
     return Status::OK();
 }
 
-uint32_t Lz4BlockDecompressor::_read_int32(uint8_t* buf) {
-    return (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
-}
-
 Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
                                         uint8_t* output, size_t output_max_len,
                                         size_t* decompressed_len, bool* stream_end,
@@ -358,7 +361,85 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
     // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
     while (remaining_input_size > 0) {
         // Read uncompressed size
-        uint32_t uncompressed_block_len = _read_int32(src);
+        uint32_t uncompressed_block_len = Decompressor::_read_int32(src);
+        int64_t remaining_output_size = output_max_len - uncompressed_total_len;
+        if (remaining_output_size < uncompressed_block_len) {
+            // Need more output buffer
+            *more_output_bytes = uncompressed_block_len - remaining_output_size;
+            break;
+        }
+
+        // Read compressed size
+        size_t tmp_src_size = remaining_input_size - sizeof(uint32_t);
+        size_t compressed_len = Decompressor::_read_int32(src + sizeof(uint32_t));
+        if (compressed_len == 0 || compressed_len > tmp_src_size) {
+            // Need more input data
+            *more_input_bytes = compressed_len - tmp_src_size;
+            break;
+        }
+
+        src += 2 * sizeof(uint32_t);
+        remaining_input_size -= 2 * sizeof(uint32_t);
+
+        // Decompress
+        int uncompressed_len = LZ4_decompress_safe(reinterpret_cast<const char*>(src),
+                                                   reinterpret_cast<char*>(output), compressed_len,
+                                                   remaining_output_size);
+        if (uncompressed_len < 0 || uncompressed_len != uncompressed_block_len) {
+            return Status::InternalError(
+                    "lz4 block decompress failed. uncompressed_len: {}, expected: {}",
+                    uncompressed_len, uncompressed_block_len);
+        }
+
+        output += uncompressed_len;
+        src += compressed_len;
+        remaining_input_size -= compressed_len;
+        uncompressed_total_len += uncompressed_len;
+    }
+
+    *input_bytes_read += (input_len - remaining_input_size);
+    *decompressed_len = uncompressed_total_len;
+    // If no more input and output need, means this is the end of a compressed block
+    *stream_end = (*more_input_bytes == 0 && *more_output_bytes == 0);
+
+    return Status::OK();
+}
+
+std::string Lz4BlockDecompressor::debug_info() {
+    std::stringstream ss;
+    ss << "Lz4BlockDecompressor.";
+    return ss.str();
+}
+
+/// SnappyBlockDecompressor
+Status SnappyBlockDecompressor::init() {
+    return Status::OK();
+}
+
+Status SnappyBlockDecompressor::decompress(uint8_t* input, size_t input_len,
+                                           size_t* input_bytes_read, uint8_t* output,
+                                           size_t output_max_len, size_t* decompressed_len,
+                                           bool* stream_end, size_t* more_input_bytes,
+                                           size_t* more_output_bytes) {
+    uint8_t* src = input;
+    size_t remaining_input_size = input_len;
+    int64_t uncompressed_total_len = 0;
+    *input_bytes_read = 0;
+
+    // The hadoop snappy codec is as:
+    // <4 byte big endian uncompressed size>
+    // <4 byte big endian compressed size>
+    // <snappy compressed block>
+    // ....
+    // <4 byte big endian uncompressed size>
+    // <4 byte big endian compressed size>
+    // <snappy compressed block>
+    //
+    // See:
+    // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
+    while (remaining_input_size > 0) {
+        // Read uncompressed size
+        uint32_t uncompressed_block_len = Decompressor::_read_int32(src);
         int64_t remaining_output_size = output_max_len - uncompressed_total_len;
         if (remaining_output_size < uncompressed_block_len) {
             // Need more output buffer
@@ -378,20 +459,26 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
         src += 2 * sizeof(uint32_t);
         remaining_input_size -= 2 * sizeof(uint32_t);
 
+        // ATTN: the uncompressed len from GetUncompressedLength() is same as
+        // uncompressed_block_len, so I think it is unnecessary to get it again.
+        // Get uncompressed len from snappy
+        // size_t uncompressed_len;
+        // if (!snappy::GetUncompressedLength(reinterpret_cast<const char*>(src),
+        //             compressed_len, &uncompressed_len)) {
+        //     return Status::InternalError("snappy block decompress failed to get uncompressed len");
+        // }
+
         // Decompress
-        int uncompressed_len = LZ4_decompress_safe(reinterpret_cast<const char*>(src),
-                                                   reinterpret_cast<char*>(output), compressed_len,
-                                                   remaining_output_size);
-        if (uncompressed_len < 0) {
-            return Status::InternalError("lz4 block decompress failed. uncompressed_len < 0: {}",
-                                         uncompressed_len);
+        if (!snappy::RawUncompress(reinterpret_cast<const char*>(src), compressed_len,
+                                   reinterpret_cast<char*>(output))) {
+            return Status::InternalError("snappy block decompress failed. uncompressed_len: {}",
+                                         uncompressed_block_len);
         }
 
-        output += uncompressed_len;
+        output += uncompressed_block_len;
         src += compressed_len;
         remaining_input_size -= compressed_len;
-        uncompressed_block_len -= uncompressed_len;
-        uncompressed_total_len += uncompressed_len;
+        uncompressed_total_len += uncompressed_block_len;
     }
 
     *input_bytes_read += (input_len - remaining_input_size);
@@ -402,9 +489,9 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, size_t input_len, size_t
     return Status::OK();
 }
 
-std::string Lz4BlockDecompressor::debug_info() {
+std::string SnappyBlockDecompressor::debug_info() {
     std::stringstream ss;
-    ss << "Lz4BlockDecompressor.";
+    ss << "SnappyBlockDecompressor.";
     return ss.str();
 }
 

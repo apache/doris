@@ -19,6 +19,7 @@
 
 #include <bzlib.h>
 #include <lz4/lz4frame.h>
+#include <snappy.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <zlib.h>
@@ -34,7 +35,7 @@
 
 namespace doris {
 
-enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP, LZ4BLOCK };
+enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP, LZ4BLOCK, SNAPPYBLOCK };
 
 class Decompressor {
 public:
@@ -67,6 +68,8 @@ public:
 
 protected:
     virtual Status init() = 0;
+
+    static uint32_t _read_int32(uint8_t* buf);
 
     Decompressor(CompressType ctype) : _ctype(ctype) {}
 
@@ -154,7 +157,22 @@ private:
     friend class Decompressor;
     Lz4BlockDecompressor() : Decompressor(CompressType::LZ4FRAME) {}
     Status init() override;
-    uint32_t _read_int32(uint8_t* buf);
+};
+
+class SnappyBlockDecompressor : public Decompressor {
+public:
+    ~SnappyBlockDecompressor() override {}
+
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
+
+    std::string debug_info() override;
+
+private:
+    friend class Decompressor;
+    SnappyBlockDecompressor() : Decompressor(CompressType::SNAPPYBLOCK) {}
+    Status init() override;
 };
 
 #ifdef DORIS_WITH_LZO

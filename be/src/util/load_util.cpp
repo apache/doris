@@ -54,6 +54,9 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
         } else if (iequal(compress_type_str, "LZOP")) {
             *format_type = TFileFormatType::FORMAT_CSV_LZOP;
             *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "SNAPPY_BLOCK")) {
+            *format_type = TFileFormatType::FORMAT_CSV_SNAPPYBLOCK;
+            *compress_type = TFileCompressType::SNAPPYBLOCK;
         } else if (iequal(compress_type_str, "DEFLATE")) {
             *format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
             *compress_type = TFileCompressType::DEFLATE;

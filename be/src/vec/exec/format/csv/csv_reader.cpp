@@ -344,6 +344,8 @@ Status CsvReader::init_reader(bool is_load) {
         [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZOP:
         [[fallthrough]];
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
         _line_reader =
                 NewPlainTextLineReader::create_unique(_profile, _file_reader, _decompressor.get(),
@@ -400,6 +402,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     size_t rows = 0;
 
+    bool success = false;
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         while (rows < batch_size && !_line_reader_eof) {
             const uint8_t* ptr = nullptr;
@@ -413,6 +416,8 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 // Read empty row, just continue
                 continue;
             }
+
+            RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
 
@@ -435,6 +440,10 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 continue;
             }
 
+            RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
+            if (!success) {
+                continue;
+            }
             RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
         }
     }
@@ -505,6 +514,9 @@ Status CsvReader::_create_decompressor() {
         case TFileCompressType::DEFLATE:
             compress_type = CompressType::DEFLATE;
             break;
+        case TFileCompressType::SNAPPYBLOCK:
+            compress_type = CompressType::SNAPPYBLOCK;
+            break;
         default:
             return Status::InternalError("unknown compress type: {}", _file_compress_type);
         }
@@ -533,6 +545,9 @@ Status CsvReader::_create_decompressor() {
             break;
         case TFileFormatType::FORMAT_CSV_DEFLATE:
             compress_type = CompressType::DEFLATE;
+            break;
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+            compress_type = CompressType::SNAPPYBLOCK;
             break;
         default:
             return Status::InternalError("unknown format type: {}", _file_format_type);
@@ -587,7 +602,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     return Status::OK();
 }
 
-Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
+Status CsvReader::_validate_line(const Slice& line, bool* success) {
     if (!_is_proto_format && !validate_utf8(line.data, line.size)) {
         if (!_is_load) {
             return Status::InternalError("Only support csv data in utf8 codec");
@@ -605,7 +620,11 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
             return Status::OK();
         }
     }
+    *success = true;
+    return Status::OK();
+}
 
+Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
     _split_line(line);
 
     if (_is_load) {

@@ -758,6 +758,7 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_PROTO: {
             _cur_reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                    _file_slot_descs, _io_ctx.get());

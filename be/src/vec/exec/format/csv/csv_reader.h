@@ -221,6 +221,8 @@ private:
     // TODO(ftw): parse type
     Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
 
+    Status _validate_line(const Slice& line, bool* success);
+
     RuntimeState* _state;
     RuntimeProfile* _profile;
     ScannerCounter* _counter;
