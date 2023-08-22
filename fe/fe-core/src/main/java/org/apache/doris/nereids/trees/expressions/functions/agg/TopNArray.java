@@ -23,21 +23,9 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.CharType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -51,57 +39,10 @@ public class TopNArray extends AggregateFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE)).args(BooleanType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE)).args(TinyIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE))
-                    .args(SmallIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE)).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE))
-                    .args(LargeIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE)).args(FloatType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(DoubleType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DecimalV2Type.CATALOG_DEFAULT))
-                    .args(DecimalV2Type.CATALOG_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateType.INSTANCE)).args(DateType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
-                    .args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE)).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(CharType.SYSTEM_DEFAULT))
-                    .args(CharType.SYSTEM_DEFAULT, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE)).args(StringType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
-                    .args(BooleanType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
-                    .args(TinyIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE))
-                    .args(SmallIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE))
-                    .args(IntegerType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
-                    .args(BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE))
-                    .args(LargeIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
-                    .args(FloatType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
-                    .args(DoubleType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DecimalV2Type.CATALOG_DEFAULT))
-                    .args(DecimalV2Type.CATALOG_DEFAULT, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateType.INSTANCE))
-                    .args(DateType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeType.INSTANCE))
-                    .args(DateTimeType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
-                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT))
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(CharType.SYSTEM_DEFAULT))
-                    .args(CharType.SYSTEM_DEFAULT, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(StringType.INSTANCE))
-                    .args(StringType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE)
+            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
+                    .args(new AnyDataType(0), IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
+                    .args(new AnyDataType(0), IntegerType.INSTANCE, IntegerType.INSTANCE)
     );
 
     /**

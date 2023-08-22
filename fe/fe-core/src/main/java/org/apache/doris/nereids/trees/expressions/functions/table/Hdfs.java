@@ -39,7 +39,7 @@ public class Hdfs extends TableValuedFunction {
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.of(AnyDataType.INSTANCE, (List) getArgumentsTypes());
+        return FunctionSignature.of(AnyDataType.INSTANCE_WITHOUT_INDEX, (List) getArgumentsTypes());
     }
 
     @Override

@@ -15,55 +15,55 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.nereids.types.DataType;
+
+import java.util.Locale;
 
 /**
- * QuantileState type in Nereids.
+ * FollowToAnyDataType is used to auto compute the return type by the AnyDataType in signature.
  */
-public class QuantileStateType extends PrimitiveType {
+public class FollowToAnyDataType extends DataType {
 
-    public static final QuantileStateType INSTANCE = new QuantileStateType();
+    public final int index;
 
-    public static final int WIDTH = 16;
-
-    private QuantileStateType() {
+    public FollowToAnyDataType(int index) {
+        this.index = index;
     }
 
-    @Override
-    public Type toCatalogDataType() {
-        return Type.QUANTILE_STATE;
-    }
-
-    @Override
-    public boolean acceptsType(DataType other) {
-        return other instanceof QuantileStateType;
-    }
-
-    @Override
-    public String simpleString() {
-        return "quantile_state";
-    }
-
-    @Override
-    public DataType defaultConcreteType() {
-        return INSTANCE;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof QuantileStateType;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
+    public int getIndex() {
+        return index;
     }
 
     @Override
     public String toSql() {
-        return "QUANTILE_STATE";
+        return simpleString().toUpperCase(Locale.ROOT);
+    }
+
+    @Override
+    public DataType defaultConcreteType() {
+        throw new RuntimeException("Unsupported operation.");
+    }
+
+    @Override
+    public boolean acceptsType(DataType other) {
+        throw new RuntimeException("Unsupported operation.");
+    }
+
+    @Override
+    public Type toCatalogDataType() {
+        throw new RuntimeException("Unsupported operation.");
+    }
+
+    @Override
+    public String simpleString() {
+        return "followAnyDataType#" + index;
+    }
+
+    @Override
+    public int width() {
+        return -1;
     }
 }
