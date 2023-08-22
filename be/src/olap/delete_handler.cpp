@@ -251,7 +251,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         if (delete_pred->version().first > version) {
             continue;
         }
-        // Need the tablet schema at the delete condition to parse the accurate column unique id
+        // Need the tablet schema at the delete condition to parse the accurate column
         const auto& delete_pred_related_schema = delete_pred->tablet_schema();
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
