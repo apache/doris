@@ -383,18 +383,14 @@ Status DataDir::load() {
         }
         if (rowset_meta->has_delete_predicate()) {
             auto* delete_pred = rowset_meta->mutable_delete_pred_pb();
-            if (!delete_pred->sub_predicates().empty() &&
-                delete_pred->sub_predicates_v2().empty()) {
-                DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
-                LOG(INFO) << fmt::format(
-                        "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
-                        rowset_id.to_string(), tablet_uid.to_string());
-                std::string result;
-                rowset_meta->serialize(&result);
-                std::string key =
-                        ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
-                _meta->put(META_COLUMN_FAMILY_INDEX, key, result);
-            }
+            DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
+            LOG(INFO) << fmt::format(
+                    "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
+                    rowset_id.to_string(), tablet_uid.to_string());
+            std::string result;
+            rowset_meta->serialize(&result);
+            std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
+            _meta->put(META_COLUMN_FAMILY_INDEX, key, result);
         }
         dir_rowset_metas.push_back(rowset_meta);
         return true;

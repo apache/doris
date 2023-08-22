@@ -112,17 +112,18 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
 
 void DeleteHandler::convert_to_sub_pred_v2(DeletePredicatePB* delete_pred,
                                            TabletSchemaSPtr schema) {
-    DCHECK(delete_pred->sub_predicates_v2().empty())
-            << "dest_sub_pred_list should be empty, only convert to v2 once.";
-    for (const auto& condition_str : delete_pred->sub_predicates()) {
-        auto* sub_pred = delete_pred->add_sub_predicates_v2();
-        TCondition condition;
-        parse_condition(condition_str, &condition);
-        sub_pred->set_column_unique_id(schema->column(condition.column_name).unique_id());
-        sub_pred->set_column_name(condition.column_name);
-        sub_pred->set_op(condition.condition_op);
-        sub_pred->set_cond_value(condition.condition_values[0]);
+    if (!delete_pred->sub_predicates().empty() && delete_pred->sub_predicates_v2().empty()) {
+        for (const auto& condition_str : delete_pred->sub_predicates()) {
+            auto* sub_pred = delete_pred->add_sub_predicates_v2();
+            TCondition condition;
+            parse_condition(condition_str, &condition);
+            sub_pred->set_column_unique_id(schema->column(condition.column_name).unique_id());
+            sub_pred->set_column_name(condition.column_name);
+            sub_pred->set_op(condition.condition_op);
+            sub_pred->set_cond_value(condition.condition_values[0]);
+        }
     }
+
     auto* in_pred_list = delete_pred->mutable_in_predicates();
     for (auto& in_pred : *in_pred_list) {
         in_pred.set_column_unique_id(schema->column(in_pred.column_name()).unique_id());
@@ -307,14 +308,17 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
         TCondition condition;
         RETURN_IF_ERROR(parse_condition(sub_predicate, &condition));
         if constexpr (std::is_same_v<SubPredType, DeleteSubPredicatePB>) {
-            // for delete sub pred v2, column unique id should have been set
-            DCHECK(sub_predicate.has_column_unique_id());
-            condition.__set_column_unique_id(sub_predicate.column_unique_id());
+            if (sub_predicate.has_column_unique_id()) {
+                condition.__set_column_unique_id(sub_predicate.column_unique_id());
+            } else {
+                condition.__set_column_unique_id(
+                        delete_pred_related_schema->column(condition.column_name).unique_id());
+            }
         } else {
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());
         }
-        auto predicate =
+        auto* predicate =
                 parse_to_predicate(complete_schema, condition, _predicate_arena.get(), true);
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
