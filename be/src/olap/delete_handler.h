@@ -116,11 +116,11 @@ public:
                     del_predicates_for_zone_map) const;
 
 private:
-    template <typename SubPredicateList>
-    Status _parse_column_pred(TabletSchemaSPtr complete_schema,
-                              TabletSchemaSPtr delete_pred_related_schema,
-                              const SubPredicateList& sub_pred_list,
-                              DeleteConditions* delete_conditions);
+    template <typename SubPredType>
+    Status _parse_column_pred(
+            TabletSchemaSPtr complete_schema, TabletSchemaSPtr delete_pred_related_schema,
+            const ::google::protobuf::RepeatedPtrField<SubPredType>& sub_pred_list,
+            DeleteConditions* delete_conditions);
 
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship
