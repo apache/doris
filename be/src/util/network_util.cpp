@@ -78,29 +78,63 @@ bool is_valid_ip(const std::string& ip) {
 }
 
 Status hostname_to_ip(const std::string& host, std::string& ip) {
-    Status status = hostname_to_ip(host, ip, false);
+    Status status = hostname_to_ipv4(host, ip);
     if (status.ok()) {
         return status;
     }
-    return hostname_to_ip(host, ip, true);
+    return hostname_to_ipv6(host, ip);
 }
 
 Status hostname_to_ip(const std::string& host, std::string& ip, bool ipv6) {
-    int __af = ipv6 ? AF_INET6 : AF_INET;
-    struct hostent* pstHostent = NULL;
-    if (inet_addr(host.c_str()) == INADDR_NONE) {
-        if ((pstHostent = gethostbyname2(host.c_str(), __af)) == NULL) {
-            LOG(WARNING) << "failed to get ip from host: " << host << ",__af:" << __af;
-            return Status::InternalError("failed to get ip from host: {}, __af: {}", host, __af);
-        }
-        auto tmp_addr = (struct in_addr*)pstHostent->h_addr;
-
-        char addr_buf[__af == AF_INET6 ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN];
-        inet_ntop(__af, tmp_addr, addr_buf, sizeof(addr_buf));
-        ip = std::string(addr_buf);
+    if (ipv6) {
+        return hostname_to_ipv6(host, ip);
     } else {
-        ip = host;
+        return hostname_to_ipv4(host, ip);
     }
+}
+
+Status hostname_to_ipv4(const std::string& host, std::string& ip) {
+    addrinfo hints, *res;
+    in_addr addr;
+
+    memset(&hints, 0, sizeof(addrinfo));
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family = AF_INET;
+    int err = getaddrinfo(host.c_str(), NULL, &hints, &res);
+    if (err != 0) {
+        LOG(WARNING) << "failed to get ip from host: " << host << "err:" << gai_strerror(err);
+        return Status::InternalError("failed to get ip from host: {}, err: {}", host,
+                                     gai_strerror(err));
+    }
+
+    addr.s_addr = ((sockaddr_in*)(res->ai_addr))->sin_addr.s_addr;
+    ip = inet_ntoa(addr);
+
+    freeaddrinfo(res);
+    return Status::OK();
+}
+
+Status hostname_to_ipv6(const std::string& host, std::string& ip) {
+    char ipstr2[128];
+    struct sockaddr_in6* sockaddr_ipv6;
+
+    struct addrinfo *answer, hint;
+    bzero(&hint, sizeof(hint));
+    hint.ai_family = AF_INET6;
+    hint.ai_socktype = SOCK_STREAM;
+
+    int err = getaddrinfo(host.c_str(), NULL, &hint, &answer);
+    if (err != 0) {
+        LOG(WARNING) << "failed to get ip from host: " << host << "err:" << gai_strerror(err);
+        return Status::InternalError("failed to get ip from host: {}, err: {}", host,
+                                     gai_strerror(err));
+    }
+
+    sockaddr_ipv6 = reinterpret_cast<struct sockaddr_in6*>(answer->ai_addr);
+    inet_ntop(AF_INET6, &sockaddr_ipv6->sin6_addr, ipstr2, sizeof(ipstr2));
+    ip = ipstr2;
+    fflush(NULL);
+    freeaddrinfo(answer);
     return Status::OK();
 }
 
