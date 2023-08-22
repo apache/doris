@@ -118,7 +118,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
             if (!is_valid_ip(master_info.backend_ip)) {
                 //step2: resolve FQDN to IP
                 std::string ip;
-                Status status = hostname_to_ip(master_info.backend_ip, ip, BackendOptions::is_bind_ipv6());
+                Status status =
+                        hostname_to_ip(master_info.backend_ip, ip, BackendOptions::is_bind_ipv6());
                 if (!status.ok()) {
                     std::stringstream ss;
                     ss << "can not get ip from fqdn: " << status.to_string();
