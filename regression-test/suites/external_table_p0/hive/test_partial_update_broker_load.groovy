@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_primary_key_partial_update_broker_load", "external,external_docker,external_docker_hive") {
+suite("test_primary_key_partial_update_broker_load", "p0,external,hive,external_docker,external_docker_hive") {
 
     brokerName = getBrokerName()
     hdfsUser = getHdfsUser()
