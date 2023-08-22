@@ -54,7 +54,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "nereids_scalar_fn_Array,test_pk_uk_index_change,test_pk_uk_case,test_default_limit,window_function,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog,test_transactional_hive,nereids_delete_mow_partial_update"
+excludeSuites = "nereids_scalar_fn_Array,test_pk_uk_index_change,test_pk_uk_case,test_default_limit,window_function,test_profile,test_broker_load,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog,test_transactional_hive,nereids_delete_mow_partial_update,nereids_scalar_fn_Array"
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1"
 
