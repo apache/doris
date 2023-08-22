@@ -1233,7 +1233,9 @@ Status ColumnObject::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
 }
 
 size_t ColumnObject::filter(const Filter& filter) {
-    DCHECK(is_finalized());
+    if (!is_finalized()) {
+        finalize();
+    }
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
         for_each_subcolumn([](auto& part) { part->clear(); });
