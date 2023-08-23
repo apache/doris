@@ -2003,6 +2003,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int div_precision_increment = 4;
 
+    /*
+     * Experimental configuration variables, used to streamline the structure of the
+     * profile.
+     */
+    @ConfField(mutable = true)
+    public static int profile_level = 2;
+
     /**
      * This config used for export/outfile.
      * Whether delete all files in the directory specified by export/outfile.

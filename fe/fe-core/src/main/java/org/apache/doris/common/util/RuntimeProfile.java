@@ -47,6 +47,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class RuntimeProfile {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
     public static String ROOT_COUNTER = "";
+    public static int FRAGMENT_DEPTH = 3;
+    public static String MAX_TIME_PRE = "MAX_TIME_";
+    public static String MIN_TIME_PRE = "MIN_TIME_";
     private Counter counterTotalTime;
     private double localTimePercent;
 
@@ -245,10 +248,10 @@ public class RuntimeProfile {
     }
 
     // Print the profile:
-    //  1. Profile Name
-    //  2. Info Strings
-    //  3. Counters
-    //  4. Children
+    // 1. Profile Name
+    // 2. Info Strings
+    // 3. Counters
+    // 4. Children
     public void prettyPrint(StringBuilder builder, String prefix) {
         Counter counter = this.counterMap.get("TotalTime");
         Preconditions.checkState(counter != null);
@@ -299,8 +302,145 @@ public class RuntimeProfile {
         }
     }
 
+    public void simpleProfile(int depth) {
+        if (depth == FRAGMENT_DEPTH) {
+            mergeMutiInstance(childList);
+            return;
+        }
+        for (int i = 0; i < childList.size(); i++) {
+            Pair<RuntimeProfile, Boolean> pair = childList.get(i);
+            RuntimeProfile profile = pair.first;
+            profile.simpleProfile(depth + 1);
+        }
+    }
+
+    private static void mergeMutiInstance(
+            LinkedList<Pair<RuntimeProfile, Boolean>> childList) {
+        /*
+         * Fragment 1: Fragment 1:
+         * Instance 0 Instance total (0)
+         * Instance 1 --->
+         * Instance 2
+         */
+        Pair<RuntimeProfile, Boolean> pair = childList.get(0);
+        RuntimeProfile mergedProfile = pair.first;
+        LinkedList<RuntimeProfile> other = new LinkedList<RuntimeProfile>();
+        for (int i = 1; i < childList.size(); i++) {
+            other.add(childList.get(i).first);
+        }
+        if (other.size() != 0) {
+            mergeInstanceProfile(mergedProfile, other);
+        }
+        childList.clear();
+        childList.add(Pair.of(mergedProfile, pair.second));
+    }
+
+    private static LinkedList<RuntimeProfile> getChildListFromLists(int idx, LinkedList<RuntimeProfile> rhs) {
+        LinkedList<RuntimeProfile> ret = new LinkedList<RuntimeProfile>();
+        for (RuntimeProfile profile : rhs) {
+            ret.add(profile.childList.get(idx).first);
+        }
+        return ret;
+    }
+
+    private static LinkedList<Counter> getCounterListFromLists(String counterName, LinkedList<RuntimeProfile> rhs) {
+        LinkedList<Counter> ret = new LinkedList<Counter>();
+        for (RuntimeProfile profile : rhs) {
+            ret.add(profile.counterMap.get(counterName));
+        }
+        return ret;
+    }
+
+    private static void mergeInstanceProfile(RuntimeProfile src, LinkedList<RuntimeProfile> rhs) {
+        mergeProfileCounter(src, ROOT_COUNTER, rhs);
+        mergeProfileInfoStr(src, rhs);
+        for (int i = 0; i < src.childList.size(); i++) {
+            RuntimeProfile srcChild = src.childList.get(i).first;
+            LinkedList<RuntimeProfile> rhsChild = getChildListFromLists(i, rhs);
+            mergeInstanceProfile(srcChild, rhsChild);
+        }
+    }
+
+    private static void mergeProfileCounter(RuntimeProfile src, String counterName, LinkedList<RuntimeProfile> rhs) {
+        Set<String> childCounterSet = src.childCounterMap.get(counterName);
+        if (childCounterSet == null) {
+            return;
+        }
+        List<String> childCounterList = new LinkedList<>(childCounterSet);
+        for (String childCounterName : childCounterList) {
+            Counter counter = src.counterMap.get(childCounterName);
+            LinkedList<Counter> rhsCounter = getCounterListFromLists(childCounterName, rhs);
+            mergeProfileCounter(src, childCounterName, rhs);
+            mergeCounter(src, childCounterName, counter, rhsCounter);
+            removeZeroeCounter(childCounterSet, childCounterName, counter);
+        }
+    }
+
+    private static void mergeProfileInfoStr(RuntimeProfile src, LinkedList<RuntimeProfile> rhs) {
+        for (String key : src.infoStringsDisplayOrder) {
+            Set<String> strList = new TreeSet<String>();
+            strList.add(src.infoStrings.get(key));
+            for (RuntimeProfile profile : rhs) {
+                strList.add(profile.infoStrings.get(key));
+            }
+            try {
+                String joinedString = String.join("  |  ", strList);
+                src.infoStrings.put(key, joinedString);
+            } catch (Exception e) {
+                return;
+            }
+        }
+    }
+
+    private static void removeZeroeCounter(Set<String> childCounterSet, String childCounterName, Counter counter) {
+        if (counter.getValue() == 0) {
+            childCounterSet.remove(childCounterName);
+        }
+    }
+
+    private static void mergeCounter(RuntimeProfile src, String counterName, Counter counter,
+            LinkedList<Counter> rhsCounter) {
+        if (counter.isTimeType()) {
+            Counter maxCounter = new Counter(counter.getType(), counter.getValue());
+            Counter minCounter = new Counter(counter.getType(), counter.getValue());
+            for (Counter cnt : rhsCounter) {
+                if (cnt.getValue() > maxCounter.getValue()) {
+                    maxCounter.setValue(cnt.getValue());
+                }
+                if (cnt.getValue() < minCounter.getValue()) {
+                    minCounter.setValue(cnt.getValue());
+                }
+            }
+            for (Counter cnt : rhsCounter) {
+                counter.addValue(cnt);
+            }
+            String maxCounterName = MAX_TIME_PRE + counterName;
+            String minCounterName = MIN_TIME_PRE + counterName;
+            src.counterMap.put(minCounterName, minCounter);
+            src.counterMap.put(maxCounterName, maxCounter);
+            TreeSet<String> childCounterSet = src.childCounterMap.get(counterName);
+            if (childCounterSet == null) {
+                src.childCounterMap.put(counterName, new TreeSet<String>());
+                childCounterSet = src.childCounterMap.get(counterName);
+            }
+            childCounterSet.add(minCounterName);
+            childCounterSet.add(maxCounterName);
+        } else {
+            for (Counter cnt : rhsCounter) {
+                counter.addValue(cnt);
+            }
+        }
+    }
+
     public String toString() {
         StringBuilder builder = new StringBuilder();
+        prettyPrint(builder, "");
+        return builder.toString();
+    }
+
+    public String getSimpleString() {
+        StringBuilder builder = new StringBuilder();
+        simpleProfile(0);
         prettyPrint(builder, "");
         return builder.toString();
     }
