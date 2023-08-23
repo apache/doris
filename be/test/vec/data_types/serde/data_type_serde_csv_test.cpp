@@ -266,7 +266,6 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
 }
 
 TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
-    
     { // map<int,map<string,int>>
         DataTypeSerDe::FormatOptions formatOptions;
         formatOptions.collection_delim = '\002';
