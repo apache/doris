@@ -33,6 +33,7 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _dependency = (SortDependency*)info.dependency;
     _shared_state = (SortSharedState*)_dependency->shared_state();
 
+    RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     _profile = p._pool->add(new RuntimeProfile("SortSinkLocalState"));
     switch (p._algorithm) {
     case SortAlgorithm::HEAP_SORT: {
@@ -70,7 +71,7 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _child_get_next_timer = ADD_TIMER(_profile, "ChildGetResultTime");
     _sink_timer = ADD_TIMER(_profile, "PartialSortTotalTime");
 
-    return p._vsort_exec_exprs.clone(state, _vsort_exec_exprs);
+    return Status::OK();
 }
 
 SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
