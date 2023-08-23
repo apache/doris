@@ -398,6 +398,10 @@ public:
         LOG(FATAL) << "get field not supported in PredicateColumnType";
     }
 
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
+        LOG(FATAL) << "not support";
+    }
+
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
