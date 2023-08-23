@@ -2135,7 +2135,7 @@ public class Analyzer {
         for (int i = 1; i < exprs.size(); ++i) {
             exprs.get(i).analyze(this);
             if (compatibleType.isDateV2() && exprs.get(i) instanceof StringLiteral
-                    && ((StringLiteral) exprs.get(i)).canConvertToDateV2(compatibleType)) {
+                    && ((StringLiteral) exprs.get(i)).canConvertToDateType(compatibleType)) {
                 // If string literal can be converted to dateV2, we use datev2 as the compatible type
                 // instead of datetimev2.
             } else if (exprs.get(i).isConstantImpl()) {

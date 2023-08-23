@@ -181,7 +181,7 @@ suite("create_table_use_partition_policy") {
             DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             PARTITION BY RANGE(`L_SHIPDATE`)
             (
-                PARTITION `p202301` VALUES LESS THAN ("2017-02-01") ("storage_policy" = "${policy_name}"),
+                PARTITION `p202301` VALUES LESS THAN ("1995-12-01") ("storage_policy" = "${policy_name}"),
                 PARTITION `p202302` VALUES LESS THAN ("2017-03-01")
             )
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
@@ -293,7 +293,7 @@ suite("create_table_use_partition_policy") {
             DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
             PARTITION BY RANGE(`L_SHIPDATE`)
             (
-                PARTITION `p202301` VALUES LESS THAN ("2017-02-01") ("storage_policy" = "${policy_name}"),
+                PARTITION `p202301` VALUES LESS THAN ("1995-12-01") ("storage_policy" = "${policy_name}"),
                 PARTITION `p202302` VALUES LESS THAN ("2017-03-01")
             )
             DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3

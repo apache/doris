@@ -146,9 +146,6 @@ public abstract class AbstractPhysicalJoin<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        if (!super.equals(o)) {
-            return false;
-        }
         AbstractPhysicalJoin<?, ?> that = (AbstractPhysicalJoin<?, ?>) o;
         return joinType == that.joinType
                 && hashJoinConjuncts.equals(that.hashJoinConjuncts)
@@ -159,7 +156,7 @@ public abstract class AbstractPhysicalJoin<
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference);
+        return Objects.hash(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference);
     }
 
     /**

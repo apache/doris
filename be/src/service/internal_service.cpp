@@ -278,6 +278,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -290,6 +291,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -326,6 +328,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -342,6 +345,7 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
     });
     if (!ret) {
         offer_failed(result, done, _light_work_pool);
+        return;
     }
 }
 
@@ -354,6 +358,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -375,6 +380,7 @@ void PInternalServiceImpl::tablet_writer_add_block_by_http(
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -404,6 +410,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -425,6 +432,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -502,6 +510,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
     });
     if (!ret) {
         offer_failed(result, done, _light_work_pool);
+        return;
     }
 }
 
@@ -515,6 +524,7 @@ void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* controlle
     });
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -685,6 +695,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     });
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -712,6 +723,7 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -724,6 +736,7 @@ void PInternalServiceImpl::get_column_ids_by_tablet_ids(google::protobuf::RpcCon
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -856,6 +869,7 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -868,6 +882,7 @@ void PInternalServiceImpl::update_cache(google::protobuf::RpcController* control
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -880,6 +895,7 @@ void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controll
     });
     if (!ret) {
         offer_failed(result, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -892,6 +908,7 @@ void PInternalServiceImpl::clear_cache(google::protobuf::RpcController* controll
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -911,6 +928,7 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -932,6 +950,7 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -953,6 +972,7 @@ void PInternalServiceImpl::apply_filterv2(::google::protobuf::RpcController* con
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -986,6 +1006,7 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -1009,6 +1030,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -1031,6 +1053,7 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -1049,6 +1072,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -1083,6 +1107,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
     });
     if (!ret) {
         offer_failed(response, done, pool);
+        return;
     }
 }
 
@@ -1101,6 +1126,7 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -1167,6 +1193,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -1205,6 +1232,7 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -1221,6 +1249,7 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
     });
     if (!ret) {
         offer_failed(response, done, _light_work_pool);
+        return;
     }
 }
 
@@ -1439,6 +1468,7 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
     Status::OK().to_protobuf(response->mutable_status());
 }
@@ -1510,6 +1540,7 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -1683,6 +1714,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 
@@ -1713,6 +1745,7 @@ void PInternalServiceImpl::glob(google::protobuf::RpcController* controller,
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
+        return;
     }
 }
 

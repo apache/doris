@@ -481,6 +481,10 @@ public:
     template <TimeUnit unit>
     bool date_add_interval(const TimeInterval& interval);
 
+    // set interval
+    template <TimeUnit unit>
+    bool date_set_interval(const TimeInterval& interval);
+
     template <TimeUnit unit>
     bool datetime_trunc(); //datetime trunc, like trunc minute = 0
 
@@ -660,6 +664,9 @@ public:
     }
 
     bool get_date_from_daynr(uint64_t);
+
+    // reset 0
+    void reset_zero_by_type(int type) { set_zero(type); }
 
 private:
     // Used to make sure sizeof VecDateTimeValue
@@ -936,6 +943,9 @@ public:
     bool date_add_interval(const TimeInterval& interval);
 
     template <TimeUnit unit>
+    bool date_set_interval(const TimeInterval& interval);
+
+    template <TimeUnit unit>
     bool datetime_trunc(); //datetime trunc, like trunc minute = 0
 
     //unix_timestamp is called with a timezone argument,
@@ -1160,6 +1170,8 @@ public:
     static constexpr uint32_t MAX_TIME_PART_VALUE[3] = {23, 59, 59};
 
     void format_datetime(uint32_t* date_v, bool* carry_bits) const;
+
+    void set_int_val(uint64_t val) { this->int_val_ = val; }
 
 private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,

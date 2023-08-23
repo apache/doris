@@ -114,3 +114,9 @@ DORIS_TEST
 10010	liantong
 10086	yidong
 
+-- !query_ad1 --
+1	alice	20	99.5
+
+-- !query_ad2 --
+1	alice
+

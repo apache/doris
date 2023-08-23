@@ -67,7 +67,7 @@ The final result of the import is returned to the user by Coordinator BE.
 
 Stream Load currently supports data formats: CSV (text), JSON
 
-<version since="1.2"> PARQUET and ORC</version> 1.2+ support PARQUET and ORC
+<version since="1.2">supports PARQUET and ORC</version>
 
 ## Basic operations
 ### Create Load
@@ -137,7 +137,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 	``` dpp.norm.ALL ``` refers to the number of correct data in the import process. The correct amount of data for the import task can be queried by the ``SHOW LOAD` command.
 
-The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
+  The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
 + where
 
@@ -168,13 +168,14 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
   Specify the import data format, support csv, json, the default is csv
 
-  <version since="1.2"> format </version> 1.2 supports csv_with_names (support csv file line header filter), csv_with_names_and_types (support csv file first two lines filter), parquet, orc
+  <version since="1.2">supports `csv_with_names` (csv file line header filter), `csv_with_names_and_types` (csv file first two lines filter), parquet, orc</version>
 
 + exec\_mem\_limit
 
     Memory limit. Default is 2GB. Unit is Bytes
 
 + merge\_type
+
      The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
 
 + two\_phase\_commit
@@ -182,10 +183,8 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
 + enable_profile
-  <version since="1.2.7">
-  </version>
 
-  When `enable_profile` is true, the Stream Load profile will be printed to the log. Otherwise it won't print.
+  <version since="1.2.7">When `enable_profile` is true, the Stream Load profile will be printed to logs (be.INFO).</version>
 
   Example：
 

@@ -74,50 +74,6 @@ public class UdfExecutor extends BaseExecutor {
         super.close();
     }
 
-    /**
-     * evaluate function called by the backend. The inputs to the UDF have
-     * been serialized to 'input'
-     */
-    public void evaluate() throws UdfRuntimeException {
-        int batchSize = UdfUtils.UNSAFE.getInt(null, batchSizePtr);
-        try {
-            if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.VARCHAR)
-                    || retType.equals(JavaUdfDataType.CHAR) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
-                    || retType.equals(JavaUdfDataType.MAP_TYPE)) {
-                // If this udf return variable-size type (e.g.) String, we have to allocate output
-                // buffer multiple times until buffer size is enough to store output column. So we
-                // always begin with the last evaluated row instead of beginning of this batch.
-                rowIdx = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr + 8);
-                if (rowIdx == 0) {
-                    outputOffset = 0L;
-                }
-            } else {
-                rowIdx = 0;
-            }
-            for (; rowIdx < batchSize; rowIdx++) {
-                inputObjects = allocateInputObjects(rowIdx, 0);
-                // `storeUdfResult` is called to store udf result to output column. If true
-                // is returned, current value is stored successfully. Otherwise, current result is
-                // not processed successfully (e.g. current output buffer is not large enough) so
-                // we break this loop directly.
-                if (!storeUdfResult(evaluate(inputObjects), rowIdx, method.getReturnType())) {
-                    UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, rowIdx);
-                    return;
-                }
-            }
-        } catch (Exception e) {
-            if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
-                    || retType.equals(JavaUdfDataType.MAP_TYPE)) {
-                UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, batchSize);
-            }
-            throw new UdfRuntimeException("UDF::evaluate() ran into a problem.", e);
-        }
-        if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)
-                || retType.equals(JavaUdfDataType.MAP_TYPE)) {
-            UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, rowIdx);
-        }
-    }
-
     public Object[] convertBasicArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, long strOffsetAddr) {
         return convertBasicArg(true, argIdx, isNullable, 0, numRows, nullMapAddr, columnAddr, strOffsetAddr);
@@ -211,30 +167,6 @@ public class UdfExecutor extends BaseExecutor {
         return method;
     }
 
-    // Sets the result object 'obj' into the outputBufferPtr and outputNullPtr_
-    @Override
-    protected boolean storeUdfResult(Object obj, long row, Class retClass) throws UdfRuntimeException {
-        if (obj == null) {
-            if (UdfUtils.UNSAFE.getLong(null, outputNullPtr) == -1) {
-                throw new UdfRuntimeException("UDF failed to store null data to not null column");
-            }
-            UdfUtils.UNSAFE.putByte(null, UdfUtils.UNSAFE.getLong(null, outputNullPtr) + row, (byte) 1);
-            if (retType.equals(JavaUdfDataType.STRING)) {
-                UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr)
-                        + 4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset)));
-            } else if (retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
-                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
-                        Long.parseUnsignedLong(String.valueOf(outputOffset)));
-            }
-            return true;
-        }
-        return super.storeUdfResult(obj, row, retClass);
-    }
-
-    @Override
-    protected long getCurrentOutputOffset(long row, boolean isArrayType) {
-        return outputOffset;
-    }
 
     @Override
     protected void updateOutputOffset(long offset) {

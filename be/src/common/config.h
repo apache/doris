@@ -312,8 +312,8 @@ DECLARE_mInt64(column_dictionary_key_size_threshold);
 DECLARE_mInt64(memory_limitation_per_thread_for_schema_change_bytes);
 DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 
-// the clean interval of file descriptor cache and segment cache
-DECLARE_mInt32(cache_clean_interval);
+// the prune stale interval of all cache
+DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
 DECLARE_mInt32(tablet_lookup_cache_clean_interval);
 DECLARE_mInt32(disk_stat_monitor_interval);
@@ -335,6 +335,8 @@ DECLARE_mInt32(tablet_rowset_stale_sweep_time_sec);
 // garbage sweep policy
 DECLARE_Int32(max_garbage_sweep_interval);
 DECLARE_Int32(min_garbage_sweep_interval);
+// garbage sweep every batch will sleep 1ms
+DECLARE_mInt32(garbage_sweep_batch_size);
 DECLARE_mInt32(snapshot_expire_time_sec);
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
@@ -1108,6 +1110,15 @@ DECLARE_Int32(hdfs_hedged_read_thread_num);
 // the threshold of doing hedged read, for "dfs.client.hedged.read.threshold.millis"
 // Maybe overwritten by the value specified when creating catalog
 DECLARE_Int32(hdfs_hedged_read_threshold_time);
+
+DECLARE_mBool(enable_merge_on_write_correctness_check);
+
+// The secure path with user files, used in the `local` table function.
+DECLARE_mString(user_files_secure_path);
+
+// This threshold determines how many partitions will be allocated for window function get topn.
+// and if this threshold is exceeded, the remaining data will be pass through to other node directly.
+DECLARE_Int32(partition_topn_partition_threshold);
 
 #ifdef BE_TEST
 // test s3

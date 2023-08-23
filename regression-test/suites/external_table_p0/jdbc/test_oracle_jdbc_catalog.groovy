@@ -44,10 +44,10 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "driver_url" = "${driver_url}",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
-
-        sql  """ drop table if exists ${inDorisTable} """
+        sql """use ${internal_db_name}"""
+        sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
-              CREATE TABLE ${inDorisTable} (
+              CREATE TABLE ${internal_db_name}.${inDorisTable} (
                 `id` INT NULL COMMENT "主键id",
                 `name` string NULL COMMENT "名字",
                 `age` INT NULL COMMENT "年龄"
@@ -155,6 +155,20 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         );"""
         sql """ switch ${catalog_name} """
         qt_query_clob """ select * from doris_test.test_clob order by id; """
+
+        // test for `AA/D`
+        sql """create catalog if not exists ${catalog_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_table_names" = "true"
+        );"""
+        sql """ switch ${catalog_name} """
+        qt_query_ad1 """ select * from doris_test.`aa/d` order by id; """
+        qt_query_ad2 """ select * from doris_test.aaad order by id; """
 
     }
 }

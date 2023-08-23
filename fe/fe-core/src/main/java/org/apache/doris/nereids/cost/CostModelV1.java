@@ -73,8 +73,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
             // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
             beNumber = 1;
-        } else if (ConnectContext.get().getSessionVariable().getBeNumber() != -1) {
-            beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
+        } else if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
+            beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
         } else {
             beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
         }
@@ -287,17 +287,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         pattern2: (L join1 Agg1) join2 agg2
         in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
         */
-        double penalty = HEAVY_OPERATOR_PUNISH_FACTOR
-                * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
-        if (buildStats.getWidth() >= 2) {
-            //penalty for right deep tree
-            penalty += rightRowCount;
-        }
         if (physicalHashJoin.getJoinType().isCrossJoin()) {
             return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                     0,
-                    leftRowCount + rightRowCount,
-                    penalty);
+                    leftRowCount + rightRowCount
+            );
         }
 
         if (context.isBroadcastJoin()) {
@@ -320,13 +314,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             // will refine this in next generation cost model.
             return CostV1.of(leftRowCount + rightRowCount * buildSideFactor + outputRowCount * probeSideFactor,
                     rightRowCount,
-                    0,
                     0
             );
         }
         return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                 rightRowCount,
-                0,
                 0
         );
     }

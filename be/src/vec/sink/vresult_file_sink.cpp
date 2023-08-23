@@ -47,10 +47,9 @@ namespace doris::vectorized {
 
 VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool,
                                  const RowDescriptor& row_desc, const TResultFileSink& sink,
-                                 int per_channel_buffer_size,
                                  bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr)
-        : _t_output_expr(t_output_expr), _row_desc(row_desc) {
+        : DataSink(row_desc), _t_output_expr(t_output_expr) {
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new ResultFileOptions(sink.file_options));
     CHECK(sink.__isset.storage_backend_type);
@@ -66,12 +65,11 @@ VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool,
 VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool, int sender_id,
                                  const RowDescriptor& row_desc, const TResultFileSink& sink,
                                  const std::vector<TPlanFragmentDestination>& destinations,
-                                 int per_channel_buffer_size,
                                  bool send_query_statistics_with_every_batch,
                                  const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
-        : _t_output_expr(t_output_expr),
-          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false),
-          _row_desc(row_desc) {
+        : DataSink(row_desc),
+          _t_output_expr(t_output_expr),
+          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new ResultFileOptions(sink.file_options));
     CHECK(sink.__isset.storage_backend_type);
@@ -79,7 +77,7 @@ VResultFileSink::VResultFileSink(RuntimeState* state, ObjectPool* pool, int send
     _is_top_sink = false;
     CHECK_EQ(destinations.size(), 1);
     _stream_sender.reset(new VDataStreamSender(state, pool, sender_id, row_desc, sink.dest_node_id,
-                                               destinations, per_channel_buffer_size,
+                                               destinations,
                                                send_query_statistics_with_every_batch));
 
     _name = "VResultFileSink";

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "hdfs",
+    "title": "HDFS",
     "language": "zh-CN"
 }
 ---

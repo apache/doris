@@ -20,9 +20,10 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
@@ -33,8 +34,6 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public abstract class BaseAnalysisTask {
@@ -67,7 +66,7 @@ public abstract class BaseAnalysisTask {
     protected static final String INSERT_COL_STATISTICS = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
             + "    SELECT id, catalog_id, db_id, tbl_id, idx_id, col_id, part_id, row_count, "
-            + "        ndv, null_count, min, max, data_size, update_time\n"
+            + "        ndv, null_count, CAST(min AS string), CAST(max AS string), data_size, update_time\n"
             + "    FROM \n"
             + "     (SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
             + "         ${catalogId} AS catalog_id, "
@@ -102,8 +101,6 @@ public abstract class BaseAnalysisTask {
 
     protected StmtExecutor stmtExecutor;
 
-    protected Set<PrimitiveType> unsupportedType = new HashSet<>();
-
     protected volatile boolean killed;
 
     @VisibleForTesting
@@ -116,17 +113,7 @@ public abstract class BaseAnalysisTask {
         init(info);
     }
 
-    protected void initUnsupportedType() {
-        unsupportedType.add(PrimitiveType.HLL);
-        unsupportedType.add(PrimitiveType.BITMAP);
-        unsupportedType.add(PrimitiveType.ARRAY);
-        unsupportedType.add(PrimitiveType.MAP);
-        unsupportedType.add(PrimitiveType.JSONB);
-        unsupportedType.add(PrimitiveType.STRUCT);
-    }
-
     private void init(AnalysisInfo info) {
-        initUnsupportedType();
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
             Env.getCurrentEnv().getAnalysisManager().updateTaskStatus(info, AnalysisState.FAILED,
@@ -162,6 +149,16 @@ public abstract class BaseAnalysisTask {
     }
 
     public void execute() {
+        prepareExecution();
+        executeWithRetry();
+        afterExecution();
+    }
+
+    protected void prepareExecution() {
+        setTaskStateToRunning();
+    }
+
+    protected void executeWithRetry() {
         int retriedTimes = 0;
         while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
             if (killed) {
@@ -182,6 +179,10 @@ public abstract class BaseAnalysisTask {
 
     public abstract void doExecute() throws Exception;
 
+    protected void afterExecution() {
+        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
+    }
+
     protected void setTaskStateToRunning() {
         Env.getCurrentEnv().getAnalysisManager()
             .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
@@ -197,10 +198,6 @@ public abstract class BaseAnalysisTask {
                         String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
     }
 
-    public long getLastExecTime() {
-        return info.lastExecTimeInMs;
-    }
-
     public long getJobId() {
         return info.jobId;
     }
@@ -211,10 +208,6 @@ public abstract class BaseAnalysisTask {
             return "SUM(LENGTH(`${colName}`))";
         }
         return "COUNT(1) * " + column.getType().getSlotSize();
-    }
-
-    private boolean isUnsupportedType(PrimitiveType type) {
-        return unsupportedType.contains(type);
     }
 
     protected String getSampleExpression() {
@@ -234,5 +227,18 @@ public abstract class BaseAnalysisTask {
         return String.format("Job id [%d], Task id [%d], catalog [%s], db [%s], table [%s], column [%s]",
             info.jobId, info.taskId, catalog.getName(), db.getFullName(), tbl.getName(),
             col == null ? "TableRowCount" : col.getName());
+    }
+
+    protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
+        if (killed) {
+            return;
+        }
+        stmtExecutor.execute();
+        QueryState queryState = stmtExecutor.getContext().getState();
+        if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+            throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                    info.catalogName, info.dbName, info.colName, stmtExecutor.getOriginStmt().toString(),
+                    queryState.getErrorMessage()));
+        }
     }
 }

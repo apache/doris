@@ -1,6 +1,6 @@
 ---
 {
-    "title": "curtime,current_time",
+    "title": "CURTIME,CURRENT_TIME",
     "language": "en"
 }
 ---

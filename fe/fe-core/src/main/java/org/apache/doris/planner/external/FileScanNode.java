@@ -158,6 +158,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append(String.format("avgRowSize=%s, ", avgRowSize));
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
+        output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp)).append("\n");
 
         return output.toString();
     }
@@ -175,6 +176,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {
                     expr = column.getDefaultValueExpr();
+                    expr.analyze(analyzer);
                 } else {
                     expr = new StringLiteral(column.getDefaultValue());
                 }

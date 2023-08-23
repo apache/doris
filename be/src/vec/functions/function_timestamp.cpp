@@ -74,6 +74,21 @@ struct StrToDate {
         return make_nullable(std::make_shared<DataTypeDateTime>());
     }
 
+    static StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
+        const static std::string specific_format_strs[3] = {"yyyyMMdd", "yyyy-MM-dd",
+                                                            "yyyy-MM-dd HH:mm:ss"};
+        const static std::string specific_format_rewrite[3] = {"%Y%m%d", "%Y-%m-%d",
+                                                               "%Y-%m-%d %H:%i:%s"};
+        for (int i = 0; i < 3; i++) {
+            const StringRef specific_format {specific_format_strs[i].data(),
+                                             specific_format_strs[i].size()};
+            if (specific_format == StringRef {raw_str, str_size}) {
+                return {specific_format_rewrite[i].data(), specific_format_rewrite[i].size()};
+            }
+        }
+        return {raw_str, str_size};
+    }
+
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -161,9 +176,10 @@ private:
 
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             size_t r_str_size = roffsets[i] - roffsets[i - 1];
-
-            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, r_raw_str,
-                                                           r_str_size, context, res, null_map, i);
+            const StringRef format_str = rewrite_specific_format(r_raw_str, r_str_size);
+            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, format_str.data,
+                                                           format_str.size, context, res, null_map,
+                                                           i);
         }
     }
     template <typename DateValueType, typename NativeType>
@@ -173,12 +189,14 @@ private:
                                          NullMap& null_map) {
         size_t size = loffsets.size();
         res.resize(size);
+        const StringRef format_str = rewrite_specific_format(rdata.data, rdata.size);
         for (size_t i = 0; i < size; ++i) {
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             size_t l_str_size = loffsets[i] - loffsets[i - 1];
 
-            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, rdata.data,
-                                                           rdata.size, context, res, null_map, i);
+            _execute_inner_loop<DateValueType, NativeType>(l_raw_str, l_str_size, format_str.data,
+                                                           format_str.size, context, res, null_map,
+                                                           i);
         }
     }
     template <typename DateValueType, typename NativeType>

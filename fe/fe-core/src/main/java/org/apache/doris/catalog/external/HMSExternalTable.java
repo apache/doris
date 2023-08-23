@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -30,7 +32,7 @@ import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.HMSAnalysisTask;
-import org.apache.doris.statistics.TableStatistic;
+import org.apache.doris.statistics.TableStats;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -104,6 +106,9 @@ public class HMSExternalTable extends ExternalTable {
     private List<Column> partitionColumns;
 
     private DLAType dlaType = DLAType.UNKNOWN;
+
+    // No as precise as row count in TableStats, but better than none.
+    private long estimatedRowCount = -1;
 
     public enum DLAType {
         UNKNOWN, HIVE, HUDI, ICEBERG
@@ -420,13 +425,20 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long estimatedRowCount() {
         try {
-            Optional<TableStatistic> tableStatistics = Env.getCurrentEnv().getStatisticsCache().getTableStatistics(
-                    catalog.getId(), catalog.getDbOrAnalysisException(dbName).getId(), id);
-            if (tableStatistics.isPresent()) {
-                long rowCount = tableStatistics.get().rowCount;
+            TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+            if (tableStats != null) {
+                long rowCount = tableStats.rowCount;
                 LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
                 return rowCount;
             }
+
+            if (estimatedRowCount != -1) {
+                return estimatedRowCount;
+            }
+            // Cache the estimated row count in this structure
+            // though the table never get analyzed, since the row estimation might be expensive caused by RPC.
+            estimatedRowCount = getRowCount();
+            return estimatedRowCount;
         } catch (Exception e) {
             LOG.warn("Fail to get row count for table {}", name, e);
         }
@@ -455,6 +467,13 @@ public class HMSExternalTable extends ExternalTable {
             // Do not use "getColumn()", which will cause dead loop
             for (Column column : schema) {
                 if (partitionKey.equals(column.getName())) {
+                    // For partition column, if it is string type, change it to varchar(65535)
+                    // to be same as doris managed table.
+                    // This is to avoid some unexpected behavior such as different partition pruning result
+                    // between doris managed table and external table.
+                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+                    }
                     partitionColumns.add(column);
                     break;
                 }
@@ -600,4 +619,5 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 }
+
 

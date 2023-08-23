@@ -401,7 +401,13 @@ void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const 
             LOG(WARNING) << "File IO Write error: " << st.to_string();
         }
     } else {
-        LOG(WARNING) << "File writer is nullptr, ignore flush.";
+        if (writer == nullptr) {
+            LOG(WARNING) << "File writer is nullptr in DorisCompoundDirectory::FSIndexOutput, "
+                            "ignore flush.";
+        } else if (b == nullptr) {
+            LOG(WARNING) << "buffer is nullptr when flushBuffer in "
+                            "DorisCompoundDirectory::FSIndexOutput";
+        }
     }
 }
 
@@ -418,12 +424,12 @@ void DorisCompoundDirectory::FSIndexOutput::close() {
     }
     if (writer) {
         Status ret = writer->finalize();
-        if (ret != Status::OK()) {
+        if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer finalize error: " << ret.to_string();
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }
         ret = writer->close();
-        if (ret != Status::OK()) {
+        if (!ret.ok()) {
             LOG(WARNING) << "FSIndexOutput close, file writer close error: " << ret.to_string();
             _CLTHROWA(CL_ERR_IO, ret.to_string().c_str());
         }

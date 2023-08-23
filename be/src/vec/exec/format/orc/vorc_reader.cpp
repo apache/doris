@@ -40,7 +40,6 @@
 #include "exec/olap_utils.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "gutil/casts.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -929,9 +928,9 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::DATE:
         return TypeDescriptor(PrimitiveType::TYPE_DATEV2);
     case orc::TypeKind::VARCHAR:
-        return TypeDescriptor(PrimitiveType::TYPE_VARCHAR);
+        return TypeDescriptor::create_varchar_type(orc_type->getMaximumLength());
     case orc::TypeKind::CHAR:
-        return TypeDescriptor(PrimitiveType::TYPE_CHAR);
+        return TypeDescriptor::create_char_type(orc_type->getMaximumLength());
     case orc::TypeKind::TIMESTAMP_INSTANT:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {
@@ -996,7 +995,7 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
                                         const orc::TypeKind& type_kind, orc::ColumnVectorBatch* cvb,
                                         size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    auto* data = down_cast<orc::EncodedStringVectorBatch*>(cvb);
+    auto* data = dynamic_cast<orc::EncodedStringVectorBatch*>(cvb);
     if (data == nullptr) {
         return Status::InternalError("Wrong data type for colum '{}'", col_name);
     }
@@ -1281,7 +1280,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        auto* orc_list = down_cast<orc::ListVectorBatch*>(cvb);
+        auto* orc_list = dynamic_cast<orc::ListVectorBatch*>(cvb);
         auto& doris_offsets = static_cast<ColumnArray&>(*data_column).get_offsets();
         auto& orc_offsets = orc_list->offsets;
         size_t element_size = 0;
@@ -1291,11 +1290,6 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                 reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get())
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
-        if (nested_orc_type->getKind() == orc::TypeKind::MAP ||
-            nested_orc_type->getKind() == orc::TypeKind::STRUCT) {
-            return Status::InternalError(
-                    "Array does not support nested map/struct type in column {}", col_name);
-        }
         return _orc_column_to_doris_column<is_filter>(
                 col_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
@@ -1304,7 +1298,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        auto* orc_map = down_cast<orc::MapVectorBatch*>(cvb);
+        auto* orc_map = dynamic_cast<orc::MapVectorBatch*>(cvb);
         auto& doris_map = static_cast<ColumnMap&>(*data_column);
         size_t element_size = 0;
         RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_map.get_offsets(),
@@ -1317,15 +1311,6 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                         ->get_value_type());
         const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
         const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
-        if (orc_key_type->getKind() == orc::TypeKind::LIST ||
-            orc_key_type->getKind() == orc::TypeKind::MAP ||
-            orc_key_type->getKind() == orc::TypeKind::STRUCT ||
-            orc_value_type->getKind() == orc::TypeKind::LIST ||
-            orc_value_type->getKind() == orc::TypeKind::MAP ||
-            orc_value_type->getKind() == orc::TypeKind::STRUCT) {
-            return Status::InternalError("Map does not support nested complex type in column {}",
-                                         col_name);
-        }
         const ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
         const ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(col_name, doris_key_column,
@@ -1339,7 +1324,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        auto* orc_struct = down_cast<orc::StructVectorBatch*>(cvb);
+        auto* orc_struct = dynamic_cast<orc::StructVectorBatch*>(cvb);
         auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
         if (orc_struct->fields.size() != doris_struct.tuple_size()) {
             return Status::InternalError("Wrong number of struct fields for column '{}'", col_name);
@@ -1349,12 +1334,6 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
             orc::ColumnVectorBatch* orc_field = orc_struct->fields[i];
             const orc::Type* orc_type = orc_column_type->getSubtype(i);
-            if (orc_type->getKind() == orc::TypeKind::LIST ||
-                orc_type->getKind() == orc::TypeKind::MAP ||
-                orc_type->getKind() == orc::TypeKind::STRUCT) {
-                return Status::InternalError(
-                        "Struct does not support nested complex type in column {}", col_name);
-            }
             const ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
             const DataTypePtr& doris_type = doris_struct_type->get_element(i);
             RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(
@@ -1433,8 +1412,10 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         }
         *read_rows = rr;
 
-        RETURN_IF_ERROR(_fill_partition_columns(block, rr, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, rr, _lazy_read_ctx.missing_columns));
+        RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
+                                                _lazy_read_ctx.partition_columns));
+        RETURN_IF_ERROR(
+                _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
             *eof = true;
@@ -1507,16 +1488,18 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         }
         *read_rows = rr;
 
+        RETURN_IF_ERROR(_fill_partition_columns(block, _batch->numElements,
+                                                _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(
-                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+                _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
         if (block->rows() == 0) {
+            _convert_dict_cols_to_string_cols(block, nullptr);
             *eof = true;
             return Status::OK();
         }
 
-        _build_delete_row_filter(block, rr);
+        _build_delete_row_filter(block, _batch->numElements);
 
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
@@ -1578,7 +1561,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
 void OrcReader::_fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                                 orc::ColumnVectorBatch* batch, int idx) {
-    for (auto* field : down_cast<orc::StructVectorBatch*>(batch)->fields) {
+    for (auto* field : dynamic_cast<orc::StructVectorBatch*>(batch)->fields) {
         result.push_back(field);
         if (_is_acid && _col_orc_type[idx++]->getKind() == orc::TypeKind::STRUCT) {
             _fill_batch_vec(result, field, idx);

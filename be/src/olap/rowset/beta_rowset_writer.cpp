@@ -87,7 +87,6 @@ BetaRowsetWriter::~BetaRowsetWriter() {
         if (!fs) {
             return;
         }
-        DCHECK_LE(_segment_start_id + _num_segment, _segment_creator.next_segment_id());
         for (int i = _segment_start_id; i < _segment_creator.next_segment_id(); ++i) {
             std::string seg_path =
                     BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, i);
@@ -355,8 +354,7 @@ bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
 
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    if (!config::enable_segcompaction || _context.tablet_schema->is_dynamic_schema() ||
-        !_check_and_set_is_doing_segcompaction()) {
+    if (!config::enable_segcompaction || !_check_and_set_is_doing_segcompaction()) {
         return status;
     }
     if (_segcompaction_status.load() != OK) {
@@ -438,17 +436,11 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
     }
 
     TabletSchemaSPtr flush_schema;
-    if (_context.tablet_schema->is_dynamic_schema()) {
-        // Unfold variant column
-        RETURN_IF_ERROR(_unfold_variant_column(*block, flush_schema));
-    }
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         RETURN_IF_ERROR(
                 _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
     }
-    RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
-    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
@@ -534,23 +526,6 @@ RowsetSharedPtr BetaRowsetWriter::build() {
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
-    }
-
-    // schema changed during this load
-    if (_context.schema_change_recorder->has_extended_columns()) {
-        DCHECK(_context.tablet_schema->is_dynamic_schema())
-                << "Load can change local schema only in dynamic table";
-        TabletSchemaSPtr new_schema = std::make_shared<TabletSchema>();
-        new_schema->copy_from(*_context.tablet_schema);
-        for (auto const& [_, col] : _context.schema_change_recorder->copy_extended_columns()) {
-            new_schema->append_column(col);
-        }
-        new_schema->set_schema_version(_context.schema_change_recorder->schema_version());
-        if (_context.schema_change_recorder->schema_version() >
-            _context.tablet_schema->schema_version()) {
-            _context.tablet->update_max_version_schema(new_schema);
-        }
-        _rowset_meta->set_tablet_schema(new_schema);
     }
 
     RowsetSharedPtr rowset;
@@ -715,18 +690,18 @@ Status BetaRowsetWriter::_check_segment_number_limit() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat) {
-    uint32_t segid_offset = segid - _segment_start_id;
+Status BetaRowsetWriter::add_segment(uint32_t segment_id, SegmentStatistics& segstat) {
+    uint32_t segid_offset = segment_id - _segment_start_id;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
-        CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
-        _segid_statistics_map.emplace(segid, segstat);
-        if (segid >= _segment_num_rows.size()) {
-            _segment_num_rows.resize(segid + 1);
+        CHECK_EQ(_segid_statistics_map.find(segment_id) == _segid_statistics_map.end(), true);
+        _segid_statistics_map.emplace(segment_id, segstat);
+        if (segment_id >= _segment_num_rows.size()) {
+            _segment_num_rows.resize(segment_id + 1);
         }
         _segment_num_rows[segid_offset] = segstat.row_num;
     }
-    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid
+    VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size
                << " index_size:" << segstat.index_size;
 
@@ -737,6 +712,10 @@ Status BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat)
             _num_segment++;
         }
     }
+    if (_context.mow_context != nullptr) {
+        RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
+    }
+    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 

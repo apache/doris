@@ -55,16 +55,7 @@ suite("test_export_big_data", "p2") {
     String s3_endpoint = getS3Endpoint()
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
-
-    def check_path_exists = { dir_path ->
-        File path = new File(dir_path)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${dir_path} already exists! """)
-        }
-    }
-
+    
     def table_export_name = "test_export_big_data"
     // create table and insert
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
@@ -88,13 +79,8 @@ suite("test_export_big_data", "p2") {
             "format" = "csv");
         """
 
-    def outfile_path_prefix = """/mnt/datadisk1/fangtiewei/tmpdata/test_export"""
     def uuid = UUID.randomUUID().toString()
-    def outFilePath = """${outfile_path_prefix}_${uuid}"""
-
-
-    // check export path
-    check_path_exists.call("${outFilePath}")
+    def outFilePath = """/tmp"""
 
     // exec export
     sql """

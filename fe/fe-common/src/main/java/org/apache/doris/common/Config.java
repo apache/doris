@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
-
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -60,6 +58,9 @@ public class Config extends ConfigBase {
      *          10h     10 hours
      *          60m     60 mins
      *          120s    120 seconds
+     *
+     * sys_log_enable_compress:
+     *      default is false. if true, will compress fe.log & fe.warn.log by gzip
      */
     @ConfField(description = {"FE 日志文件的存放路径，用于存放 fe.log。",
             "The path of the FE log file, used to store fe.log"})
@@ -95,6 +96,8 @@ public class Config extends ConfigBase {
             "The maximum survival time of the FE log file. After exceeding this time, the log file will be deleted. "
                     + "Supported formats include: 7d, 10h, 60m, 120s"})
     public static String sys_log_delete_age = "7d";
+    @ConfField(description = {"是否压缩 FE 的历史日志", "enable compression for FE log file"})
+    public static boolean sys_log_enable_compress = false;
 
     @ConfField(description = {"FE 审计日志文件的存放路径，用于存放 fe.audit.log。",
             "The path of the FE audit log file, used to store fe.audit.log"})
@@ -120,6 +123,8 @@ public class Config extends ConfigBase {
                     + "After exceeding this time, the log file will be deleted. "
                     + "Supported formats include: 7d, 10h, 60m, 120s"})
     public static String audit_log_delete_age = "30d";
+    @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
+    public static boolean audit_log_enable_compress = false;
 
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
@@ -293,7 +298,7 @@ public class Config extends ConfigBase {
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
     @ConfField(description = {"是否启用所有 http 接口的认证",
-            "Whether to enable all http interface authentication"}, expType = ExperimentalType.EXPERIMENTAL)
+            "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;
 
     @ConfField(description = {"FE http 端口，目前所有 FE 的 http 端口必须相同",
@@ -323,7 +328,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"是否启用 https，如果启用，http 端口将不可用",
             "Whether to enable https, if enabled, http port will not be available"},
-            expType = ExperimentalType.EXPERIMENTAL)
+            varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_https = false;
 
     @ConfField(description = {"Jetty 的 acceptor 线程数。Jetty的线程架构模型很简单，分为三个线程池：acceptor、selector 和 worker。"
@@ -420,7 +425,11 @@ public class Config extends ConfigBase {
                             + "eg. if you create a table with #m tablets and #n replicas for each tablet, "
                             + "the create table request will run at most "
                             + "(m * n * tablet_create_timeout_second) before timeout"})
-    public static int tablet_create_timeout_second = 1;
+    public static int tablet_create_timeout_second = 2;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"创建表的最小超时时间，单位是秒。",
+            "Minimal waiting time for creating a table, in seconds."})
+    public static int min_create_table_timeout_second = 30;
 
     @ConfField(mutable = true, masterOnly = true, description = {"创建表的最大超时时间，单位是秒。",
             "Maximal waiting time for creating a table, in seconds."})
@@ -572,7 +581,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否启用 stream load 和 broker load 的单副本写入。",
             "Whether to enable to write single replica for stream load and broker load."},
-            expType = ExperimentalType.EXPERIMENTAL)
+            varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -604,6 +613,20 @@ public class Config extends ConfigBase {
             "磁盘使用率的高水位线。用于计算 BE 的负载分数。",
             "The high water of disk capacity used percent. This is used for calculating load score of a backend."})
     public static double capacity_used_percent_high_water = 0.75;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "负载均衡时，磁盘使用率最大差值。",
+            "The max diff of disk capacity used percent between BE. "
+                    + "It is used for calculating load score of a backend."})
+    public static double used_capacity_percent_max_diff = 0.30;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "设置固定的 BE 负载分数中磁盘使用率系数。BE 负载分数会综合磁盘使用率和副本数而得。有效值范围为[0, 1]，"
+                    + "当超出此范围时，则使用其他方法自动计算此系数。",
+            "Sets a fixed disk usage factor in the BE load fraction. The BE load score is a combination of disk usage "
+                    + "and replica count. The valid value range is [0, 1]. When it is out of this range, other "
+                    + "methods are used to automatically calculate this coefficient."})
+    public static double backend_load_capacity_coeficient = -1.0;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "ALTER TABLE 请求的最大超时时间。设置的足够长以适应表的数据量。",
@@ -909,17 +932,19 @@ public class Config extends ConfigBase {
     public static long tablet_repair_delay_factor_second = 60;
 
     /**
-     * the default slot number per path in tablet scheduler
+     * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int schedule_slot_num_per_path = 4;
+    public static int schedule_slot_num_per_hdd_path = 4;
+
 
     /**
-     * the default slot number per path in tablet scheduler for decommission backend
+     * the default slot number per path for ssd in tablet scheduler
+     * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int schedule_decommission_slot_num_per_path = 8;
+    public static int schedule_slot_num_per_ssd_path = 8;
 
     /**
      * the default batch size in tablet scheduler for a single schedule.
@@ -1174,8 +1199,16 @@ public class Config extends ConfigBase {
     /**
      * Set the maximum number of rows that can be cached
      */
-    @ConfField(mutable = true, masterOnly = false)
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大行数。",
+        "Maximum number of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
     public static int cache_result_max_row_count = 3000;
+
+    /**
+     * Set the maximum data size that can be cached
+     */
+    @ConfField(mutable = true, masterOnly = false, description = {"SQL/Partition Cache可以缓存的最大数据大小。",
+        "Maximum data size of rows that can be cached in SQL/Partition Cache, is 3000 by default."})
+    public static int cache_result_max_data_size = 31457280; // 30M
 
     /**
      * Used to limit element num of InPredicate in delete statement.
@@ -1524,7 +1557,7 @@ public class Config extends ConfigBase {
     public static int scheduler_job_task_max_num = 10;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
-    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
 
     @ConfField(mutable = true)
@@ -1586,7 +1619,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 2;
+    public static int max_be_exec_version = 3;
 
     /**
      * Min data version of backends serialize block.
@@ -1603,7 +1636,7 @@ public class Config extends ConfigBase {
     /*
      * mtmv is still under dev, remove this config when it is graduate.
      */
-    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_mtmv = false;
 
     /* Max running task num at the same time, otherwise the submitted task will still be keep in pending poll*/
@@ -1773,7 +1806,7 @@ public class Config extends ConfigBase {
      * When enable_fqdn_mode is true, the name of the pod where be is located will remain unchanged
      * after reconstruction, while the ip can be changed.
      */
-    @ConfField(mutable = false, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = false, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_fqdn_mode = false;
 
     /**
@@ -1796,7 +1829,7 @@ public class Config extends ConfigBase {
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.
      */
-    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_query_hive_views = false;
 
     /**
@@ -1826,7 +1859,7 @@ public class Config extends ConfigBase {
     /**
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
-    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_ssl = false;
 
     /**
@@ -2008,7 +2041,7 @@ public class Config extends ConfigBase {
                     + " including the specific reason why they are unqueryable, will be printed out."})
     public static boolean show_details_for_unaccessible_tablet = false;
 
-    @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL, description = {
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
             "是否启用binlog特性",
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
@@ -2054,7 +2087,7 @@ public class Config extends ConfigBase {
     public static int force_olap_table_replication_num = 0;
 
     @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 5;
+    public static int full_auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
     public static int cpu_resource_limit_per_analyze_task = 1;
@@ -2068,4 +2101,20 @@ public class Config extends ConfigBase {
             "Export任务允许的最大并行数",
             "The maximum parallelism allowed by Export job"})
     public static int maximum_parallelism_of_export_job = 50;
+
+    @ConfField(mutable = true, description = {
+            "ExportExecutorTask任务中一个OutFile语句允许的最大tablets数量",
+            "The maximum number of tablets allowed by an OutfileStatement in an ExportExecutorTask"})
+    public static int maximum_tablets_of_outfile_in_export = 10;
+
+    @ConfField(mutable = true, description = {
+            "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
+            "Whether to use mysql's bigint type to return Doris's largeint type"})
+    public static boolean use_mysql_bigint_for_largeint = false;
+
+    @ConfField
+    public static boolean forbid_running_alter_job = false;
+
+    @ConfField
+    public static int table_stats_health_threshold = 80;
 }

@@ -805,6 +805,10 @@ build_brpc() {
         ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
     else
         ldflags="-L${TP_LIB_DIR}"
+
+        # Don't set OPENSSL_ROOT_DIR
+        sed '/set(OPENSSL_ROOT_DIR/,/)/ d' ../CMakeLists.txt >../CMakeLists.txt.bak
+        mv ../CMakeLists.txt.bak ../CMakeLists.txt
     fi
 
     # Currently, BRPC can't be built for static libraries only (without .so). Therefore, we should add `-fPIC`

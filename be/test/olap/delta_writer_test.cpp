@@ -84,10 +84,13 @@ static void set_up() {
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
+    exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     k_engine->start_bg_threads();
 }
 
 static void tear_down() {
+    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->set_memtable_memory_limiter(nullptr);
     if (k_engine != nullptr) {
         k_engine->stop();
         delete k_engine;
@@ -471,9 +474,11 @@ public:
 };
 
 TEST_F(TestDeltaWriter, open) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10003, 270068375, &request);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, profile.get());
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -486,13 +491,19 @@ TEST_F(TestDeltaWriter, open) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {
-            10003, 270068375, 20001, 30001, load_id, tuple_desc, &(tuple_desc->slots()),
-            true,  &param};
+    WriteRequest write_req;
+    write_req.tablet_id = 10003;
+    write_req.schema_hash = 270068375;
+    write_req.txn_id = 20001;
+    write_req.partition_id = 30001;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = true;
+    write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
 
     // test vec delta writer
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     EXPECT_NE(delta_writer, nullptr);
@@ -509,9 +520,11 @@ TEST_F(TestDeltaWriter, open) {
 }
 
 TEST_F(TestDeltaWriter, vec_write) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     create_tablet_request(10004, 270068376, &request);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -525,11 +538,17 @@ TEST_F(TestDeltaWriter, vec_write) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {
-            10004, 270068376, 20002, 30002, load_id, tuple_desc, &(tuple_desc->slots()),
-            false, &param};
+    WriteRequest write_req;
+    write_req.tablet_id = 10004;
+    write_req.schema_hash = 270068376;
+    write_req.txn_id = 20002;
+    write_req.partition_id = 30002;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
@@ -666,10 +685,12 @@ TEST_F(TestDeltaWriter, vec_write) {
 }
 
 TEST_F(TestDeltaWriter, vec_sequence_col) {
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("CreateTablet");
     TCreateTabletReq request;
     sleep(20);
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, profile.get());
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -682,11 +703,17 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {
-            10005, 270068377, 20003, 30003, load_id, tuple_desc, &(tuple_desc->slots()),
-            false, &param};
+    WriteRequest write_req;
+    write_req.tablet_id = 10005;
+    write_req.schema_hash = 270068377;
+    write_req.txn_id = 20003;
+    write_req.partition_id = 30003;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
     DeltaWriter* delta_writer = nullptr;
-    std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
     DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
@@ -776,10 +803,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 }
 
 TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
+    RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     sleep(20);
     create_tablet_request_with_sequence_col(10005, 270068377, &request, true);
-    Status res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request, &profile);
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
@@ -792,9 +820,16 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {
-            10005, 270068377, 20003, 30003, load_id, tuple_desc, &(tuple_desc->slots()),
-            false, &param};
+    WriteRequest write_req;
+    write_req.tablet_id = 10005;
+    write_req.schema_hash = 270068377;
+    write_req.txn_id = 20003;
+    write_req.partition_id = 30003;
+    write_req.load_id = load_id;
+    write_req.tuple_desc = tuple_desc;
+    write_req.slots = &(tuple_desc->slots());
+    write_req.is_high_priority = false;
+    write_req.table_schema_param = &param;
     DeltaWriter* delta_writer1 = nullptr;
     DeltaWriter* delta_writer2 = nullptr;
     std::unique_ptr<RuntimeProfile> profile1;

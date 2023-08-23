@@ -267,8 +267,7 @@ DEFINE_mInt64(column_dictionary_key_size_threshold, "0");
 DEFINE_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
-// the clean interval of file descriptor cache and segment cache
-DEFINE_mInt32(cache_clean_interval, "60");
+DEFINE_mInt32(cache_prune_stale_interval, "10");
 // the clean interval of tablet lookup cache
 DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
@@ -290,6 +289,7 @@ DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "300");
 // garbage sweep policy
 DEFINE_Int32(max_garbage_sweep_interval, "3600");
 DEFINE_Int32(min_garbage_sweep_interval, "180");
+DEFINE_mInt32(garbage_sweep_batch_size, "100");
 DEFINE_mInt32(snapshot_expire_time_sec, "172800");
 // It is only a recommended value. When the disk space is insufficient,
 // the file storage period under trash dose not have to comply with this parameter.
@@ -1053,6 +1053,13 @@ DEFINE_mBool(enable_window_funnel_function_v2, "false");
 DEFINE_Bool(enable_hdfs_hedged_read, "false");
 DEFINE_Int32(hdfs_hedged_read_thread_num, "128");
 DEFINE_Int32(hdfs_hedged_read_threshold_time, "500");
+
+DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+
+// The secure path with user files, used in the `local` table function.
+DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
+
+DEFINE_Int32(partition_topn_partition_threshold, "1024");
 
 #ifdef BE_TEST
 // test s3

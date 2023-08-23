@@ -168,12 +168,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier) {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation);
+        List<Long> tabletIds = unboundRelation.getTabletIds();
         if (!CollectionUtils.isEmpty(partIds)) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds, unboundRelation.getHints());
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds,
+                    tabletIds, unboundRelation.getHints());
         } else {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), unboundRelation.getHints());
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), tabletIds, unboundRelation.getHints());
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
                 && !ConnectContext.get().getSessionVariable()
@@ -203,6 +205,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case OLAP:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
+                cascadesContext.getStatementContext().addView((View) table);
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
@@ -251,7 +254,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer().analyze();
-
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }

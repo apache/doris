@@ -417,6 +417,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     break;
                 case HIVE:
                     scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+                    ((HiveScanNode) scanNode).setSelectedPartitions(fileScan.getSelectedPartitions());
                     break;
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
@@ -431,6 +432,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             throw new RuntimeException("do not support table type " + table.getType());
         }
         scanNode.addConjuncts(translateToLegacyConjuncts(fileScan.getConjuncts()));
+
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
@@ -785,12 +787,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, PlanTranslatorContext context) {
-        Preconditions.checkState(storageLayerAggregate.getRelation() instanceof PhysicalOlapScan,
-                "PhysicalStorageLayerAggregate only support PhysicalOlapScan: "
+        Preconditions.checkState((storageLayerAggregate.getRelation() instanceof PhysicalOlapScan
+                        || storageLayerAggregate.getRelation() instanceof PhysicalFileScan),
+                "PhysicalStorageLayerAggregate only support PhysicalOlapScan and PhysicalFileScan: "
                         + storageLayerAggregate.getRelation().getClass().getName());
         PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 
-        OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
+        ScanNode scanNode = (ScanNode) planFragment.getPlanRoot();
         TPushAggOp pushAggOp;
         switch (storageLayerAggregate.getAggOp()) {
             case COUNT:
@@ -806,7 +809,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
         }
-        olapScanNode.setPushDownAggNoGrouping(pushAggOp);
+        scanNode.setPushDownAggNoGrouping(pushAggOp);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), storageLayerAggregate);
         return planFragment;
     }
@@ -1698,7 +1701,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             SortNode sortNode = translateSortNode(topN, inputFragment.getPlanRoot(), context);
             sortNode.setOffset(topN.getOffset());
             sortNode.setLimit(topN.getLimit());
-            if (topN.getMutableState(PhysicalTopN.TOPN_RUNTIME_FILTER).isPresent()) {
+            if (topN.isEnableRuntimeFilter()) {
                 sortNode.setUseTopnOpt(true);
                 PlanNode child = sortNode.getChild(0);
                 Preconditions.checkArgument(child instanceof OlapScanNode,
@@ -1813,7 +1816,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         RepeatNode repeatNode = new RepeatNode(context.nextPlanNodeId(),
                 inputPlanFragment.getPlanRoot(), groupingInfo, repeatSlotIdList,
                 allSlotId, repeat.computeVirtualSlotValues(sortedVirtualSlots));
-        repeatNode.setNumInstances(inputPlanFragment.getPlanRoot().getNumInstances());
         addPlanRoot(inputPlanFragment, repeatNode, repeat);
         updateLegacyPlanIdToPhysicalPlan(inputPlanFragment.getPlanRoot(), repeat);
         return inputPlanFragment;
@@ -1898,7 +1900,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 orderElementsIsNullableMatched,
                 bufferedTupleDesc
         );
-        analyticEvalNode.setNumInstances(inputPlanFragment.getPlanRoot().getNumInstances());
         inputPlanFragment.addPlanRoot(analyticEvalNode);
         return inputPlanFragment;
     }

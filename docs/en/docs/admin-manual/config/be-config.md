@@ -712,6 +712,11 @@ BaseCompaction:546859:
 * Description: Import the number of threads for processing NORMAL priority tasks
 * Default value: 3
 
+#### `enable_single_replica_load`
+
+* Description: Whether to enable the single-copy data import function
+* Default value: false
+
 #### `load_error_log_reserve_hours`
 
 * Description: The load error log will be deleted after this time
@@ -1476,3 +1481,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: If true, when the process does not exceed the soft mem limit, the query memory will not be limited; when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently used memory and the exec_mem_limit will be canceled. If false, cancel query when the memory used exceeds exec_mem_limit.
 * Default value: true
+
+#### `user_files_secure_path`
+
+* Description: The storage directory for files queried by `local` table valued functions.
+* Default value: `${DORIS_HOME}`

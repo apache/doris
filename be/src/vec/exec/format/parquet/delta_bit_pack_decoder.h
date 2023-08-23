@@ -153,7 +153,7 @@ public:
     void set_data(Slice* slice) override {
         _bit_reader.reset(new BitReader((const uint8_t*)slice->data, slice->size));
         Status st = _init_header();
-        if (st != Status::OK()) {
+        if (!st.ok()) {
             LOG(FATAL) << "Fail to init delta encoding header for " << st.to_string();
         }
         _data = slice;
@@ -165,7 +165,7 @@ public:
     void set_bit_reader(std::shared_ptr<BitReader> bit_reader) {
         _bit_reader = std::move(bit_reader);
         Status st = _init_header();
-        if (st != Status::OK()) {
+        if (!st.ok()) {
             LOG(FATAL) << "Fail to init delta encoding header for " << st.to_string();
         }
     }
@@ -326,7 +326,7 @@ public:
         _buffered_prefix_length.resize(num_prefix);
         int ret;
         Status st = _prefix_len_decoder.decode(_buffered_prefix_length.data(), num_prefix, &ret);
-        if (st != Status::OK()) {
+        if (!st.ok()) {
             LOG(FATAL) << "Fail to decode delta prefix, status: " << st;
         }
         DCHECK_EQ(ret, num_prefix);

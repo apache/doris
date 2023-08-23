@@ -1,6 +1,6 @@
 ---
 {
-    "title": "在macOS平台上编译",
+    "title": "在 MacOS 平台上编译",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 在macOS平台上编译
+# 在 MacOS 平台上编译
 
 本文介绍如何在 macOS 平台上编译源码。
 

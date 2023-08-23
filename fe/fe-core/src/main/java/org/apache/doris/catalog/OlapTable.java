@@ -837,7 +837,7 @@ public class OlapTable extends Table {
             if (!isForceDrop) {
                 // recycle partition
                 if (partitionInfo.getType() == PartitionType.RANGE) {
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
                             partitionInfo.getItem(partition.getId()).getItems(),
                             new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
                             partitionInfo.getDataProperty(partition.getId()),
@@ -857,7 +857,7 @@ public class OlapTable extends Table {
                     }
                     Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
 
-                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
                             dummyRange,
                             partitionInfo.getItem(partition.getId()),
                             partitionInfo.getDataProperty(partition.getId()),
@@ -1925,20 +1925,6 @@ public class OlapTable extends Table {
             return tableProperty.timeSeriesCompactionTimeThresholdSeconds();
         }
         return null;
-    }
-
-    public Boolean isDynamicSchema() {
-        if (tableProperty != null) {
-            return tableProperty.isDynamicSchema();
-        }
-        return false;
-    }
-
-    public void setIsDynamicSchema(boolean isDynamicSchema) {
-        TableProperty tableProperty = getOrCreatTableProperty();
-        tableProperty.modifyTableProperties(
-                PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, Boolean.valueOf(isDynamicSchema).toString());
-        tableProperty.buildDynamicSchema();
     }
 
     public int getBaseSchemaVersion() {

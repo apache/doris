@@ -73,13 +73,28 @@ public:
 
     Status add_operator(OperatorBuilderPtr& op);
 
+    // Add operators for pipelineX
+    Status add_operator(OperatorXPtr& op);
+    // prepare operators for pipelineX
+    Status prepare(RuntimeState* state);
+
     Status set_sink(OperatorBuilderPtr& sink_operator);
+    Status set_sink(DataSinkOperatorXPtr& sink_operator);
 
     OperatorBuilderBase* sink() { return _sink.get(); }
+    DataSinkOperatorX* sink_x() { return _sink_x.get(); }
+    OperatorXs& operator_xs() { return _operators; }
+    DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
 
     Status build_operators(Operators&);
 
     RuntimeProfile* pipeline_profile() { return _pipeline_profile.get(); }
+
+    const RowDescriptor& output_row_desc() const {
+        return _operators[_operators.size() - 1]->row_desc();
+    }
+
+    PipelineId id() const { return _pipeline_id; }
 
 private:
     void _init_profile();
@@ -96,6 +111,13 @@ private:
     int _previous_schedule_id = -1;
 
     std::unique_ptr<RuntimeProfile> _pipeline_profile;
+
+    // Operators for pipelineX. All pipeline tasks share operators from this.
+    // [SourceOperator -> ... -> SinkOperator]
+    OperatorXs _operators;
+    DataSinkOperatorXPtr _sink_x;
+
+    std::shared_ptr<ObjectPool> _obj_pool;
 };
 
 } // namespace doris::pipeline

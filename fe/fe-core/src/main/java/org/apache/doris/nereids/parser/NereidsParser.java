@@ -25,6 +25,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
@@ -74,7 +75,7 @@ public class NereidsParser {
         return parse(expression, DorisParser::expression);
     }
 
-    public List<String> parseDataType(String dataType) {
+    public DataType parseDataType(String dataType) {
         return parse(dataType, DorisParser::dataType);
     }
 

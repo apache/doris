@@ -31,7 +31,7 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     String catalog_name = "doris_jdbc_catalog";
     String internal_db_name = "regression_test_jdbc_catalog_p0";
     String doris_port = 9030;
-    String inDorisTable = "doris_in_tb";
+    String inDorisTable = "test_doris_jdbc_doris_in_tb";
     String hllTable = "bowen_hll_test"
 
     sql """create database if not exists ${internal_db_name}; """
@@ -45,12 +45,12 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
         "password" = "${jdbcPassword}",
         "jdbc_url" = "${jdbcUrl}",
         "driver_url" = "${driver_url}",
-        "driver_class" = "com.mysql.jdbc.Driver"
+        "driver_class" = "com.mysql.cj.jdbc.Driver"
         )"""
-
-    sql  """ drop table if exists ${inDorisTable} """
+    sql """use ${internal_db_name}"""
+    sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
     sql  """
-          CREATE TABLE ${inDorisTable} (
+          CREATE TABLE ${internal_db_name}.${inDorisTable} (
             `id` INT NULL COMMENT "主键id",
             `name` string NULL COMMENT "名字"
             ) DISTRIBUTED BY HASH(id) BUCKETS 10

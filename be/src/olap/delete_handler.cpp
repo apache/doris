@@ -60,7 +60,7 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
 
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
-        if (check_condition_valid(schema, condition) != Status::OK()) {
+        if (!check_condition_valid(schema, condition).ok()) {
             // Error will print log, no need to do it manually.
             return Status::Error<DELETE_INVALID_CONDITION>("invalid condition. condition={}",
                                                            ThriftDebugString(condition));
@@ -177,12 +177,9 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     // the condition column type should not be float or double.
     const TabletColumn& column = schema.column(field_index);
 
-    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
-        column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
         column.type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
-        return Status::Error<DELETE_INVALID_CONDITION>(
-                "field is not key column, or storage model is not duplicate, or data type is float "
-                "or double.");
+        return Status::Error<DELETE_INVALID_CONDITION>("data type is float or double.");
     }
 
     // Check operator and operands size are matched.
@@ -214,7 +211,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
         //  group2:  ((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS)) matches  "="
         //  group3:  ((?:[\s\S]+)?) matches "1597751948193618247  and length(source)<1;\n;\n"
         const char* const CONDITION_STR_PATTERN =
-                R"((\w+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
+                R"(([\w$#%]+)\s*((?:=)|(?:!=)|(?:>>)|(?:<<)|(?:>=)|(?:<=)|(?:\*=)|(?:IS))\s*('((?:[\s\S]+)?)'|(?:[\s\S]+)?))";
         regex ex(CONDITION_STR_PATTERN);
         if (regex_match(condition_str, what, ex)) {
             if (condition_str.size() != what[0].str().size()) {
@@ -254,7 +251,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         if (delete_pred->version().first > version) {
             continue;
         }
-        // Need the tablet schema at the delete condition to parse the accurate column unique id
+        // Need the tablet schema at the delete condition to parse the accurate column
         const auto& delete_pred_related_schema = delete_pred->tablet_schema();
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
@@ -265,10 +262,12 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
                 return Status::Error<DELETE_INVALID_PARAMETERS>(
                         "fail to parse condition. condition={}", sub_predicate);
             }
-            condition.__set_column_unique_id(
-                    delete_pred_related_schema->column(condition.column_name).unique_id());
+            int32_t col_unique_id =
+                    delete_pred_related_schema->column(condition.column_name).unique_id();
+            const auto& column = tablet_schema->column_by_uid(col_unique_id);
+            uint32_t index = tablet_schema->field_index(col_unique_id);
             auto predicate =
-                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true);
+                    parse_to_predicate(column, index, condition, _predicate_arena.get(), true);
             if (predicate != nullptr) {
                 temp.column_predicate_vec.push_back(predicate);
             }
@@ -277,8 +276,6 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
-            condition.__set_column_unique_id(
-                    delete_pred_related_schema->column(condition.column_name).unique_id());
             if (in_predicate.is_not_in()) {
                 condition.__set_condition_op("!*=");
             } else {
@@ -287,8 +284,12 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             for (const auto& value : in_predicate.values()) {
                 condition.condition_values.push_back(value);
             }
+            int32_t col_unique_id =
+                    delete_pred_related_schema->column(condition.column_name).unique_id();
+            const auto& column = tablet_schema->column_by_uid(col_unique_id);
+            uint32_t index = tablet_schema->field_index(col_unique_id);
             temp.column_predicate_vec.push_back(
-                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true));
+                    parse_to_predicate(column, index, condition, _predicate_arena.get(), true));
         }
 
         _del_conds.emplace_back(std::move(temp));
