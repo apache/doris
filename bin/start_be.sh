@@ -93,8 +93,8 @@ done
 # add custom jar
 custom_extension_folder="${DORIS_HOME}/lib/java_extensions/custom_extension"
 
-if [ -d "$custom_extension_folder" ]; then
-  for file in "$custom_extension_folder"/*.jar ; do
+if [[ -d "${custom_extension_folder}" ]]; then
+  for file in "${custom_extension_folder}"/*.jar ; do
     export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${file}"
   done
 fi
