@@ -266,23 +266,7 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
 }
 
 TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
-    {
-
-            //"5\0023\004value3\0034\004value4\0035\004value5\002true\003false\0037\0021\0032\0033"
-            //
-            //  "4\0035\005true\006true\006false\006false\0044\005true\006true\006false\006false\006false\0043\005true\006true\006false\006false\0020\0030\005false\006false"
-            //  "6\003false\004example"
-            //
-            /*
- *   `col1` map<int,map<string,int>>,
-  `col2` array<array<map<int,boolean>>>,
-  `col3` struct<field1:int,field2:map<int,string>,field3:struct<sub_field1:boolean,sub_field2:boolean,sub_field3:int>,field4:array<int>>,
-  `col4` map<int,map<int,array<boolean>>>,
-  `col5` map<int,struct<sub_field1:boolean,sub_field2:string>>
- */
-
-    }
-
+    
     { // map<int,map<string,int>>
         DataTypeSerDe::FormatOptions formatOptions;
         formatOptions.collection_delim = '\002';
