@@ -15,30 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
-
-import java.util.Optional;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 /**
- * Implementation rule that convert logical JdbcScan to physical JdbcScan.
+ * Rewrite es plan to set the conjuncts.
  */
-public class LogicalEsScanToPhysicalEsScan extends OneImplementationRuleFactory {
+public class PushConjunctsIntoEsScan extends OneRewriteRuleFactory {
+
     @Override
     public Rule build() {
-        return logicalEsScan().then(esScan ->
-            new PhysicalEsScan(
-                esScan.getRelationId(),
-                esScan.getTable(),
-                esScan.getQualifier(),
-                DistributionSpecAny.INSTANCE,
-                Optional.empty(),
-                esScan.getLogicalProperties(),
-                esScan.getConjuncts())
-        ).toRule(RuleType.LOGICAL_ES_SCAN_TO_PHYSICAL_ES_SCAN_RULE);
+        return logicalFilter(logicalEsScan()).thenApply(ctx -> {
+            LogicalFilter<LogicalEsScan> filter = ctx.root;
+            LogicalEsScan scan = filter.child();
+            LogicalEsScan rewrittenScan = scan.withConjuncts(filter.getConjuncts());
+            return rewrittenScan;
+        }).toRule(RuleType.PUSH_CONJUNCTS_INTO_ES_SCAN);
     }
 }
