@@ -155,13 +155,22 @@ public:
         return false;
     }
 
-    virtual bool source_can_read() { return _source->can_read(); }
+    virtual bool source_can_read() { return _source->can_read() || can_terminate_early(); }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    virtual bool sink_can_write() { return _sink->can_write(); }
+    [[nodiscard]] virtual bool can_terminate_early() {
+        for (auto& op : _operators) {
+            if (op->can_terminate_early()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    virtual bool sink_can_write() { return _sink->can_write() || can_terminate_early();; }
 
     virtual Status finalize();
 
