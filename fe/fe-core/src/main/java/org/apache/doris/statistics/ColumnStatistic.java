@@ -24,13 +24,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,22 +55,10 @@ public class ColumnStatistic {
             .setNumNulls(0).setCount(0).setMaxValue(Double.NaN).setMinValue(Double.NaN)
             .build();
 
-    public static final Set<Type> UNSUPPORTED_TYPE = new HashSet<>();
-
-    static {
-        UNSUPPORTED_TYPE.add(Type.HLL);
-        UNSUPPORTED_TYPE.add(Type.BITMAP);
-        UNSUPPORTED_TYPE.add(Type.ARRAY);
-        UNSUPPORTED_TYPE.add(Type.STRUCT);
-        UNSUPPORTED_TYPE.add(Type.MAP);
-        UNSUPPORTED_TYPE.add(Type.QUANTILE_STATE);
-        UNSUPPORTED_TYPE.add(Type.AGG_STATE);
-        UNSUPPORTED_TYPE.add(Type.JSONB);
-        UNSUPPORTED_TYPE.add(Type.VARIANT);
-        UNSUPPORTED_TYPE.add(Type.TIME);
-        UNSUPPORTED_TYPE.add(Type.TIMEV2);
-        UNSUPPORTED_TYPE.add(Type.LAMBDA_FUNCTION);
-    }
+    public static final Set<Type> UNSUPPORTED_TYPE = Sets.newHashSet(
+            Type.HLL, Type.BITMAP, Type.ARRAY, Type.STRUCT, Type.MAP, Type.QUANTILE_STATE, Type.AGG_STATE, Type.JSONB,
+            Type.VARIANT, Type.TIME, Type.TIMEV2, Type.LAMBDA_FUNCTION
+    );
 
     @SerializedName("count")
     public final double count;
