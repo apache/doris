@@ -321,7 +321,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private String normalizeLocation(String location) {
         Map<String, String> props = source.getCatalog().getProperties();
         String icebergCatalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
-        if (icebergCatalogType.equalsIgnoreCase("hadoop")) {
+        if ("hadoop".equalsIgnoreCase(icebergCatalogType)) {
             if (!location.startsWith(HdfsResource.HDFS_PREFIX)) {
                 String fsName = props.get(HdfsResource.HADOOP_FS_NAME);
                 location = fsName + location;
