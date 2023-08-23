@@ -668,6 +668,66 @@ struct ConvertImplStringToJsonbAsJsonbString {
     }
 };
 
+struct ConvertImplGenericFromJsonb {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+        auto data_type_to = block.get_by_position(result).type;
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
+            auto col_to = data_type_to->create_column();
+
+            size_t size = col_from.size();
+            col_to->reserve(size);
+
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
+            const bool is_complex = is_complex_type(data_type_to);
+            for (size_t i = 0; i < size; ++i) {
+                const auto& val = col_from_string->get_data_at(i);
+                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                if (UNLIKELY(!doc || !doc->getValue())) {
+                    (*vec_null_map_to)[i] = 1;
+                    col_to->insert_default();
+                    continue;
+                }
+
+                // value is NOT necessary to be deleted since JsonbValue will not allocate memory
+                JsonbValue* value = doc->getValue();
+                if (UNLIKELY(!value)) {
+                    (*vec_null_map_to)[i] = 1;
+                    col_to->insert_default();
+                    continue;
+                }
+                // Note: here we should handle the null element
+                if (val.size == 0) {
+                    col_to->insert_default();
+                    // empty string('') is an invalid format for complex type, set null_map to 1
+                    if (is_complex) {
+                        (*vec_null_map_to)[i] = 1;
+                    }
+                    continue;
+                }
+                std::string json_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
+                ReadBuffer read_buffer((char*)(json_str.data()), json_str.size());
+                Status st = data_type_to->from_string(read_buffer, col_to);
+                // if parsing failed, will return null
+                (*vec_null_map_to)[i] = !st.ok();
+                if (!st.ok()) {
+                    col_to->insert_default();
+                }
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+        } else {
+            return Status::RuntimeError(
+                    "Illegal column {} of first argument of conversion function from string",
+                    col_from.get_name());
+        }
+        return Status::OK();
+    }
+};
+
 // Generic conversion of any type to jsonb.
 struct ConvertImplGenericToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1865,10 +1925,8 @@ private:
         case TypeIndex::Float64:
             return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
         default:
-            return create_unsupport_wrapper(from_type.get_name(), to_type->get_name());
+            return ConvertImplGenericFromJsonb::execute;
         }
-
-        return nullptr;
     }
 
     // create cresponding jsonb value with type to_type
@@ -1915,6 +1973,7 @@ private:
             if (!variant.is_finalized()) {
                 variant.assume_mutable()->finalize();
             }
+
             if (variant.is_scalar_variant()) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
@@ -1926,19 +1985,28 @@ private:
                 Block tmp_block {{remove_nullable(nested), remove_nullable(nested_from_type), ""}};
                 tmp_block.insert({nullptr, data_type_to, ""});
                 /// Perform the requested conversion.
-                RETURN_IF_ERROR(wrapper(context, tmp_block, {0}, 1, input_rows_count));
-                col_to = tmp_block.get_by_position(1).column;
-                // Note: here we should return the nullable result column
-                col_to = wrap_in_nullable(
-                        col_to, Block({{nested, nested_from_type, ""}, {col_to, data_type_to, ""}}),
-                        {0}, 1, input_rows_count);
+                Status st = wrapper(context, tmp_block, {0}, 1, input_rows_count);
+                if (!st.ok()) {
+                    // Fill with default values, which is null
+                    col_to = make_nullable(col_to, true);
+                } else {
+                    col_to = tmp_block.get_by_position(1).column;
+                    // Note: here we should return the nullable result column
+                    col_to = wrap_in_nullable(
+                            col_to,
+                            Block({{nested, nested_from_type, ""}, {col_to, data_type_to, ""}}),
+                            {0}, 1, input_rows_count);
+                }
             } else {
                 // Could not cast to any other types when it hierarchical like '{"a" : 1}'
                 if (!data_type_to->is_nullable() && !WhichDataType(data_type_to).is_string()) {
-                    return Status::InvalidArgument(fmt::format("Could not cast from variant to {}",
-                                                               data_type_to->get_name()));
-                }
-                if (WhichDataType(data_type_to).is_string()) {
+                    // TODO we should convert as many as possible here, for examle
+                    // this variant column's root is a number column, to convert to number column
+                    // is also acceptable
+                    // return Status::InvalidArgument(fmt::format("Could not cast from variant to {}",
+                    //                                            data_type_to->get_name()));
+                    col_to = make_nullable(col_to, true);
+                } else if (WhichDataType(data_type_to).is_string()) {
                     return ConvertImplGenericToString::execute2(context, block, arguments, result,
                                                                 input_rows_count);
                 } else {
