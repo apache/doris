@@ -613,7 +613,6 @@ Status BkdIndexReader::bkd_query(OlapReaderStatistics* stats, const std::string&
 Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string& column_name,
                                  const void* query_value, InvertedIndexQueryType query_type,
                                  uint32_t* count) {
-    uint64_t start = UnixMillis();
     auto visitor = std::make_unique<InvertedIndexVisitor>(nullptr, query_type, true);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
@@ -632,8 +631,7 @@ Status BkdIndexReader::try_query(OlapReaderStatistics* stats, const std::string&
                 "BKD Query CLuceneError Occurred, error msg: {}", e.what());
     }
 
-    LOG(INFO) << "BKD index try search time taken: " << UnixMillis() - start << "ms "
-              << " column: " << column_name << " result: " << *count;
+    VLOG_DEBUG << "BKD index try search column: " << column_name << " result: " << *count;
     return Status::OK();
 }
 
@@ -663,11 +661,9 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
     //     stats->inverted_index_query_cache_miss++;
     // }
 
-    uint64_t start = UnixMillis();
     auto visitor = std::make_unique<InvertedIndexVisitor>(bit_map, query_type);
     std::shared_ptr<lucene::util::bkd::bkd_reader> r;
     try {
-        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
         auto st = bkd_query(stats, column_name, query_value, query_type, r, visitor.get());
         if (!st.ok()) {
             if (st.code() == ErrorCode::END_OF_FILE) {
@@ -687,9 +683,8 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
     // term_match_bitmap->runOptimize();
     // cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
-    LOG(INFO) << "BKD index search time taken: " << UnixMillis() - start << "ms "
-              << " column: " << column_name << " result: " << bit_map->cardinality()
-              << " reader stats: " << r->stats.to_string();
+    VLOG_DEBUG << "BKD index search column: " << column_name
+               << " result: " << bit_map->cardinality();
     return Status::OK();
 }
 
