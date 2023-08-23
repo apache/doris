@@ -179,7 +179,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         // To notify wait_for_start()
         _query_ctx->set_ready_to_execute(true);
 
-        // must close stream_mgr to avoid dead lock in Exchange Node
+        // must close stream_mgr to avoid deadlock in Exchange Node
         _exec_env->vstream_mgr()->cancel(_fragment_instance_id);
         // Cancel the result queue manager used by spark doris connector
         // TODO pipeline incomp
