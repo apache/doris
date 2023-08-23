@@ -227,6 +227,8 @@ suite("test_pk_uk_index_change", "inverted_index") {
             wait_for_build_index_on_partition_finish(tableNamePk, timeout)
         }
 
+        sql "sync"
+
         // count(*)
         def result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
         def result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """

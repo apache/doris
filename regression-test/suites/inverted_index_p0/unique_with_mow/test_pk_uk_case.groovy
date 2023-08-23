@@ -191,6 +191,8 @@ suite("test_pk_uk_case", "inverted_index") {
             ($order_key, $part_key, $sub_key, $line_num, $decimal, $decimal, $decimal, $decimal, '1', '1', '$date', '$date', '$date', '$name', '$name', '$city')
         """
 
+        sql "sync"
+
         // count(*)
         def result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
         def result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """
