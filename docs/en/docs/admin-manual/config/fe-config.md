@@ -130,9 +130,7 @@ There are two ways to configure FE configuration items:
 
 Default：DORIS_HOME_DIR + "/doris-meta"
 
-Type: string
-
-Description: Doris meta data will be saved here.The storage of this dir is highly recommended as to be:
+Type: string Description: Doris meta data will be saved here.The storage of this dir is highly recommended as to be:
 
 - High write performance (SSD)
 - Safe (RAID）
@@ -191,7 +189,7 @@ The lock timeout of bdbje operation， If there are many LockTimeoutException in
 
 Default：30
 
-The heartbeat timeout of bdbje between master and follower. the default is 30 seconds, which is same as default value in bdbje. If the network is experiencing transient problems, or some unexpected long java GC annoying you,  you can try to increase this value to decrease the chances of false timeouts
+The heartbeat timeout of bdbje between master and follower. the default is 30 seconds, which is same as default value in bdbje. If the network is experiencing transient problems, of some unexpected long java GC annoying you,  you can try to increase this value to decrease the chances of false timeouts
 
 #### `replica_ack_policy`
 
@@ -205,7 +203,7 @@ Replica ack policy of bdbje. more info, see: http://docs.oracle.com/cd/E17277_02
 
 Default：SYNC
 
-OPTION：SYNC, NO_SYNC, WRITE_NO_SYNC
+选项：SYNC, NO_SYNC, WRITE_NO_SYNC
 
 Follower FE sync policy of bdbje.
 
@@ -213,7 +211,7 @@ Follower FE sync policy of bdbje.
 
 Default：SYNC
 
-OPTION：SYNC, NO_SYNC, WRITE_NO_SYNC
+选项：SYNC, NO_SYNC, WRITE_NO_SYNC
 
 Master FE sync policy of bdbje. If you only deploy one Follower FE, set this to 'SYNC'. If you deploy more than 3 Follower FE,  you can set this and the following 'replica_sync_policy' to WRITE_NO_SYNC.  more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
 
@@ -342,7 +340,7 @@ Set to true if you deploy Doris using thirdparty deploy manager
 Valid options are:
 
 - disable:    no deploy manager
-- k8s:        Kubernetes
+-  k8s:        Kubernetes
 - ambari:     Ambari
 - local:      Local File (for test or Boxer2 BCC version)
 
@@ -506,7 +504,7 @@ The number of threads responsible for Task events.
 
 Default：4
 
-When Fe starts the MySQL server based on NIO model, the number of threads responsible for IO events.
+When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events.
 
 #### `mysql_nio_backlog_num`
 
@@ -549,7 +547,7 @@ MasterOnly：true
 
 #### `max_backend_down_time_second`
 
-Default：3600  （1 hour）
+Default：3600  （1 hours）
 
 IsMutable：true
 
@@ -668,7 +666,7 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 
 Default：1048576  （1M）
 
-http header size configuration parameter, the default value is 1M
+http header size configuration parameter, the default value is 10K
 
 #### `enable_tracing`
 
@@ -731,7 +729,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.
+Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters..
 
 #### `dynamic_partition_enable`
 
@@ -753,7 +751,7 @@ MasterOnly：true
 
 Decide how often to check dynamic partition
 
-<version since="1.2.0"></version>
+<version since="1.2.0">
 
 #### `max_multi_partition_num`
 
@@ -1016,7 +1014,7 @@ Default：1
 
 IsMutable：true
 
-colocate join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
+colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
 
 #### `rewrite_count_distinct_to_bitmap_hll`
 
