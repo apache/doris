@@ -155,48 +155,13 @@ public:
         return false;
     }
 
-    virtual bool source_can_read() { return _source->can_read() || ignore_blocking_source(); }
+    virtual bool source_can_read() { return _source->can_read() || _ignore_blocking_source(); }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
 
-    /**
-     * Consider the query plan below:
-     *
-     *      ExchangeSource     JoinBuild1
-     *            \              /
-     *         JoinProbe1 (Right Outer)    JoinBuild2
-     *                   \                   /
-     *                 JoinProbe2 (Right Outer)
-     *                          |
-     *                        Sink
-     *
-     * Assume JoinBuild1/JoinBuild2 outputs 0 rows, this pipeline task should not be blocked by ExchangeSource
-     * because we have a determined conclusion that JoinProbe1/JoinProbe2 will also output 0 rows.
-     *
-     * Assume JoinBuild2 outputs > 0 rows, this pipeline task may be blocked by Sink because JoinProbe2 will
-     * produce more data.
-     *
-     * Assume both JoinBuild2 outputs 0 rows this pipeline task should not be blocked by ExchangeSource
-     * and Sink because JoinProbe2 will always produce 0 rows and terminate early.
-     *
-     * In a nutshell, we should follow the rules:
-     * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
-     * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
-     */
-    [[nodiscard]] virtual bool ignore_blocking_sink() { return _root->can_terminate_early(); }
-
-    [[nodiscard]] virtual bool ignore_blocking_source() {
-        for (size_t i = 1; i < _operators.size(); i++) {
-            if (_operators[i]->can_terminate_early()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    virtual bool sink_can_write() { return _sink->can_write() || ignore_blocking_sink(); }
+    virtual bool sink_can_write() { return _sink->can_write() || _ignore_blocking_sink(); }
 
     virtual Status finalize();
 
@@ -381,6 +346,41 @@ protected:
     RuntimeProfile::Counter* _pip_task_total_timer;
 
 private:
+    /**
+     * Consider the query plan below:
+     *
+     *      ExchangeSource     JoinBuild1
+     *            \              /
+     *         JoinProbe1 (Right Outer)    JoinBuild2
+     *                   \                   /
+     *                 JoinProbe2 (Right Outer)
+     *                          |
+     *                        Sink
+     *
+     * Assume JoinBuild1/JoinBuild2 outputs 0 rows, this pipeline task should not be blocked by ExchangeSource
+     * because we have a determined conclusion that JoinProbe1/JoinProbe2 will also output 0 rows.
+     *
+     * Assume JoinBuild2 outputs > 0 rows, this pipeline task may be blocked by Sink because JoinProbe2 will
+     * produce more data.
+     *
+     * Assume both JoinBuild2 outputs 0 rows this pipeline task should not be blocked by ExchangeSource
+     * and Sink because JoinProbe2 will always produce 0 rows and terminate early.
+     *
+     * In a nutshell, we should follow the rules:
+     * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
+     * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
+     */
+    [[nodiscard]] bool _ignore_blocking_sink() { return _root->can_terminate_early(); }
+
+    [[nodiscard]] bool _ignore_blocking_source() {
+        for (size_t i = 1; i < _operators.size(); i++) {
+            if (_operators[i]->can_terminate_early()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     Operators _operators; // left is _source, right is _root
     OperatorPtr _source;
     OperatorPtr _root;
