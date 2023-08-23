@@ -342,14 +342,6 @@ public class ConnectContext {
         this.loadId = loadId;
     }
 
-//    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
-//        this.streamLoadInfo = streamLoadInfo;
-//    }
-//
-//    public LoadTaskInfo getStreamLoadInfo() {
-//        return streamLoadInfo;
-//    }
-
     public void setStmtId(long stmtId) {
         this.stmtId = stmtId;
     }

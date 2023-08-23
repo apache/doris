@@ -20,7 +20,6 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.PrepareStmt;
-import org.apache.doris.analysis.PrepareStmt.PreparedType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
