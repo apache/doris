@@ -27,12 +27,12 @@ suite('nereids_insert_into_values') {
     def t2 = 'value_t2'
     def t3 = 'value_t3'
 
-    sql "drop table if exists $t1"
-    sql "drop table if exists $t2"
-    sql "drop table if exists $t3"
+    sql "drop table if exists ${t1}"
+    sql "drop table if exists ${t2}"
+    sql "drop table if exists ${t3}"
 
     sql """
-        create table $t1 (
+        create table ${t1} (
             id int,
             id1 int,
             c1 bigint,
@@ -48,7 +48,7 @@ suite('nereids_insert_into_values') {
     """
 
     sql """
-        create table $t2 (
+        create table ${t2} (
             id int,
             c1 bigint,
             c2 string,
@@ -62,7 +62,7 @@ suite('nereids_insert_into_values') {
     """
 
     sql """
-        create table $t3 (
+        create table ${t3} (
             id int
         ) distributed by hash(id) buckets 13
         properties(
@@ -71,14 +71,14 @@ suite('nereids_insert_into_values') {
     """
 
     sql """
-        INSERT INTO $t1 VALUES
+        INSERT INTO ${t1} VALUES
             (1, 10, 1, '1', 1.0, '2000-01-01'),
             (2, 20, 2, '2', 2.0, '2000-01-02'),
             (3, 30, 3, '3', 3.0, '2000-01-03');
     """
 
     sql """
-        INSERT INTO $t2 VALUES
+        INSERT INTO ${t2} VALUES
             (1, 10, '10', 10.0, '2000-01-10'),
             (2, 20, '20', 20.0, '2000-01-20'),
             (3, 30, '30', 30.0, '2000-01-30'),
@@ -87,16 +87,16 @@ suite('nereids_insert_into_values') {
     """
 
     sql """
-        INSERT INTO $t3 VALUES
+        INSERT INTO ${t3} VALUES
             (1),
             (4),
             (5);
     """
 
-    sql 'sync'
-    qt_sql_1 "select * from $t1, $t2, $t3 order by $t1.id, $t1.id1, $t2.id, $t3.id"
+    sql "sync"
+    qt_sql_1 "select * from ${t1}, ${t2}, ${t3} order by ${t1}.id, ${t1}.id1, ${t2}.id, ${t3}.id"
 
-    sql 'drop table if exists agg_have_dup_base_value'
+    sql "drop table if exists agg_have_dup_base_value"
 
     sql """
         create table agg_have_dup_base_value (
@@ -112,7 +112,7 @@ suite('nereids_insert_into_values') {
 
     createMV("create materialized view k12s3m as select k1, sum(k2), max(k2) from agg_have_dup_base_value group by k1;")
 
-    sql 'insert into agg_have_dup_base_value values (-4, -4, -4, \'d\')'
-    sql 'sync'
-    qt_mv 'select * from agg_have_dup_base_value'
+    sql "insert into agg_have_dup_base_value values (-4, -4, -4, 'd')"
+    sql "sync"
+    qt_mv "select * from agg_have_dup_base_value"
 }
