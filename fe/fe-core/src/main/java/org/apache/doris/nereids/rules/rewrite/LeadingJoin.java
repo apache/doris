@@ -38,7 +38,8 @@ public class LeadingJoin extends DefaultPlanRewriter<LeadingContext> implements 
         if (jobContext.getCascadesContext().getStatementContext().isLeadingJoin()) {
             Hint leadingHint = jobContext.getCascadesContext().getStatementContext().getHintMap().get("Leading");
             Plan leadingPlan = plan.accept(this, new LeadingContext(
-                    (LeadingHint) leadingHint, ((LeadingHint) leadingHint).getLeadingTableBitmap()));
+                    (LeadingHint) leadingHint, ((LeadingHint) leadingHint)
+                        .getLeadingTableBitmap(jobContext.getCascadesContext().getTables())));
             if (leadingHint.isSuccess()) {
                 jobContext.getCascadesContext().getConnectContext().getSessionVariable().setDisableJoinReorder(true);
             } else {

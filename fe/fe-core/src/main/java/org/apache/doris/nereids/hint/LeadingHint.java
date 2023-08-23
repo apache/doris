@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.hint;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -169,6 +171,16 @@ public class LeadingHint extends Hint {
             }
         }
         return null;
+    }
+
+    private boolean hasSameName() {
+        Set<String> tableSet = Sets.newHashSet();
+        for (String table : tablelist) {
+            if (!tableSet.add(table)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Map<ExprId, String> getExprIdToTableNameMap() {
@@ -465,8 +477,18 @@ public class LeadingHint extends Hint {
      * get leading containing tables which means leading wants to combine tables into joins
      * @return long value represent tables we included
      */
-    public Long getLeadingTableBitmap() {
+    public Long getLeadingTableBitmap(List<TableIf> tables) {
         Long totalBitmap = 0L;
+        if (hasSameName()) {
+            this.setStatus(HintStatus.SYNTAX_ERROR);
+            this.setErrorMessage("duplicated table");
+            return totalBitmap;
+        }
+        if (getTablelist().size() != tables.size()) {
+            this.setStatus(HintStatus.SYNTAX_ERROR);
+            this.setErrorMessage("tables should be same as join tables");
+            return totalBitmap;
+        }
         for (int index = 0; index < getTablelist().size(); index++) {
             RelationId id = findRelationIdAndTableName(getTablelist().get(index));
             if (id == null) {

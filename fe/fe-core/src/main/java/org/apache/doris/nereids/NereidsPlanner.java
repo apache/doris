@@ -374,7 +374,7 @@ public class NereidsPlanner extends Planner {
                     break;
             }
         }
-        return "\nUsed: " + used + "\nUnUsed: " + unUsed + "\nSyntaxError: " + syntaxError;
+        return "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
     }
 
     @Override

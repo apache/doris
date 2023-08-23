@@ -38,10 +38,6 @@ suite("test_leading") {
     sql """create table t3 (c3 int, c33 int) distributed by hash(c3) buckets 3 properties('replication_num' = '1');"""
     sql """create table t4 (c4 int, c44 int) distributed by hash(c4) buckets 3 properties('replication_num' = '1');"""
 
-//// test syntax error
-    // we need all tables in version 0.1
-//    qt_select """explain shape plan select /*+ leading(t2 t1) */ * from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-
 //// test inner join with all edge and vertax is complete and equal predicates
     qt_select1 """explain shape plan select /*+ leading(t2 t1) */ * from t1 join t2 on c1 = c2;"""
     qt_select2 """explain shape plan select /*+ leading(t1 t2) */ * from t1 join t2 on c1 = c2;"""
@@ -85,10 +81,25 @@ suite("test_leading") {
 //// test cte
     // inline cte, change join order of tables inside cte
     qt_select20 """explain shape plan with cte as (select * from t1 join t2 on c1 = c2) select * from cte, t2;"""
-    qt_select21 """explain shape plan with cte as (select /*+ leading(t2 t1) */ * from t1 join t2 on c1 = c2) select * from cte, t2;"""
+    qt_select21 """explain shape plan with cte as (select * from t1 join t2 on c1 = c2) select /*+ leading(t2 t1 t3) */ * from cte, t3;"""
     // outside cte
     // inside and outside together (after unnest subquery)
-//    qt_select20 """"""
+
+//// test syntax error and unsupported feature
+    // not exist tables in leading: syntax error
+    qt_select22 """explain shape plan select /*+ leading(t66 t1) */ * from t1 join t2 on c1 = c2;"""
+    qt_select23 """explain shape plan select /*+ leading(t3 t1) */ * from t1 join t2 on c1 = c2;"""
+    // subquery alias as leading table
+    qt_select24 """explain shape plan with cte as (select * from t1 join t2 on c1 = c2) select /*+ leading(t2 cte t1) */ * from cte, t2;"""
+    // do not have all tables inside hint
+    qt_select25 """explain shape plan select /*+ leading(t1 t2) */ * from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    // duplicated table
+    qt_select26 """explain shape plan select /*+ leading(t1 t1 t2 t3) */ * from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+
+//// test table alias
+    qt_select27 """explain shape plan select /*+ leading(t1 t_2) */ * from t1 join t2 t_2 on c1 = c2;"""
+    qt_select28 """explain shape plan select /*+ leading(t1 t2) */ * from t1 join t2 t_2 on c1 = c2;"""
+    qt_select29 """explain shape plan select /*+ leading(t1 t_1) */ * from t1 join t1 t_1 on t1.c1 = t_1.c1;"""
 
     sql """drop table if exists t1;"""
     sql """drop table if exists t2;"""

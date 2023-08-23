@@ -8,6 +8,10 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
 
+Used: leading(t2 t1)
+UnUsed:
+SyntaxError:
+
 -- !select2 --
 PhysicalResultSink
 --PhysicalDistribute
@@ -16,6 +20,10 @@ PhysicalResultSink
 --------PhysicalOlapScan[t1]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
+
+Used: leading(t1 t2)
+UnUsed:
+SyntaxError:
 
 -- !select3 --
 PhysicalResultSink
@@ -29,6 +37,10 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t3]
 
+Used: leading(t1 t2 t3)
+UnUsed:
+SyntaxError:
+
 -- !select4 --
 PhysicalResultSink
 --PhysicalDistribute
@@ -40,6 +52,10 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t3]
+
+Used: leading(t1 { t2 t3 })
+UnUsed:
+SyntaxError:
 
 -- !select5 --
 PhysicalResultSink
@@ -57,6 +73,10 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t4]
 
+Used: leading(t1 { t2 t3 } t4)
+UnUsed:
+SyntaxError:
+
 -- !select6 --
 PhysicalResultSink
 --PhysicalDistribute
@@ -72,6 +92,10 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t4]
 
+Used: leading({ t1 t2 } { t3 t4 })
+UnUsed:
+SyntaxError:
+
 -- !select7 --
 PhysicalResultSink
 --PhysicalDistribute
@@ -86,6 +110,10 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t4]
+
+Used: leading({ t1 t2 } { t3 t4 })
+UnUsed:
+SyntaxError:
 
 -- !select8 --
 PhysicalResultSink
@@ -111,6 +139,10 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Used: leading(t1 t3 t2)
+UnUsed:
+SyntaxError:
+
 -- !select10 --
 PhysicalResultSink
 --PhysicalDistribute
@@ -135,17 +167,26 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
 
+Used: leading(t1 t3 t2)
+UnUsed:
+SyntaxError:
+
 -- !select12 --
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------hashJoin[LEFT_OUTER_JOIN](t2.c2 = t3.c3)
---------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t2.c2)
-----------PhysicalOlapScan[t1]
-----------PhysicalDistribute
-------------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------hashJoin[LEFT_OUTER_JOIN](t1.c1 = t2.c2)
+------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t3]
+
+Used:
+UnUsed: leading(t1 { t2 t3 })
+SyntaxError:
 
 -- !select13 --
 PhysicalResultSink
@@ -158,6 +199,10 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t3]
+
+Used: leading(t1 { t2 t3 })
+UnUsed:
+SyntaxError:
 
 -- !select14 --
 PhysicalResultSink
@@ -183,6 +228,10 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------PhysicalOlapScan[t3]
 
+Used:
+UnUsed: leading(t1 t2 t3)
+SyntaxError:
+
 -- !select16 --
 PhysicalResultSink
 --PhysicalDistribute
@@ -202,6 +251,10 @@ PhysicalResultSink
 ----------PhysicalOlapScan[t2]
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
+
+Used: leading(t2 t1)
+UnUsed:
+SyntaxError:
 
 -- !select18 --
 PhysicalResultSink
@@ -226,6 +279,10 @@ PhysicalResultSink
 --------PhysicalDistribute
 ----------PhysicalOlapScan[t1]
 
+Used: leading(t2 t1)
+UnUsed:
+SyntaxError:
+
 -- !select20 --
 PhysicalResultSink
 --PhysicalDistribute
@@ -245,11 +302,129 @@ PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
 ------NestedLoopJoin[CROSS_JOIN]
---------hashJoin[CROSS_JOIN](cte.c1 = cte.c2)
+--------NestedLoopJoin[CROSS_JOIN](cte.c1 = cte.c2)
 ----------PhysicalProject
 ------------PhysicalOlapScan[t2]
 ----------PhysicalDistribute
 ------------PhysicalProject
 --------------PhysicalOlapScan[t1]
 --------PhysicalDistribute
+----------PhysicalOlapScan[t3]
+
+Used: leading(t2 t1 t3)
+UnUsed:
+SyntaxError:
+
+-- !select22 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+--------PhysicalOlapScan[t1]
+--------PhysicalDistribute
 ----------PhysicalOlapScan[t2]
+
+Used:
+UnUsed:
+SyntaxError: leading(t66 t1) Msg:can not find table: t66
+
+-- !select23 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+--------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t2]
+
+Used:
+UnUsed:
+SyntaxError: leading(t3 t1) Msg:can not find table: t3
+
+-- !select24 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------NestedLoopJoin[CROSS_JOIN]
+--------hashJoin[INNER_JOIN](cte.c1 = cte.c2)
+----------PhysicalProject
+------------PhysicalOlapScan[t1]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t2]
+
+Used:
+UnUsed:
+SyntaxError: leading(t2 cte t1) Msg:Leading alias can only be table name alias
+
+-- !select25 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
+--------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+----------PhysicalOlapScan[t1]
+----------PhysicalDistribute
+------------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t3]
+
+Used:
+UnUsed:
+SyntaxError: leading(t1 t2) Msg:tables should be same as join tables
+
+-- !select26 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN](t2.c2 = t3.c3)
+--------hashJoin[INNER_JOIN](t1.c1 = t2.c2)
+----------PhysicalOlapScan[t1]
+----------PhysicalDistribute
+------------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t3]
+
+Used:
+UnUsed:
+SyntaxError: leading(t1 t1 t2 t3) Msg:duplicated table
+
+-- !select27 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN](t1.c1 = t_2.c2)
+--------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t2]
+
+Used: leading(t1 t_2)
+UnUsed:
+SyntaxError:
+
+-- !select28 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN](t1.c1 = t_2.c2)
+--------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t2]
+
+Used:
+UnUsed:
+SyntaxError: leading(t1 t2) Msg:can not find table: t2
+
+-- !select29 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN](t1.c1 = t_1.c1)
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t1]
+
+Used: leading(t1 t_1)
+UnUsed:
+SyntaxError:

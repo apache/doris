@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.SelectHint;
@@ -102,6 +103,10 @@ public class EliminateLogicalSelectHint extends PlanPreprocessor implements Cust
 
     private void extractLeading(SelectHintLeading selectHint, StatementContext context) {
         LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
+        if (context.getHintMap().get("Leading") != null) {
+            hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            hint.setErrorMessage("can only have one leading clause");
+        }
         context.getHintMap().put("Leading", hint);
         context.setLeadingJoin(true);
         assert (selectHint != null);
