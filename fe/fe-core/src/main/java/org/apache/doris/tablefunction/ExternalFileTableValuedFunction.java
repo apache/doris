@@ -478,6 +478,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.getLoadId());
+
+        if (getTFileType() == TFileType.FILE_STREAM) {
+            fileStatuses.add(new TBrokerFileStatus("", false, -1, true));
+            fileScanRangeParams.setFileType(getTFileType());
+        }
+
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
             String fsNmae = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
