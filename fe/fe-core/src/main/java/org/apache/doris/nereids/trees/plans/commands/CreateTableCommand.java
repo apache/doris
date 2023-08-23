@@ -40,6 +40,8 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
@@ -50,6 +52,8 @@ import java.util.stream.Collectors;
  * create table command
  */
 public class CreateTableCommand extends Command implements ForwardWithSync {
+    public static final Logger LOG = LogManager.getLogger(CreateTableCommand.class);
+    
     private final Optional<LogicalPlan> ctasQuery;
     private final CreateTableInfo createTableInfo;
 
@@ -64,6 +68,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         if (!ctasQuery.isPresent()) {
             createTableInfo.validate(ctx);
             CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
+            LOG.info("Nereids start to execute the create table command, query id: {}, tableName: {}",
+                    ctx.queryId(), createTableInfo.getTableName());
             try {
                 Env.getCurrentEnv().createTable(createTableStmt);
             } catch (Exception e) {
@@ -89,6 +95,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery, ctx);
 
         CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();
+        LOG.info("Nereids start to execute the ctas command, query id: {}, tableName: {}",
+                ctx.queryId(), createTableInfo.getTableName());
         try {
             Env.getCurrentEnv().createTable(createTableStmt);
         } catch (Exception e) {
