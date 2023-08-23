@@ -98,6 +98,7 @@ Status VSortExecExprs::clone(RuntimeState* state, VSortExecExprs& new_exprs) {
         RETURN_IF_ERROR(
                 _rhs_ordering_expr_ctxs[i]->clone(state, new_exprs._rhs_ordering_expr_ctxs[i]));
     }
+    new_exprs._sort_tuple_slot_expr_ctxs.resize(_sort_tuple_slot_expr_ctxs.size());
     for (size_t i = 0; i < _sort_tuple_slot_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(_sort_tuple_slot_expr_ctxs[i]->clone(
                 state, new_exprs._sort_tuple_slot_expr_ctxs[i]));

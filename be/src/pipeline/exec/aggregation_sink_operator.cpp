@@ -56,7 +56,6 @@ AggSinkLocalState::AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* st
           _merge_timer(nullptr),
           _serialize_data_timer(nullptr),
           _deserialize_data_timer(nullptr),
-          _hash_table_size_counter(nullptr),
           _max_row_size_counter(nullptr) {}
 
 Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -96,7 +95,6 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _deserialize_data_timer = ADD_TIMER(profile(), "DeserializeAndMergeTime");
     _hash_table_compute_timer = ADD_TIMER(profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(profile(), "HashTableEmplaceTime");
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     _hash_table_input_counter = ADD_COUNTER(profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
@@ -863,15 +861,6 @@ Status AggSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateIn
 Status AggSinkOperatorX::close(RuntimeState* state) {
     auto& local_state = state->get_sink_local_state(id())->cast<AggSinkLocalState>();
 
-    /// _hash_table_size_counter may be null if prepare failed.
-    if (local_state._hash_table_size_counter) {
-        std::visit(
-                [&](auto&& agg_method) {
-                    COUNTER_SET(local_state._hash_table_size_counter,
-                                int64_t(agg_method.data.size()));
-                },
-                local_state._agg_data->method_variant);
-    }
     local_state._preagg_block.clear();
 
     vectorized::PODArray<vectorized::AggregateDataPtr> tmp_places;

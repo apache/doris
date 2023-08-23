@@ -94,6 +94,8 @@ public:
         return _operators[_operators.size() - 1]->row_desc();
     }
 
+    PipelineId id() const { return _pipeline_id; }
+
 private:
     void _init_profile();
     std::atomic<uint32_t> _complete_dependency;
