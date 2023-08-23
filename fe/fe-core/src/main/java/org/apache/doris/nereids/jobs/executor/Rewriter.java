@@ -83,6 +83,7 @@ import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushdownAliasIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
@@ -246,7 +247,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new PushProjectIntoOneRowRelation()),
                     topDown(new MergeOneRowRelationIntoUnion()),
                     costBased(topDown(new InferSetOperatorDistinct())),
-                    topDown(new BuildAggForUnion())
+                    topDown(new BuildAggForUnion()),
+                    topDown(new PushdownAliasIntoUnionAll())
             ),
 
             // topic("Distinct",
