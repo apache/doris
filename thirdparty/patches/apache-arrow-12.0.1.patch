@@ -1,30 +1,30 @@
 diff --git a/cpp/src/arrow/adapters/orc/adapter.cc b/cpp/src/arrow/adapters/orc/adapter.cc
-index 03243e751..1eb9b2c81 100644
+index ac2a3db64..630d45798 100644
 --- a/cpp/src/arrow/adapters/orc/adapter.cc
 +++ b/cpp/src/arrow/adapters/orc/adapter.cc
 @@ -47,9 +47,6 @@
  #include "arrow/util/visibility.h"
  #include "orc/Exceptions.hh"
- 
+
 -// alias to not interfere with nested orc namespace
 -namespace liborc = orc;
 -
  #define ORC_THROW_NOT_OK(s)                   \
    do {                                        \
      Status _s = (s);                          \
-@@ -198,6 +195,8 @@ class ORCFileReader::Impl {
+@@ -202,6 +199,8 @@ class ORCFileReader::Impl {
      return Init();
    }
- 
+
 +  virtual liborc::Reader* GetRawORCReader() { return reader_.get(); }
 +
    Status Init() {
      int64_t nstripes = reader_->getNumberOfStripes();
      stripes_.resize(nstripes);
-@@ -504,6 +503,32 @@ class ORCFileReader::Impl {
+@@ -479,6 +478,32 @@ class ORCFileReader::Impl {
      return Status::OK();
    }
- 
+
 +  Result<std::shared_ptr<RecordBatchReader>> NextStripeReader(
 +      int64_t batch_size, const std::vector<std::string>& include_names) {
 +    if (current_row_ >= NumberOfRows()) {
@@ -51,32 +51,32 @@ index 03243e751..1eb9b2c81 100644
 +                                             pool_);
 +  }
 +
-   Status NextStripeReader(int64_t batch_size, std::shared_ptr<RecordBatchReader>* out) {
-     return NextStripeReader(batch_size, {}, out);
-   }
-@@ -531,6 +556,8 @@ Result<std::unique_ptr<ORCFileReader>> ORCFileReader::Open(
+   Result<std::shared_ptr<RecordBatchReader>> NextStripeReader(
+       int64_t batch_size, const std::vector<int>& include_indices) {
+     if (current_row_ >= NumberOfRows()) {
+@@ -544,6 +569,8 @@ Result<std::unique_ptr<ORCFileReader>> ORCFileReader::Open(
    return std::move(result);
  }
- 
+
 +liborc::Reader* ORCFileReader::GetRawORCReader() { return impl_->GetRawORCReader(); }
 +
  Result<std::shared_ptr<const KeyValueMetadata>> ORCFileReader::ReadMetadata() {
    return impl_->ReadMetadata();
  }
-@@ -653,6 +680,11 @@ Result<std::shared_ptr<RecordBatchReader>> ORCFileReader::NextStripeReader(
-   return reader;
+@@ -605,6 +632,11 @@ Result<std::shared_ptr<RecordBatchReader>> ORCFileReader::NextStripeReader(
+   return impl_->NextStripeReader(batch_size, include_indices);
  }
- 
+
 +Result<std::shared_ptr<RecordBatchReader>> ORCFileReader::NextStripeReader(
 +    int64_t batch_size, const std::vector<std::string>& include_names) {
 +  return impl_->NextStripeReader(batch_size, include_names);
 +}
 +
  int64_t ORCFileReader::NumberOfStripes() { return impl_->NumberOfStripes(); }
- 
+
  int64_t ORCFileReader::NumberOfRows() { return impl_->NumberOfRows(); }
 diff --git a/cpp/src/arrow/adapters/orc/adapter.h b/cpp/src/arrow/adapters/orc/adapter.h
-index 223efa515..04e6b0612 100644
+index 013be7860..7fd06bcb8 100644
 --- a/cpp/src/arrow/adapters/orc/adapter.h
 +++ b/cpp/src/arrow/adapters/orc/adapter.h
 @@ -30,6 +30,10 @@
@@ -87,23 +87,23 @@ index 223efa515..04e6b0612 100644
 +
 +// alias to not interfere with nested orc namespace
 +namespace liborc = orc;
- 
+
  namespace arrow {
  namespace adapters {
-@@ -51,6 +55,9 @@ class ARROW_EXPORT ORCFileReader {
-   static Status Open(const std::shared_ptr<io::RandomAccessFile>& file, MemoryPool* pool,
-                      std::unique_ptr<ORCFileReader>* reader);
- 
+@@ -53,6 +57,9 @@ class ARROW_EXPORT ORCFileReader {
+  public:
+   ~ORCFileReader();
+
 +  /// \brief Get ORC reader from inside.
 +  liborc::Reader* GetRawORCReader();
 +
    /// \brief Creates a new ORC reader
    ///
    /// \param[in] file the data source
-@@ -240,6 +247,19 @@ class ARROW_EXPORT ORCFileReader {
-   Result<std::shared_ptr<RecordBatchReader>> NextStripeReader(
-       int64_t batch_size, const std::vector<int>& include_indices);
- 
+@@ -174,6 +181,19 @@ class ARROW_EXPORT ORCFileReader {
+   Result<std::shared_ptr<RecordBatchReader>> GetRecordBatchReader(
+       int64_t batch_size, const std::vector<std::string>& include_names);
+
 +  /// \brief Get a stripe level record batch iterator with specified row count
 +  ///         in each record batch. NextStripeReader serves as a fine grain
 +  ///         alternative to ReadStripe which may cause OOM issue by loading
@@ -119,4 +119,4 @@ index 223efa515..04e6b0612 100644
 +
    /// \brief The number of stripes in the file
    int64_t NumberOfStripes();
- 
+
