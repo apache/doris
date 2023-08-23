@@ -34,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
@@ -252,7 +253,7 @@ public class PropertyAnalyzer {
             // check remote storage policy
             StoragePolicy checkedPolicy = StoragePolicy.ofCheck(newStoragePolicy);
             Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedPolicy);
-            if (!(policy instanceof StoragePolicy)) {
+            if (policy.getType() != PolicyTypeEnum.STORAGE) {
                 throw new AnalysisException("No PolicyStorage: " + newStoragePolicy);
             }
 
@@ -268,7 +269,7 @@ public class PropertyAnalyzer {
                 // check remote storage policy
                 StoragePolicy oldPolicy = StoragePolicy.ofCheck(oldStoragePolicy);
                 Policy p = Env.getCurrentEnv().getPolicyMgr().getPolicy(oldPolicy);
-                if ((p instanceof StoragePolicy)) {
+                if ((policy.getType() == PolicyTypeEnum.STORAGE)) {
                     String newResource = storagePolicy.getStorageResource();
                     String oldResource = ((StoragePolicy) p).getStorageResource();
                     if (!newResource.equals(oldResource)) {

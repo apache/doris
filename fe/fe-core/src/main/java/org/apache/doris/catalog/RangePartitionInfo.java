@@ -278,8 +278,8 @@ public class RangePartitionInfo extends PartitionInfo {
             sb.append(range.lowerEndpoint().toSql());
             sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
 
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
+            Optional.ofNullable(this.idToDataProperty.get(entry.getKey())).ifPresent(p -> {
+                if (!p.getStoragePolicy().equals("")) {
                     sb.append("PROPERTIES (\"STORAGE POLICY\" = \"");
                     sb.append(p).append("\")");
                 }
@@ -317,9 +317,9 @@ public class RangePartitionInfo extends PartitionInfo {
                     PartitionInfo.toPartitionValue(range.upperEndpoint()));
 
             Map<String, String> properties = Maps.newHashMap();
-            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey())).ifPresent(p -> {
-                if (!p.equals("")) {
-                    properties.put("STORAGE POLICY", p);
+            Optional.ofNullable(this.idToDataProperty.get(entry.getKey())).ifPresent(p -> {
+                if (!p.getStoragePolicy().equals("")) {
+                    properties.put("STORAGE POLICY", p.getStoragePolicy());
                 }
             });
 

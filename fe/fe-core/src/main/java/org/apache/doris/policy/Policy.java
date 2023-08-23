@@ -102,6 +102,23 @@ public abstract class Policy implements Writable, GsonPostProcessable {
         this.version = 0;
     }
 
+    @Override
+    public int hashCode() {
+        return Long.hashCode(id);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        Policy other = (Policy) obj;
+        return id == other.id;
+    }
+
     /**
      * Trans stmt to Policy.
      **/

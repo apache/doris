@@ -1593,6 +1593,9 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_schema_hash(_tablet_meta->schema_hash());
     tablet_info->__set_row_count(_tablet_meta->num_rows());
     tablet_info->__set_data_size(_tablet_meta->tablet_local_size());
+    if (auto policy_id = storage_policy_id(); policy_id > 0) {
+        tablet_info->__set_storage_policy_id(policy_id);
+    }
 
     // Here we need to report to FE if there are any missing versions of tablet.
     // We start from the initial version and traverse backwards until we meet a discontinuous version.

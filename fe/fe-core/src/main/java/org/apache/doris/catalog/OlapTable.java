@@ -815,9 +815,20 @@ public class OlapTable extends Table {
         }
     }
 
+    private void refreshPolicyMgrInfo(Partition partition, boolean delete) {
+        if (partitionInfo.getStoragePolicy(partition.getId()).equals("")) {
+            return;
+        }
+
+        Env.getCurrentEnv()
+                .getPolicyMgr().updatePolicyNameToPartitionMap(partitionInfo.getStoragePolicy(partition.getId()),
+                        partition.getId(), delete);
+    }
+
     public void addPartition(Partition partition) {
         idToPartition.put(partition.getId(), partition);
         nameToPartition.put(partition.getName(), partition);
+        refreshPolicyMgrInfo(partition, false);
     }
 
     // This is a private method.
@@ -874,6 +885,7 @@ public class OlapTable extends Table {
 
             // drop partition info
             partitionInfo.dropPartition(partition.getId());
+            refreshPolicyMgrInfo(partition, true);
         }
         return partition;
     }

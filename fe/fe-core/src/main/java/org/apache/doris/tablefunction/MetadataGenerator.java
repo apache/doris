@@ -92,6 +92,9 @@ public class MetadataGenerator {
             case CATALOGS:
                 result = catalogsMetadataResult(params);
                 break;
+            case STORAGE_POLICY:
+                result = storagePoliciesMetadataResult(params);
+                break;
             default:
                 return errorResult("Metadata table params is not set.");
         }
@@ -259,6 +262,30 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
+        for (List<String> info : infos) {
+            TRow trow = new TRow();
+            for (String item : info) {
+                trow.addToColumnValue(new TCell().setStringVal(item));
+            }
+            dataBatch.add(trow);
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult storagePoliciesMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetStoragePolicyParams()) {
+            return errorResult("storage policy name metadata param is not set.");
+        }
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<List<String>> infos = Lists.newArrayList();
+        Env.getCurrentEnv().getPolicyMgr()
+                .getStoragePolicyPartitionInfo(params.getStoragePolicyParams().getPolicyId(), infos);
         for (List<String> info : infos) {
             TRow trow = new TRow();
             for (String item : info) {

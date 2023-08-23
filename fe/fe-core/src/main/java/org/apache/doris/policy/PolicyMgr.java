@@ -44,6 +44,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -55,10 +56,12 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -69,9 +72,8 @@ public class PolicyMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(PolicyMgr.class);
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
     @SerializedName(value = "typeToPolicyMap")
-    private Map<PolicyTypeEnum, List<Policy>> typeToPolicyMap = Maps.newConcurrentMap();
+    private Map<PolicyTypeEnum, Set<Policy>> typeToPolicyMap = Maps.newConcurrentMap();
 
     // dbId -> tableId -> List<RowPolicy>
     private Map<Long, Map<Long, List<RowPolicy>>> tablePolicies = Maps.newConcurrentMap();
@@ -90,6 +92,50 @@ public class PolicyMgr implements Writable {
 
     private void readUnlock() {
         lock.readLock().unlock();
+    }
+
+    private Map<Long, Set<Long>> storagePolicyNameToPartitionId = Maps.newConcurrentMap();
+
+    private void buildPolicyToPartitionMap() {
+        LOG.info("Start to build policy to partition map.");
+        if (null != typeToPolicyMap.get(PolicyTypeEnum.STORAGE)) {
+            typeToPolicyMap.get(PolicyTypeEnum.STORAGE).forEach(p -> {
+                storagePolicyNameToPartitionId.putIfAbsent(p.getId(), Sets.newConcurrentHashSet());
+            });
+        }
+        LOG.info("Succeed to build policy to partition map.");
+    }
+
+    public void addStoragePolicyPartitonInfo(Long storageId, Long partitionId) {
+        Policy tmpPolicy = new StoragePolicy(storageId, "");
+        // This indicates that this policy might be already dropped in FE
+        // but there might be delay for be to drop it
+        if (!getPoliciesByType(PolicyTypeEnum.STORAGE).contains(tmpPolicy)) {
+            return;
+        }
+        Set<Long> partitionIds = storagePolicyNameToPartitionId.get(storageId);
+        if (partitionIds == null) {
+            // This indicates that this policy might be already dropped in FE
+            // but there might be delay for be to drop it
+            return;
+        }
+        // It's safe to put it here no matter whether the Policy is dropped in another
+        // thread because Java has GC
+        partitionIds.add(partitionId);
+    }
+
+    public void getStoragePolicyPartitionInfo(Long policyId, List<List<String>> infos) {
+        Set<Long> partitionIds = storagePolicyNameToPartitionId.get(policyId);
+        if (partitionIds == null) {
+            // User tries to query one dropped policy or not exist policy
+            return;
+        }
+        partitionIds.forEach(id -> {
+            List<String> info = new ArrayList<>();
+            info.add(policyId.toString());
+            info.add(String.valueOf(id));
+            infos.add(info);
+        });
     }
 
     /**
@@ -144,7 +190,8 @@ public class PolicyMgr implements Writable {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
                     if (table instanceof OlapTable) {
-                        if (((OlapTable) table).getStoragePolicy().equals(dropPolicyLog.getPolicyName())) {
+                        OlapTable olapTable = (OlapTable) table;
+                        if (olapTable.getPartitionInfo().isStoragePolicyUsed(dropPolicyLog.getPolicyName())) {
                             throw new DdlException("the policy " + dropPolicyLog.getPolicyName() + " is used by table: "
                                     + table.getName());
                         }
@@ -176,8 +223,8 @@ public class PolicyMgr implements Writable {
     public boolean existPolicy(Policy checkedPolicy) {
         readLock();
         try {
-            List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
-            return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedPolicy));
+            Set<Policy> policies = getPoliciesByType(checkedPolicy.getType());
+            return policies.contains(checkedPolicy);
         } finally {
             readUnlock();
         }
@@ -192,7 +239,7 @@ public class PolicyMgr implements Writable {
     private boolean existPolicy(DropPolicyLog checkedDropPolicy) {
         readLock();
         try {
-            List<Policy> policies = getPoliciesByType(checkedDropPolicy.getType());
+            Set<Policy> policies = getPoliciesByType(checkedDropPolicy.getType());
             return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedDropPolicy));
         } finally {
             readUnlock();
@@ -208,13 +255,8 @@ public class PolicyMgr implements Writable {
     public Policy getPolicy(Policy checkedPolicy) {
         readLock();
         try {
-            List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
-            for (Policy policy : policies) {
-                if (policy.matchPolicy(checkedPolicy)) {
-                    return policy;
-                }
-            }
-            return null;
+            Set<Policy> policies = getPoliciesByType(checkedPolicy.getType());
+            return policies.stream().filter(p -> p.equals(checkedPolicy)).findAny().orElse(null);
         } finally {
             readUnlock();
         }
@@ -229,32 +271,45 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
+    private Set<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
         if (typeToPolicyMap == null) {
-            return new ArrayList<>();
+            return new HashSet<>();
         }
-        return typeToPolicyMap.getOrDefault(policyType, new ArrayList<>());
+        return typeToPolicyMap.getOrDefault(policyType, new HashSet<>());
     }
 
     public void replayCreate(Policy policy) {
         unprotectedAdd(policy);
-        if (policy instanceof StoragePolicy) {
+        if (policy.getType() == PolicyTypeEnum.STORAGE) {
             ((StoragePolicy) policy).addResourceReference();
         }
         LOG.info("replay create policy: {}", policy);
+    }
+
+    public void updatePolicyNameToPartitionMap(String storagePolicy, Long partitionId, boolean delete) {
+        Optional<Policy> policy = getPoliciesByType(PolicyTypeEnum.STORAGE).stream()
+                .filter(p -> p.policyName.equals(storagePolicy)).findFirst();
+        if (!policy.isPresent()) {
+            return;
+        }
+        if (delete) {
+            storagePolicyNameToPartitionId.get(policy.get().getId()).remove(partitionId);
+        } else {
+            storagePolicyNameToPartitionId.get(policy.get().getId()).add(partitionId);
+        }
     }
 
     private void unprotectedAdd(Policy policy) {
         if (policy == null) {
             return;
         }
-        List<Policy> dbPolicies = getPoliciesByType(policy.getType());
+        Set<Policy> dbPolicies = getPoliciesByType(policy.getType());
         dbPolicies.add(policy);
-        typeToPolicyMap.put(policy.getType(), dbPolicies);
-        if (PolicyTypeEnum.ROW == policy.getType()) {
+        if (policy.getType() == PolicyTypeEnum.ROW) {
             addTablePolicies((RowPolicy) policy);
+            return;
         }
-
+        storagePolicyNameToPartitionId.putIfAbsent(policy.getId(), Sets.newConcurrentHashSet());
     }
 
     public void replayDrop(DropPolicyLog log) {
@@ -263,28 +318,31 @@ public class PolicyMgr implements Writable {
     }
 
     public void replayStoragePolicyAlter(StoragePolicy log) {
-        List<Policy> policies = getPoliciesByType(log.getType());
-        policies.removeIf(policy -> log.getPolicyName().equals(policy.getPolicyName()));
+        Set<Policy> policies = getPoliciesByType(log.getType());
+        policies.remove(log);
         policies.add(log);
-        typeToPolicyMap.put(log.getType(), policies);
+        // Alter storage policy would not change policy name
+        // so there is no need to update policyNameToPartitionMap
         LOG.info("replay alter policy log: {}", log);
     }
 
     private void unprotectedDrop(DropPolicyLog log) {
-        List<Policy> policies = getPoliciesByType(log.getType());
+        Set<Policy> policies = getPoliciesByType(log.getType());
+        AtomicReference<Long> policyId = null;
         policies.removeIf(policy -> {
             if (policy.matchPolicy(log)) {
-                if (policy instanceof StoragePolicy) {
+                if (log.getType() == PolicyTypeEnum.STORAGE) {
                     ((StoragePolicy) policy).removeResourceReference();
                 }
-                if (policy instanceof RowPolicy) {
+                if (policy.getType() == PolicyTypeEnum.ROW) {
                     dropTablePolicies((RowPolicy) policy);
                 }
+                policyId.set(policy.getId());
                 return true;
             }
             return false;
         });
-        typeToPolicyMap.put(log.getType(), policies);
+        storagePolicyNameToPartitionId.remove(policyId.get());
     }
 
     /**
@@ -396,7 +454,7 @@ public class PolicyMgr implements Writable {
                     continue;
                 }
 
-                if (policy instanceof StoragePolicy && ((StoragePolicy) policy).getStorageResource() == null) {
+                if (policy.getType() == PolicyTypeEnum.STORAGE && ((StoragePolicy) policy).getStorageResource() == null) {
                     // default storage policy not init.
                     continue;
                 }
@@ -439,6 +497,7 @@ public class PolicyMgr implements Writable {
 
     /**
      * The merge policy cache needs to be regenerated after the update.
+     * Only used for row policy
      **/
     private void updateTablePolicies() {
         readLock();
@@ -446,7 +505,7 @@ public class PolicyMgr implements Writable {
             if (!typeToPolicyMap.containsKey(PolicyTypeEnum.ROW)) {
                 return;
             }
-            List<Policy> allPolicies = typeToPolicyMap.get(PolicyTypeEnum.ROW);
+            Set<Policy> allPolicies = typeToPolicyMap.get(PolicyTypeEnum.ROW);
             for (Policy policy : allPolicies) {
                 addTablePolicies((RowPolicy) policy);
             }
@@ -469,6 +528,7 @@ public class PolicyMgr implements Writable {
         PolicyMgr policyMgr = GsonUtils.GSON.fromJson(json, PolicyMgr.class);
         // update merge policy cache and userPolicySet
         policyMgr.updateTablePolicies();
+        policyMgr.buildPolicyToPartitionMap();
         return policyMgr;
     }
 
@@ -478,7 +538,7 @@ public class PolicyMgr implements Writable {
     public Optional<Policy> findPolicy(final String policyName, PolicyTypeEnum policyType) {
         readLock();
         try {
-            List<Policy> policiesByType = getPoliciesByType(policyType);
+            Set<Policy> policiesByType = getPoliciesByType(policyType);
             return policiesByType.stream().filter(policy -> policy.getPolicyName().equals(policyName)).findAny();
         } finally {
             readUnlock();
@@ -522,9 +582,10 @@ public class PolicyMgr implements Writable {
         }
         readLock();
         try {
-            List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
-            policiesByType.stream().filter(policy -> policy.getPolicyName().equals(storagePolicyName)).findAny()
-                    .orElseThrow(() -> new DdlException("Storage policy does not exist. name: " + storagePolicyName));
+            Set<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr().getPoliciesByType(PolicyTypeEnum.STORAGE);
+            if (!policiesByType.contains(storagePolicyName)) {
+                throw new DdlException("Storage policy does not exist. name: " + storagePolicyName);
+            }
             Optional<Policy> hasDefaultPolicy = policiesByType.stream()
                     .filter(policy -> policy.getPolicyName().equals(StoragePolicy.DEFAULT_STORAGE_POLICY_NAME))
                     .findAny();

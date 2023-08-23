@@ -31,8 +31,6 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.policy.Policy;
-import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -108,16 +106,8 @@ public class ResourceMgr implements Writable {
         }
 
         Resource resource = nameToResource.get(resourceName);
+        // It would check if the resource is still in use inside the resource.dropResource()
         resource.dropResource();
-
-        // Check whether the resource is in use before deleting it, except spark resource
-        StoragePolicy checkedStoragePolicy = StoragePolicy.ofCheck(null);
-        checkedStoragePolicy.setStorageResource(resourceName);
-        if (Env.getCurrentEnv().getPolicyMgr().existPolicy(checkedStoragePolicy)) {
-            Policy policy = Env.getCurrentEnv().getPolicyMgr().getPolicy(checkedStoragePolicy);
-            LOG.warn("Can not drop resource, since it's used in policy {}", policy.getPolicyName());
-            throw new DdlException("Can not drop resource, since it's used in policy " + policy.getPolicyName());
-        }
         nameToResource.remove(resourceName);
         // log drop
         Env.getCurrentEnv().getEditLog().logDropResource(new DropResourceOperationLog(resourceName));

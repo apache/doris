@@ -270,9 +270,28 @@ public class ReportHandler extends Daemon {
                             reportVersion, beId, backendReportVersion);
                 } else {
                     ReportHandler.tabletReport(beId, tablets, reportVersion);
+                    updateStoragrPolicyPartitionInfo(tablets);
                 }
             }
         }
+    }
+
+    private static void updateStoragrPolicyPartitionInfo(Map<Long, TTablet> backendTablets) {
+        // We'd better do it in async way otherwise i'm worried about other report would be blocked
+        backendTablets.entrySet().stream().forEach(entry -> {
+            entry.getValue().tablet_infos.forEach(tTabletInfo -> {
+                if (tTabletInfo.getStoragePolicyId() == 0) {
+                    return;
+                }
+                TabletMeta meta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(tTabletInfo.getTabletId());
+                if (meta == null) {
+                    return;
+                }
+                Long policyId = tTabletInfo.getStoragePolicyId();
+                Long partitionId = meta.getPartitionId();
+                Env.getCurrentEnv().getPolicyMgr().addStoragePolicyPartitonInfo(policyId, partitionId);
+            });
+        });
     }
 
     private static void handlePushCooldownConf(long backendId, List<CooldownConf> cooldownConfToPush) {

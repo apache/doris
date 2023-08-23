@@ -95,7 +95,7 @@ public class DataProperty implements Writable, GsonPostProcessable {
     }
 
     public String getStoragePolicy() {
-        return storagePolicy;
+        return storagePolicy == null ? "" : storagePolicy;
     }
 
     public void setStoragePolicy(String storagePolicy) {
