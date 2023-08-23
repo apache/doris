@@ -262,6 +262,12 @@ public class EtlJobConfig implements Serializable {
         HIVE
     }
 
+    public enum FileFormat {
+        PARQUET,
+        ORC,
+        CSV
+    }
+
     public static class EtlTable implements Serializable {
         @SerializedName(value = "indexes")
         public List<EtlIndex> indexes;
@@ -480,7 +486,7 @@ public class EtlJobConfig implements Serializable {
         @SerializedName(value = "isNegative")
         public boolean isNegative;
         @SerializedName(value = "fileFormat")
-        public String fileFormat;
+        public FileFormat fileFormat;
         @SerializedName(value = "columnMappings")
         public Map<String, EtlColumnMapping> columnMappings;
         @SerializedName(value = "where")
@@ -500,7 +506,7 @@ public class EtlJobConfig implements Serializable {
         // for data infile path
         public EtlFileGroup(SourceType sourceType, List<String> filePaths, List<String> fileFieldNames,
                             List<String> columnsFromPath, String columnSeparator, String lineDelimiter,
-                            boolean isNegative, String fileFormat, Map<String, EtlColumnMapping> columnMappings,
+                            boolean isNegative, FileFormat fileFormat, Map<String, EtlColumnMapping> columnMappings,
                             String where, List<Long> partitions) {
             this.sourceType = sourceType;
             this.filePaths = filePaths;

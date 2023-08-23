@@ -36,4 +36,10 @@ public class SparkDppException extends Exception {
     public SparkDppException(String msg) {
         super(Strings.nullToEmpty(msg));
     }
+
+    public static void checkArgument(boolean expression, String msg) throws SparkDppException {
+        if (!expression) {
+            throw new SparkDppException(msg);
+        }
+    }
 }

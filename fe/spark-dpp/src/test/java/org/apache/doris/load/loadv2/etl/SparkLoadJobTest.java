@@ -48,7 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class SparkEtlJobTest {
+public class SparkLoadJobTest {
     private long tableId;
     private long index1Id;
     private long index2Id;
@@ -105,7 +105,7 @@ public class SparkEtlJobTest {
             }
         };
 
-        SparkEtlJob job = Deencapsulation.newInstance(SparkEtlJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
+        SparkLoadJob job = Deencapsulation.newInstance(SparkLoadJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
         Deencapsulation.invoke(job, "initConfig");
         EtlJobConfig parsedConfig = Deencapsulation.getField(job, "etlJobConfig");
         Assert.assertTrue(parsedConfig.tables.containsKey(tableId));
@@ -118,7 +118,7 @@ public class SparkEtlJobTest {
 
     @Test
     public void testCheckConfigWithoutBitmapDictColumns() {
-        SparkEtlJob job = Deencapsulation.newInstance(SparkEtlJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
+        SparkLoadJob job = Deencapsulation.newInstance(SparkLoadJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
         Deencapsulation.setField(job, "etlJobConfig", etlJobConfig);
         Deencapsulation.invoke(job, "checkConfig");
         Map<Long, Set<String>> tableToBitmapDictColumns = Deencapsulation.getField(job, "tableToBitmapDictColumns");
@@ -128,7 +128,7 @@ public class SparkEtlJobTest {
 
     @Test
     public void testCheckConfigWithBitmapDictColumns() {
-        SparkEtlJob job = Deencapsulation.newInstance(SparkEtlJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
+        SparkLoadJob job = Deencapsulation.newInstance(SparkLoadJob.class, "hdfs://127.0.0.1:10000/jobconfig.json");
         EtlTable table = etlJobConfig.tables.get(tableId);
         table.indexes.get(0).columns.add(
                 new EtlColumn("v2", "BITMAP", false, false, "BITMAP_UNION", "0", 0, 0, 0)

@@ -1,23 +1,7 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
-
 package org.apache.doris.load.loadv2.etl;
 
 import org.apache.doris.common.SparkDppException;
+import org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator;
 import org.apache.doris.load.loadv2.dpp.GlobalDictBuilder;
 import org.apache.doris.load.loadv2.dpp.SparkDpp;
 import org.apache.doris.sparkdpp.EtlJobConfig;
@@ -32,11 +16,11 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.CharStreams;
 import org.apache.commons.collections.map.MultiValueMap;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.spark.SparkConf;
-import org.apache.spark.deploy.SparkHadoopUtil;
+import org.apache.spark.serializer.KryoSerializer;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.slf4j.Logger;
@@ -45,48 +29,96 @@ import org.slf4j.LoggerFactory;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.Serializable;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * SparkEtlJob is responsible for global dict building, data partition, data sort and data aggregation.
- * 1. init job config
- * 2. check if job has bitmap_dict function columns
- * 3. build global dict if step 2 is true
- * 4. dpp (data partition, data sort and data aggregation)
- */
-public class SparkEtlJob {
-    private static final Logger LOG = LoggerFactory.getLogger(SparkEtlJob.class);
+public class SparkLoadConf implements Serializable {
+        private static final Logger LOG = LoggerFactory.getLogger(SparkLoadConf.class);
 
     private static final String BITMAP_DICT_FUNC = "bitmap_dict";
     private static final String TO_BITMAP_FUNC = "to_bitmap";
     private static final String BITMAP_HASH = "bitmap_hash";
     private static final String BINARY_BITMAP = "binary_bitmap";
 
-    private String jobConfigFilePath;
+    // private String jobConfigFilePath;
     private EtlJobConfig etlJobConfig;
-    private Set<Long> hiveSourceTables;
-    private Map<Long, Set<String>> tableToBitmapDictColumns;
-    private Map<Long, Set<String>> tableToBinaryBitmapColumns;
-    private final SparkConf conf;
+    private Set<Long> hiveSourceTables = Sets.newHashSet();
+    private Map<Long, Set<String>> tableToBitmapDictColumns = Maps.newHashMap();
+    private Map<Long, Set<String>> tableToBinaryBitmapColumns = Maps.newHashMap();
+    // private final SparkConf conf;
+    private final SparkConf sparkConf = new SparkConf();
+    private final SparkConf conf = new SparkConf();
     private SparkSession spark;
 
-    private SparkEtlJob(String jobConfigFilePath) {
-        this.jobConfigFilePath = jobConfigFilePath;
-        this.etlJobConfig = null;
-        this.hiveSourceTables = Sets.newHashSet();
-        this.tableToBitmapDictColumns = Maps.newHashMap();
-        this.tableToBinaryBitmapColumns = Maps.newHashMap();
-        conf = new SparkConf();
+    // public SparkLoadConf(String jobConfigFilePath) {
+    //     this.jobConfigFilePath = jobConfigFilePath;
+    //     this.etlJobConfig = null;
+    //     this.hiveSourceTables = Sets.newHashSet();
+    //     this.tableToBitmapDictColumns = Maps.newHashMap();
+    //     this.tableToBinaryBitmapColumns = Maps.newHashMap();
+    //     // conf = new SparkConf();
+    // }
+
+    private SparkLoadConf(EtlJobConfig etlJobConfig) {
+        this.etlJobConfig = etlJobConfig;
+    }
+
+    public static SparkLoadConf build(String jobConfigFilePath) throws Exception {
+        SparkLoadConf sparkLoadConf = new SparkLoadConf(getConfigFromHadoop(jobConfigFilePath));
+
+        sparkLoadConf.checkConfigForHiveTableSource();
+        sparkLoadConf.confForHiveTable();
+        sparkLoadConf.initSpark();
+
+        // sparkLoadConf.processDpp();
+        return sparkLoadConf;
     }
 
     private void initSpark() {
         //serialization conf
-        conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
-        conf.set("spark.kryo.registrator", "org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator");
-        conf.set("spark.kryo.registrationRequired", "false");
-        spark = SparkSession.builder().enableHiveSupport().config(conf).getOrCreate();
+        // conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
+        // conf.set("spark.kryo.registrator", "org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator");
+        // conf.set("spark.kryo.registrationRequired", "false");
+        // spark = SparkSession.builder().master("local[1]").config(conf).getOrCreate();
+
+        //serialization conf
+        // TODO wuwenchi spark支持hive,包括 initSparkConfigs
+        SparkConf sparkConf = new SparkConf();
+        sparkConf.set("spark.serializer", KryoSerializer.class.getName());
+        sparkConf.set("spark.kryo.registrator", DorisKryoRegistrator.class.getName());
+        sparkConf.set("spark.kryo.registrationRequired", "false");
+        spark = SparkSession.builder()
+                // TODO 这里把LOCAL环境去掉
+                .master("local[1]")
+                .appName("doris spark load job")
+                .config(sparkConf)
+                .getOrCreate();
+        // return spark;
+    }
+
+    public SparkSession getSparkSession() {
+        //serialization conf
+        // conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
+        // conf.set("spark.kryo.registrator", "org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator");
+        // conf.set("spark.kryo.registrationRequired", "false");
+        // spark = SparkSession.builder().master("local[1]").config(conf).getOrCreate();
+
+        //serialization conf
+        // TODO wuwenchi spark支持hive,包括 initSparkConfigs
+        SparkConf sparkConf = new SparkConf();
+        sparkConf.set("spark.serializer", KryoSerializer.class.getName());
+        sparkConf.set("spark.kryo.registrator", DorisKryoRegistrator.class.getName());
+        sparkConf.set("spark.kryo.registrationRequired", "false");
+        spark = SparkSession.builder()
+                // TODO 这里把LOCAL环境去掉
+                .master("local[1]")
+                .appName("doris spark load job")
+                .config(sparkConf)
+                .getOrCreate();
+        return spark;
     }
 
     private void initSparkConfigs(Map<String, String> configs) {
@@ -99,17 +131,21 @@ public class SparkEtlJob {
         }
     }
 
-    private void initConfig() throws IOException {
+    static public EtlJobConfig getConfigFromHadoop(String jobConfigFilePath) throws IOException {
+
         LOG.debug("job config file path: " + jobConfigFilePath);
-        Configuration hadoopConf = SparkHadoopUtil.get().newConfiguration(this.conf);
+        // SparkHadoopUtil jk = SparkHadoopUtil.get();
+        // Configuration hadoopConf = jk.newConfiguration(this.conf);
         String jsonConfig;
         Path path = new Path(jobConfigFilePath);
-        try (FileSystem fs = path.getFileSystem(hadoopConf); DataInputStream in = fs.open(path)) {
+        // TODO wuwenchi 这里会读取 hdfs-site.xml 文件吗
+        try (FileSystem fs = path.getFileSystem(new HdfsConfiguration()); DataInputStream in = fs.open(path)) {
             jsonConfig = CharStreams.toString(new InputStreamReader(in));
         }
         LOG.debug("rdd read json config: " + jsonConfig);
-        etlJobConfig = EtlJobConfig.configFromJson(jsonConfig);
-        LOG.debug("etl job config: " + etlJobConfig);
+        // etlJobConfig = EtlJobConfig.configFromJson(jsonConfig);
+        // LOG.debug("etl job config: " + etlJobConfig);
+        return EtlJobConfig.configFromJson(jsonConfig);
     }
 
     /*
@@ -117,7 +153,7 @@ public class SparkEtlJob {
      * 2. fill tableToBitmapDictColumns
      * 3. remove bitmap_dict and to_bitmap mapping from columnMappings
      */
-    private void checkConfig() throws Exception {
+    private void checkConfigForHiveTableSource() throws SparkDppException {
         for (Map.Entry<Long, EtlTable> entry : etlJobConfig.tables.entrySet()) {
             boolean isHiveSource = false;
             Set<String> bitmapDictColumns = Sets.newHashSet();
@@ -132,17 +168,23 @@ public class SparkEtlJob {
                     String columnName = mappingEntry.getKey();
                     String exprStr = mappingEntry.getValue().toDescription();
                     String funcName = functions.expr(exprStr).expr().prettyName();
-                    if (funcName.equalsIgnoreCase(BITMAP_HASH)) {
-                        throw new SparkDppException("spark load not support bitmap_hash now");
-                    }
-                    if (funcName.equalsIgnoreCase(BINARY_BITMAP)) {
-                        binaryBitmapColumns.add(columnName.toLowerCase());
-                    } else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
-                        bitmapDictColumns.add(columnName.toLowerCase());
-                    } else if (!funcName.equalsIgnoreCase(TO_BITMAP_FUNC)) {
-                        newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
+
+                    switch (funcName.toLowerCase(Locale.ROOT)) {
+                        case BINARY_BITMAP:
+                            binaryBitmapColumns.add(columnName.toLowerCase());
+                            break;
+                        case BITMAP_DICT_FUNC:
+                            bitmapDictColumns.add(columnName.toLowerCase());
+                            break;
+                        case TO_BITMAP_FUNC:
+                            newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
+                        case BITMAP_HASH:
+                            throw new SparkDppException("spark load not support " + funcName + " now");
+                        default:
+                            break;
                     }
                 }
+
                 // reset new columnMappings
                 fileGroup.columnMappings = newColumnMappings;
             }
@@ -156,22 +198,28 @@ public class SparkEtlJob {
                 tableToBinaryBitmapColumns.put(entry.getKey(), binaryBitmapColumns);
             }
         }
+
         LOG.info("init hiveSourceTables: " + hiveSourceTables
-                + ",tableToBitmapDictColumns: " + tableToBitmapDictColumns);
+                + ",tableToBitmapDictColumns: " + tableToBitmapDictColumns
+        + ",tableToBinaryBitmapColumns: " + tableToBinaryBitmapColumns);
 
-        // spark etl must have only one table with bitmap type column to process.
-        if (hiveSourceTables.size() > 1
-                || tableToBitmapDictColumns.size() > 1
-                || tableToBinaryBitmapColumns.size() > 1) {
-            throw new Exception("spark etl job must have only one hive table with bitmap type column to process");
-        }
+        // // spark etl must have only one table with bitmap type column to process.
+        // if (hiveSourceTables.size() > 1
+        //         || tableToBitmapDictColumns.size() > 1
+        //         || tableToBinaryBitmapColumns.size() > 1) {
+        //     throw new Exception("spark etl job must have only one hive table with bitmap type column to process");
+        // }
+
+        SparkDppException.checkArgument(hiveSourceTables.size() < 2, "spark etl job must have only one hive table.");
+        SparkDppException.checkArgument(tableToBitmapDictColumns.size() < 2, "spark etl job must have only one table with bitmap_dict columns");
+        SparkDppException.checkArgument(tableToBinaryBitmapColumns.size() < 2, "spark etl job must have only one table with bitmap columns");
     }
 
-    private void processDpp() throws Exception {
-        SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig, tableToBitmapDictColumns, tableToBinaryBitmapColumns);
-        sparkDpp.init();
-        sparkDpp.doDpp();
-    }
+    // private void processDpp() throws Exception {
+    //     SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig, tableToBitmapDictColumns, tableToBinaryBitmapColumns);
+    //     sparkDpp.init();
+    //     sparkDpp.doDpp();
+    // }
 
     private String buildGlobalDictAndEncodeSourceTable(EtlTable table, long tableId) {
         // dict column map
@@ -230,7 +278,7 @@ public class SparkEtlJob {
         return String.format("%s.%s", dorisHiveDB, dorisIntermediateHiveTable);
     }
 
-    private void processData() throws Exception {
+    private void confForHiveTable() {
         if (!hiveSourceTables.isEmpty()) {
             // only one table
             long tableId = -1;
@@ -246,37 +294,48 @@ public class SparkEtlJob {
             initSparkConfigs(fileGroup.hiveTableProperties);
             fileGroup.dppHiveDbTableName = fileGroup.hiveDbTableName;
 
-            // build global dict and encode source hive table if has bitmap dict columns
+            // build global dict and encode source hive table if it has bitmap dict columns
             if (!tableToBitmapDictColumns.isEmpty() && tableToBitmapDictColumns.containsKey(tableId)) {
                 String dorisIntermediateHiveDbTableName = buildGlobalDictAndEncodeSourceTable(table, tableId);
                 // set with dorisIntermediateHiveDbTable
                 fileGroup.dppHiveDbTableName = dorisIntermediateHiveDbTableName;
             }
         }
-
-        initSpark();
-        // data partition sort and aggregation
-        processDpp();
     }
 
-    private void run() throws Exception {
-        initConfig();
-        checkConfig();
-        processData();
+    // public void run() throws Exception {
+    //     initConfig();
+    //     initSpark();
+    //     confForHiveTable();
+    //
+    //     processDpp();
+    // }
+
+    public EtlJobConfig getEtlJobConfig() {
+        return etlJobConfig;
     }
 
-    public static void main(String[] args) {
-        if (args.length < 1) {
-            System.err.println("missing job config file path arg");
-            System.exit(-1);
-        }
+    public Set<Long> getHiveSourceTables() {
+        return hiveSourceTables;
+    }
 
-        try {
-            new SparkEtlJob(args[0]).run();
-        } catch (Exception e) {
-            System.err.println("spark etl job run failed");
-            LOG.warn("", e);
-            System.exit(-1);
-        }
+    public Map<Long, EtlTable> getDstTables() {
+        return etlJobConfig.tables;
+    }
+
+    public String getOutputPath() {
+        return etlJobConfig.outputPath;
+    }
+
+    public String getOutputFilePattern() {
+        return etlJobConfig.outputFilePattern;
+    }
+
+    public Map<Long, Set<String>> getTableToBitmapDictColumns() {
+        return tableToBitmapDictColumns;
+    }
+
+    public Map<Long, Set<String>> getTableToBinaryBitmapColumns() {
+        return tableToBinaryBitmapColumns;
     }
 }
