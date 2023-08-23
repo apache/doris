@@ -336,6 +336,16 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')""" 
         sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')""" 
         sql "select * from ${table_name}"
+
+        // test all sparse columns
+        set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
+        table_name = "all_sparse_columns"
+        create_table.call(table_name, "1")
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  ""}')""" 
+        qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
+        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+
     } finally {
         // reset flags
         set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
