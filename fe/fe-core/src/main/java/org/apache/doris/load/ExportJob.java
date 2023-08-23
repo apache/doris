@@ -469,27 +469,23 @@ public class ExportJob implements Writable {
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
                 break;
             default:
+                LOG.info("Table Type unsupport export, ExportTable type : {}", exportTable.getType());
+                throw new UserException("Table Type unsupport export :" + exportTable.getType());
                 break;
         }
-        if (fragment != null){
-            fragment.setOutputExprs(createOutputExprs());
+        fragment.setOutputExprs(createOutputExprs());
 
-            scanNode.setFragmentId(fragment.getFragmentId());
-            fragment.setSink(exportSink);
-            try {
-                fragment.finalize(null);
-            } catch (Exception e) {
-                LOG.info("Fragment finalize failed. e= {}", e);
-                throw new UserException("Fragment finalize failed");
-            }
-        } else {
-            LOG.info("Table Type unsupport export, ExportTable type : {}", exportTable.getType());
-            throw new UserException("Table Type unsupport export :" + exportTable.getType());
+        scanNode.setFragmentId(fragment.getFragmentId());
+        fragment.setSink(exportSink);
+        try {
+            fragment.finalize(null);
+        } catch (Exception e) {
+            LOG.info("Fragment finalize failed. e= {}", e);
+            throw new UserException("Fragment finalize failed");
         }
 
         return fragment;
-    }
-    
+    }    
 
     private List<Expr> createOutputExprs() {
         List<Expr> outputExprs = Lists.newArrayList();
