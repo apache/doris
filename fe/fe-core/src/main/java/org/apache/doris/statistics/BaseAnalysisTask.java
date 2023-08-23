@@ -180,6 +180,9 @@ public abstract class BaseAnalysisTask {
     public abstract void doExecute() throws Exception;
 
     protected void afterExecution() {
+        if (killed) {
+            return;
+        }
         Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 
