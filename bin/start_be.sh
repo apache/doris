@@ -94,9 +94,9 @@ done
 custom_extension_folder="${DORIS_HOME}/lib/java_extensions/custom_extension"
 
 if [[ -d "${custom_extension_folder}" ]]; then
-  for file in "${custom_extension_folder}"/*.jar ; do
-    export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${file}"
-  done
+    for file in "${custom_extension_folder}"/*.jar ; do
+        export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${file}"
+    done
 fi
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
