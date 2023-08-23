@@ -88,6 +88,7 @@ private:
     RuntimeProfile::Counter* _hash_table_iterate_timer;
     RuntimeProfile::Counter* _insert_keys_to_column_timer;
     RuntimeProfile::Counter* _serialize_data_timer;
+    RuntimeProfile::Counter* _hash_table_size_counter;
 
     using vectorized_get_result = std::function<Status(
             RuntimeState* state, vectorized::Block* block, SourceState& source_state)>;

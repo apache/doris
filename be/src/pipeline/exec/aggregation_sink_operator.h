@@ -279,7 +279,6 @@ protected:
     RuntimeProfile::Counter* _merge_timer;
     RuntimeProfile::Counter* _serialize_data_timer;
     RuntimeProfile::Counter* _deserialize_data_timer;
-    RuntimeProfile::Counter* _hash_table_size_counter;
     RuntimeProfile::Counter* _max_row_size_counter;
     RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _hash_table_memory_usage;
