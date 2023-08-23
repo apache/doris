@@ -354,7 +354,7 @@ Jdbc Catalog also support to connect another Doris database:
 * mysql 5.7 Driver
 
 ```sql
-CREATE CATALOG jdbc_mysql PROPERTIES (
+CREATE CATALOG jdbc_doris PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
@@ -367,7 +367,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 * mysql 8 Driver
 
 ```sql
-CREATE CATALOG jdbc_mysql PROPERTIES (
+CREATE CATALOG jdbc_doris PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
