@@ -2507,9 +2507,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 if (e instanceof FunctionCallExpr) {
                     FunctionCallExpr funcExpr = (FunctionCallExpr) e;
                     Function f = funcExpr.fn;
-                    if (f.getFunctionName().getFunction().equals("count")
-                            && funcExpr.children.stream().anyMatch(Expr::isConstant)) {
-                        return true;
+                    // Return true if count function include non-literal expr child.
+                    // In this case, agg output must be materialized whether outer query block required or not.
+                    if (f.getFunctionName().getFunction().equals("count")) {
+                        for (Expr expr : funcExpr.children) {
+                            if (expr.isConstant && !(expr instanceof LiteralExpr)) {
+                                return true;
+                            }
+                        }
                     }
                 }
                 return false;
