@@ -23,12 +23,16 @@ suite('nereids_insert_into_values') {
 
     sql 'use nereids_insert_into_table_test'
 
-    sql 'drop table if exists t1'
-    sql 'drop table if exists t2'
-    sql 'drop table if exists t3'
+    def t1 = 'value_t1'
+    def t2 = 'value_t2'
+    def t3 = 'value_t3'
 
-    sql '''
-        create table t1 (
+    sql "drop table if exists $t1"
+    sql "drop table if exists $t2"
+    sql "drop table if exists $t3"
+
+    sql """
+        create table $t1 (
             id int,
             id1 int,
             c1 bigint,
@@ -41,10 +45,10 @@ suite('nereids_insert_into_values') {
             'replication_num'='1',
             "function_column.sequence_col" = "c4"
         );
-    '''
+    """
 
-    sql '''
-        create table t2 (
+    sql """
+        create table $t2 (
             id int,
             c1 bigint,
             c2 string,
@@ -55,47 +59,47 @@ suite('nereids_insert_into_values') {
         properties(
             'replication_num'='1'
         );
-    '''
+    """
 
-    sql '''
-        create table t3 (
+    sql """
+        create table $t3 (
             id int
         ) distributed by hash(id) buckets 13
         properties(
             'replication_num'='1'
         );
-    '''
+    """
 
-    sql '''
-        INSERT INTO t1 VALUES
+    sql """
+        INSERT INTO $t1 VALUES
             (1, 10, 1, '1', 1.0, '2000-01-01'),
             (2, 20, 2, '2', 2.0, '2000-01-02'),
             (3, 30, 3, '3', 3.0, '2000-01-03');
-    '''
+    """
 
-    sql '''
-        INSERT INTO t2 VALUES
+    sql """
+        INSERT INTO $t2 VALUES
             (1, 10, '10', 10.0, '2000-01-10'),
             (2, 20, '20', 20.0, '2000-01-20'),
             (3, 30, '30', 30.0, '2000-01-30'),
             (4, 4, '4', 4.0, '2000-01-04'),
             (5, 5, '5', 5.0, '2000-01-05');
-    '''
+    """
 
-    sql '''
-        INSERT INTO t3 VALUES
+    sql """
+        INSERT INTO $t3 VALUES
             (1),
             (4),
             (5);
-    '''
+    """
 
     sql 'sync'
-    qt_sql_1 'select * from t1, t2, t3 order by t1.id, t1.id1, t2.id, t3.id'
+    qt_sql_1 "select * from $t1, $t2, $t3 order by $t1.id, $t1.id1, $t2.id, $t3.id"
 
-    sql 'drop table if exists agg_have_dup_base'
+    sql 'drop table if exists agg_have_dup_base_value'
 
-    sql '''
-        create table agg_have_dup_base (
+    sql """
+        create table agg_have_dup_base_value (
             k1 int null,
             k2 int not null,
             k3 bigint null,
@@ -104,11 +108,11 @@ suite('nereids_insert_into_values') {
         duplicate key (k1, k2, k3)
         distributed by hash(k1) buckets 3
         properties("replication_num" = "1");
-    '''
+    """
 
-    createMV("create materialized view k12s3m as select k1, sum(k2), max(k2) from agg_have_dup_base group by k1;")
+    createMV("create materialized view k12s3m as select k1, sum(k2), max(k2) from agg_have_dup_base_value group by k1;")
 
-    sql 'insert into agg_have_dup_base values (-4, -4, -4, \'d\')'
+    sql 'insert into agg_have_dup_base_value values (-4, -4, -4, \'d\')'
     sql 'sync'
-    qt_mv 'select * from agg_have_dup_base'
+    qt_mv 'select * from agg_have_dup_base_value'
 }
