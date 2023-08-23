@@ -231,7 +231,6 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment,
             List<AlterClause> rollupAlterClauseList,
-            boolean isDynamicSchema,
             Void unused) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
@@ -247,12 +246,6 @@ public class CreateTableStmt extends DdlStmt {
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
         this.rollupAlterClauseList = rollupAlterClauseList;
-        if (isDynamicSchema) {
-            if (properties == null) {
-                properties = Maps.newHashMap();
-            }
-            properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "true");
-        }
     }
 
     public void addColumnDef(ColumnDef columnDef) {

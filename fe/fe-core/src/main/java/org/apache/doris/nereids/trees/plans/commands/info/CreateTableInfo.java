@@ -292,7 +292,6 @@ public class CreateTableInfo {
                 null,
                 comment,
                 ImmutableList.of(),
-                false,
                 null);
     }
 }
