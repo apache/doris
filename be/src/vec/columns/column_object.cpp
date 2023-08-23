@@ -694,7 +694,7 @@ void ColumnObject::insert_default() {
 
 Field ColumnObject::operator[](size_t n) const {
     if (!is_finalized()) {
-        assert(false);
+        const_cast<ColumnObject*>(this)->finalize();
     }
     VariantMap map;
     for (const auto& entry : subcolumns) {
@@ -712,7 +712,7 @@ Field ColumnObject::operator[](size_t n) const {
 
 void ColumnObject::get(size_t n, Field& res) const {
     if (!is_finalized()) {
-        assert(false);
+        const_cast<ColumnObject*>(this)->finalize();
     }
     auto& map = res.get<VariantMap&>();
     for (const auto& entry : subcolumns) {
@@ -1207,7 +1207,9 @@ void ColumnObject::strip_outer_array() {
 }
 
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
-    DCHECK(is_finalized());
+    if (!is_finalized()) {
+        const_cast<ColumnObject*>(this)->finalize();
+    }
     auto new_column = ColumnObject::create(true, false);
     for (auto& entry : subcolumns) {
         auto subcolumn = entry->data.get_finalized_column().filter(filter, count);
