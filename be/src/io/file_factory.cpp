@@ -150,7 +150,14 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    *file_reader = stream_load_ctx->pipe;
+    if (stream_load_ctx->has_schema == true) {
+        *file_reader = std::make_shared<io::StreamLoadPipe>(
+            io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+            stream_load_ctx->schema_buffer->pos /* total_length */);  
+        stream_load_ctx->has_schema = false;
+    } else {
+        *file_reader = stream_load_ctx->pipe;
+    }
 
     if (file_reader->get() == nullptr) {
         return Status::OK();

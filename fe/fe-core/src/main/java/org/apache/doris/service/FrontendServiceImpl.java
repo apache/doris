@@ -23,6 +23,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LabelName;
+import org.apache.doris.analysis.NativeInsertStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SqlParser;

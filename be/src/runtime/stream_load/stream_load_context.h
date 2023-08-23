@@ -165,6 +165,7 @@ public:
     // std::string path;
 
     std::string txn_operation = "";
+    bool has_schema = true;
 
     bool need_rollback = false;
     // when use_streaming is true, we use stream_pipe to send source data,
