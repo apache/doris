@@ -358,7 +358,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
                 (vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)column.get();
         for (size_t j = 0; j < batch_size; ++j) {
             __int128_t value = (j + i * batch_size) * (pow(10, 9) + pow(10, 8));
-            EXPECT_EQ(real_column->get_element(j), value);
+            EXPECT_EQ(real_column->get_element(j).value, value);
         }
     }
 
@@ -370,7 +370,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
     auto column = block_read.get_by_position(0).column;
     auto* real_column =
             (vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)column.get();
-    EXPECT_EQ(real_column->get_element(0), batch_size * 3 * (pow(10, 9) + pow(10, 8)));
+    EXPECT_EQ(real_column->get_element(0).value, batch_size * 3 * (pow(10, 9) + pow(10, 8)));
 }
 TEST_F(TestBlockSpill, TestDecimalNullable) {
     int batch_size = 3; // rows in a block
@@ -419,7 +419,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
                 ASSERT_TRUE(real_column->is_null_at(j));
             } else {
                 __int128_t value = (j + i * batch_size) * (pow(10, 9) + pow(10, 8));
-                EXPECT_EQ(decimal_col.get_element(j), value);
+                EXPECT_EQ(decimal_col.get_element(j).value, value);
             }
         }
     }
@@ -434,7 +434,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
     const auto& decimal_col =
             (vectorized::ColumnDecimal<
                     vectorized::Decimal<vectorized::Int128>>&)(real_column->get_nested_column());
-    EXPECT_EQ(decimal_col.get_element(0), batch_size * 3 * (pow(10, 9) + pow(10, 8)));
+    EXPECT_EQ(decimal_col.get_element(0).value, batch_size * 3 * (pow(10, 9) + pow(10, 8)));
 }
 std::string convert_bitmap_to_string(BitmapValue& bitmap);
 TEST_F(TestBlockSpill, TestBitmap) {

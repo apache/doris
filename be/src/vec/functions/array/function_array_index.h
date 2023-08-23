@@ -224,68 +224,8 @@ private:
                                        const IColumn& right_column,
                                        const UInt8* right_nested_null_map,
                                        const UInt8* outer_null_map) {
-        if (check_column<ColumnUInt8>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnUInt8>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt8>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt8>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt16>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt16>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt32>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt64>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnInt128>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnInt128>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnFloat32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnFloat32>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnFloat64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnFloat64>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (right_column.is_date_type()) {
-            return _execute_number<NestedColumnType, ColumnDate>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (right_column.is_datetime_type()) {
-            return _execute_number<NestedColumnType, ColumnDateTime>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDateV2>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDateV2>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDateTimeV2>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDateTimeV2>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDecimal32>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal32>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDecimal64>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal64>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDecimal128I>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal128I>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        } else if (check_column<ColumnDecimal128>(right_column)) {
-            return _execute_number<NestedColumnType, ColumnDecimal128>(
+        if (check_column<NestedColumnType>(right_column)) {
+            return _execute_number<NestedColumnType, NestedColumnType>(
                     offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
                     outer_null_map);
         }

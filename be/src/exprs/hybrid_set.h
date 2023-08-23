@@ -261,8 +261,8 @@ bool check_hybrid_set(const HybridSetBase* column) {
 }
 
 template <PrimitiveType T,
-          typename _ContainerType = DynamicContainer<typename VecPrimitiveTypeTraits<T>::CppType>,
-          typename _ColumnType = typename VecPrimitiveTypeTraits<T>::ColumnType>
+          typename _ContainerType = DynamicContainer<typename PrimitiveTypeTraits<T>::CppType>,
+          typename _ColumnType = typename PrimitiveTypeTraits<T>::ColumnType>
 class HybridSet : public HybridSetBase {
 public:
     using ContainerType = _ContainerType;

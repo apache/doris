@@ -336,7 +336,6 @@ void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_
         max_value_container->from_string(zone_map.max());
     }
     // for compatible original Cond eval logic
-    // TODO(hkp): optimize OlapCond
     if (zone_map.has_null()) {
         // for compatible, if exist null, original logic treat null as min
         min_value_container->set_null();
