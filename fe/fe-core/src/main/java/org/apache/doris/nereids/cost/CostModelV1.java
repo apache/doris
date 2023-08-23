@@ -86,8 +86,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         CostV1 planCostV1 = (CostV1) planCost;
         return new CostV1(childCostV1.getCpuCost() + planCostV1.getCpuCost(),
                 childCostV1.getMemoryCost() + planCostV1.getMemoryCost(),
-                childCostV1.getNetworkCost() + planCostV1.getNetworkCost(),
-                childCostV1.getPenalty() + planCostV1.getPenalty());
+                childCostV1.getNetworkCost() + planCostV1.getNetworkCost());
     }
 
     @Override
@@ -118,7 +117,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         CostV1 costValue = (CostV1) storageLayerAggregate.getRelation().accept(this, context);
         // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
         return new CostV1(costValue.getCpuCost() * 0.7, costValue.getMemoryCost(),
-                costValue.getNetworkCost(), costValue.getPenalty());
+                costValue.getNetworkCost());
     }
 
     @Override
