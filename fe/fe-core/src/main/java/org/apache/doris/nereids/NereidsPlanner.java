@@ -70,7 +70,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -115,7 +114,9 @@ public class NereidsPlanner extends Planner {
         NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
         PhysicalProperties requireProperties = buildInitRequireProperties();
+        statementContext.getStopwatch().start();
         Plan resultPlan = plan(parsedPlan, requireProperties, explainLevel);
+        statementContext.getStopwatch().stop();
         setOptimizedPlan(resultPlan);
         if (explainLevel.isPlanLevel) {
             return;
@@ -182,7 +183,6 @@ public class NereidsPlanner extends Planner {
 
         try (Lock lock = new Lock(plan, cascadesContext)) {
             // resolve column, table and function
-
             Span queryAnalysisSpan =
                     statementContext.getConnectContext().getTracer()
                             .spanBuilder("query analysis").setParent(Context.current()).startSpan();
@@ -212,11 +212,6 @@ public class NereidsPlanner extends Planner {
                 if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
                     return analyzedPlan;
                 }
-            }
-
-            Optional<ScheduledExecutorService> timeoutExecutor = Optional.empty();
-            if (statementContext.getConnectContext().getSessionVariable().enableNereidsTimeout) {
-                timeoutExecutor = Optional.of(runTimeoutExecutor());
             }
 
             // rule-based optimize
@@ -252,7 +247,6 @@ public class NereidsPlanner extends Planner {
             // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
             MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
             NereidsTracer.output(statementContext.getConnectContext());
-            timeoutExecutor.ifPresent(ExecutorService::shutdown);
 
             return physicalPlan;
         }
