@@ -378,8 +378,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
+        Optional<LogicalPlan> cte = Optional.ofNullable(withCte(query, ctx.cte()));
         return withExplain(new UpdateCommand(visitMultipartIdentifier(ctx.tableName), tableAlias,
-                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query), ctx.explain());
+                visitUpdateAssignmentSeq(ctx.updateAssignmentSeq()), query, cte), ctx.explain());
     }
 
     @Override
@@ -396,8 +397,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query),
-                ctx.explain());
+        Optional<LogicalPlan> cte = Optional.ofNullable(withCte(query, ctx.cte()));
+        return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query, cte), ctx.explain());
     }
 
     @Override

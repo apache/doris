@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -71,17 +72,19 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     private final @Nullable String tableAlias;
     private final LogicalPlan logicalQuery;
     private OlapTable targetTable;
+    private final Optional<LogicalPlan> cte;
 
     /**
      * constructor
      */
     public UpdateCommand(List<String> nameParts, @Nullable String tableAlias, List<EqualTo> assignments,
-            LogicalPlan logicalQuery) {
+            LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
         super(PlanType.UPDATE_COMMAND);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.assignments = Utils.copyRequiredList(assignments);
         this.tableAlias = tableAlias;
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery is required in update command");
+        this.cte = cte;
     }
 
     @Override
@@ -117,6 +120,9 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
 
         logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
+        if (cte.isPresent()) {
+            logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+        }
 
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
