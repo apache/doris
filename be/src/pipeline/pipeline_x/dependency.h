@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "pipeline/exec/data_queue.h"
 #include "vec/common/sort/sorter.h"
 #include "vec/exec/vaggregation_node.h"
 
@@ -46,6 +47,7 @@ public:
     AggSharedState() {
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
+        data_queue = std::make_unique<DataQueue>(1);
     }
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
@@ -63,6 +65,7 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
+    std::unique_ptr<DataQueue> data_queue;
 };
 
 class AggDependency final : public Dependency {

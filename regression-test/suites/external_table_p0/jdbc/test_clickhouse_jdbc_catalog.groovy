@@ -36,7 +36,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
         sql """ create catalog if not exists ${catalog_name} properties(
                     "type"="jdbc",
                     "user"="default",
-                    "password"="",
+                    "password"="123456",
                     "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${clickhouse_port}/doris_test",
                     "driver_url" = "${driver_url}",
                     "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"

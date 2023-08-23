@@ -51,6 +51,8 @@
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -293,20 +295,50 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
 
         _runtime_states[i]->set_desc_tbl(_query_ctx->desc_tbl);
 
-        for (int pip_id = _pipelines.size() - 1; pip_id >= 0; pip_id--) {
+        std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
+        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
-                                                 _pipelines[pip_id]->operator_xs().front()->id(),
+                                                 _pipelines[pip_idx]->operator_xs().front()->id(),
                                                  no_scan_ranges);
 
             auto task = std::make_unique<PipelineXTask>(
-                    _pipelines[pip_id], _total_tasks++, _runtime_states[i].get(), this,
-                    _pipelines[pip_id]->pipeline_profile(), scan_ranges, local_params.sender_id);
+                    _pipelines[pip_idx], _total_tasks++, _runtime_states[i].get(), this,
+                    _pipelines[pip_idx]->pipeline_profile(), scan_ranges, local_params.sender_id);
+            pipeline_id_to_task.insert({_pipelines[pip_idx]->id(), task.get()});
             RETURN_IF_ERROR(task->prepare(_runtime_states[i].get()));
-            _runtime_profile->add_child(_pipelines[pip_id]->pipeline_profile(), true, nullptr);
-            if (pip_id < _pipelines.size() - 1) {
-                task->set_upstream_dependency(_tasks[i].back()->get_downstream_dependency());
-            }
+            _runtime_profile->add_child(_pipelines[pip_idx]->pipeline_profile(), true, nullptr);
             _tasks[i].emplace_back(std::move(task));
+        }
+
+        /**
+         * Build DAG for pipeline tasks.
+         * For example, we have
+         *
+         *   ExchangeSink (Pipeline1)     JoinBuildSink (Pipeline2)
+         *            \                      /
+         *          JoinProbeOperator1 (Pipeline1)    JoinBuildSink (Pipeline3)
+         *                 \                          /
+         *               JoinProbeOperator2 (Pipeline1)
+         *
+         * In this fragment, we have three pipelines and pipeline 1 depends on pipeline 2 and pipeline 3.
+         * To build this DAG, `_dag` manage dependencies between pipelines by pipeline ID and
+         * `pipeline_id_to_task` is used to find the task by a unique pipeline ID.
+         *
+         * Finally, we have two upstream dependencies in Pipeline1 corresponding to JoinProbeOperator1
+         * and JoinProbeOperator2.
+         */
+
+        for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
+            auto task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
+            DCHECK(task != nullptr);
+
+            if (_dag.find(_pipelines[pip_idx]->id()) != _dag.end()) {
+                auto& deps = _dag[_pipelines[pip_idx]->id()];
+                for (auto& dep : deps) {
+                    task->set_upstream_dependency(
+                            pipeline_id_to_task[dep]->get_downstream_dependency());
+                }
+            }
         }
     }
     // register the profile of child data stream sender
@@ -467,21 +499,51 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
-        op.reset(new AggSourceOperatorX(pool, tnode, descs, "AggSourceXOperator"));
-        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (tnode.agg_node.__isset.use_streaming_preaggregation &&
+            tnode.agg_node.use_streaming_preaggregation) {
+            op.reset(new StreamingAggSourceOperatorX(pool, tnode, descs,
+                                                     "StreamingAggSourceXOperator"));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
-        cur_pipe = add_pipeline();
-        DataSinkOperatorXPtr sink;
-        sink.reset(new AggSinkOperatorX(pool, tnode, descs));
-        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
-        RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+            const auto downstream_pipeline_id = cur_pipe->id();
+            if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+                _dag.insert({downstream_pipeline_id, {}});
+            }
+            cur_pipe = add_pipeline();
+            _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+            DataSinkOperatorXPtr sink;
+            sink.reset(new StreamingAggSinkOperatorX(pool, tnode, descs));
+            RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+            RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        } else {
+            op.reset(new AggSourceOperatorX(pool, tnode, descs, "AggSourceXOperator"));
+            RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+            const auto downstream_pipeline_id = cur_pipe->id();
+            if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+                _dag.insert({downstream_pipeline_id, {}});
+            }
+            cur_pipe = add_pipeline();
+            _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+
+            DataSinkOperatorXPtr sink;
+            sink.reset(new AggSinkOperatorX(pool, tnode, descs));
+            RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+            RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        }
         break;
     }
     case TPlanNodeType::SORT_NODE: {
         op.reset(new SortSourceOperatorX(pool, tnode, descs, "SortSourceXOperator"));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
 
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
         cur_pipe = add_pipeline();
+        _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+
         DataSinkOperatorXPtr sink;
         sink.reset(new SortSinkOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));

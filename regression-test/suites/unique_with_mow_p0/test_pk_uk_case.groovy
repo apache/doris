@@ -187,8 +187,8 @@ suite("test_pk_uk_case") {
         sql "sync"
 
         // count(*)
-        result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
-        result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """
+        def result0 = sql """ SELECT count(*) FROM ${tableNamePk}; """
+        def result1 = sql """ SELECT count(*) FROM ${tableNameUk}; """
         logger.info("result:" + result0[0][0] + "|" + result1[0][0])
         assertTrue(result0[0]==result1[0])
         if (result0[0][0]!=result1[0][0]) {

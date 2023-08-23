@@ -814,7 +814,7 @@ public class ReportHandler extends Daemon {
                                             olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                                             olapTable.getTimeSeriesCompactionFileCountThreshold(),
                                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
-                                            olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
+                                            olapTable.storeRowColumn(),
                                             binlogConfig);
 
                                     createReplicaTask.setIsRecoverTask(true);

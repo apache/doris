@@ -125,6 +125,9 @@ private:
     DataSinkOperatorXPtr _sink;
 
     std::atomic_bool _canceled = false;
+
+    // `_dag` manage dependencies between pipelines by pipeline ID
+    std::map<PipelineId, std::vector<PipelineId>> _dag;
 };
 } // namespace pipeline
 } // namespace doris
