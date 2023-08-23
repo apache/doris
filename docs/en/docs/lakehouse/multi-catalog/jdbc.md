@@ -358,7 +358,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-5.1.47.jar",
     "driver_class" = "com.mysql.jdbc.Driver"
 )
@@ -371,7 +371,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
     "type"="jdbc",
     "user"="root",
     "password"="123456",
-    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
     "driver_url" = "mysql-connector-java-8.0.25.jar",
     "driver_class" = "com.mysql.cj.jdbc.Driver"
 )
