@@ -63,7 +63,7 @@ There are two ways to configure BE configuration items:
    In version 0.13 and before, the configuration items modified in this way will become invalid after the BE process restarts. In 0.14 and later versions, the modified configuration can be persisted through the following command. The modified configuration items are stored in the `be_custom.conf` file.
 
     ```
-    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}\&persist=true
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persist=true
     ```
 
 ## Examples
@@ -96,7 +96,7 @@ There are two ways to configure BE configuration items:
    The configuration will become invalid after the BE restarts. If you want to persist the modified results, use the following command:
 
     ```
-    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024\&persist=true
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?streaming_load_max_mb=1024&persist=true
     ```
 
 ## Configurations
@@ -181,7 +181,7 @@ There are two ways to configure BE configuration items:
 #### `mem_limit`
 
 * Type: string
-* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying to many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
+* Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too many the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
 * Default value: 80%
 
 #### `cluster_id`
