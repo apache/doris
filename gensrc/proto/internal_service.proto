@@ -701,7 +701,7 @@ message PGlobResponse {
 message POpenStreamSinkRequest {
     optional PUniqueId load_id = 1;
     optional int64 txn_id = 2;
-    optional int32 src_id = 3;
+    optional int64 src_id = 3;
     optional POlapTableSchemaParam schema = 4;
     repeated PTabletID tablets = 5;
     optional bool enable_profile = 6 [default = false];
@@ -738,7 +738,7 @@ message PStreamHeader {
     optional int32 segment_id = 5;
     optional Opcode opcode = 6;
     optional bool segment_eos = 7;
-    optional uint32 src_id = 8;
+    optional int64 src_id = 8;
     optional SegmentStatisticsPB segment_statistics = 9;
     repeated PTabletID tablets_to_commit = 10;
 }
