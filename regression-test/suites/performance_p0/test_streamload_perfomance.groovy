@@ -62,13 +62,13 @@ suite("test_streamload_perfomance") {
                 .mapToObj({i -> [i, "a_" + i]})
                 .iterator()
 
-        // streamLoad {
-        //     set 'sql', 'insert into regression_test_performance_p0.test_streamload_performance1 select * from stream("format"="csv", "column_separator"="\t")'
-        //     table tableName
-        //     set 'version', '1'
-        //     time 100000
-        //     inputIterator rowIt
-        // }
+        streamLoad {
+            set 'sql', 'insert into regression_test_performance_p0.test_streamload_performance1 select * from stream("format"="csv", "column_separator"="\t")'
+            table tableName
+            set 'version', '1'
+            time 100000
+            inputIterator rowIt
+        }
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName}"
     }

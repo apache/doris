@@ -342,13 +342,13 @@ public class ConnectContext {
         this.loadId = loadId;
     }
 
-    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
-        this.streamLoadInfo = streamLoadInfo;
-    }
-
-    public LoadTaskInfo getStreamLoadInfo() {
-        return streamLoadInfo;
-    }
+//    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
+//        this.streamLoadInfo = streamLoadInfo;
+//    }
+//
+//    public LoadTaskInfo getStreamLoadInfo() {
+//        return streamLoadInfo;
+//    }
 
     public void setStmtId(long stmtId) {
         this.stmtId = stmtId;
@@ -684,7 +684,7 @@ public class ConnectContext {
             if (executor != null && executor.isInsertStmt()) {
                 timeoutTag = "insert";
             }
-            //to ms
+            // to ms
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
@@ -755,8 +755,11 @@ public class ConnectContext {
     public class ThreadInfo {
         public boolean isFull;
 
-        public List<String> toRow(long nowMs) {
+        public List<String> toRow(long nowMs, boolean showFe) {
             List<String> row = Lists.newArrayList();
+            if (showFe) {
+                row.add(Env.getCurrentEnv().getSelfNode().getHost());
+            }
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
             row.add(getMysqlChannel().getRemoteHostPortString());

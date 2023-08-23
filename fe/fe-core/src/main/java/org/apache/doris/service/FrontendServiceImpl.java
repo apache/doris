@@ -27,7 +27,6 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
@@ -188,6 +187,7 @@ import org.apache.doris.thrift.TStreamLoadWithLoadStatusResult;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
@@ -481,7 +481,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
                     // index id -> index schema
                     Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-                    //index id -> index col_unique_id supplier
+                    // index id -> index col_unique_id supplier
                     Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
                     for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
                         indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
@@ -500,13 +500,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
                     }
-                    //4. call schame change function, only for dynamic table feature.
+                    // 4. call schame change function, only for dynamic table feature.
                     SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
 
                     boolean lightSchemaChange = schemaChangeHandler.processAddColumns(
                             addColumnsClause, olapTable, indexSchemaMap, true, colUniqueIdSupplierMap);
                     if (lightSchemaChange) {
-                        //for schema change add column optimize, direct modify table meta.
+                        // for schema change add column optimize, direct modify table meta.
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
                         Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
@@ -518,7 +518,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
 
-                //5. build all columns
+                // 5. build all columns
                 for (Column column : olapTable.getBaseSchema()) {
                     allColumns.add(column.toThrift());
                 }
@@ -971,12 +971,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
         checkPasswordAndPrivs(cluster, user, passwd, db, Lists.newArrayList(tbl), clientIp, predicate);
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, List<String> tables,
-                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -1207,7 +1207,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private List<Table> queryLoadCommitTables(TLoadTxnCommitRequest request, Database db) throws UserException {
         List<String> tbNames;
-        //check has multi table
+        // check has multi table
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             tbNames = request.getTbls();
 
@@ -1219,7 +1219,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tbl, TableType.OLAP);
             tables.add(table);
         }
-        //if it has multi table, use multi table and update multi table running transaction table ids
+        // if it has multi table, use multi table and update multi table running transaction table ids
         if (CollectionUtils.isNotEmpty(request.getTbls())) {
             List<Long> multiTableIds = tables.stream().map(Table::getId).collect(Collectors.toList());
             Env.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(db.getId())
@@ -1568,7 +1568,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
-            //multi table load
+            // multi table load
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
                 for (String tbl : request.getTbls()) {
                     checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), tbl,
@@ -1702,10 +1702,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            if (Config.enable_pipeline_load) {
-                result.setPipelineParams(pipelineStreamLoadPutImpl(request));
+            // TODO(zs)：This needs to be replaced by other methods
+            if (!Strings.isNullOrEmpty(request.getLoadSql())) {
+                streamLoadPutWithSqlImpl(request, result);
+                return result;
             } else {
-                result.setParams(streamLoadPutImpl(request));
+                if (Config.enable_pipeline_load) {
+                    result.setPipelineParams(pipelineStreamLoadPutImpl(request));
+                } else {
+                    result.setParams(streamLoadPutImpl(request));
+                }
             }
         } catch (UserException e) {
             LOG.warn("failed to get stream load plan: {}", e.getMessage());
@@ -1832,25 +1838,33 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
 
-    private void streamLoadPutWithSqlImpl(TStreamLoadPutRequest request) throws UserException {
+    private void streamLoadPutWithSqlImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
+            throws UserException {
         LOG.info("receive stream load put request");
-        String loadSql = request.getLoadSql();
-        ConnectContext ctx = new ConnectContext(null);
+        String originStmt = request.getLoadSql();
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+        ConnectContext ctx = new ConnectContext();
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
+                    request.getUserIp(), PrivPredicate.LOAD);
+        }
         ctx.setEnv(Env.getCurrentEnv());
+        // TODO(zs) need remove LoadId, duplicate with queryId
+        ctx.setLoadId(request.getLoadId());
         ctx.setQueryId(request.getLoadId());
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
-        ctx.setThreadLocalInfo();
         ctx.setBackendId(request.getBackendId());
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        ctx.setStreamLoadInfo(streamLoadTask);
-        ctx.setLoadId(request.getLoadId());
-        SqlScanner input = new SqlScanner(new StringReader(loadSql), ctx.getSessionVariable().getSqlMode());
+        ctx.setThreadLocalInfo();
+        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         try {
-            StatementBase parsedStmt = SqlParserUtils.getFirstStmt(parser);
-            parsedStmt.setOrigStmt(new OriginStatement(loadSql, 0));
+            NativeInsertStmt parsedStmt = (NativeInsertStmt) SqlParserUtils.getFirstStmt(parser);
+            parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
@@ -1861,13 +1875,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
             QeProcessorImpl.INSTANCE.registerQuery(request.getLoadId(), coord);
-            coord.exec();
+
+            TExecPlanFragmentParams plan = coord.getStreamLoadPlan();
+            final long txn_id = parsedStmt.getTransactionId();
+            result.setParams(plan);
+            result.getParams().setDbName(parsedStmt.getDbName());
+            result.getParams().setTableName(parsedStmt.getTbl());
+            // The txn_id here is obtained from the NativeInsertStmt
+            result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
         } catch (UserException e) {
-            LOG.warn("exec sql error {}", e.getMessage());
+            LOG.warn("exec sql error", e);
             throw new UserException("exec sql error");
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
-            throw new UserException("exec sql error catch unknown result");
+            throw new UserException("exec sql error catch unknown result.");
         }
     }
 
@@ -1893,19 +1914,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-                                                               String fullDbName, OlapTable table,
-                                                               long timeoutMs) throws UserException {
+            String fullDbName, OlapTable table,
+            long timeoutMs) throws UserException {
         return generatePlanFragmentParams(request, db, fullDbName, table, timeoutMs, 1, false);
     }
 
     private TExecPlanFragmentParams generatePlanFragmentParams(TStreamLoadPutRequest request, Database db,
-                                                               String fullDbName, OlapTable table,
-                                                               long timeoutMs, int multiTableFragmentInstanceIdIndex,
-                                                               boolean isMultiTableRequest)
+            String fullDbName, OlapTable table,
+            long timeoutMs, int multiTableFragmentInstanceIdIndex,
+            boolean isMultiTableRequest)
             throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
-                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
+                "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
@@ -1950,10 +1971,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TPipelineFragmentParams generatePipelineStreamLoadPut(TStreamLoadPutRequest request, Database db,
-                                                                  String fullDbName, OlapTable table,
-                                                                  long timeoutMs,
-                                                                  int multiTableFragmentInstanceIdIndex,
-                                                                  boolean isMultiTableRequest)
+            String fullDbName, OlapTable table,
+            long timeoutMs,
+            int multiTableFragmentInstanceIdIndex,
+            boolean isMultiTableRequest)
             throws UserException {
         if (db == null) {
             String dbName = fullDbName;
@@ -1987,7 +2008,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    // this function need to be improved
+    // TODO(zs) : this function need to delete
     @Override
     public TStreamLoadWithLoadStatusResult streamLoadWithLoadStatus(TStreamLoadWithLoadStatusRequest request) {
         TStreamLoadWithLoadStatusResult result = new TStreamLoadWithLoadStatusResult();

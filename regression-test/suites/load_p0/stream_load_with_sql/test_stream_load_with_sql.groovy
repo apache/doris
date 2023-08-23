@@ -44,26 +44,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into ${db}.${tableName1} (id, name) select c1, c2 from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //         assertEquals(11, json.NumberTotalRows)
-        //         assertEquals(0, json.NumberFilteredRows)
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName1} (id, name) select c1, c2 from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // qt_sql1 "select id, name from ${tableName1}"
+        qt_sql1 "select id, name from ${tableName1}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName1}"
     }
@@ -87,26 +87,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into ${db}.${tableName2} select c1, c6, c2, c7, c11, c9 from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //         assertEquals(11, json.NumberTotalRows)
-        //         assertEquals(0, json.NumberFilteredRows)
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName2} select c1, c6, c2, c7, c11, c9 from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // qt_sql2 "select * from ${tableName2}"
+        qt_sql2 "select * from ${tableName2}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName2}"
     }
@@ -129,26 +129,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into ${db}.${tableName3} select c1, c2, year(c14), month(c14), day(c14) from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //         assertEquals(11, json.NumberTotalRows)
-        //         assertEquals(0, json.NumberFilteredRows)
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName3} select c1, c2, year(c14), month(c14), day(c14) from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // qt_sql3 "select * from ${tableName3}"
+        qt_sql3 "select * from ${tableName3}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName3}"
     }
@@ -169,22 +169,22 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into  ${db}.${tableName4} select c1, c2, c6, c3 from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("fail", json.Status.toLowerCase())
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into  ${db}.${tableName4} select c1, c2, c6, c3 from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+            }
+        }
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("Distribution column(id) doesn't exist"), e.getMessage())
     } finally {
@@ -209,26 +209,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into  ${db}.${tableName5} (id, name, date) select c1, c2, c13 from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //         assertEquals(11, json.NumberTotalRows)
-        //         assertEquals(0, json.NumberFilteredRows)
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into  ${db}.${tableName5} (id, name, date) select c1, c2, c13 from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // qt_sql5 "select * from ${tableName5}"
+        qt_sql5 "select * from ${tableName5}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName5}"
     }
@@ -262,26 +262,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into  ${db}.${tableName6} select * from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //         assertEquals(11, json.NumberTotalRows)
-        //         assertEquals(0, json.NumberFilteredRows)
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into  ${db}.${tableName6} select * from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // qt_sql6 "select * from ${tableName6}"
+        qt_sql6 "select * from ${tableName6}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName6}"
     }
@@ -309,26 +309,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into  ${db}.${tableName7} select * from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql_data_model.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //         assertEquals(11, json.NumberTotalRows)
-        //         assertEquals(0, json.NumberFilteredRows)
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into  ${db}.${tableName7} select * from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql_data_model.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // qt_sql7 "select * from ${tableName7}"
+        qt_sql7 "select * from ${tableName7}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName7}"
     }
@@ -356,26 +356,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into  ${db}.${tableName8} select * from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql_data_model.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //         assertEquals(11, json.NumberTotalRows)
-        //         assertEquals(0, json.NumberFilteredRows)
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into  ${db}.${tableName8} select * from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql_data_model.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // qt_sql8 "select * from ${tableName8}"
+        qt_sql8 "select * from ${tableName8}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName8}"
     }
@@ -404,26 +404,26 @@ suite("test_stream_load_with_sql", "p0") {
         )
         """
 
-        // streamLoad {
-        //     set 'version', '1'
-        //     set 'sql', """
-        //             insert into  ${db}.${tableName9} select * from stream("format"="csv")
-        //             """
-        //     time 10000
-        //     file 'test_stream_load_with_sql_data_model.csv'
-        //     check { result, exception, startTime, endTime ->
-        //         if (exception != null) {
-        //             throw exception
-        //         }
-        //         log.info("Stream load result: ${result}".toString())
-        //         def json = parseJson(result)
-        //         assertEquals("success", json.Status.toLowerCase())
-        //         assertEquals(11, json.NumberTotalRows)
-        //         assertEquals(0, json.NumberFilteredRows)
-        //     }
-        // }
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into  ${db}.${tableName9} select * from stream("format"="csv")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql_data_model.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
 
-        // qt_sql9 "select * from ${tableName9}"
+        qt_sql9 "select * from ${tableName9}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName9}"
     }
@@ -451,33 +451,33 @@ suite("test_stream_load_with_sql", "p0") {
         "disable_auto_compaction" = "${disable_auto_compaction}"
         )
         """
-        // for (int i = 0; i < 3; ++i) {
-        //     streamLoad {
-        //         set 'version', '1'
-        //         set 'sql', """
-        //             insert into  ${db}.${tableName10} select * from stream("format"="csv")
-        //             """
-        //         time 10000
-        //         file 'test_stream_load_with_sql_multiple_times.csv'
-        //         check { result, exception, startTime, endTime ->
-        //             if (exception != null) {
-        //                 throw exception
-        //             }
-        //             log.info("Stream load result: ${result}".toString())
-        //             def json = parseJson(result)
-        //             assertEquals("success", json.Status.toLowerCase())
-        //             assertEquals(500, json.NumberTotalRows)
-        //             assertEquals(0, json.NumberFilteredRows)
-        //         }
-        //     }
-        // }
+        for (int i = 0; i < 3; ++i) {
+            streamLoad {
+                set 'version', '1'
+                set 'sql', """
+                    insert into  ${db}.${tableName10} select * from stream("format"="csv")
+                    """
+                time 10000
+                file 'test_stream_load_with_sql_multiple_times.csv'
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(500, json.NumberTotalRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                }
+            }
+        }
 
-        // qt_sql10 "select count(*) from ${tableName10}"
+        qt_sql10 "select count(*) from ${tableName10}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName10}"
     }
 
-    // 11. test column separator 
+    // 11. test column separator
     def tableName11 = "test_stream_load_with_sql_column_separator"
     try {
         sql """
@@ -519,7 +519,7 @@ suite("test_stream_load_with_sql", "p0") {
         try_sql "DROP TABLE IF EXISTS ${tableName11}"
     }
 
-    // 12. test line delimiter 
+    // 12. test line delimiter
     def tableName12 = "test_stream_load_with_sql_line_delimiter"
     try {
         sql """
@@ -567,138 +567,138 @@ suite("test_stream_load_with_sql", "p0") {
         sql """ DROP TABLE IF EXISTS ${tableName13} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName13} (
-                `WatchId` char(128), 
-                `JavaEnable` smallint, 
-                `Title` string, 
-                `GoodEvent` smallint, 
-                `EventTime` datetime, 
-                `EventDate` date, 
-                `CounterId` bigint, 
-                `ClientIp` bigint, 
-                `ClientIp6` char(50), 
-                `RegionId` bigint, 
-                `UserId` string, 
-                `CounterClass` tinyint, 
-                `Os` smallint, 
-                `UserAgent` smallint, 
-                `Url` string, 
-                `Referer` string, 
-                `Urldomain` string, 
-                `RefererDomain` string, 
-                `Refresh` smallint, 
-                `IsRobot` smallint, 
-                `RefererCategories` string, 
-                `UrlCategories` string, 
-                `UrlRegions` string, 
-                `RefererRegions` string, 
-                `ResolutionWidth` int, 
-                `ResolutionHeight` int, 
-                `ResolutionDepth` smallint, 
-                `FlashMajor` smallint, 
-                `FlashMinor` smallint, 
-                `FlashMinor2` string, 
-                `NetMajor` smallint, 
-                `NetMinor` smallint, 
-                `UserAgentMajor` int, 
-                `UserAgentMinor` char(4), 
-                `CookieEnable` smallint, 
-                `JavascriptEnable` smallint, 
-                `IsMobile` smallint, 
-                `MobilePhone` smallint, 
-                `MobilePhoneModel` string, 
-                `Params` string, 
-                `IpNetworkId` bigint, 
-                `TraficSourceId` tinyint, 
-                `SearchEngineId` int, 
-                `SearchPhrase` string, 
-                `AdvEngineId` smallint, 
-                `IsArtifical` smallint, 
-                `WindowClientWidth` int, 
-                `WindowClientHeight` int, 
-                `ClientTimeZone` smallint, 
-                `ClientEventTime` datetime, 
-                `SilverLightVersion1` smallint, 
-                `SilverlightVersion2` smallint, 
-                `SilverlightVersion3` bigint, 
-                `SilverlightVersion4` int, 
-                `PageCharset` string, 
-                `CodeVersion` bigint, 
-                `IsLink` smallint, 
-                `IsDownload` smallint, 
-                `IsNotBounce` smallint, 
-                `FUniqId` string, 
-                `Hid` bigint, 
-                `IsOldCounter` smallint, 
-                `IsEvent` smallint, 
-                `IsParameter` smallint, 
-                `DontCountHits` smallint, 
-                `WithHash` smallint, 
-                `HitColor` char(2), 
-                `UtcEventTime` datetime, 
-                `Age` smallint, 
-                `Sex` smallint, 
-                `Income` smallint, 
-                `Interests` int, 
-                `Robotness` smallint, 
-                `GeneralInterests` string, 
-                `RemoteIp` bigint, 
-                `RemoteIp6` char(50), 
-                `WindowName` int, 
-                `OpenerName` int, 
-                `historylength` smallint, 
-                `BrowserLanguage` char(4), 
-                `BrowserCountry` char(4), 
-                `SocialNetwork` string, 
-                `SocialAction` string, 
-                `HttpError` int, 
-                `SendTiming` int, 
-                `DnsTiming` int, 
-                `ConnectTiming` int, 
-                `ResponseStartTiming` int, 
-                `ResponseEndTiming` int, 
-                `FetchTiming` int, 
-                `RedirectTiming` int, 
-                `DomInteractiveTiming` int, 
-                `DomContentLoadedTiming` int, 
-                `DomCompleteTiming` int, 
-                `LoadEventStartTiming` int, 
-                `LoadEventEndTiming` int, 
-                `NsToDomContentLoadedTiming` int, 
-                `FirstPaintTiming` int, 
-                `RedirectCount` tinyint, 
-                `SocialSourceNetworkId` smallint, 
-                `SocialSourcePage` string, 
-                `ParamPrice` bigint, 
-                `ParamOrderId` string, 
-                `ParamCurrency` char(6), 
-                `ParamCurrencyId` int, 
-                `GoalsReached` string, 
-                `OpenStatServiceName` string, 
-                `OpenStatCampaignId` string, 
-                `OpenStatAdId` string, 
-                `OpenStatSourceId` string, 
-                `UtmSource` string, 
-                `UtmMedium` string, 
-                `UtmCampaign` string, 
-                `UtmContent` string, 
-                `UtmTerm` string, 
-                `FromTag` string, 
-                `HasGclId` smallint, 
-                `RefererHash` string, 
-                `UrlHash` string, 
-                `ClId` bigint, 
-                `YclId` string, 
-                `ShareService` string, 
-                `ShareUrl` string, 
-                `ShareTitle` string, 
-                `ParsedParamsKey1` string, 
-                `ParsedParamsKey2` string, 
-                `ParsedParamsKey3` string, 
-                `ParsedParamsKey4` string, 
-                `ParsedParamsKey5` string, 
-                `ParsedParamsValueDouble` double, 
-                `IsLandId` char(40), 
-                `RequestNum` bigint, 
+                `WatchId` char(128),
+                `JavaEnable` smallint,
+                `Title` string,
+                `GoodEvent` smallint,
+                `EventTime` datetime,
+                `EventDate` date,
+                `CounterId` bigint,
+                `ClientIp` bigint,
+                `ClientIp6` char(50),
+                `RegionId` bigint,
+                `UserId` string,
+                `CounterClass` tinyint,
+                `Os` smallint,
+                `UserAgent` smallint,
+                `Url` string,
+                `Referer` string,
+                `Urldomain` string,
+                `RefererDomain` string,
+                `Refresh` smallint,
+                `IsRobot` smallint,
+                `RefererCategories` string,
+                `UrlCategories` string,
+                `UrlRegions` string,
+                `RefererRegions` string,
+                `ResolutionWidth` int,
+                `ResolutionHeight` int,
+                `ResolutionDepth` smallint,
+                `FlashMajor` smallint,
+                `FlashMinor` smallint,
+                `FlashMinor2` string,
+                `NetMajor` smallint,
+                `NetMinor` smallint,
+                `UserAgentMajor` int,
+                `UserAgentMinor` char(4),
+                `CookieEnable` smallint,
+                `JavascriptEnable` smallint,
+                `IsMobile` smallint,
+                `MobilePhone` smallint,
+                `MobilePhoneModel` string,
+                `Params` string,
+                `IpNetworkId` bigint,
+                `TraficSourceId` tinyint,
+                `SearchEngineId` int,
+                `SearchPhrase` string,
+                `AdvEngineId` smallint,
+                `IsArtifical` smallint,
+                `WindowClientWidth` int,
+                `WindowClientHeight` int,
+                `ClientTimeZone` smallint,
+                `ClientEventTime` datetime,
+                `SilverLightVersion1` smallint,
+                `SilverlightVersion2` smallint,
+                `SilverlightVersion3` bigint,
+                `SilverlightVersion4` int,
+                `PageCharset` string,
+                `CodeVersion` bigint,
+                `IsLink` smallint,
+                `IsDownload` smallint,
+                `IsNotBounce` smallint,
+                `FUniqId` string,
+                `Hid` bigint,
+                `IsOldCounter` smallint,
+                `IsEvent` smallint,
+                `IsParameter` smallint,
+                `DontCountHits` smallint,
+                `WithHash` smallint,
+                `HitColor` char(2),
+                `UtcEventTime` datetime,
+                `Age` smallint,
+                `Sex` smallint,
+                `Income` smallint,
+                `Interests` int,
+                `Robotness` smallint,
+                `GeneralInterests` string,
+                `RemoteIp` bigint,
+                `RemoteIp6` char(50),
+                `WindowName` int,
+                `OpenerName` int,
+                `historylength` smallint,
+                `BrowserLanguage` char(4),
+                `BrowserCountry` char(4),
+                `SocialNetwork` string,
+                `SocialAction` string,
+                `HttpError` int,
+                `SendTiming` int,
+                `DnsTiming` int,
+                `ConnectTiming` int,
+                `ResponseStartTiming` int,
+                `ResponseEndTiming` int,
+                `FetchTiming` int,
+                `RedirectTiming` int,
+                `DomInteractiveTiming` int,
+                `DomContentLoadedTiming` int,
+                `DomCompleteTiming` int,
+                `LoadEventStartTiming` int,
+                `LoadEventEndTiming` int,
+                `NsToDomContentLoadedTiming` int,
+                `FirstPaintTiming` int,
+                `RedirectCount` tinyint,
+                `SocialSourceNetworkId` smallint,
+                `SocialSourcePage` string,
+                `ParamPrice` bigint,
+                `ParamOrderId` string,
+                `ParamCurrency` char(6),
+                `ParamCurrencyId` int,
+                `GoalsReached` string,
+                `OpenStatServiceName` string,
+                `OpenStatCampaignId` string,
+                `OpenStatAdId` string,
+                `OpenStatSourceId` string,
+                `UtmSource` string,
+                `UtmMedium` string,
+                `UtmCampaign` string,
+                `UtmContent` string,
+                `UtmTerm` string,
+                `FromTag` string,
+                `HasGclId` smallint,
+                `RefererHash` string,
+                `UrlHash` string,
+                `ClId` bigint,
+                `YclId` string,
+                `ShareService` string,
+                `ShareUrl` string,
+                `ShareTitle` string,
+                `ParsedParamsKey1` string,
+                `ParsedParamsKey2` string,
+                `ParsedParamsKey3` string,
+                `ParsedParamsKey4` string,
+                `ParsedParamsKey5` string,
+                `ParsedParamsValueDouble` double,
+                `IsLandId` char(40),
+                `RequestNum` bigint,
                 `RequestTry` smallint
             ) ENGINE=OLAP
             DUPLICATE KEY(`WatchId`, `JavaEnable`)

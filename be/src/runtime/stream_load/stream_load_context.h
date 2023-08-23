@@ -37,6 +37,7 @@
 #include "common/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_executor.h"
+#include "util/byte_buffer.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
@@ -174,6 +175,9 @@ public:
 
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
+
+    ByteBufferPtr schema_buffer = ByteBuffer::allocate(10 * 1024 * 1024);
+
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
 
