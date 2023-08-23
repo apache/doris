@@ -22,6 +22,8 @@
 #include <rapidjson/writer.h>
 
 #include "arrow/array/builder_binary.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
 namespace doris {
@@ -190,7 +192,13 @@ void DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson
                                                 int row_num) const {
     auto& data = assert_cast<const ColumnString&>(column);
     const auto jsonb_val = data.get_data_at(row_num);
+    if (jsonb_val.empty()) {
+        result.SetNull();
+    }
     JsonbValue* val = JsonbDocument::createValue(jsonb_val.data, jsonb_val.size);
+    if (val == nullptr) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to get json document from jsonb");
+    }
     rapidjson::Value value;
     convert_jsonb_to_rapidjson(*val, value, allocator);
     if (val->isObject() && result.IsObject()) {
