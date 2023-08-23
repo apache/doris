@@ -1429,6 +1429,10 @@ public class FunctionSet<T> {
                 "", "", "", "", "", "", "",
                 false, true, false, true));
         addBuiltin(AggregateFunction.createBuiltin("avg",
+                Lists.<Type>newArrayList(Type.LARGEINT), Type.DOUBLE, Type.LARGEINT,
+                "", "", "", "", "", "", "",
+                false, true, false, true));
+        addBuiltin(AggregateFunction.createBuiltin("avg",
                 Lists.<Type>newArrayList(Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
                 "", "", "", "", "", "", "",
                 false, true, false, true));
