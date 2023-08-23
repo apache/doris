@@ -762,12 +762,17 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                 std::shared_ptr<PBackendService_Stub> stub(
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                                 host, brpc_port));
+                rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
                 stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
                                                  &rpc_contexts[i].response, brpc::DoNothing());
             }
             std::vector<TabletSchemaSPtr> schemas;
             for (auto& rpc_context : rpc_contexts) {
-                brpc::Join(rpc_context.cntl.call_id());
+                brpc::Join(rpc_context.cid);
+                if (!st.ok()) {
+                    // make sure all flying rpc request is joined
+                    continue;
+                }
                 if (rpc_context.cntl.Failed()) {
                     LOG(WARNING) << "fetch_remote_tablet_schema rpc err:"
                                  << rpc_context.cntl.ErrorText();
@@ -775,11 +780,9 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                             rpc_context.cntl.remote_side());
                     st = Status::InternalError("fetch_remote_tablet_schema rpc err: {}",
                                                rpc_context.cntl.ErrorText());
-                    break;
                 }
                 if (rpc_context.response.status().status_code() != 0) {
                     st = Status::create(rpc_context.response.status());
-                    break;
                 }
                 if (rpc_context.response.has_merged_schema()) {
                     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
@@ -787,9 +790,10 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                     schemas.push_back(schema);
                 }
             }
-            if (!schemas.empty()) {
+            if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema = merge_schema(schemas);
+                VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
             }
             st.to_protobuf(response->mutable_status());
@@ -822,6 +826,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             // merge all
             TabletSchemaSPtr merged_schema = merge_schema(tablet_schemas);
             merged_schema->to_schema_pb(response->mutable_merged_schema());
+            VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
         }
         st.to_protobuf(response->mutable_status());
     });
