@@ -52,11 +52,11 @@ class AggSinkLocalState : public PipelineXSinkLocalState {
 public:
     AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* state);
 
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
     Status try_spill_disk(bool eos = false);
 
-private:
+protected:
     friend class AggSinkOperatorX;
 
     Status _execute_without_key(vectorized::Block* block);
@@ -310,7 +310,7 @@ private:
     executor _executor;
 };
 
-class AggSinkOperatorX final : public DataSinkOperatorX {
+class AggSinkOperatorX : public DataSinkOperatorX {
 public:
     AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
@@ -321,13 +321,13 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
-    Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
+    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block,
-                SourceState source_state) override;
+    virtual Status sink(RuntimeState* state, vectorized::Block* in_block,
+                        SourceState source_state) override;
 
-    Status close(RuntimeState* state) override;
-    bool can_write(RuntimeState* state) override { return true; }
+    virtual Status close(RuntimeState* state) override;
+    virtual bool can_write(RuntimeState* state) override { return true; }
 
     void get_dependency(DependencySPtr& dependency) override {
         dependency.reset(new AggDependency(id()));
@@ -335,6 +335,7 @@ public:
 
 private:
     friend class AggSinkLocalState;
+    friend class StreamingAggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     bool _can_short_circuit = false;
 
