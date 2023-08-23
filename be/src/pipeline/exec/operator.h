@@ -199,6 +199,8 @@ public:
 
     virtual bool can_write() { return false; } // for sink
 
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
+
     /**
      * The main method to execute a pipeline task.
      * Now it is a pull-based pipeline and operators pull data from its child by this method.
@@ -320,6 +322,8 @@ public:
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
+
+    [[nodiscard]] bool can_terminate_early() override { return _node->can_terminate_early(); }
 
     Status prepare(RuntimeState* state) override {
         _node->increase_ref();
