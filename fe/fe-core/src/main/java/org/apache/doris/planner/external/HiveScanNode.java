@@ -51,6 +51,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
@@ -385,5 +386,15 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
         return !col.isAllowNull();
+    }
+
+    @Override
+    protected TFileCompressType getFileCompressType(FileSplit fileSplit) throws UserException {
+        TFileCompressType compressType = super.getFileCompressType(fileSplit);
+        // hadoop use lz4 blocked codec
+        if (compressType == TFileCompressType.LZ4FRAME) {
+            compressType = TFileCompressType.LZ4BLOCK;
+        }
+        return compressType;
     }
 }

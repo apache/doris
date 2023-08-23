@@ -1128,14 +1128,6 @@ DECLARE_mString(user_files_secure_path);
 // and if this threshold is exceeded, the remaining data will be pass through to other node directly.
 DECLARE_Int32(partition_topn_partition_threshold);
 
-// The default lz4 codec. Options: frame, block
-// In previous, we use lz4 "frame" as the default codec
-// but the hadoop use lz4 block to write data
-// So in v2.0, change the default codec to "block"
-// So that we can read lz4 data from hive table by default.
-// TODO: find a way to auto detect this.
-DECLARE_mString(default_lz4_codec);
-
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
