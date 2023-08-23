@@ -195,6 +195,10 @@ public:
         LOG(FATAL) << "get_permutation not supported";
     }
 
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
+        LOG(FATAL) << "not support";
+    }
+
     TypeIndex get_data_type() const override { LOG(FATAL) << "get_data_type not supported"; }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
