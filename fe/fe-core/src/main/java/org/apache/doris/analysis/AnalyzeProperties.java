@@ -22,6 +22,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.quartz.CronExpression;
 
@@ -31,8 +32,6 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 public class AnalyzeProperties {
-
-    private final Map<String, String> properties;
 
     public static final String PROPERTY_SYNC = "sync";
     public static final String PROPERTY_INCREMENTAL = "incremental";
@@ -54,6 +53,9 @@ public class AnalyzeProperties {
     public static final String PROPERTY_PERIOD_CRON = "period.cron";
 
     private CronExpression cronExpression;
+
+    @SerializedName("analyzeProperties")
+    private final Map<String, String> properties;
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(PROPERTY_SYNC)
