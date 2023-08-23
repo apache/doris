@@ -79,6 +79,12 @@ public:
         return _check_overflow_for_decimal = check_overflow_for_decimal;
     }
 
+    void set_string_as_jsonb_string(bool string_as_jsonb_string) {
+        _string_as_jsonb_string = string_as_jsonb_string;
+    }
+
+    bool string_as_jsonb_string() const { return _string_as_jsonb_string; }
+
     // Sets an error for this UDF. If this is called, this will trigger the
     // query to fail.
     // Note: when you set error for the UDFs used in Data Load, you should
@@ -158,6 +164,8 @@ private:
     std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
 
     bool _check_overflow_for_decimal = false;
+
+    bool _string_as_jsonb_string = false;
 
     std::string _string_result;
 };

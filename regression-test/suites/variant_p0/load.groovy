@@ -321,7 +321,7 @@ suite("regression_test_variant", "variant_type"){
         sql "select * from ${table_name}"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
-        qt_sql "select * from ${table_name} where k > 3 order by k desc limit 10"
+        qt_sql_36 "select * from ${table_name} where k > 3 order by k desc limit 10"
 
         // filter invalid variant
         table_name = "invalid_variant"
@@ -333,6 +333,16 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a"  1}')""" 
         sql """insert into ${table_name} values (1, '{"a"  1}'), (1, '{"a"  1}')""" 
         sql "select * from ${table_name}"
+
+        // test all sparse columns
+        set_be_config.call("ratio_of_defaults_as_sparse_column", "0")
+        table_name = "all_sparse_columns"
+        create_table.call(table_name, "1")
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
+        sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  ""}')""" 
+        qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
+        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+
     } finally {
         // reset flags
         set_be_config.call("max_filter_ratio_for_variant_parsing", "0.05")
