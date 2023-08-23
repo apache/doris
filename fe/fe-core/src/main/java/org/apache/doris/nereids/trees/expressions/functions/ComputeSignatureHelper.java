@@ -334,6 +334,10 @@ public class ComputeSignatureHelper {
             if (!(targetType instanceof DecimalV3Type)) {
                 continue;
             }
+            // only process wildcard decimalv3
+            if (((DecimalV3Type) targetType).getPrecision() > 0) {
+                continue;
+            }
             if (finalType == null) {
                 finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
             } else {
@@ -347,19 +351,20 @@ public class ComputeSignatureHelper {
                 }
                 finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType, argType, true);
             }
-            Preconditions.checkState(finalType.isDecimalV3Type(),
-                    "decimalv3 precision promotion failed.");
+            Preconditions.checkState(finalType.isDecimalV3Type(), "decimalv3 precision promotion failed.");
         }
         DataType argType = finalType;
         List<DataType> newArgTypes = signature.argumentsTypes.stream().map(t -> {
-            if (t instanceof DecimalV3Type) {
+            // only process wildcard decimalv3
+            if (t instanceof DecimalV3Type && ((DecimalV3Type) t).getPrecision() <= 0) {
                 return argType;
             } else {
                 return t;
             }
         }).collect(Collectors.toList());
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
-        if (signature.returnType instanceof DecimalV3Type) {
+        if (signature.returnType instanceof DecimalV3Type
+                && ((DecimalV3Type) signature.returnType).getPrecision() <= 0) {
             signature = signature.withReturnType(argType);
         }
         return signature;
