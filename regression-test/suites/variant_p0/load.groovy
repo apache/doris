@@ -321,6 +321,7 @@ suite("regression_test_variant", "variant_type"){
         sql "select * from ${table_name}"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
+        qt_sql "select * from ${table_name} where k > 3 order by k desc limit 10"
 
         // filter invalid variant
         table_name = "invalid_variant"

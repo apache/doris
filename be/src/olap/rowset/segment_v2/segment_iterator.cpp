@@ -2262,6 +2262,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {
         size_t num_rows = block->rows();
+        if (num_rows == 0) {
+            return Status::OK();
+        }
         size_t num_columns = block->columns();
         vectorized::IColumn::Permutation permutation;
         for (size_t i = 0; i < num_rows; ++i) permutation.emplace_back(num_rows - 1 - i);
