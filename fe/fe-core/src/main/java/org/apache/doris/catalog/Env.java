@@ -5262,7 +5262,7 @@ public class Env {
         olapTable.writeLockOrMetaException();
         try {
             OlapTableState oldState = olapTable.getState();
-            if (oldState != state) {
+            if (state != null && oldState != state) {
                 olapTable.setState(state);
                 if (!isReplay) {
                     SetTableStatusOperationLog log = new SetTableStatusOperationLog(dbName, tableName, state);
