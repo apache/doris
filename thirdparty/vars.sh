@@ -75,7 +75,7 @@ THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
 # protobuf
 # brpc is not yet compatible with protobuf >= 22
 PROTOBUF_DOWNLOAD="https://github.com/protocolbuffers/protobuf/releases/download/v21.11/protobuf-all-21.11.tar.gz"
-PROTOBUF_NAME=protobuf-all-21.11.tar.gz
+PROTOBUF_NAME="protobuf-all-21.11.tar.gz"
 PROTOBUF_SOURCE=protobuf-21.11
 PROTOBUF_MD5SUM="b3b104f0374802e1add5d5d7a5a845ac"
 
@@ -87,7 +87,7 @@ GFLAGS_MD5SUM="1a865b93bacfa963201af3f75b7bd64c"
 
 # glog
 GLOG_DOWNLOAD="https://github.com/google/glog/archive/refs/tags/v0.6.0.tar.gz"
-GLOG_NAME=v0.6.0.tar.gz
+GLOG_NAME="glog-v0.6.0.tar.gz"
 GLOG_SOURCE=glog-0.6.0
 GLOG_MD5SUM="c98a6068bc9b8ad9cebaca625ca73aa2"
 
@@ -141,7 +141,7 @@ RAPIDJSON_MD5SUM="f2212a77e055a15501477f1e390007ea"
 
 # curl
 CURL_DOWNLOAD="https://curl.se/download/curl-8.2.1.tar.gz"
-CURL_NAME=curl-8.2.1.tar.gz
+CURL_NAME="curl-8.2.1.tar.gz"
 CURL_SOURCE=curl-8.2.1
 CURL_MD5SUM="b25588a43556068be05e1624e0e74d41"
 
@@ -199,7 +199,7 @@ LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
 BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.6.0.tar.gz"
-BRPC_NAME="1.6.0.tar.gz"
+BRPC_NAME="brpc-1.6.0.tar.gz"
 BRPC_SOURCE="brpc-1.6.0"
 BRPC_MD5SUM="0d37cea25bd006e89806f461ef7e39ba"
 
@@ -241,14 +241,14 @@ FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
 
 # c-ares
 CARES_DOWNLOAD="https://github.com/c-ares/c-ares/releases/download/cares-1_19_1/c-ares-1.19.1.tar.gz"
-CARES_NAME=c-ares-1.19.1.tar.gz
+CARES_NAME="c-ares-1.19.1.tar.gz"
 CARES_SOURCE=c-ares-1.19.1
 CARES_MD5SUM="dafc5825a92dc907e144570e4e75a908"
 
 # grpc
 # grpc v1.55 and above require protobuf >= 22
 GRPC_DOWNLOAD="https://github.com/grpc/grpc/archive/refs/tags/v1.54.3.tar.gz"
-GRPC_NAME=v1.54.3.tar.gz
+GRPC_NAME="grpc-v1.54.3.tar.gz"
 GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
@@ -260,7 +260,7 @@ ARROW_MD5SUM="8ec1ec6a119514bcaea1cf7aabc9df1f"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
-ABSEIL_NAME="20230125.3.tar.gz"
+ABSEIL_NAME="abseil-cpp-20230125.3.tar.gz"
 ABSEIL_SOURCE=abseil-cpp-20230125.3
 ABSEIL_MD5SUM="9b6dae642c4bd92f007ab2c148bc0498"
 
@@ -296,7 +296,7 @@ PARALLEL_HASHMAP_MD5SUM="1b8130d0b4f656257ef654699bfbf941"
 
 # orc
 ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.9.0/orc-1.9.0.tar.gz"
-ORC_NAME=orc-1.9.0.tar.gz
+ORC_NAME="orc-1.9.0.tar.gz"
 ORC_SOURCE=orc-1.9.0
 ORC_MD5SUM="5dc1c91c4867e4519aab531ffc30fab7"
 
@@ -407,14 +407,14 @@ PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
 # benchmark
 BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
-BENCHMARK_NAME=v1.8.0.tar.gz
+BENCHMARK_NAME=benchmark-v1.8.0.tar.gz
 BENCHMARK_SOURCE=benchmark-1.8.0
 BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
 # for arrow-13.0.0, if arrow upgrade, this version may also need to be changed
 XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/9.0.1.tar.gz"
-XSIMD_NAME="9.0.1.tar.gz"
+XSIMD_NAME="xsimd-9.0.1.tar.gz"
 XSIMD_SOURCE=xsimd-9.0.1
 XSIMD_MD5SUM="59f38fe3364acd7ed137771258812d6c"
 
@@ -432,13 +432,13 @@ NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
 # opentelemetry-proto
 OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v1.0.0.tar.gz"
-OPENTELEMETRY_PROTO_NAME=v1.0.0.tar.gz
+OPENTELEMETRY_PROTO_NAME="opentelemetry-proto-v1.0.0.tar.gz"
 OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-1.0.0
 OPENTELEMETRY_PROTO_MD5SUM="8c7495a0dceea7cfdbdbcd53b07436dc"
 
 # opentelemetry
 OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.10.0.tar.gz"
-OPENTELEMETRY_NAME=v1.10.0.tar.gz
+OPENTELEMETRY_NAME="opentelemetry-cpp-v1.10.0.tar.gz"
 OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.10.0
 OPENTELEMETRY_MD5SUM="89169762241b2f5142b728c775173283"
 
