@@ -76,7 +76,7 @@ Status SchemaMetadataNameIdsScanner::start(RuntimeState* state) {
             db_params.__set_user_ip(*(_param->user_ip));
         }
     }
-
+    db_params.__set_get_null_catalog(true);
     if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(
                 SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
@@ -88,6 +88,14 @@ Status SchemaMetadataNameIdsScanner::start(RuntimeState* state) {
 
 Status SchemaMetadataNameIdsScanner::_get_new_table() {
     SCOPED_TIMER(_get_table_timer);
+    if (_db_result.db_ids[_db_index] == -1 &&
+        _db_result.dbs[_db_index] == "NULL") { //catalog is empty.
+        _db_index++;
+        _table_result.tables.clear();
+        _table_result.tables.push_back(TTableMetadataNameIds());
+
+        return Status::OK();
+    }
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
     if (_db_result.__isset.catalogs) {
@@ -120,8 +128,9 @@ Status SchemaMetadataNameIdsScanner::_get_new_table() {
 Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto table_num = _table_result.tables.size();
-    if (table_num == 0) {
-        return Status::OK();
+    if (table_num == 0) { //database is null
+        table_num = 1;
+        _table_result.tables.push_back(TTableMetadataNameIds());
     }
     std::vector<void*> null_datas(table_num, nullptr);
     std::vector<void*> datas(table_num);
