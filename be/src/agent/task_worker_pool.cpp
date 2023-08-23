@@ -1144,7 +1144,6 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
         // refresh resource
         for (auto& resource : push_storage_policy_req.resource) {
             auto existed_resource = get_storage_resource(resource.id);
-            VLOG_DEBUG << "be successfully receive a storage policy task";
             if (existed_resource.version >= resource.version) {
                 continue;
             }
