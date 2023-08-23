@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import java.util.concurrent.TimeUnit;
+
 public class Config extends ConfigBase {
 
     @ConfField(description = {"用户自定义配置文件的路径，用于存放 fe_custom.conf。该文件中的配置会覆盖 fe.conf 中的配置",
@@ -2117,4 +2119,16 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static int table_stats_health_threshold = 80;
+
+    @ConfField
+    public static long huge_table_auto_analyze_interval_in_millis = TimeUnit.HOURS.toMillis(12);
+
+    @ConfField
+    public static long huge_table_lower_bound_size_in_bytes = 5L * 1024 * 1024 * 1024;
+
+    @ConfField
+    public static int huge_table_default_sample_rate = 20;
+
+    @ConfField
+    public static boolean enable_auto_sample = true;
 }

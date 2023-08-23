@@ -111,7 +111,7 @@ public class AnalysisManager extends Daemon implements Writable {
     // Tracking and control sync analyze tasks, keep in mem only
     private final ConcurrentMap<ConnectContext, SyncTaskCollection> ctxToSyncTask = new ConcurrentHashMap<>();
 
-    private final Map<Long, TableStats> idToTblStatsStatus = new ConcurrentHashMap<>();
+    private final Map<Long, TableStats> idToTblStats = new ConcurrentHashMap<>();
 
     private final Function<TaskStatusWrapper, Void> userJobStatusUpdater = w -> {
         AnalysisInfo info = w.info;
@@ -870,7 +870,7 @@ public class AnalysisManager extends Daemon implements Writable {
         AnalysisManager analysisManager = new AnalysisManager();
         readAnalysisInfo(in, analysisManager.analysisJobInfoMap, true);
         readAnalysisInfo(in, analysisManager.analysisTaskInfoMap, false);
-        readIdToTblStats(in, analysisManager.idToTblStatsStatus);
+        readIdToTblStats(in, analysisManager.idToTblStats);
         return analysisManager;
     }
 
@@ -905,8 +905,8 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void writeTableStats(DataOutput out) throws IOException {
-        out.writeInt(idToTblStatsStatus.size());
-        for (Entry<Long, TableStats> entry : idToTblStatsStatus.entrySet()) {
+        out.writeInt(idToTblStats.size());
+        for (Entry<Long, TableStats> entry : idToTblStats.entrySet()) {
             entry.getValue().write(out);
         }
     }
@@ -917,12 +917,12 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public TableStats findTableStatsStatus(long tblId) {
-        return idToTblStatsStatus.get(tblId);
+        return idToTblStats.get(tblId);
     }
 
     // Invoke this when load transaction finished.
     public void updateUpdatedRows(long tblId, long rows) {
-        TableStats statsStatus = idToTblStatsStatus.get(tblId);
+        TableStats statsStatus = idToTblStats.get(tblId);
         if (statsStatus != null) {
             statsStatus.updatedRows.addAndGet(rows);
         }
@@ -934,7 +934,7 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     public void replayUpdateTableStatsStatus(TableStats tableStats) {
-        idToTblStatsStatus.put(tableStats.tblId, tableStats);
+        idToTblStats.put(tableStats.tblId, tableStats);
     }
 
     public void logCreateTableStats(TableStats tableStats) {

@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -49,13 +50,13 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-public class StatisticsAutoAnalyzer extends MasterDaemon {
+public class StatisticsAutoCollector extends MasterDaemon {
 
-    private static final Logger LOG = LogManager.getLogger(StatisticsAutoAnalyzer.class);
+    private static final Logger LOG = LogManager.getLogger(StatisticsAutoCollector.class);
 
     private AnalysisTaskExecutor analysisTaskExecutor;
 
-    public StatisticsAutoAnalyzer() {
+    public StatisticsAutoCollector() {
         super("Automatic Analyzer",
                 TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes) / 2);
         analysisTaskExecutor = new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num);
@@ -110,35 +111,52 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         }
     }
 
-    public List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
+    protected List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         for (TableIf table : db.getTables()) {
-            if (table instanceof View) {
+            if (table instanceof View || skip(table)) {
                 continue;
             }
-            TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
-                    table.getName());
-            AnalysisInfo jobInfo = new AnalysisInfoBuilder()
-                    .setJobId(Env.getCurrentEnv().getNextId())
-                    .setCatalogName(db.getCatalog().getName())
-                    .setDbName(db.getFullName())
-                    .setTblName(tableName.getTbl())
-                    .setColName(
-                            table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                    .map(
-                                            Column::getName).collect(Collectors.joining(","))
-                    )
-                    .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
-                    .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
-                    .setAnalysisMethod(AnalysisInfo.AnalysisMethod.FULL)
-                    .setScheduleType(AnalysisInfo.ScheduleType.ONCE)
-                    .setState(AnalysisState.PENDING)
-                    .setTaskIds(new ArrayList<>())
-                    .setLastExecTimeInMs(System.currentTimeMillis())
-                    .setJobType(JobType.SYSTEM).build();
-            analysisInfos.add(jobInfo);
+            createAnalyzeJobForTbl(db, analysisInfos, table);
         }
         return analysisInfos;
+    }
+
+    // return true if skip auto analyze this time.
+    private boolean skip(TableIf table) {
+        if (table.getDataSize() < Config.huge_table_lower_bound_size_in_bytes) {
+            return false;
+        }
+        TableStats tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        return System.currentTimeMillis() - tableStats.updatedTime < Config.huge_table_auto_analyze_interval_in_millis;
+    }
+
+    private void createAnalyzeJobForTbl(DatabaseIf<? extends TableIf> db,
+            List<AnalysisInfo> analysisInfos, TableIf table) {
+        AnalysisMethod analysisMethod = null;
+
+        TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
+                table.getName());
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder()
+                .setJobId(Env.getCurrentEnv().getNextId())
+                .setCatalogName(db.getCatalog().getName())
+                .setDbName(db.getFullName())
+                .setTblName(tableName.getTbl())
+                .setColName(
+                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                .map(
+                                        Column::getName).collect(Collectors.joining(","))
+                )
+                .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
+                .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
+                .setAnalysisMethod(analysisMethod)
+                .setSamplePercent(Config.huge_table_default_sample_rate)
+                .setScheduleType(AnalysisInfo.ScheduleType.ONCE)
+                .setState(AnalysisState.PENDING)
+                .setTaskIds(new ArrayList<>())
+                .setLastExecTimeInMs(System.currentTimeMillis())
+                .setJobType(JobType.SYSTEM).build();
+        analysisInfos.add(jobInfo);
     }
 
     private void analyzePeriodically() {
@@ -155,7 +173,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     }
 
     @VisibleForTesting
-    public AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
+    protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         long lastExecTimeInMs = jobInfo.lastExecTimeInMs;
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
@@ -175,7 +193,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     }
 
     @VisibleForTesting
-    public Set<String> findReAnalyzeNeededPartitions(TableIf table, long lastExecTimeInMs) {
+    protected Set<String> findReAnalyzeNeededPartitions(TableIf table, long lastExecTimeInMs) {
         return table.getPartitionNames().stream()
                 .map(table::getPartition)
                 .filter(Partition::hasData)
@@ -236,7 +254,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
 
     // Analysis job created by the system
     @VisibleForTesting
-    public void createSystemAnalysisJob(AnalysisInfo jobInfo)
+    protected void createSystemAnalysisJob(AnalysisInfo jobInfo)
             throws DdlException {
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated

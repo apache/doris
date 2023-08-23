@@ -236,5 +236,9 @@ public interface TableIf {
     default long getLastUpdateTime() {
         return -1L;
     }
+
+    default long getDataSize() {
+        return 0;
+    }
 }
 

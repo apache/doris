@@ -23,6 +23,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -63,13 +64,18 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                     + "MIN(`${colName}`) AS min, "
                     + "MAX(`${colName}`) AS max, "
                     + "${dataSizeFunction} AS data_size, "
-                    + "NOW() FROM `${dbName}`.`${tblName}` PARTITION ${partitionName}";
+                    + "NOW() FROM `${dbName}`.`${tblName}` PARTITION ${partitionName}  ${sampleExpr}";
 
     // cache stats for each partition, it would be inserted into column_statistics in a batch.
     private final List<List<ColStatsData>> buf = new ArrayList<>();
 
     public OlapAnalysisTask(AnalysisInfo info) {
         super(info);
+    }
+
+    @VisibleForTesting
+
+    public OlapAnalysisTask() {
     }
 
     public void doExecute() throws Exception {
@@ -109,7 +115,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     @VisibleForTesting
     public void execSQLs(List<String> partitionAnalysisSQLs, Map<String, String> params) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(info.jobType.equals(JobType.SYSTEM))) {
             List<List<String>> sqlGroups = Lists.partition(partitionAnalysisSQLs, StatisticConstants.UNION_ALL_LIMIT);
             for (List<String> group : sqlGroups) {
                 if (killed) {
