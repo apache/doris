@@ -455,7 +455,7 @@ public class ExportJob implements Writable {
         return olapScanNode;
     }
 
-    private PlanFragment genPlanFragment(Table.TableType type, ScanNode scanNode) throws UserException {
+   private PlanFragment genPlanFragment(Table.TableType type, ScanNode scanNode) throws UserException {
         PlanFragment fragment = null;
         switch (exportTable.getType()) {
             case OLAP:
@@ -471,19 +471,25 @@ public class ExportJob implements Writable {
             default:
                 break;
         }
-        fragment.setOutputExprs(createOutputExprs());
+        if (fragment != null){
+            fragment.setOutputExprs(createOutputExprs());
 
-        scanNode.setFragmentId(fragment.getFragmentId());
-        fragment.setSink(exportSink);
-        try {
-            fragment.finalize(null);
-        } catch (Exception e) {
-            LOG.info("Fragment finalize failed. e= {}", e);
-            throw new UserException("Fragment finalize failed");
+            scanNode.setFragmentId(fragment.getFragmentId());
+            fragment.setSink(exportSink);
+            try {
+                fragment.finalize(null);
+            } catch (Exception e) {
+                LOG.info("Fragment finalize failed. e= {}", e);
+                throw new UserException("Fragment finalize failed");
+            }
+        } else {
+            LOG.info("Table Type unsupport export, ExportTable type : {}", exportTable.getType());
+            throw new UserException("Table Type unsupport export :" + exportTable.getType());
         }
 
         return fragment;
     }
+    
 
     private List<Expr> createOutputExprs() {
         List<Expr> outputExprs = Lists.newArrayList();
