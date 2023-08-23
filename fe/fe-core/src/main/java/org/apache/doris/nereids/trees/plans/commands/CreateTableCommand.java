@@ -53,7 +53,7 @@ import java.util.stream.Collectors;
  */
 public class CreateTableCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CreateTableCommand.class);
-    
+
     private final Optional<LogicalPlan> ctasQuery;
     private final CreateTableInfo createTableInfo;
 
