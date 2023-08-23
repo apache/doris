@@ -644,6 +644,30 @@ struct ConvertImplNumberToJsonb {
     }
 };
 
+struct ConvertImplStringToJsonbAsJsonbString {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+        auto data_type_to = block.get_by_position(result).type;
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        auto dst = ColumnString::create();
+        ColumnString* dst_str = assert_cast<ColumnString*>(dst.get());
+        const auto* from_string = assert_cast<const ColumnString*>(&col_from);
+        JsonbWriter writer;
+        for (size_t i = 0; i < input_rows_count; i++) {
+            auto str_ref = from_string->get_data_at(i);
+            writer.reset();
+            // write raw string to jsonb
+            writer.writeStartString();
+            writer.writeString(str_ref.data, str_ref.size);
+            writer.writeEndString();
+            dst_str->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        }
+        block.replace_by_position(result, std::move(dst));
+        return Status::OK();
+    }
+};
+
 // Generic conversion of any type to jsonb.
 struct ConvertImplGenericToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1849,8 +1873,8 @@ private:
 
     // create cresponding jsonb value with type to_type
     // use jsonb writer to create jsonb value
-    WrapperType create_jsonb_wrapper(const DataTypePtr& from_type,
-                                     const DataTypeJsonb& to_type) const {
+    WrapperType create_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
+                                     bool string_as_jsonb_string) const {
         switch (from_type->get_type_id()) {
         case TypeIndex::UInt8:
             return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
@@ -1867,7 +1891,13 @@ private:
         case TypeIndex::Float64:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
         case TypeIndex::String:
-            return &ConvertImplGenericFromString::execute;
+            if (string_as_jsonb_string) {
+                // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
+                // each line in original string column.
+                return &ConvertImplStringToJsonbAsJsonbString::execute;
+            } else {
+                return &ConvertImplGenericFromString::execute;
+            }
         default:
             return &ConvertImplGenericToJsonb::execute;
         }
@@ -2175,7 +2205,8 @@ private:
             return create_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type);
         }
         if (to_type->get_type_id() == TypeIndex::JSONB) {
-            return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type));
+            return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
+                                        context->string_as_jsonb_string());
         }
 
         WrapperType ret;

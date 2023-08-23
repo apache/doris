@@ -44,6 +44,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "udf/udf.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -140,47 +141,6 @@ bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
 }
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
-    // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
-    // each line in original string column.
-    // TODO we should add a format option when doing CAST function, so that we could remove below lines
-    if (WhichDataType(remove_nullable(arg.type)).is_string() &&
-        WhichDataType(remove_nullable(type)).is_json()) {
-        *result = type->create_column();
-        ColumnNullable* null_res =
-                (*result)->is_nullable()
-                        ? static_cast<ColumnNullable*>((*result)->assume_mutable().get())
-                        : nullptr;
-        ColumnString* res_string =
-                null_res ? static_cast<ColumnString*>(&null_res->get_nested_column())
-                         : static_cast<ColumnString*>((*result)->assume_mutable().get());
-        const ColumnNullable* from_nullable =
-                arg.column->is_nullable() ? static_cast<const ColumnNullable*>(arg.column.get())
-                                          : nullptr;
-        const ColumnString* from_string =
-                from_nullable
-                        ? static_cast<const ColumnString*>(&from_nullable->get_nested_column())
-                        : static_cast<const ColumnString*>(arg.column.get());
-        if (from_nullable && null_res) {
-            null_res->get_null_map_data().assign(from_nullable->get_null_map_data());
-        }
-        size_t num_rows = arg.column->size();
-        JsonbWriter writer;
-        for (size_t i = 0; i < num_rows; i++) {
-            auto str_ref = from_string->get_data_at(i);
-            if (str_ref.empty()) {
-                res_string->insert_default();
-                continue;
-            }
-            writer.reset();
-            // write raw string to jsonb
-            writer.writeStartString();
-            writer.writeString(str_ref.data, str_ref.size);
-            writer.writeEndString();
-            res_string->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
-        }
-        return Status::OK();
-    }
-
     ColumnsWithTypeAndName arguments {
             arg, {type->create_column_const_with_default_value(1), type, type->get_name()}};
     auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
@@ -193,9 +153,13 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     argnum.emplace_back(0);
     argnum.emplace_back(1);
     size_t result_column = tmp_block.columns();
+    auto ctx = FunctionContext::create_context(nullptr, {}, {});
+    // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
+    // each line in original string column.
+    ctx->set_string_as_jsonb_string(true);
     tmp_block.insert({nullptr, type, arg.name});
     RETURN_IF_ERROR(
-            function->execute(nullptr, tmp_block, argnum, result_column, arg.column->size()));
+            function->execute(ctx.get(), tmp_block, argnum, result_column, arg.column->size()));
     *result = std::move(tmp_block.get_by_position(result_column).column);
     // Variant column is a really special case, src type is nullable but dst variant type is none nullable,
     // but we still need to wrap nullmap into variant root column to prevent from nullable info lost.
