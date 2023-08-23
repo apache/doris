@@ -196,6 +196,7 @@ public class PlanTranslatorContext {
         } else {
             slotRef = new SlotRef(slotDescriptor);
         }
+        slotRef.setTable(table);
         slotRef.setLabel(slotReference.getName());
         this.addExprIdSlotRefPair(slotReference.getExprId(), slotRef);
         slotDescriptor.setIsNullable(slotReference.nullable());
