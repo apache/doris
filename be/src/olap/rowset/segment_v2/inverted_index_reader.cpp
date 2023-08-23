@@ -683,7 +683,7 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats, const std::string& col
     // cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
     VLOG_DEBUG << "BKD index search column: " << column_name
-              << " result: " << bit_map->cardinality();
+               << " result: " << bit_map->cardinality();
     return Status::OK();
 }
 
