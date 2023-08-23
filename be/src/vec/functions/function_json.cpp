@@ -1079,6 +1079,8 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     rapidjson::Value* array_merge(std::vector<rapidjson::Value*> jsons,
                                   rapidjson::Document::AllocatorType& allocator) {
         rapidjson::Value* result =
@@ -1099,7 +1101,6 @@ public:
 
     rapidjson::Value* json_merge(std::vector<rapidjson::Value*> jsons,
                                  rapidjson::Document::AllocatorType& allocator) {
-
         // Use two layers of loops to iterate through each rapidjson::Value object in jsons.
         // For each object, the code iterates over its members and stores the key and value of each member in key and value respectively
         // converts the key to a std::string type and checks whether the result already contains the key.
@@ -1216,7 +1217,7 @@ public:
                 auto doc = std::make_unique<rapidjson::Document>();
                 if (doc->Parse(json_string.c_str()).HasParseError()) {
                     return Status::RuntimeError("Illegal json string {} in column {}", json_string,
-                                                col_change_jsons[j]->get_name());
+                                                col_json_strings[j]->get_name());
                 }
                 jsons.emplace_back(std::move(doc));
             }
