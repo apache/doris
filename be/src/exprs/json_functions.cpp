@@ -333,15 +333,7 @@ void JsonFunctions::merge_objects(rapidjson::Value& dst_object, rapidjson::Value
     for (auto src_it = src_object.MemberBegin(); src_it != src_object.MemberEnd(); ++src_it) {
         auto dst_it = dst_object.FindMember(src_it->name);
         if (dst_it != dst_object.MemberEnd()) {
-            // CHECK_EQ(src_it->value.GetType(), dst_it->value.GetType())
-            //             << "src type:" << src_it->value.GetType()
-            //             << ", dst type:" << dst_it->value.GetType();
-            if (src_it->value.IsArray()) {
-                for (auto arrayIt = src_it->value.Begin(); arrayIt != src_it->value.End();
-                     ++arrayIt) {
-                    dst_it->value.PushBack(*arrayIt, allocator);
-                }
-            } else if (src_it->value.IsObject()) {
+            if (src_it->value.IsObject()) {
                 merge_objects(dst_it->value, src_it->value, allocator);
             } else {
                 if (dst_it->value.IsNull()) {
