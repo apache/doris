@@ -323,6 +323,7 @@ public class OperationType {
     public static final short OP_CREATE_SCHEDULER_TASK = 453;
     public static final short OP_DELETE_SCHEDULER_TASK = 454;
 
+    public static final short OP_UPDATE_TABLE_STATS = 455;
 
     /**
      * Get opcode name by op code.
