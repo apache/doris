@@ -80,165 +80,7 @@ class CollectionValue;
 
 using namespace ErrorCode;
 
-constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
-
-class MultiBlockMerger {
-public:
-    MultiBlockMerger(TabletSharedPtr tablet) : _tablet(tablet), _cmp(tablet) {}
-
-    Status merge(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
-                 RowsetWriter* rowset_writer, uint64_t* merged_rows) {
-        int rows = 0;
-        for (auto& block : blocks) {
-            rows += block->rows();
-        }
-        if (!rows) {
-            return Status::OK();
-        }
-
-        std::vector<RowRef> row_refs;
-        row_refs.reserve(rows);
-        for (auto& block : blocks) {
-            for (uint16_t i = 0; i < block->rows(); i++) {
-                row_refs.emplace_back(block.get(), i);
-            }
-        }
-        // TODO: try to use pdqsort to replace std::sort
-        // The block version is incremental.
-        std::stable_sort(row_refs.begin(), row_refs.end(), _cmp);
-
-        auto finalized_block = _tablet->tablet_schema()->create_block();
-        int columns = finalized_block.columns();
-        *merged_rows += rows;
-
-        if (_tablet->keys_type() == KeysType::AGG_KEYS) {
-            auto tablet_schema = _tablet->tablet_schema();
-            int key_number = _tablet->num_key_columns();
-
-            std::vector<vectorized::AggregateFunctionPtr> agg_functions;
-            std::vector<vectorized::AggregateDataPtr> agg_places;
-
-            for (int i = key_number; i < columns; i++) {
-                try {
-                    vectorized::AggregateFunctionPtr function =
-                            tablet_schema->column(i).get_aggregate_function(
-                                    vectorized::AGG_LOAD_SUFFIX);
-                    agg_functions.push_back(function);
-                    // create aggregate data
-                    vectorized::AggregateDataPtr place = new char[function->size_of_data()];
-                    function->create(place);
-                    agg_places.push_back(place);
-                } catch (...) {
-                    for (int j = 0; j < i - key_number; ++j) {
-                        agg_functions[j]->destroy(agg_places[j]);
-                        delete[] agg_places[j];
-                    }
-                    throw;
-                }
-            }
-
-            DEFER({
-                for (int i = 0; i < columns - key_number; i++) {
-                    agg_functions[i]->destroy(agg_places[i]);
-                    delete[] agg_places[i];
-                }
-            });
-
-            for (int i = 0; i < rows; i++) {
-                auto row_ref = row_refs[i];
-
-                for (int j = key_number; j < columns; j++) {
-                    auto column_ptr = row_ref.get_column(j).get();
-                    agg_functions[j - key_number]->add(
-                            agg_places[j - key_number],
-                            const_cast<const vectorized::IColumn**>(&column_ptr), row_ref.position,
-                            nullptr);
-                }
-
-                if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
-                    for (int j = 0; j < key_number; j++) {
-                        finalized_block.get_by_position(j).column->assume_mutable()->insert_from(
-                                *row_ref.get_column(j), row_ref.position);
-                    }
-
-                    for (int j = key_number; j < columns; j++) {
-                        agg_functions[j - key_number]->insert_result_into(
-                                agg_places[j - key_number],
-                                finalized_block.get_by_position(j).column->assume_mutable_ref());
-                        agg_functions[j - key_number]->reset(agg_places[j - key_number]);
-                    }
-
-                    if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
-                        *merged_rows -= finalized_block.rows();
-                        rowset_writer->add_block(&finalized_block);
-                        finalized_block.clear_column_data();
-                    }
-                }
-            }
-        } else {
-            std::vector<RowRef> pushed_row_refs;
-            if (_tablet->keys_type() == KeysType::DUP_KEYS) {
-                std::swap(pushed_row_refs, row_refs);
-            } else if (_tablet->keys_type() == KeysType::UNIQUE_KEYS) {
-                for (int i = 0; i < rows; i++) {
-                    if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
-                        pushed_row_refs.push_back(row_refs[i]);
-                    }
-                }
-            }
-
-            // update real inserted row number
-            rows = pushed_row_refs.size();
-            *merged_rows -= rows;
-
-            for (int i = 0; i < rows; i += ALTER_TABLE_BATCH_SIZE) {
-                int limit = std::min(ALTER_TABLE_BATCH_SIZE, rows - i);
-
-                for (int idx = 0; idx < columns; idx++) {
-                    auto column = finalized_block.get_by_position(idx).column->assume_mutable();
-
-                    for (int j = 0; j < limit; j++) {
-                        auto row_ref = pushed_row_refs[i + j];
-                        column->insert_from(*row_ref.get_column(idx), row_ref.position);
-                    }
-                }
-                rowset_writer->add_block(&finalized_block);
-                finalized_block.clear_column_data();
-            }
-        }
-
-        RETURN_IF_ERROR(rowset_writer->flush());
-        return Status::OK();
-    }
-
-private:
-    struct RowRef {
-        RowRef(vectorized::Block* block_, uint16_t position_)
-                : block(block_), position(position_) {}
-        vectorized::ColumnPtr get_column(int index) const {
-            return block->get_by_position(index).column;
-        }
-        const vectorized::Block* block;
-        uint16_t position;
-    };
-
-    struct RowRefComparator {
-        RowRefComparator(TabletSharedPtr tablet) : _num_columns(tablet->num_key_columns()) {}
-
-        int compare(const RowRef& lhs, const RowRef& rhs) const {
-            return lhs.block->compare_at(lhs.position, rhs.position, _num_columns, *rhs.block, -1);
-        }
-
-        bool operator()(const RowRef& lhs, const RowRef& rhs) const {
-            return compare(lhs, rhs) < 0;
-        }
-
-        const size_t _num_columns;
-    };
-
-    TabletSharedPtr _tablet;
-    RowRefComparator _cmp;
-};
+constexpr int ALTER_TABLE_BATCH_SIZE = 4064;
 
 BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
         : _desc_tbl(desc_tbl) {
@@ -283,11 +125,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     const int column_size = new_block->columns();
 
     // swap ref_block[key] and new_block[value]
-    std::map<int, int> swap_idx_map;
-
+    std::list<std::pair<int, int>> swap_idx_list;
     for (int idx = 0; idx < column_size; idx++) {
-        int ref_idx = _schema_mapping[idx].ref_column;
-
         if (_schema_mapping[idx].expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
@@ -303,14 +142,11 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                         "{} size invalid, expect={}, real={}", new_block->get_by_position(idx).name,
                         row_size, ref_block->get_by_position(result_column_id).column->size());
             }
-
-            if (_type != ROLLUP) {
-                RETURN_IF_ERROR(
-                        _check_cast_valid(ref_block->get_by_position(ref_idx).column,
-                                          ref_block->get_by_position(result_column_id).column));
-            }
-            swap_idx_map[result_column_id] = idx;
-        } else if (ref_idx < 0) {
+            RETURN_IF_ERROR(_check_cast_valid(ref_block->get_by_position(idx).column,
+                                              ref_block->get_by_position(result_column_id).column,
+                                              _type));
+            swap_idx_list.push_back({result_column_id, idx});
+        } else if (_schema_mapping[idx].ref_column < 0) {
             if (_type != ROLLUP) {
                 // new column, write default value
                 auto value = _schema_mapping[idx].default_value;
@@ -330,24 +166,24 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             }
         } else {
             // same type, just swap column
-            swap_idx_map[ref_idx] = idx;
+            swap_idx_list.push_back({_schema_mapping[idx].ref_column, idx});
         }
     }
 
-    for (auto it : swap_idx_map) {
-        auto& ref_col = ref_block->get_by_position(it.first);
-        auto& new_col = new_block->get_by_position(it.second);
+    for (auto it : swap_idx_list) {
+        auto& ref_col = ref_block->get_by_position(it.first).column;
+        auto& new_col = new_block->get_by_position(it.second).column;
 
-        bool ref_col_nullable = ref_col.column->is_nullable();
-        bool new_col_nullable = new_col.column->is_nullable();
+        bool ref_col_nullable = ref_col->is_nullable();
+        bool new_col_nullable = new_col->is_nullable();
 
         if (ref_col_nullable != new_col_nullable) {
             // not nullable to nullable
             if (new_col_nullable) {
-                auto* new_nullable_col = assert_cast<vectorized::ColumnNullable*>(
-                        new_col.column->assume_mutable().get());
+                auto* new_nullable_col =
+                        assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
 
-                new_nullable_col->swap_nested_column(ref_col.column);
+                new_nullable_col->change_nested_column(ref_col);
                 new_nullable_col->get_null_map_data().resize_fill(new_nullable_col->size());
             } else {
                 // nullable to not nullable:
@@ -355,14 +191,14 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 // then do schema change `alter table test modify column c_phone int not null`,
                 // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
                 // so need to handle nullable to not nullable here
-                auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
-                        ref_col.column->assume_mutable().get());
+                auto* ref_nullable_col =
+                        assert_cast<vectorized::ColumnNullable*>(ref_col->assume_mutable().get());
 
-                ref_nullable_col->swap_nested_column(new_col.column);
+                new_col = ref_nullable_col->get_nested_column_ptr();
             }
         } else {
-            new_block->get_by_position(it.second).column.swap(
-                    ref_block->get_by_position(it.first).column);
+            new_block->get_by_position(it.second).column =
+                    ref_block->get_by_position(it.first).column;
         }
     }
     return Status::OK();
@@ -370,7 +206,16 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
 // This check is to prevent schema-change from causing data loss
 Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
-                                       vectorized::ColumnPtr new_column) const {
+                                       vectorized::ColumnPtr new_column,
+                                       AlterTabletType type) const {
+    if (ref_column->size() != new_column->size()) {
+        return Status::InternalError(
+                "column size is changed, ref_column_size={}, new_column_size={}",
+                ref_column->size(), new_column->size());
+    }
+    if (type == ROLLUP) {
+        return Status::OK();
+    }
     if (ref_column->is_nullable() != new_column->is_nullable()) {
         if (ref_column->is_nullable()) {
             auto* ref_null_map =
@@ -591,9 +436,6 @@ Status VSchemaChangeWithSorting::_internal_sorting(
         const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
         int64_t newest_write_timestamp, TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
         SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
-    uint64_t merged_rows = 0;
-    MultiBlockMerger merger(new_tablet);
-
     std::unique_ptr<RowsetWriter> rowset_writer;
     RowsetWriterContext context;
     context.version = version;
@@ -609,9 +451,11 @@ Status VSchemaChangeWithSorting::_internal_sorting(
                                                    rowset_writer->rowset_id().to_string());
     }};
 
-    RETURN_IF_ERROR(merger.merge(blocks, rowset_writer.get(), &merged_rows));
+    for (auto& block : blocks) {
+        RETURN_IF_ERROR(rowset_writer->add_block(block.get()));
+    }
 
-    _add_merged_rows(merged_rows);
+    RETURN_IF_ERROR(rowset_writer->flush());
     *rowset = rowset_writer->build();
     return Status::OK();
 }
@@ -631,7 +475,6 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
                                            new_tablet->tablet_schema(), rs_readers, rowset_writer,
                                            &stats));
 
-    _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
 }

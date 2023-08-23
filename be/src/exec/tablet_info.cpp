@@ -36,6 +36,7 @@
 #include "runtime/types.h"
 #include "util/hash_util.hpp"
 #include "util/string_parser.hpp"
+#include "util/string_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -126,7 +127,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     for (auto& t_slot_desc : tschema.slot_descs) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(t_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        slots_map.emplace(slot_desc->col_name(), slot_desc);
+        slots_map.emplace(to_lower(slot_desc->col_name()), slot_desc);
     }
 
     for (auto& t_index : tschema.indexes) {
@@ -137,7 +138,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             if (_is_partial_update && _partial_update_input_columns.count(col) == 0) {
                 continue;
             }
-            auto it = slots_map.find(col);
+            auto it = slots_map.find(to_lower(col));
             if (it == std::end(slots_map)) {
                 return Status::InternalError("unknown index column, column={}", col);
             }
