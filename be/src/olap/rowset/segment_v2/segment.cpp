@@ -38,6 +38,7 @@
 #include "olap/primary_key_index.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
+#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -372,8 +373,8 @@ static Status new_default_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
                                        std::unique_ptr<ColumnIterator>* iter,
-                                       SubstreamCache* stream_cache) {
-    if (!stream_cache) {
+                                       HierarchicalDataReader* path_reader) {
+    if (path_reader->get_reader_type() != ReaderType::READER_QUERY) {
         // Could be compaction ..etc and read flat leaves nodes data
         auto node = _sub_column_tree.find_leaf(tablet_column.path_info());
         if (!node) {
@@ -388,8 +389,8 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
     // Need read hierarchy data
     auto add_stream = [&](CachedStreamIterator* iter,
                           const SubcolumnColumnReaders::Node* node) -> Status {
-        if (stream_cache->find_leaf(node->path)) {
-            iter->attatch_node(stream_cache->find_leaf(node->path));
+        if (path_reader->find_leaf(node->path)) {
+            iter->attatch_node(path_reader->find_leaf(node->path));
             return Status::OK();
         }
         CHECK(node);
@@ -397,13 +398,13 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
         RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
         std::unique_ptr<ColumnIterator> it_ptr;
         it_ptr.reset(it);
-        bool added = stream_cache->add(
+        bool added = path_reader->add(
                 node->path,
                 StreamReader {nullptr, std::move(it_ptr), node->data.file_column_type, false});
         if (!added) {
             return Status::InternalError("Failed to add node path {}", node->path.get_path());
         }
-        iter->attatch_node(stream_cache->find_leaf(node->path));
+        iter->attatch_node(path_reader->find_leaf(node->path));
         return Status::OK();
     };
     vectorized::PathInData root_path({tablet_column.path_info().get_parts()[0]});
@@ -420,6 +421,8 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
         auto cache_iter = new CachedStreamIterator(tablet_column.path_info());
         RETURN_IF_ERROR(add_stream(cache_iter, node));
         iter->reset(cache_iter);
+        path_reader->set_read_type(tablet_column.path_info(),
+                                   HierarchicalDataReader::ReadType::DIRECT_READ_MATERIALIZED);
     } else if (node != nullptr && !node->children.empty()) {
         // None leave node need merge with root
         auto* stream_iter = new CachedStreamIterator(tablet_column.path_info());
@@ -439,6 +442,8 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
             RETURN_IF_ERROR(add_stream(stream_iter, root));
         }
         iter->reset(stream_iter);
+        path_reader->set_read_type(tablet_column.path_info(),
+                                   HierarchicalDataReader::ReadType::COMPOUND);
     } else {
         // If file only exist column `v.a` and `v` but target path is `v.b`, read only read and parse root column
         const auto* node = _sub_column_tree.find_leaf(root_path);
@@ -449,6 +454,8 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
         }
         auto cache_iter = new CachedStreamIterator(tablet_column.path_info());
         RETURN_IF_ERROR(add_stream(cache_iter, node));
+        path_reader->set_read_type(tablet_column.path_info(),
+                                   HierarchicalDataReader::ReadType::EXTRACT_FROM_ROOT);
         iter->reset(cache_iter);
     }
     return Status::OK();
@@ -463,10 +470,10 @@ Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
 // but they are not the same column
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
-                                    SubstreamCache* stream_cache) {
+                                    HierarchicalDataReader* path_reader) {
     // init column iterator by path info
     if (!tablet_column.path_info().empty()) {
-        return new_iterator_with_path(tablet_column, iter, stream_cache);
+        return new_iterator_with_path(tablet_column, iter, path_reader);
     }
     // init default iterator
     if (_column_readers.count(tablet_column.unique_id()) < 1) {
