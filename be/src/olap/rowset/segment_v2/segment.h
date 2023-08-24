@@ -35,6 +35,7 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
+#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
@@ -93,11 +94,11 @@ public:
 
     Status new_column_iterator(const TabletColumn& tablet_column,
                                std::unique_ptr<ColumnIterator>* iter,
-                               SubstreamCache* stream_cache = nullptr);
+                               HierarchicalDataReader* path_reader = nullptr);
 
     Status new_iterator_with_path(const TabletColumn& tablet_column,
                                   std::unique_ptr<ColumnIterator>* iter,
-                                  SubstreamCache* stream_cache = nullptr);
+                                  HierarchicalDataReader* path_reader = nullptr);
 
     Status new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter);
 
