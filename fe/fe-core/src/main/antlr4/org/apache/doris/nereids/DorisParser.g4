@@ -389,6 +389,7 @@ primaryExpression
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
+    | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
 
 functionIdentifier 
