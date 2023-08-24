@@ -32,8 +32,7 @@ suite("ds_rf32") {
 
     String stmt = '''
     explain physical plan
-    
-select  sum(cs_ext_discount_amt)  as "excess discount amount" 
+    select  sum(cs_ext_discount_amt)  as "excess discount amount" 
 from 
    catalog_sales 
    ,item 
@@ -74,6 +73,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.32"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

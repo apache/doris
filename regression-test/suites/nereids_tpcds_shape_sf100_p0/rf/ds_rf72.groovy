@@ -32,8 +32,7 @@ suite("ds_rf72") {
 
     String stmt = '''
     explain physical plan
-    
-select  i_item_desc
+    select  i_item_desc
       ,w_warehouse_name
       ,d1.d_week_seq
       ,sum(case when p_promo_sk is null then 1 else 0 end) no_promo
@@ -52,7 +51,7 @@ left outer join promotion on (cs_promo_sk=p_promo_sk)
 left outer join catalog_returns on (cr_item_sk = cs_item_sk and cr_order_number = cs_order_number)
 where d1.d_week_seq = d2.d_week_seq
   and inv_quantity_on_hand < cs_quantity 
-  and d3.d_date > d1.d_date + 5
+  and (d3.d_date > (d1.d_date + INTERVAL  '5' DAY))
   and hd_buy_potential = '501-1000'
   and d1.d_year = 2002
   and cd_marital_status = 'W'
@@ -75,6 +74,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.72"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

@@ -32,8 +32,7 @@ suite("ds_rf84") {
 
     String stmt = '''
     explain physical plan
-    
-select  c_customer_id as customer_id
+    select  c_customer_id as customer_id
        , concat(concat(coalesce(c_last_name,''), ','), coalesce(c_first_name,'')) as customername
  from customer
      ,customer_address
@@ -67,6 +66,7 @@ select  c_customer_id as customer_id
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.84"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

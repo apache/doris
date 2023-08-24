@@ -32,8 +32,7 @@ suite("ds_rf54") {
 
     String stmt = '''
     explain physical plan
-    
-with my_customers as (
+    with my_customers as (
  select distinct c_customer_sk
         , c_current_addr_sk
  from   
@@ -102,6 +101,7 @@ with my_customers as (
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.54"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

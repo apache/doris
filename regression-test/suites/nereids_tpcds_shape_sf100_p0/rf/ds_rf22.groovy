@@ -32,8 +32,7 @@ suite("ds_rf22") {
 
     String stmt = '''
     explain physical plan
-    
-select  i_product_name
+    select  i_product_name
              ,i_brand
              ,i_class
              ,i_category
@@ -66,6 +65,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.22"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

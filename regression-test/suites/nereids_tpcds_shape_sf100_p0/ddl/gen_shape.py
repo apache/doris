@@ -18,7 +18,7 @@ if __name__ == '__main__':
     with open('shape.tmpl', 'r') as f:
         tmpl = f.read()
         for i in range(1,100):
-            with open('query'+str(i)+'.sql', 'r') as fi:
+            with open('../../../../tools/tpcds-tools/queries/sf100/query'+str(i)+'.sql', 'r') as fi:
                 casei = tmpl.replace('{--}', str(i))
                 casei = casei.replace('{query}', fi.read())
 

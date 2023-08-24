@@ -32,8 +32,7 @@ suite("ds_rf91") {
 
     String stmt = '''
     explain physical plan
-    
-select  
+    select  
         cc_call_center_id Call_Center,
         cc_name Call_Center_Name,
         cc_manager Manager,
@@ -77,6 +76,7 @@ order by sum(cr_net_loss) desc;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.91"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

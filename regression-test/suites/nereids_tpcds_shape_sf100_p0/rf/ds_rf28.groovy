@@ -32,8 +32,7 @@ suite("ds_rf28") {
 
     String stmt = '''
     explain physical plan
-    
-select  *
+    select  *
 from (select avg(ss_list_price) B1_LP
             ,count(ss_list_price) B1_CNT
             ,count(distinct ss_list_price) B1_CNTD
@@ -99,6 +98,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.28"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

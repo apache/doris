@@ -32,8 +32,7 @@ suite("ds_rf39") {
 
     String stmt = '''
     explain physical plan
-    
-with inv as
+    with inv as
 (select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
        ,stdev,mean, case mean when 0 then null else stdev/mean end cov
  from(select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
@@ -56,9 +55,7 @@ where inv1.i_item_sk = inv2.i_item_sk
   and inv1.d_moy=1
   and inv2.d_moy=1+1
 order by inv1.w_warehouse_sk,inv1.i_item_sk,inv1.d_moy,inv1.mean,inv1.cov
-        ,inv2.d_moy,inv2.mean, inv2.cov
-;
-
+        ,inv2.d_moy,inv2.mean, inv2.cov;
     '''
     String plan = sql "${stmt}"
     println plan
@@ -74,6 +71,7 @@ order by inv1.w_warehouse_sk,inv1.i_item_sk,inv1.d_moy,inv1.mean,inv1.cov
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.39"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

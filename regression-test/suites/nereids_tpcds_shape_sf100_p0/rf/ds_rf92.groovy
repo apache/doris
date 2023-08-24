@@ -32,8 +32,7 @@ suite("ds_rf92") {
 
     String stmt = '''
     explain physical plan
-    
-select  
+    select  
    sum(ws_ext_discount_amt)  as "Excess Discount Amount" 
 from 
     web_sales 
@@ -76,6 +75,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.92"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

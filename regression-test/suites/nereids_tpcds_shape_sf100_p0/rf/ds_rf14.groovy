@@ -32,8 +32,7 @@ suite("ds_rf14") {
 
     String stmt = '''
     explain physical plan
-    
-with  cross_items as
+    with  cross_items as
  (select i_item_sk ss_item_sk
  from item,
  (select iss.i_brand_id brand_id
@@ -150,6 +149,7 @@ with  cross_items as
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.14"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

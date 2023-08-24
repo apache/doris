@@ -32,8 +32,7 @@ suite("ds_rf17") {
 
     String stmt = '''
     explain physical plan
-    
-select  i_item_id
+    select  i_item_id
        ,i_item_desc
        ,s_state
        ,count(ss_quantity) as store_sales_quantitycount
@@ -91,6 +90,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.17"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

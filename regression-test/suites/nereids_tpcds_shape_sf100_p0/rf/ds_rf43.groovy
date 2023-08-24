@@ -32,8 +32,7 @@ suite("ds_rf43") {
 
     String stmt = '''
     explain physical plan
-    
-select  s_store_name, s_store_id,
+    select  s_store_name, s_store_id,
         sum(case when (d_day_name='Sunday') then ss_sales_price else null end) sun_sales,
         sum(case when (d_day_name='Monday') then ss_sales_price else null end) mon_sales,
         sum(case when (d_day_name='Tuesday') then ss_sales_price else  null end) tue_sales,
@@ -65,6 +64,7 @@ select  s_store_name, s_store_id,
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.43"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

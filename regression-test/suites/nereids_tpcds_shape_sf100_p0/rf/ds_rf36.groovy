@@ -32,8 +32,7 @@ suite("ds_rf36") {
 
     String stmt = '''
     explain physical plan
-    
-select  
+    select  
     sum(ss_net_profit)/sum(ss_ext_sales_price) as gross_margin
    ,i_category
    ,i_class
@@ -76,6 +75,7 @@ select
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.36"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

@@ -32,8 +32,7 @@ suite("ds_rf78") {
 
     String stmt = '''
     explain physical plan
-    
-with ws as
+    with ws as
   (select d_year AS ws_sold_year, ws_item_sk,
     ws_bill_customer_sk ws_customer_sk,
     sum(ws_quantity) ws_qty,
@@ -104,6 +103,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.78"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

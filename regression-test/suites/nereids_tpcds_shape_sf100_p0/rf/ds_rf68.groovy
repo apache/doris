@@ -32,8 +32,7 @@ suite("ds_rf68") {
 
     String stmt = '''
     explain physical plan
-    
-select  c_last_name
+    select  c_last_name
        ,c_first_name
        ,ca_city
        ,bought_city
@@ -88,6 +87,7 @@ select  c_last_name
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.68"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

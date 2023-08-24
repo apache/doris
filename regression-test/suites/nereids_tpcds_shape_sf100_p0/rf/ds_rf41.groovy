@@ -32,8 +32,7 @@ suite("ds_rf41") {
 
     String stmt = '''
     explain physical plan
-    
-select  distinct(i_product_name)
+    select  distinct(i_product_name)
  from item i1
  where i_manufact_id between 748 and 748+40 
    and (select count(*) as item_cnt
@@ -98,6 +97,7 @@ select  distinct(i_product_name)
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.41"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

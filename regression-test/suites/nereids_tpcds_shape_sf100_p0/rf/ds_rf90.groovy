@@ -32,8 +32,7 @@ suite("ds_rf90") {
 
     String stmt = '''
     explain physical plan
-    
-select  cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
+    select  cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
  from ( select count(*) amc
        from web_sales, household_demographics , time_dim, web_page
        where ws_sold_time_sk = time_dim.t_time_sk
@@ -68,6 +67,7 @@ select  cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.90"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

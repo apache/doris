@@ -89,6 +89,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.59"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

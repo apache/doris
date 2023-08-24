@@ -32,8 +32,7 @@ suite("ds_rf49") {
 
     String stmt = '''
     explain physical plan
-    
-select  channel, item, return_ratio, return_rank, currency_rank from
+    select  channel, item, return_ratio, return_rank, currency_rank from
  (select
  'web' as channel
  ,web.item
@@ -175,6 +174,7 @@ select  channel, item, return_ratio, return_rank, currency_rank from
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.49"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

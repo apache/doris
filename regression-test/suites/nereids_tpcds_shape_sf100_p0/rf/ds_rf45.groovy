@@ -32,8 +32,7 @@ suite("ds_rf45") {
 
     String stmt = '''
     explain physical plan
-    
-select  ca_zip, ca_city, sum(ws_sales_price)
+    select  ca_zip, ca_city, sum(ws_sales_price)
  from web_sales, customer, customer_address, date_dim, item
  where ws_bill_customer_sk = c_customer_sk
  	and c_current_addr_sk = ca_address_sk 
@@ -66,6 +65,7 @@ select  ca_zip, ca_city, sum(ws_sales_price)
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.45"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

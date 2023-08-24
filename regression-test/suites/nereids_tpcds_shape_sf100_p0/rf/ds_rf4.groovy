@@ -32,8 +32,7 @@ suite("ds_rf4") {
 
     String stmt = '''
     explain physical plan
-    
-with year_total as (
+    with year_total as (
  select c_customer_id customer_id
        ,c_first_name customer_first_name
        ,c_last_name customer_last_name
@@ -162,6 +161,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.4"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

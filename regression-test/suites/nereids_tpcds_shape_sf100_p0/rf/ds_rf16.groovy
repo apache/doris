@@ -32,8 +32,7 @@ suite("ds_rf16") {
 
     String stmt = '''
     explain physical plan
-    
-select  
+    select  
    count(distinct cs_order_number) as "order count"
   ,sum(cs_ext_ship_cost) as "total shipping cost"
   ,sum(cs_net_profit) as "total net profit"
@@ -77,6 +76,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.16"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

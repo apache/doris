@@ -32,8 +32,7 @@ suite("ds_rf13") {
 
     String stmt = '''
     explain physical plan
-    
-select avg(ss_quantity)
+    select avg(ss_quantity)
        ,avg(ss_ext_sales_price)
        ,avg(ss_ext_wholesale_cost)
        ,sum(ss_ext_wholesale_cost)
@@ -98,6 +97,7 @@ select avg(ss_quantity)
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.13"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

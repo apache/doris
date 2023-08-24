@@ -32,8 +32,7 @@ suite("ds_rf76") {
 
     String stmt = '''
     explain physical plan
-    
-select  channel, col_name, d_year, d_qoy, i_category, COUNT(*) sales_cnt, SUM(ext_sales_price) sales_amt FROM (
+    select  channel, col_name, d_year, d_qoy, i_category, COUNT(*) sales_cnt, SUM(ext_sales_price) sales_amt FROM (
         SELECT 'store' as channel, 'ss_hdemo_sk' col_name, d_year, d_qoy, i_category, ss_ext_sales_price ext_sales_price
          FROM store_sales, item, date_dim
          WHERE ss_hdemo_sk IS NULL
@@ -70,6 +69,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.76"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

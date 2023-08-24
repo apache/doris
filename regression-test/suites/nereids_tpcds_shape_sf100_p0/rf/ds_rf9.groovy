@@ -32,8 +32,7 @@ suite("ds_rf9") {
 
     String stmt = '''
     explain physical plan
-    
-select case when (select count(*) 
+    select case when (select count(*) 
                   from store_sales 
                   where ss_quantity between 1 and 20) > 2972190
             then (select avg(ss_ext_sales_price) 
@@ -97,6 +96,7 @@ where r_reason_sk = 1
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.9"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

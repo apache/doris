@@ -32,8 +32,7 @@ suite("ds_rf53") {
 
     String stmt = '''
     explain physical plan
-    
-select  * from 
+    select  * from 
 (select i_manufact_id,
 sum(ss_sales_price) sum_sales,
 avg(sum(ss_sales_price)) over (partition by i_manufact_id) avg_quarterly_sales
@@ -74,6 +73,7 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.53"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

@@ -32,8 +32,7 @@ suite("ds_rf6") {
 
     String stmt = '''
     explain physical plan
-    
-select  a.ca_state state, count(*) cnt
+    select  a.ca_state state, count(*) cnt
  from customer_address a
      ,customer c
      ,store_sales s
@@ -72,6 +71,7 @@ select  a.ca_state state, count(*) cnt
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.6"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

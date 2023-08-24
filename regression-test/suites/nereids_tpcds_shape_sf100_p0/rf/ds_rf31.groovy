@@ -32,8 +32,7 @@ suite("ds_rf31") {
 
     String stmt = '''
     explain physical plan
-    
-with ss as
+    with ss as
  (select ca_county,d_qoy, d_year,sum(ss_ext_sales_price) as store_sales
  from store_sales,date_dim,customer_address
  where ss_sold_date_sk = d_date_sk
@@ -98,6 +97,7 @@ with ss as
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.31"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))

@@ -32,8 +32,7 @@ suite("ds_rf95") {
 
     String stmt = '''
     explain physical plan
-    
-with ws_wh as
+    with ws_wh as
 (select ws1.ws_order_number,ws1.ws_warehouse_sk wh1,ws2.ws_warehouse_sk wh2
  from web_sales ws1,web_sales ws2
  where ws1.ws_order_number = ws2.ws_order_number
@@ -78,9 +77,10 @@ limit 100;
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.95"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
     
-    assertEquals("RF0[ws_order_number->[ws_order_number],RF7[ws_ship_date_sk->[d_date_sk],RF4[wr_order_number->[ws_order_number],RF6[wr_order_number->[ws_order_number, ws_order_number],RF3[ws_order_number->[ws_order_number],RF5[ws_order_number->[ws_order_number, ws_order_number],RF2[web_site_sk->[ws_web_site_sk],RF1[ca_address_sk->[ws_ship_addr_sk]", getRuntimeFilters(plan))
+    assertEquals("RF0[ws_order_number->[ws_order_number],RF7[ws_ship_date_sk->[d_date_sk],RF4[wr_order_number->[ws_order_number],RF5[wr_order_number->[ws_order_number, ws_order_number],RF3[ws_order_number->[ws_order_number],RF6[ws_order_number->[ws_order_number, ws_order_number],RF2[web_site_sk->[ws_web_site_sk],RF1[ca_address_sk->[ws_ship_addr_sk]", getRuntimeFilters(plan))
 }

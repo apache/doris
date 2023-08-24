@@ -32,8 +32,7 @@ suite("ds_rf21") {
 
     String stmt = '''
     explain physical plan
-    
-select  *
+    select  *
  from(select w_warehouse_name
             ,i_item_id
             ,sum(case when (cast(d_date as date) < cast ('2002-02-27' as date))
@@ -76,6 +75,7 @@ select  *
             return lst.join(',')
         }
     }
+    
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.21"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
