@@ -33,7 +33,7 @@ PhysicalResultSink
 --------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter(cast(d_date as DATETIMEV2(0)) IN (2001-06-06 00:00:00, 2001-09-02 00:00:00, 2001-11-11 00:00:00))
+----------------------------------filter(d_date IN (2001-06-06, 2001-09-02, 2001-11-11))
 ------------------------------------PhysicalOlapScan[date_dim]
 ------------hashJoin[INNER_JOIN](sr_items.item_id = wr_items.item_id)
 --------------PhysicalProject
@@ -61,7 +61,7 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter(cast(d_date as DATETIMEV2(0)) IN (2001-06-06 00:00:00, 2001-09-02 00:00:00, 2001-11-11 00:00:00))
+------------------------------------filter(d_date IN (2001-06-06, 2001-09-02, 2001-11-11))
 --------------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
@@ -90,6 +90,6 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter(cast(d_date as DATETIMEV2(0)) IN (2001-06-06 00:00:00, 2001-09-02 00:00:00, 2001-11-11 00:00:00))
+------------------------------------filter(d_date IN (2001-06-06, 2001-09-02, 2001-11-11))
 --------------------------------------PhysicalOlapScan[date_dim]
 
