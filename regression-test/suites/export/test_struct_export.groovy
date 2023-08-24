@@ -97,9 +97,15 @@ suite("test_struct_export", "export") {
         """
         url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
-        def filePrifix = url.split("${outFile}")[1]
-        csvFiles = "${outFile}${filePrifix}*.csv"
-        scpFiles ("root", urlHost, csvFiles, outFilePath);
+        List<List<Object>> backends =  sql """ show backends """
+        assertTrue(backends.size() > 0)
+        if (backends.size() > 1) {
+            // custer will scp files
+            def filePrifix = url.split("${outFile}")[1]
+            csvFiles = "${outFile}${filePrifix}*.csv"
+            scpFiles ("root", urlHost, csvFiles, outFilePath)
+        }
+
 
         File[] files = path.listFiles()
         assert files.length == 1
@@ -140,7 +146,9 @@ suite("test_struct_export", "export") {
             }
             path.delete();
         }
-        cmd = "rm -rf ${csvFiles}"
-        sshExec ("root", urlHost, cmd)
+        if (!assertEquals(csvFiles,"")) {
+            cmd = "rm -rf ${csvFiles}"
+            sshExec("root", urlHost, cmd)
+        }
     }
 }
