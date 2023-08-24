@@ -48,6 +48,7 @@ public class RuntimeProfile {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
     public static String ROOT_COUNTER = "";
     public static int FRAGMENT_DEPTH = 3;
+    public static int MAX_PROFILE_LEVEL = 2;
     public static String MAX_TIME_PRE = "MAX_TIME_";
     public static String MIN_TIME_PRE = "MIN_TIME_";
     private Counter counterTotalTime;
@@ -302,34 +303,41 @@ public class RuntimeProfile {
         }
     }
 
-    public void simpleProfile(int depth) {
+    public void simpleProfile(int depth, int profileLevel) {
         if (depth == FRAGMENT_DEPTH) {
-            mergeMutiInstance(childList);
+            mergeMutiInstance(childList, profileLevel);
             return;
         }
         for (int i = 0; i < childList.size(); i++) {
             Pair<RuntimeProfile, Boolean> pair = childList.get(i);
             RuntimeProfile profile = pair.first;
-            profile.simpleProfile(depth + 1);
+            profile.simpleProfile(depth + 1, profileLevel);
         }
     }
 
     private static void mergeMutiInstance(
-            LinkedList<Pair<RuntimeProfile, Boolean>> childList) {
+            LinkedList<Pair<RuntimeProfile, Boolean>> childList, int profileLevel) {
         /*
          * Fragment 1: Fragment 1:
-         * Instance 0 Instance total (0)
-         * Instance 1 --->
+         * Instance 0 Instance (total)
+         * Instance 1
          * Instance 2
          */
+        int numInstance = childList.size();
         Pair<RuntimeProfile, Boolean> pair = childList.get(0);
         RuntimeProfile mergedProfile = pair.first;
         LinkedList<RuntimeProfile> other = new LinkedList<RuntimeProfile>();
         for (int i = 1; i < childList.size(); i++) {
             other.add(childList.get(i).first);
         }
-        if (other.size() != 0) {
-            mergeInstanceProfile(mergedProfile, other);
+        if (profileLevel == 1) {
+            mergedProfile.name = "Instance " + "(" + numInstance + ")";
+            mergeInstanceProfile(mergedProfile, other, profileLevel);
+        }
+        if (profileLevel == 0) {
+            String instanceName = new String(mergedProfile.name);
+            mergeInstanceProfile(mergedProfile, other, profileLevel);
+            mergedProfile.name = instanceName;
         }
         childList.clear();
         childList.add(Pair.of(mergedProfile, pair.second));
@@ -351,17 +359,52 @@ public class RuntimeProfile {
         return ret;
     }
 
-    private static void mergeInstanceProfile(RuntimeProfile src, LinkedList<RuntimeProfile> rhs) {
-        mergeProfileCounter(src, ROOT_COUNTER, rhs);
-        mergeProfileInfoStr(src, rhs);
+    private static void mergeInstanceProfile(RuntimeProfile src, LinkedList<RuntimeProfile> rhs, int profileLevel) {
+        mergeProfileCounter(src, ROOT_COUNTER, rhs, profileLevel);
+        mergeTotalTime(src, rhs);
+        if (profileLevel == 0) {
+            removeInfoStr(src);
+            removePipelineContext(src);
+            removeNameExtra(src);
+        } else {
+            mergeProfileInfoStr(src, rhs);
+        }
         for (int i = 0; i < src.childList.size(); i++) {
             RuntimeProfile srcChild = src.childList.get(i).first;
             LinkedList<RuntimeProfile> rhsChild = getChildListFromLists(i, rhs);
-            mergeInstanceProfile(srcChild, rhsChild);
+            mergeInstanceProfile(srcChild, rhsChild, profileLevel);
         }
     }
 
-    private static void mergeProfileCounter(RuntimeProfile src, String counterName, LinkedList<RuntimeProfile> rhs) {
+    private static void mergeTotalTime(RuntimeProfile src, LinkedList<RuntimeProfile> rhs) {
+        Counter counter = src.counterMap.get("TotalTime");
+        
+        for (RuntimeProfile profile : rhs) {
+            Counter othCounter = profile.counterMap.get("TotalTime");
+            if (othCounter != null && counter != null) {
+                counter.addValue(othCounter);
+            }
+        }
+    }
+
+    private static void removePipelineContext(RuntimeProfile src) {
+        LinkedList<Pair<RuntimeProfile, Boolean>> newChildList = new LinkedList<Pair<RuntimeProfile, Boolean>>();
+        for (Pair<RuntimeProfile, Boolean> pair : src.childList) {
+            RuntimeProfile profile = pair.first;
+            if (!profile.name.equals("PipelineContext")) {
+                newChildList.add(pair);
+            }
+        }
+        src.childList = newChildList;
+    }
+
+    private static void removeNameExtra(RuntimeProfile src) {
+        String[] parts = src.name.split("\\s+");
+        src.name = parts[0];
+    }
+
+    private static void mergeProfileCounter(RuntimeProfile src, String counterName, LinkedList<RuntimeProfile> rhs,
+            int profileLevel) {
         Set<String> childCounterSet = src.childCounterMap.get(counterName);
         if (childCounterSet == null) {
             return;
@@ -370,9 +413,28 @@ public class RuntimeProfile {
         for (String childCounterName : childCounterList) {
             Counter counter = src.counterMap.get(childCounterName);
             LinkedList<Counter> rhsCounter = getCounterListFromLists(childCounterName, rhs);
-            mergeProfileCounter(src, childCounterName, rhs);
-            mergeCounter(src, childCounterName, counter, rhsCounter);
+            removeMAXMINCounter(src, childCounterName, profileLevel);// will remove if we simple profile in be
+            mergeProfileCounter(src, childCounterName, rhs, profileLevel);
+            mergeCounter(src, childCounterName, counter, rhsCounter, profileLevel);
             removeZeroeCounter(childCounterSet, childCounterName, counter);
+            removeNotTimeCounter(childCounterSet, childCounterName, counter, profileLevel);
+        }
+    }
+
+    private static void removeInfoStr(RuntimeProfile src) {
+        src.infoStringsDisplayOrder.clear();
+        src.infoStrings.clear();
+    }
+
+    private static void removeMAXMINCounter(RuntimeProfile src, String counterName, int profileLevel) {
+        String maxCounterName = MAX_TIME_PRE + counterName;
+        String minCounterName = MIN_TIME_PRE + counterName;
+        if (profileLevel == 0) {
+            TreeSet<String> childCounterSet = src.childCounterMap.get(counterName);
+            if (childCounterSet != null) {
+                childCounterSet.remove(maxCounterName);
+                childCounterSet.remove(minCounterName);
+            }
         }
     }
 
@@ -398,8 +460,24 @@ public class RuntimeProfile {
         }
     }
 
+    private static void removeNotTimeCounter(Set<String> childCounterSet, String childCounterName, Counter counter,
+            int profileLevel) {
+        if (profileLevel > 0) {
+            return;
+        }
+        if (childCounterName.equals("NumScanners")) {
+            return;
+        }
+        if (!counter.isTimeType()) {
+            childCounterSet.remove(childCounterName);
+        }
+    }
+
     private static void mergeCounter(RuntimeProfile src, String counterName, Counter counter,
-            LinkedList<Counter> rhsCounter) {
+            LinkedList<Counter> rhsCounter, int profileLevel) {
+        if (rhsCounter.size() == 0) {
+            return;
+        }
         if (counter.isTimeType()) {
             Counter maxCounter = new Counter(counter.getType(), counter.getValue());
             Counter minCounter = new Counter(counter.getType(), counter.getValue());
@@ -416,15 +494,18 @@ public class RuntimeProfile {
             }
             String maxCounterName = MAX_TIME_PRE + counterName;
             String minCounterName = MIN_TIME_PRE + counterName;
-            src.counterMap.put(minCounterName, minCounter);
-            src.counterMap.put(maxCounterName, maxCounter);
-            TreeSet<String> childCounterSet = src.childCounterMap.get(counterName);
-            if (childCounterSet == null) {
-                src.childCounterMap.put(counterName, new TreeSet<String>());
-                childCounterSet = src.childCounterMap.get(counterName);
+            if (profileLevel > 0) {
+                src.counterMap.put(minCounterName, minCounter);
+                src.counterMap.put(maxCounterName, maxCounter);
+                TreeSet<String> childCounterSet = src.childCounterMap.get(counterName);
+                if (childCounterSet == null) {
+                    src.childCounterMap.put(counterName, new TreeSet<String>());
+                    childCounterSet = src.childCounterMap.get(counterName);
+                }
+                childCounterSet.add(minCounterName);
+                childCounterSet.add(maxCounterName);
             }
-            childCounterSet.add(minCounterName);
-            childCounterSet.add(maxCounterName);
+
         } else {
             for (Counter cnt : rhsCounter) {
                 counter.addValue(cnt);
@@ -438,9 +519,12 @@ public class RuntimeProfile {
         return builder.toString();
     }
 
-    public String getSimpleString() {
+    public String getSimpleString(int profileLevel) {
+        if (profileLevel == 2) {
+            return toString();
+        }
         StringBuilder builder = new StringBuilder();
-        simpleProfile(0);
+        simpleProfile(0, profileLevel);
         prettyPrint(builder, "");
         return builder.toString();
     }
