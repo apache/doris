@@ -73,4 +73,5 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
         }
         return null;
     }
+
 }
