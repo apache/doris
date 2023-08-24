@@ -78,7 +78,12 @@ suite("test_map_export", "export") {
     qt_select_count """SELECT COUNT(m) FROM ${testTable}"""
 
     def outFilePath = """${context.file.parent}/test_map_export"""
-    def outFile = "/tmp"
+    List<List<Object>> backends =  sql """ show backends """
+    assertTrue(backends.size() > 0)
+    def outFile = outFilePath
+    if (backends.size() > 1) {
+        outFile = "/tmp"
+    }
     def urlHost = ""
     def csvFiles = ""
     logger.info("test_map_export the outFilePath=" + outFilePath)
@@ -95,8 +100,6 @@ suite("test_map_export", "export") {
         """
         url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
-        List<List<Object>> backends =  sql """ show backends """
-        assertTrue(backends.size() > 0)
         if (backends.size() > 1) {
             // custer will scp files
             def filePrifix = url.split("${outFile}")[1]
@@ -142,7 +145,7 @@ suite("test_map_export", "export") {
             }
             path.delete();
         }
-        if (!assertEquals(csvFiles,"")) {
+        if (csvFiles != "") {
             cmd = "rm -rf ${csvFiles}"
             sshExec("root", urlHost, cmd)
         }
