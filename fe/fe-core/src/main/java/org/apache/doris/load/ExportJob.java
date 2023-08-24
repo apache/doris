@@ -468,9 +468,8 @@ public class ExportJob implements Writable {
                 .append(generateWhereSql())
                 .append(" INTO OUTFILE ").append(generateUrlSql())
                 .append(" FORMAT AS ").append(generateFormatSql())
-                .append(" PROPERTIES ").append("(")
                 .append(generatePropertiesSql())
-                .append(");");
+                .append(";");
         return selectSql.toString();
     }
 
@@ -536,7 +535,11 @@ public class ExportJob implements Writable {
     private StringBuilder generatePropertiesSql() {
         Map<String, String> outfileProperties = convertOutfileProperties();
         StringBuilder sb = new StringBuilder();
+        if (outfileProperties.isEmpty()) {
+            return sb;
+        }
 
+        sb.append(" PROPERTIES ").append("(");
         int i = 0;
         for (String key : outfileProperties.keySet()) {
             if (i != 0) {
@@ -547,6 +550,7 @@ public class ExportJob implements Writable {
                     .append("\"").append(outfileProperties.get(key)).append("\"");
             ++i;
         }
+        sb.append(")");
         return sb;
     }
 
