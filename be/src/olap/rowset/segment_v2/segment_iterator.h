@@ -41,6 +41,7 @@
 #include "olap/row_cursor.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "util/runtime_profile.h"
@@ -329,14 +330,6 @@ private:
 
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 
-    Status _init_variant_substreams();
-    void _reset_stream_cache();
-    void _clear_stream_cache();
-    Status _filter_stream_cache(uint16_t* sel_rowid_idx, uint16_t selected_size,
-                                const std::vector<ColumnId>& filtered_cids,
-                                vectorized::Block* block);
-    Status _finalize_stream_cache(const std::vector<ColumnId>& column_ids);
-
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -447,8 +440,7 @@ private:
     int32_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
 
-    SubstreamCache _substream_cache;
-    std::vector<bool> _is_finalized;
+    std::unique_ptr<HierarchicalDataReader> _path_reader;
 };
 
 } // namespace segment_v2

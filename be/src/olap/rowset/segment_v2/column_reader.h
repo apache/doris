@@ -35,6 +35,7 @@
 #include "io/io_common.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
 #include "olap/rowset/segment_v2/page_handle.h"        // for PageHandle
 #include "olap/rowset/segment_v2/page_pointer.h"
@@ -100,16 +101,6 @@ struct ColumnIteratorOptions {
         CHECK_NOTNULL(stats);
     }
 };
-
-struct StreamReader {
-    vectorized::ColumnPtr column;
-    std::unique_ptr<ColumnIterator> iterator;
-    std::shared_ptr<const vectorized::IDataType> type;
-    bool inited = false;
-    size_t rows_read = 0;
-};
-
-using SubstreamCache = vectorized::SubcolumnsTree<StreamReader>;
 
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share
