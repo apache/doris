@@ -68,6 +68,7 @@ select  c_last_name
 
     '''
     String plan = sql "${stmt}"
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -83,5 +84,6 @@ select  c_last_name
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.46"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
+    
     assertEquals("RF5[c_customer_sk->[ss_customer_sk],RF4[ca_address_sk->[ss_addr_sk],RF3[s_store_sk->[ss_store_sk],RF2[hd_demo_sk->[ss_hdemo_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[c_current_addr_sk->[ca_address_sk]", getRuntimeFilters(plan))
 }

@@ -55,6 +55,7 @@ suite("ds_rf27") {
 
     '''
     String plan = sql "${stmt}"
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -70,5 +71,6 @@ suite("ds_rf27") {
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.27"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
+    
     assertEquals("RF3[s_store_sk->[ss_store_sk],RF2[i_item_sk->[ss_item_sk],RF1[d_date_sk->[ss_sold_date_sk],RF0[cd_demo_sk->[ss_cdemo_sk]", getRuntimeFilters(plan))
 }

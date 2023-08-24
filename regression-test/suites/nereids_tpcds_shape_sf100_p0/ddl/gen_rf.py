@@ -21,6 +21,8 @@ if __name__ == '__main__':
             with open('query'+str(i)+'.sql', 'r') as fi:
                 casei = tmpl.replace('{--}', str(i))
                 casei = casei.replace('{query}', fi.read())
+                # with open('../rf/ds_rf'+str(i)+'.groovy', 'w') as out:
+                #     out.write(casei)
                 with open('rf/rf.'+str(i), 'r') as rf_file:
                     casei = casei.replace('{rfs}', rf_file.read())
                     with open('../rf/ds_rf'+str(i)+'.groovy', 'w') as out:

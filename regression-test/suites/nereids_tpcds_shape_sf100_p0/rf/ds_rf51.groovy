@@ -78,6 +78,7 @@ limit 100;
 
     '''
     String plan = sql "${stmt}"
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -93,5 +94,6 @@ limit 100;
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.51"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
+    
     assertEquals("RF1[d_date_sk->[ss_sold_date_sk],RF0[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
 }

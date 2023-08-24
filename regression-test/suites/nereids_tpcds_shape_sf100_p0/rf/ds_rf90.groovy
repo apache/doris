@@ -55,6 +55,7 @@ select  cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
 
     '''
     String plan = sql "${stmt}"
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -70,5 +71,6 @@ select  cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.90"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
+    
     assertEquals("RF5[hd_demo_sk->[ws_ship_hdemo_sk],RF4[t_time_sk->[ws_sold_time_sk],RF3[wp_web_page_sk->[ws_web_page_sk],RF2[hd_demo_sk->[ws_ship_hdemo_sk],RF1[t_time_sk->[ws_sold_time_sk],RF0[wp_web_page_sk->[ws_web_page_sk]", getRuntimeFilters(plan))
 }

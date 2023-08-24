@@ -137,6 +137,7 @@ with  cross_items as
 
     '''
     String plan = sql "${stmt}"
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -152,5 +153,6 @@ with  cross_items as
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.14"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
+    
     assertEquals("RF6[class_id->[i_class_id],RF7[category_id->[i_category_id],RF8[brand_id->[i_brand_id],RF1[i_item_sk->[ss_item_sk],RF0[d_date_sk->[ss_sold_date_sk],RF3[i_item_sk->[cs_item_sk],RF2[d_date_sk->[cs_sold_date_sk],RF5[i_item_sk->[ws_item_sk],RF4[d_date_sk->[ws_sold_date_sk],RF9[d_date_sk->[ss_sold_date_sk],RF10[d_date_sk->[cs_sold_date_sk],RF11[d_date_sk->[ws_sold_date_sk],RF14[ss_item_sk->[ss_item_sk],RF13[i_item_sk->[ss_item_sk],RF12[d_date_sk->[ss_sold_date_sk],RF17[cs_item_sk->[ss_item_sk],RF16[i_item_sk->[cs_item_sk],RF15[d_date_sk->[cs_sold_date_sk],RF20[ws_item_sk->[ss_item_sk],RF19[i_item_sk->[ws_item_sk],RF18[d_date_sk->[ws_sold_date_sk]", getRuntimeFilters(plan))
 }

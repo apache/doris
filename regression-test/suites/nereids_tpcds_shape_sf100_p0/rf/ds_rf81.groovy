@@ -64,6 +64,7 @@ with customer_total_return as
 
     '''
     String plan = sql "${stmt}"
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -79,5 +80,6 @@ with customer_total_return as
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.81"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
+    
     assertEquals("RF1[ca_address_sk->[cr_returning_addr_sk],RF0[d_date_sk->[cr_returned_date_sk],RF3[c_customer_sk->[ctr_customer_sk],RF2[ca_address_sk->[c_current_addr_sk]", getRuntimeFilters(plan))
 }

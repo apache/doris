@@ -85,6 +85,7 @@ select avg(ss_quantity)
 
     '''
     String plan = sql "${stmt}"
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -100,5 +101,6 @@ select avg(ss_quantity)
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.13"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
+    
     assertEquals("RF4[ss_store_sk->[s_store_sk],RF3[ss_sold_date_sk->[d_date_sk],RF2[ss_cdemo_sk->[cd_demo_sk],RF1[ss_hdemo_sk->[hd_demo_sk],RF0[ca_address_sk->[ss_addr_sk]", getRuntimeFilters(plan))
 }

@@ -52,6 +52,7 @@ select  s_store_name, s_store_id,
 
     '''
     String plan = sql "${stmt}"
+    println plan
     def getRuntimeFilters = { plantree ->
         {
             def lst = []
@@ -67,5 +68,6 @@ select  s_store_name, s_store_id,
     // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.43"
     // File file = new File(outFile)
     // file.write(getRuntimeFilters(plan))
+    
     assertEquals("RF1[s_store_sk->[ss_store_sk],RF0[d_date_sk->[ss_sold_date_sk]", getRuntimeFilters(plan))
 }
