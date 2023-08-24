@@ -81,23 +81,15 @@ fi
 preload_jars=("preload-extensions")
 preload_jars+=("java-udf")
 
-for preload_jar in "${preload_jars[@]}"; do
-    f="${DORIS_HOME}/lib/java_extensions/${preload_jar}/${preload_jar}-jar-with-dependencies.jar"
-    if [[ -z "${DORIS_CLASSPATH}" ]]; then
-        export DORIS_CLASSPATH="${f}"
-    else
-        export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    fi
-done
-
-# add custom jar
-custom_extension_folder="${DORIS_HOME}/lib/java_extensions/custom_extension"
-
-if [[ -d "${custom_extension_folder}" ]]; then
-    for file in "${custom_extension_folder}"/*.jar; do
-        export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${file}"
+for preload_jar_dir in "${preload_jars[@]}"; do
+    for f in "${DORIS_HOME}/lib/java_extensions/${preload_jar_dir}"/*.jar; do
+        if [[ -z "${DORIS_CLASSPATH}" ]]; then
+            export DORIS_CLASSPATH="${f}"
+        else
+            export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        fi
     done
-fi
+done
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
