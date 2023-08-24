@@ -603,6 +603,10 @@ public:
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
+    [[nodiscard]] bool can_terminate_early() override { return false; }
+
+    [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
+
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
         return false;
