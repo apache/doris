@@ -1,4 +1,4 @@
-explain shape plan
+
 with customer_total_return as
 (select sr_customer_sk as ctr_customer_sk
 ,sr_store_sk as ctr_store_sk

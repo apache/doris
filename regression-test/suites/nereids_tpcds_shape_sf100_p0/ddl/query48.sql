@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select sum (ss_quantity)
  from store_sales, store, customer_demographics, customer_address, date_dim

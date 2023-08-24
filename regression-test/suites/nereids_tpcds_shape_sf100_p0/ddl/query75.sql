@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 WITH all_sales AS (
  SELECT d_year

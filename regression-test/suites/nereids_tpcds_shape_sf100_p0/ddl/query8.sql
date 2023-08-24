@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  s_store_name
       ,sum(ss_net_profit)

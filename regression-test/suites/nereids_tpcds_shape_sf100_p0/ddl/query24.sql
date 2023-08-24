@@ -1,8 +1,4 @@
-      explain shape plan
-
-
-
- with ssales as
+       with ssales as
  (select c_last_name
        ,c_first_name
        ,s_store_name

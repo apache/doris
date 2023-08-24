@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 with ss as
  (select s_store_sk,

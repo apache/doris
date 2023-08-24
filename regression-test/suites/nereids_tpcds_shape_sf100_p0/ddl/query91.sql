@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  
         cc_call_center_id Call_Center,

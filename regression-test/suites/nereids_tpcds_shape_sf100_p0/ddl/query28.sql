@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  *
 from (select avg(ss_list_price) B1_LP

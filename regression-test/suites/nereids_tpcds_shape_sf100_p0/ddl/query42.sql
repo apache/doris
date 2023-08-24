@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  dt.d_year
  	,item.i_category_id

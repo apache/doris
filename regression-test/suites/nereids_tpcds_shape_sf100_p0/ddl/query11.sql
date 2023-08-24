@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 with year_total as (
  select c_customer_id customer_id

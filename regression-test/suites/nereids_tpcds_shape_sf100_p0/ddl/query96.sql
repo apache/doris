@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  count(*) 
 from store_sales

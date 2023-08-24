@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 with ss as
  (select ca_county,d_qoy, d_year,sum(ss_ext_sales_price) as store_sales

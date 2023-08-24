@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select   
   ca_state,

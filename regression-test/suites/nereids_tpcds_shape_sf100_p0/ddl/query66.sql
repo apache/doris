@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select   
          w_warehouse_name

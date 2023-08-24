@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 with ws as
   (select d_year AS ws_sold_year, ws_item_sk,

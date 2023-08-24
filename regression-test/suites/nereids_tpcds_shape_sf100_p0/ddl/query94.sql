@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  
    count(distinct ws_order_number) as "order count"

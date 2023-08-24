@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  i_item_desc
       ,w_warehouse_name

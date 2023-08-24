@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  *
 from (select i_category

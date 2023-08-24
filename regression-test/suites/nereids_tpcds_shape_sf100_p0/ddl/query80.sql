@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 with ssr as
  (select  s_store_id as store_id,

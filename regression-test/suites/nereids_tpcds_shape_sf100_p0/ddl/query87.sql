@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select count(*) 
 from ((select distinct c_last_name, c_first_name, d_date

@@ -1,5 +1,3 @@
-explain shape plan
-
 
 with  cross_items as
  (select i_item_sk ss_item_sk

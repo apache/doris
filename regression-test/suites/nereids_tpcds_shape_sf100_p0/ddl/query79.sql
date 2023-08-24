@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select 
   c_last_name,c_first_name,substr(s_city,1,30),ss_ticket_number,amt,profit

@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 with ssci as (
 select ss_customer_sk customer_sk

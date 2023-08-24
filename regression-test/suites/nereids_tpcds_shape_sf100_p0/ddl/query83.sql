@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 with sr_items as
  (select i_item_id item_id,

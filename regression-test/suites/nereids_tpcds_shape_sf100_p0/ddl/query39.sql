@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 with inv as
 (select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy

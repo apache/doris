@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 WITH web_v1 as (
 select

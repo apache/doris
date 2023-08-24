@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  
    count(distinct cs_order_number) as "order count"

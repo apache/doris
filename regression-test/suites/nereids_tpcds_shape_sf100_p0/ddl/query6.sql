@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  a.ca_state state, count(*) cnt
  from customer_address a

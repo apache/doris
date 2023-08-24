@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  
     sum(ss_net_profit) as total_sum

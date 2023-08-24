@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  ss_customer_sk
             ,sum(act_sales) sumsales

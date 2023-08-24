@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select case when (select count(*) 
                   from store_sales 

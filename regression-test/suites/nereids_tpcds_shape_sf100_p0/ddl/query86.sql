@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select   
     sum(ws_net_paid) as total_sum

@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  ca_zip, ca_city, sum(ws_sales_price)
  from web_sales, customer, customer_address, date_dim, item

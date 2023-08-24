@@ -1,7 +1,3 @@
-explain shape plan
-
-
-
 
 select  distinct(i_product_name)
  from item i1
