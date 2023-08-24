@@ -42,6 +42,8 @@
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
 #include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/exec/analytic_sink_operator.h"
+#include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
@@ -471,7 +473,7 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
 
     RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
 
-    if (op->get_child()) {
+    if (op->get_child() && !op->is_source()) {
         op->get_runtime_profile()->add_child(op->get_child()->get_runtime_profile(), true, nullptr);
     }
 
@@ -546,6 +548,23 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         sink.reset(new SortSinkOperatorX(pool, tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink));
+        RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
+        break;
+    }
+    case TPlanNodeType::ANALYTIC_EVAL_NODE: {
+        op.reset(new AnalyticSourceOperatorX(pool, tnode, descs, "AnalyticSourceXOperator"));
+        RETURN_IF_ERROR(cur_pipe->add_operator(op));
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        cur_pipe = add_pipeline();
+        _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+
+        DataSinkOperatorXPtr sink;
+        sink.reset(new AnalyticSinkOperatorX(pool, tnode, descs));
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink_x()->init(tnode, _runtime_state.get()));
         break;

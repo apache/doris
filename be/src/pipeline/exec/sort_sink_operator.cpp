@@ -83,7 +83,9 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
           _limit(tnode.limit),
           _use_topn_opt(tnode.sort_node.use_topn_opt),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read) {}
+          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read) {
+    _name = "SortSinkOperatorX";
+}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(_vsort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
@@ -134,6 +136,7 @@ Status SortSinkOperatorX::prepare(RuntimeState* state) {
     } else {
         _algorithm = SortAlgorithm::FULL_SORT;
     }
+    _profile = state->obj_pool()->add(new RuntimeProfile("SortSinkOperatorX"));
     return _vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor);
 }
 

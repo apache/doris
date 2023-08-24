@@ -203,9 +203,6 @@ public:
     }
 
     Status set_child(OperatorXPtr child) {
-        if (is_source()) {
-            return Status::OK();
-        }
         _child_x = std::move(child);
         return Status::OK();
     }
@@ -270,7 +267,7 @@ protected:
     // Used on pipeline X
     OperatorXPtr _child_x;
 
-    bool _is_closed = false;
+    bool _is_closed;
 };
 
 /**
@@ -577,7 +574,6 @@ public:
               _type(tnode.node_type),
               _pool(pool),
               _tuple_ids(tnode.row_tuples),
-              _children(nullptr),
               _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit),
@@ -683,7 +679,6 @@ protected:
 
     vectorized::VExprContextSPtrs _conjuncts;
 
-    OperatorXBase* _children;
     RowDescriptor _row_descriptor;
 
     std::unique_ptr<RowDescriptor> _output_row_descriptor;
@@ -709,7 +704,7 @@ public:
             : _parent(parent_), _state(state_) {}
     virtual ~PipelineXSinkLocalState() {}
 
-    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) { return Status::OK(); }
+    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info);
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this));
