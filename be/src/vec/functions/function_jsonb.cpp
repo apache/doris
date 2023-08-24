@@ -522,7 +522,7 @@ public:
         json_path_list.resize(rdata_columns.size());
 
         // lambda function to parse json path for row i and path pi
-        auto parse_json_parse = [&](size_t i, size_t pi) -> Status {
+        auto parse_json_path = [&](size_t i, size_t pi) -> Status {
             const ColumnString* path_col = rdata_columns[pi];
             const ColumnString::Chars& rdata = path_col->get_chars();
             const ColumnString::Offsets& roffsets = path_col->get_offsets();
@@ -552,7 +552,7 @@ public:
 
         for (size_t pi = 0; pi < rdata_columns.size(); pi++) {
             if (path_const[pi]) {
-                RETURN_IF_ERROR(parse_json_parse(0, pi));
+                RETURN_IF_ERROR(parse_json_path(0, pi));
             }
         }
 
@@ -566,7 +566,7 @@ public:
             const char* l_raw = reinterpret_cast<const char*>(&ldata[l_off]);
             if (rdata_columns.size() == 1) { // just return origin value
                 if (!path_const[0]) {
-                    RETURN_IF_ERROR(parse_json_parse(i, 0));
+                    RETURN_IF_ERROR(parse_json_path(i, 0));
                 }
                 inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
                                 json_path_list[0]);
@@ -581,7 +581,7 @@ public:
                 writer->writeStartArray();
                 for (size_t pi = 0; pi < rdata_columns.size(); ++pi) {
                     if (!path_const[pi]) {
-                        RETURN_IF_ERROR(parse_json_parse(i, pi));
+                        RETURN_IF_ERROR(parse_json_path(i, pi));
                     }
 
                     // value is NOT necessary to be deleted since JsonbValue will not allocate memory
