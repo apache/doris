@@ -154,7 +154,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     private ImmutableSet<Expression> getAvailableExpressions(Collection<Expression> predicates, Plan plan) {
         Set<Expression> expressions = Sets.newHashSet(predicates);
-        expressions.addAll(propagation.infer(expressions));
+        expressions.addAll(propagation.infer(expressions.stream().collect(Collectors.toMap(e -> e, e -> false))));
         return expressions.stream()
                 .filter(p -> plan.getOutputSet().containsAll(p.getInputSlots()))
                 .collect(ImmutableSet.toImmutableSet());

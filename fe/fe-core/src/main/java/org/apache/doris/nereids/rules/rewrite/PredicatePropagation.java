@@ -30,8 +30,10 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * derive additional predicates.
@@ -43,25 +45,34 @@ public class PredicatePropagation {
     /**
      * equal predicate with literal in one side would be chosen to be source predicates and used to infer all predicates
      */
-    private Set<Expression> sourcePredicates = Sets.newHashSet();
+    private final Set<Expression> sourcePredicates = Sets.newHashSet();
 
     /**
      * infer additional predicates.
+     *
+     * @param predicates predicate expression to shouldRecordIntoSourcePredicates flag. If the value is false
+     *                   we do not record itself and any expression inferred from it into sourcePredicates set.
+     *                   This is because these expression should not be seen when we process upper join node.
+     *                   the example could see the UT test
+     *                   {@link InferPredicatesTest#shouldNotSaveOnClausePredicates()}
      */
-    public Set<Expression> infer(Set<Expression> predicates) {
+    public Set<Expression> infer(Map<Expression, Boolean> predicates) {
         Set<Expression> inferred = Sets.newHashSet();
-        predicates.addAll(sourcePredicates);
-        for (Expression predicate : predicates) {
-            if (canEquivalentInfer(predicate)) {
-                List<Expression> newInferred = predicates.stream()
+        Set<Expression> newSourcePredicates = Sets.newHashSet();
+        for (Map.Entry<Expression, Boolean> predicate : predicates.entrySet()) {
+            if (canEquivalentInfer(predicate.getKey())) {
+                List<Expression> newInferred = Stream.concat(sourcePredicates.stream(), predicates.keySet().stream())
                         .filter(p -> !p.equals(predicate))
-                        .map(p -> doInfer(predicate, p))
+                        .map(p -> doInfer(predicate.getKey(), p, predicate.getValue()))
                         .collect(Collectors.toList());
                 inferred.addAll(newInferred);
+                newInferred.removeAll(predicates.keySet());
+                if (predicate.getValue()) {
+                    newSourcePredicates.addAll(newInferred);
+                }
             }
         }
-        inferred.removeAll(predicates);
-        sourcePredicates.addAll(inferred);
+        sourcePredicates.addAll(newSourcePredicates);
         return inferred;
     }
 
@@ -71,25 +82,30 @@ public class PredicatePropagation {
      * TODO: We should determine whether `expression` satisfies the condition for replacement
      *       eg: Satisfy `expression` is non-deterministic
      */
-    private Expression doInfer(Expression leftSlotEqualToRightSlot, Expression expression) {
-        return expression.accept(new DefaultExpressionRewriter<Void>() {
+    private Expression doInfer(Expression leftSlotEqualToRightSlot,
+            Expression expression, boolean recordSourcePredicates) {
+        return expression.accept(new DefaultExpressionRewriter<Boolean>() {
 
             @Override
-            public Expression visit(Expression expr, Void context) {
+            public Expression visit(Expression expr, Boolean recordSourcePredicates) {
                 return expr;
             }
 
             @Override
-            public Expression visitComparisonPredicate(ComparisonPredicate cp, Void context) {
+            public Expression visitComparisonPredicate(ComparisonPredicate cp, Boolean recordSourcePredicates) {
                 // we need to get expression covered by cast, because we want to infer different datatype
                 if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.left()) && (cp.right().isConstant())) {
-                    sourcePredicates.add(cp);
+                    if (recordSourcePredicates) {
+                        sourcePredicates.add(cp);
+                    }
                     return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.left()));
                 } else if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.right()) && cp.left().isConstant()) {
-                    sourcePredicates.add(cp);
+                    if (recordSourcePredicates) {
+                        sourcePredicates.add(cp);
+                    }
                     return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.right()));
                 }
-                return super.visit(cp, context);
+                return super.visit(cp, recordSourcePredicates);
             }
 
             private boolean isDataTypeValid(DataType originDataType, Expression expr) {
@@ -119,7 +135,7 @@ public class PredicatePropagation {
                     return e;
                 });
             }
-        }, null);
+        }, recordSourcePredicates);
     }
 
     /**

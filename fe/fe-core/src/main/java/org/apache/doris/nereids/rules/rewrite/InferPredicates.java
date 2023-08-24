@@ -31,6 +31,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -103,11 +104,15 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     }
 
     private Set<Expression> getAllExpressions(Plan left, Plan right, Optional<Expression> condition) {
-        Set<Expression> baseExpressions = pullUpPredicates(left);
-        baseExpressions.addAll(pullUpPredicates(right));
-        condition.ifPresent(on -> baseExpressions.addAll(ExpressionUtils.extractConjunction(on)));
-        baseExpressions.addAll(propagation.infer(baseExpressions));
-        return baseExpressions;
+        Map<Expression, Boolean> baseExpressions = pullUpPredicates(left).stream()
+                .collect(Collectors.toMap(e -> e, e -> true));
+        baseExpressions.putAll(pullUpPredicates(right).stream()
+                .collect(Collectors.toMap(e -> e, e -> true)));
+        condition.ifPresent(on -> baseExpressions.putAll(ExpressionUtils.extractConjunction(on).stream()
+                .collect(Collectors.toMap(e -> e, e -> false))));
+        Set<Expression> allExpressions = Sets.newHashSet(baseExpressions.keySet());
+        allExpressions.addAll(propagation.infer(baseExpressions));
+        return allExpressions;
     }
 
     private Set<Expression> pullUpPredicates(Plan plan) {
