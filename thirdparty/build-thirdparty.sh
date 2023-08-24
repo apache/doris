@@ -654,7 +654,7 @@ build_curl() {
         libs='-lcrypto -lssl -lcrypto -ldl'
     fi
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -DNGHTTP2_STATICLIB" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR} " \
         LDFLAGS="-L${TP_LIB_DIR}" LIBS="${libs}" \
         PKG_CONFIG="pkg-config --static" \
         ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
