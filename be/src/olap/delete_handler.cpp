@@ -19,8 +19,6 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <glog/logging.h>
-#include <sys/_types/_int32_t.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
