@@ -246,6 +246,7 @@ struct TQueryOptions {
   // use is_report_success any more
   84: optional bool enable_profile = false;
   85: optional bool enable_page_cache = false;
+  86: optional i32 analyze_timeout = 43200
 }
 
 

@@ -5420,10 +5420,6 @@ public class Env {
         return loadManagerAdapter;
     }
 
-    public StatisticsAutoCollector getStatisticsAutoCollector() {
-        return statisticsAutoCollector;
-    }
-
     public QueryStats getQueryStats() {
         return queryStats;
     }
@@ -5435,5 +5431,9 @@ public class Env {
 
     public ColumnIdFlushDaemon getColumnIdFlusher() {
         return columnIdFlusher;
+    }
+
+    public StatisticsAutoCollector getStatisticsAutoCollector() {
+        return statisticsAutoCollector;
     }
 }

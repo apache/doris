@@ -397,6 +397,13 @@ public class StmtExecutor {
         return parsedStmt instanceof InsertStmt;
     }
 
+    public boolean isAnalyzeStmt() {
+        if (parsedStmt == null) {
+            return false;
+        }
+        return parsedStmt instanceof AnalyzeStmt;
+    }
+
     /**
      * Used for audit in ConnectProcessor.
      * <p>
