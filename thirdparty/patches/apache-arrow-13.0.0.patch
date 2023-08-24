@@ -1,5 +1,5 @@
 diff --git a/cpp/src/arrow/adapters/orc/adapter.cc b/cpp/src/arrow/adapters/orc/adapter.cc
-index ac2a3db64..630d45798 100644
+index 2466e7433..46b4402d4 100644
 --- a/cpp/src/arrow/adapters/orc/adapter.cc
 +++ b/cpp/src/arrow/adapters/orc/adapter.cc
 @@ -47,9 +47,6 @@
@@ -21,7 +21,7 @@ index ac2a3db64..630d45798 100644
    Status Init() {
      int64_t nstripes = reader_->getNumberOfStripes();
      stripes_.resize(nstripes);
-@@ -479,6 +478,32 @@ class ORCFileReader::Impl {
+@@ -479,6 +478,31 @@ class ORCFileReader::Impl {
      return Status::OK();
    }
 
@@ -31,20 +31,19 @@ index ac2a3db64..630d45798 100644
 +      return nullptr;
 +    }
 +
-+    liborc::RowReaderOptions opts;
++    liborc::RowReaderOptions opts = default_row_reader_options();
 +    if (!include_names.empty()) {
 +      RETURN_NOT_OK(SelectNames(&opts, include_names));
 +    }
 +    StripeInformation stripe_info({0, 0, 0, 0});
 +    RETURN_NOT_OK(SelectStripeWithRowNumber(&opts, current_row_, &stripe_info));
-+    std::shared_ptr<Schema> schema;
-+    RETURN_NOT_OK(ReadSchema(opts, &schema));
++    ARROW_ASSIGN_OR_RAISE(auto schema, ReadSchema(opts));
 +    std::unique_ptr<liborc::RowReader> row_reader;
 +
 +    ORC_BEGIN_CATCH_NOT_OK
 +    row_reader = reader_->createRowReader(opts);
 +    row_reader->seekToRow(current_row_);
-+    current_row_ = stripe_info.first_row_of_stripe + stripe_info.num_rows;
++    current_row_ = stripe_info.first_row_id + stripe_info.num_rows;
 +    ORC_END_CATCH_NOT_OK
 +
 +    return std::make_shared<OrcStripeReader>(std::move(row_reader), schema, batch_size,
@@ -54,7 +53,7 @@ index ac2a3db64..630d45798 100644
    Result<std::shared_ptr<RecordBatchReader>> NextStripeReader(
        int64_t batch_size, const std::vector<int>& include_indices) {
      if (current_row_ >= NumberOfRows()) {
-@@ -544,6 +569,8 @@ Result<std::unique_ptr<ORCFileReader>> ORCFileReader::Open(
+@@ -544,6 +568,8 @@ Result<std::unique_ptr<ORCFileReader>> ORCFileReader::Open(
    return std::move(result);
  }
 
@@ -63,7 +62,7 @@ index ac2a3db64..630d45798 100644
  Result<std::shared_ptr<const KeyValueMetadata>> ORCFileReader::ReadMetadata() {
    return impl_->ReadMetadata();
  }
-@@ -605,6 +632,11 @@ Result<std::shared_ptr<RecordBatchReader>> ORCFileReader::NextStripeReader(
+@@ -605,6 +631,11 @@ Result<std::shared_ptr<RecordBatchReader>> ORCFileReader::NextStripeReader(
    return impl_->NextStripeReader(batch_size, include_indices);
  }
 
@@ -119,4 +118,3 @@ index 013be7860..7fd06bcb8 100644
 +
    /// \brief The number of stripes in the file
    int64_t NumberOfStripes();
-
