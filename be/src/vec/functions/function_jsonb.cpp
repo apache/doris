@@ -535,7 +535,7 @@ public:
                         "Json path error: {} for value: {}",
                         JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
                         std::string_view(reinterpret_cast<const char*>(rdata.data()),
-                                        rdata.size()));
+                                         rdata.size()));
             }
 
             // if not valid json path , should return error message to user
@@ -544,7 +544,7 @@ public:
                         "Json path error: {} for value: {}",
                         JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
                         std::string_view(reinterpret_cast<const char*>(rdata.data()),
-                                        rdata.size()));
+                                         rdata.size()));
             }
 
             return Status::OK();
