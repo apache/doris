@@ -39,7 +39,7 @@ In certain cases, the version of the partition in the metadata may not be consis
 grammar:
 
 ```sql
-ADMIN SET PARTITION VERSION
+ADMIN SET TABLE table_name PARTITION VERSION
         PROPERTIES ("key" = "value", ...);
 ```
 
@@ -57,7 +57,7 @@ The following properties are currently supported:
 1. Set the version of partition 1769152 to 100.
 
 ```sql
-ADMIN SET PARTITION VERSION PROPERTIES("partition_id" = "1769152", "visible_version" = "100");
+ADMIN SET TABLE tbl1 PARTITION VERSION PROPERTIES("partition_id" = "1769152", "visible_version" = "100");
 ```
 
 ### Keywords

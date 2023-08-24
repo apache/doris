@@ -39,7 +39,7 @@ ADMIN SET PARTITION VERSION
 语法：
 
 ```sql
-ADMIN SET PARTITION VERSION
+ADMIN SET TABLE table_name PARTITION VERSION
         PROPERTIES ("key" = "value", ...);
 ```
 
@@ -57,7 +57,7 @@ ADMIN SET PARTITION VERSION
 1. 设置 partition 1769152 在 FE 元数据上的版本为 100。
 
 ```sql
-ADMIN SET PARTITION VERSION PROPERTIES("partition_id" = "1769152", "visible_version" = "100");
+ADMIN SET TABLE tbl1 PARTITION VERSION PROPERTIES("partition_id" = "1769152", "visible_version" = "100");
 ```
 
 ### Keywords
