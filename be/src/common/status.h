@@ -311,7 +311,7 @@ consteval bool capture_stacktrace(int code) {
 
 class Status {
 public:
-    Status() : _code(ErrorCode::OK) {}
+    Status() : _code(ErrorCode::OK), _err_msg(nullptr) {}
 
     // copy c'tor makes copy of error detail so Status can be returned by value
     Status(const Status& rhs) { *this = rhs; }
@@ -329,7 +329,13 @@ public:
     }
 
     // move assign
-    Status& operator=(Status&& rhs) noexcept = default;
+    Status& operator=(Status&& rhs) noexcept {
+        _code = rhs._code;
+        if (rhs._err_msg) {
+            _err_msg = std::move(rhs._err_msg);
+        }
+        return *this;
+    }
 
     Status static create(const TStatus& status) {
         return Error<true>(status.status_code,
