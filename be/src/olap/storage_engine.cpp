@@ -164,18 +164,23 @@ StorageEngine::~StorageEngine() {
 
 Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
-    for (auto data_dir : data_dirs) {
-        threads.emplace_back([data_dir] {
-            auto res = data_dir->load();
-            if (!res.ok()) {
-                LOG(WARNING) << "io error when init load tables. res=" << res
+    std::vector<Status> results(data_dirs.size());
+    for (size_t i = 0; i < data_dirs.size(); ++i) {
+        threads.emplace_back([&results, data_dir = data_dirs[i]](size_t index) {
+            results[index] = data_dir->load();
+            if (!results[index].ok()) {
+                LOG(WARNING) << "io error when init load tables. res=" << results[index]
                              << ", data dir=" << data_dir->path();
-                return res;
             }
-        });
+        }, i);
     }
     for (auto& thread : threads) {
         thread.join();
+    }
+    for (const auto& result : results) {
+        if (!result.ok()) {
+            return result;
+        }
     }
     return Status::OK();
 }
