@@ -39,8 +39,10 @@
 #include <utility>
 #include <vector>
 
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "runtime/large_int_value.h"
+#include "util/arrow/row_batch.h"
 #include "util/arrow/utils.h"
 #include "util/jsonb_utils.h"
 #include "util/types.h"
@@ -408,7 +410,10 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
 Status convert_to_arrow_batch(const vectorized::Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result) {
-    FromBlockConverter converter(block, schema, pool);
+    // FromBlockConverter converter(block, schema, pool);
+    std::shared_ptr<arrow::Schema> block_arrow_schema;
+    RETURN_IF_ERROR(get_block_arrow_schema(block, &block_arrow_schema));
+    FromBlockConverter converter(block, block_arrow_schema, pool);
     return converter.convert(result);
 }
 
