@@ -149,6 +149,7 @@ public class HMSExternalTable extends ExternalTable {
                 }
             }
             objectCreated = true;
+            estimatedRowCount = getRowCountFromExternalSource();
         }
     }
 
@@ -272,6 +273,15 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long getRowCount() {
         makeSureInitialized();
+        long rowCount = getRowCountFromExternalSource();
+        if (rowCount == -1) {
+            LOG.debug("Will estimate row count from file list.");
+            rowCount = StatisticsUtil.getRowCountFromFileList(this);
+        }
+        return rowCount;
+    }
+
+    private long getRowCountFromExternalSource() {
         long rowCount;
         switch (dlaType) {
             case HIVE:
@@ -283,10 +293,6 @@ public class HMSExternalTable extends ExternalTable {
             default:
                 LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);
                 rowCount = -1;
-        }
-        if (rowCount == -1) {
-            LOG.debug("Will estimate row count from file list.");
-            rowCount = StatisticsUtil.getRowCountFromFileList(this);
         }
         return rowCount;
     }
