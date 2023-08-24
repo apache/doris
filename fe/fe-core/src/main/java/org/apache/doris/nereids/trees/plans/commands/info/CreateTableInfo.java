@@ -233,8 +233,18 @@ public class CreateTableInfo {
             throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can"
                     + " set 'true' when create olap table by default.");
         }
+
+        boolean isEnableMergeOnWrite = false;
+        if (keysType.equals(KeysType.UNIQUE_KEYS) && properties != null) {
+            try {
+                isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(properties);
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+        }
+        final boolean finalEnableMergeOnWrite = isEnableMergeOnWrite;
         Set<String> keysSet = Sets.newHashSet(keys);
-        columns.forEach(c -> c.validate(keysSet));
+        columns.forEach(c -> c.validate(keysSet, finalEnableMergeOnWrite, keysType));
     }
 
     public void validateCreateTableAsSelect(List<ColumnDefinition> columns, ConnectContext ctx) {

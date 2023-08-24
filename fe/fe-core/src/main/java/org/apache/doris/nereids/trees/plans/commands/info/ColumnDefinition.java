@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.CharType;
@@ -74,7 +75,7 @@ public class ColumnDefinition {
     /**
      * validate column definition and analyze
      */
-    public void validate(Set<String> keysSet) {
+    public void validate(Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
         if (type.isJsonType() || type.isStructType() || type.isArrayType() || type.isMapType()) {
             throw new AnalysisException(String.format("currently type %s is not supported for Nereids",
                     type.toString()));
@@ -92,7 +93,13 @@ public class ColumnDefinition {
                 throw new AnalysisException(String.format("Key column %s can not set aggregation type", name));
             }
         } else if (aggType == null) {
-            aggType = AggregateType.NONE;
+            if (keysType.equals(KeysType.DUP_KEYS)) {
+                aggType = AggregateType.NONE;
+            } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+                aggType = AggregateType.NONE;
+            } else {
+                aggType = AggregateType.REPLACE;
+            }
         }
     }
 
