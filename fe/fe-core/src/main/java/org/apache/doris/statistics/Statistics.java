@@ -48,6 +48,10 @@ public class Statistics {
         }
         double selectOneTuple = newRowCount / StatsMathUtil.nonZeroDivisor(oldRowCount);
         double allTuplesOfSameDistinctValueNotSelected = Math.pow((1 - selectOneTuple), oldRowCount / ndv);
+        if (allTuplesOfSameDistinctValueNotSelected == 1.0) {
+            // avoid NaN
+            return ndv;
+        }
         return Math.min(ndv * (1 - allTuplesOfSameDistinctValueNotSelected), newRowCount);
     }
 
