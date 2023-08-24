@@ -77,7 +77,7 @@ private:
     butil::IOBuf _buf;
 
     std::queue<Slice> _pending_slices;
-    size_t _max_pending_bytes = config::streamsink_filewriter_batchsize;
+    size_t _max_pending_bytes = config::brpc_streaming_client_batch_bytes;
     size_t _pending_bytes;
 
     int _sender_id;

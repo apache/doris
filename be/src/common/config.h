@@ -937,8 +937,9 @@ DECLARE_Int32(doris_remote_scanner_thread_pool_queue_size);
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
-// limit the queue of pending batches which will be sent by a single stream filewriter
-DECLARE_mInt64(streamsink_filewriter_batchsize);
+
+// The batch size for sending data by brpc streaming client
+DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
