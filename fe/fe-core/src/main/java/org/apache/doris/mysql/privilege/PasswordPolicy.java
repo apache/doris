@@ -139,6 +139,10 @@ public class PasswordPolicy implements Writable {
         }
     }
 
+    public ExpirePolicy getExpirePolicy() {
+        return expirePolicy;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -185,6 +189,8 @@ public class PasswordPolicy implements Writable {
         public long expirationSecond = NEVER;
         @SerializedName(value = "passwordCreateTime")
         public long passwordCreateTime = 0;
+        @SerializedName(value = "passwordUpdateTime")
+        public long passwordUpdateTime = 0;
 
         public boolean isExpire() {
             return leftSeconds() <= 0;
@@ -198,7 +204,11 @@ public class PasswordPolicy implements Writable {
             if (tmp == 0) {
                 return Long.MAX_VALUE;
             }
-            return tmp - (System.currentTimeMillis() - passwordCreateTime) / 1000;
+            long leftSeconds = tmp - (System.currentTimeMillis() - passwordCreateTime) / 1000;
+            if (passwordUpdateTime != 0) {
+                leftSeconds = tmp - (System.currentTimeMillis() - passwordUpdateTime) / 1000;
+            }
+            return leftSeconds;
         }
 
         public void update(long expirationSecond) {
@@ -207,6 +217,10 @@ public class PasswordPolicy implements Writable {
             }
             this.expirationSecond = expirationSecond;
             this.passwordCreateTime = System.currentTimeMillis();
+        }
+
+        public void setPasswordUpdateTime() {
+            this.passwordUpdateTime = System.currentTimeMillis();
         }
 
         private String expirationSecondsToString() {
