@@ -359,9 +359,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Map<String, String> locationProperties) throws UserException {
         if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
             if (!params.isSetHdfsParams()) {
-                String fsName = getFsName(fileSplit);
                 THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-                tHdfsParams.setFsName(fsName);
+                // tHdfsParams.setFsName(getFsName(fileSplit));
                 params.setHdfsParams(tHdfsParams);
             }
 
@@ -414,19 +413,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 
         rangeDesc.setFileType(locationType);
+        rangeDesc.setPath(fileSplit.getPath().toString());
         if (locationType == TFileType.FILE_HDFS) {
             URI fileUri = fileSplit.getPath().toUri();
-            if (FeConstants.FS_PREFIX_COSN.equalsIgnoreCase(fileUri.getScheme())) {
-                rangeDesc.setPath(fileSplit.getPath().toString());
-            } else {
-                rangeDesc.setPath(fileUri.getPath());
-            }
-        } else if (locationType == TFileType.FILE_S3
-                || locationType == TFileType.FILE_BROKER
-                || locationType == TFileType.FILE_LOCAL
-                || locationType == TFileType.FILE_NET) {
-            // need full path
-            rangeDesc.setPath(fileSplit.getPath().toString());
+            rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
         return rangeDesc;
