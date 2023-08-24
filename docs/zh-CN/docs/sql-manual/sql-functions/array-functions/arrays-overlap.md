@@ -1,6 +1,6 @@
 ---
 {
-    "title": "arrays_overlap",
+    "title": "ARRAYS_OVERLAP",
     "language": "zh-CN"
 }
 ---
