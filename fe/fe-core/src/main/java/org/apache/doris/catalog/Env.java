@@ -1377,10 +1377,16 @@ public class Env {
                 // when switch to pipeline engine, otherwise it may impact the load of entire cluster
                 // because the default parallelism of pipeline engine is higher than previous version.
                 // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
-                int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
-                VariableMgr.setGlobalPipelineTask(newVal);
+                int newParaVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
+                VariableMgr.setGlobalPipelineTask(newParaVal);
                 LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
-                        + "to parallel_fragment_exec_instance_num: {}", newVal);
+                        + "to parallel_fragment_exec_instance_num: {}", newParaVal);
+
+                // similar reason as above, need to upgrade broadcast scale factor during 1.2 to 2.0
+                double newBcFactorVal = VariableMgr.newSessionVariable().getBroadcastRightTableScaleFactor();
+                VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
+                LOG.info("upgrade FE from 1.x to 2.0, set broadcast_right_table_scale_factor "
+                        + "to new default value: {}", newBcFactorVal);
             }
         }
 
