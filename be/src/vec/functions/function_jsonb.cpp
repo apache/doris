@@ -530,7 +530,8 @@ public:
             size_t r_size = roffsets[index_check_const(i, path_const[pi])] - r_off;
             const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
 
-            if (!json_path_list[pi].seek(r_raw, r_size)) {
+            JsonbPath path;
+            if (!path.seek(r_raw, r_size)) {
                 return Status::InvalidArgument(
                         "Json path error: {} for value: {}",
                         JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
@@ -546,6 +547,8 @@ public:
                         std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                          rdata.size()));
             }
+
+            json_path_list[pi] = path;
 
             return Status::OK();
         };
