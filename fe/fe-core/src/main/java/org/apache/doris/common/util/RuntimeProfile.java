@@ -413,7 +413,7 @@ public class RuntimeProfile {
         for (String childCounterName : childCounterList) {
             Counter counter = src.counterMap.get(childCounterName);
             LinkedList<Counter> rhsCounter = getCounterListFromLists(childCounterName, rhs);
-            removeMaxMinCounter(src, childCounterName, profileLevel);// will remove if we simple profile in be
+            removeMaxMinCounter(src, childCounterName, profileLevel);
             mergeProfileCounter(src, childCounterName, rhs, profileLevel);
             mergeCounter(src, childCounterName, counter, rhsCounter, profileLevel);
             removeZeroeCounter(childCounterSet, childCounterName, counter);
