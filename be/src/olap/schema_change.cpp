@@ -80,7 +80,165 @@ class CollectionValue;
 
 using namespace ErrorCode;
 
-constexpr int ALTER_TABLE_BATCH_SIZE = 4064;
+constexpr int ALTER_TABLE_BATCH_SIZE = 4096;
+
+class MultiBlockMerger {
+public:
+    MultiBlockMerger(TabletSharedPtr tablet) : _tablet(tablet), _cmp(tablet) {}
+
+    Status merge(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
+                 RowsetWriter* rowset_writer, uint64_t* merged_rows) {
+        int rows = 0;
+        for (auto& block : blocks) {
+            rows += block->rows();
+        }
+        if (!rows) {
+            return Status::OK();
+        }
+
+        std::vector<RowRef> row_refs;
+        row_refs.reserve(rows);
+        for (auto& block : blocks) {
+            for (uint16_t i = 0; i < block->rows(); i++) {
+                row_refs.emplace_back(block.get(), i);
+            }
+        }
+        // TODO: try to use pdqsort to replace std::sort
+        // The block version is incremental.
+        std::stable_sort(row_refs.begin(), row_refs.end(), _cmp);
+
+        auto finalized_block = _tablet->tablet_schema()->create_block();
+        int columns = finalized_block.columns();
+        *merged_rows += rows;
+
+        if (_tablet->keys_type() == KeysType::AGG_KEYS) {
+            auto tablet_schema = _tablet->tablet_schema();
+            int key_number = _tablet->num_key_columns();
+
+            std::vector<vectorized::AggregateFunctionPtr> agg_functions;
+            std::vector<vectorized::AggregateDataPtr> agg_places;
+
+            for (int i = key_number; i < columns; i++) {
+                try {
+                    vectorized::AggregateFunctionPtr function =
+                            tablet_schema->column(i).get_aggregate_function(
+                                    vectorized::AGG_LOAD_SUFFIX);
+                    agg_functions.push_back(function);
+                    // create aggregate data
+                    vectorized::AggregateDataPtr place = new char[function->size_of_data()];
+                    function->create(place);
+                    agg_places.push_back(place);
+                } catch (...) {
+                    for (int j = 0; j < i - key_number; ++j) {
+                        agg_functions[j]->destroy(agg_places[j]);
+                        delete[] agg_places[j];
+                    }
+                    throw;
+                }
+            }
+
+            DEFER({
+                for (int i = 0; i < columns - key_number; i++) {
+                    agg_functions[i]->destroy(agg_places[i]);
+                    delete[] agg_places[i];
+                }
+            });
+
+            for (int i = 0; i < rows; i++) {
+                auto row_ref = row_refs[i];
+
+                for (int j = key_number; j < columns; j++) {
+                    auto column_ptr = row_ref.get_column(j).get();
+                    agg_functions[j - key_number]->add(
+                            agg_places[j - key_number],
+                            const_cast<const vectorized::IColumn**>(&column_ptr), row_ref.position,
+                            nullptr);
+                }
+
+                if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
+                    for (int j = 0; j < key_number; j++) {
+                        finalized_block.get_by_position(j).column->assume_mutable()->insert_from(
+                                *row_ref.get_column(j), row_ref.position);
+                    }
+
+                    for (int j = key_number; j < columns; j++) {
+                        agg_functions[j - key_number]->insert_result_into(
+                                agg_places[j - key_number],
+                                finalized_block.get_by_position(j).column->assume_mutable_ref());
+                        agg_functions[j - key_number]->reset(agg_places[j - key_number]);
+                    }
+
+                    if (i == rows - 1 || finalized_block.rows() == ALTER_TABLE_BATCH_SIZE) {
+                        *merged_rows -= finalized_block.rows();
+                        rowset_writer->add_block(&finalized_block);
+                        finalized_block.clear_column_data();
+                    }
+                }
+            }
+        } else {
+            std::vector<RowRef> pushed_row_refs;
+            if (_tablet->keys_type() == KeysType::DUP_KEYS) {
+                std::swap(pushed_row_refs, row_refs);
+            } else if (_tablet->keys_type() == KeysType::UNIQUE_KEYS) {
+                for (int i = 0; i < rows; i++) {
+                    if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
+                        pushed_row_refs.push_back(row_refs[i]);
+                    }
+                }
+            }
+
+            // update real inserted row number
+            rows = pushed_row_refs.size();
+            *merged_rows -= rows;
+
+            for (int i = 0; i < rows; i += ALTER_TABLE_BATCH_SIZE) {
+                int limit = std::min(ALTER_TABLE_BATCH_SIZE, rows - i);
+
+                for (int idx = 0; idx < columns; idx++) {
+                    auto column = finalized_block.get_by_position(idx).column->assume_mutable();
+
+                    for (int j = 0; j < limit; j++) {
+                        auto row_ref = pushed_row_refs[i + j];
+                        column->insert_from(*row_ref.get_column(idx), row_ref.position);
+                    }
+                }
+                rowset_writer->add_block(&finalized_block);
+                finalized_block.clear_column_data();
+            }
+        }
+
+        RETURN_IF_ERROR(rowset_writer->flush());
+        return Status::OK();
+    }
+
+private:
+    struct RowRef {
+        RowRef(vectorized::Block* block_, uint16_t position_)
+                : block(block_), position(position_) {}
+        vectorized::ColumnPtr get_column(int index) const {
+            return block->get_by_position(index).column;
+        }
+        const vectorized::Block* block;
+        uint16_t position;
+    };
+
+    struct RowRefComparator {
+        RowRefComparator(TabletSharedPtr tablet) : _num_columns(tablet->num_key_columns()) {}
+
+        int compare(const RowRef& lhs, const RowRef& rhs) const {
+            return lhs.block->compare_at(lhs.position, rhs.position, _num_columns, *rhs.block, -1);
+        }
+
+        bool operator()(const RowRef& lhs, const RowRef& rhs) const {
+            return compare(lhs, rhs) < 0;
+        }
+
+        const size_t _num_columns;
+    };
+
+    TabletSharedPtr _tablet;
+    RowRefComparator _cmp;
+};
 
 BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl)
         : _desc_tbl(desc_tbl) {
@@ -332,10 +490,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
     } while (true);
 
-    if (!rowset_writer->flush()) {
-        return Status::Error<ALTER_STATUS_ERR>("rowset_writer flush failed");
-    }
-
+    RETURN_IF_ERROR(rowset_writer->flush());
     return Status::OK();
 }
 
@@ -436,6 +591,8 @@ Status VSchemaChangeWithSorting::_internal_sorting(
         const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
         int64_t newest_write_timestamp, TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
         SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
+    uint64_t merged_rows = 0;
+    MultiBlockMerger merger(new_tablet);
     std::unique_ptr<RowsetWriter> rowset_writer;
     RowsetWriterContext context;
     context.version = version;
@@ -451,11 +608,9 @@ Status VSchemaChangeWithSorting::_internal_sorting(
                                                    rowset_writer->rowset_id().to_string());
     }};
 
-    for (auto& block : blocks) {
-        RETURN_IF_ERROR(rowset_writer->add_block(block.get()));
-    }
+    RETURN_IF_ERROR(merger.merge(blocks, rowset_writer.get(), &merged_rows));
 
-    RETURN_IF_ERROR(rowset_writer->flush());
+    _add_merged_rows(merged_rows);
     *rowset = rowset_writer->build();
     return Status::OK();
 }
@@ -474,7 +629,7 @@ Status VSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_
     RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
                                            new_tablet->tablet_schema(), rs_readers, rowset_writer,
                                            &stats));
-
+    _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
 }

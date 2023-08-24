@@ -100,7 +100,7 @@ private:
 
 class SchemaChange {
 public:
-    SchemaChange() : _filtered_rows(0) {}
+    SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() = default;
 
     virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
@@ -116,6 +116,7 @@ public:
         }
 
         _filtered_rows = 0;
+        _merged_rows = 0;
 
         RETURN_IF_ERROR(
                 _inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema));
@@ -127,15 +128,19 @@ public:
         }
 
         LOG(INFO) << "all row nums. source_rows=" << rowset_reader->rowset()->num_rows()
-                  << ", filtered_rows=" << filtered_rows()
+                  << ", merged_rows=" << merged_rows() << ", filtered_rows=" << filtered_rows()
                   << ", new_index_rows=" << rowset_writer->num_rows();
         return Status::OK();
     }
 
     uint64_t filtered_rows() const { return _filtered_rows; }
 
+    uint64_t merged_rows() const { return _merged_rows; }
+
 protected:
     void _add_filtered_rows(uint64_t filtered_rows) { _filtered_rows += filtered_rows; }
+
+    void _add_merged_rows(uint64_t merged_rows) { _merged_rows += merged_rows; }
 
     virtual Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
                                   TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) {
@@ -143,10 +148,11 @@ protected:
     }
 
     virtual bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
-        if (reader->rowset()->num_rows() != writer.num_rows() + _filtered_rows) {
+        if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
                          << ", writer rows=" << writer.num_rows()
+                         << ", merged_rows=" << merged_rows()
                          << ", filtered_rows=" << filtered_rows()
                          << ", new_index_rows=" << writer.num_rows();
             return false;
@@ -156,6 +162,7 @@ protected:
 
 private:
     uint64_t _filtered_rows;
+    uint64_t _merged_rows;
 };
 
 class LinkedSchemaChange : public SchemaChange {
