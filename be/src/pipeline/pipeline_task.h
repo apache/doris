@@ -152,7 +152,10 @@ public:
         return false;
     }
 
-    bool source_can_read() { return _source->can_read() || ignore_blocking_source();; }
+    bool source_can_read() {
+        return _source->can_read() || ignore_blocking_source();
+        ;
+    }
 
     bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
@@ -183,9 +186,9 @@ public:
      * 1. if any operator in pipeline can terminate early, this task should never be blocked by source operator.
      * 2. if the last operator (except sink) can terminate early, this task should never be blocked by sink operator.
      */
-    [[nodiscard]] virtual bool ignore_blocking_sink() { return _root->can_terminate_early(); }
+    [[nodiscard]] bool ignore_blocking_sink() { return _root->can_terminate_early(); }
 
-    [[nodiscard]] virtual bool ignore_blocking_source() {
+    [[nodiscard]] bool ignore_blocking_source() {
         for (size_t i = 1; i < _operators.size(); i++) {
             if (_operators[i]->can_terminate_early()) {
                 return true;
