@@ -60,6 +60,7 @@ public:
     void release_mem();
 
     bool init_next_partition(vectorized::BlockRowPos found_partition_end);
+
 private:
     Status _get_next_for_rows(size_t rows);
     Status _get_next_for_range(size_t rows);
@@ -151,7 +152,6 @@ private:
 
     TupleDescriptor* _intermediate_tuple_desc;
     TupleDescriptor* _output_tuple_desc;
-
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;
