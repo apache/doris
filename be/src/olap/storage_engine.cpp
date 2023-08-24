@@ -162,7 +162,7 @@ StorageEngine::~StorageEngine() {
     _s_instance = nullptr;
 }
 
-void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
+Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     for (auto data_dir : data_dirs) {
         threads.emplace_back([data_dir] {
@@ -170,13 +170,14 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
             if (!res.ok()) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
                              << ", data dir=" << data_dir->path();
-                // TODO(lingbin): why not exit progress, to force OP to change the conf
+                return res;
             }
         });
     }
     for (auto& thread : threads) {
         thread.join();
     }
+    return Status::OK();
 }
 
 Status StorageEngine::_open() {
@@ -191,7 +192,7 @@ Status StorageEngine::_open() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_file_descriptor_number(), "check fd number failed");
 
     auto dirs = get_stores<false>();
-    load_data_dirs(dirs);
+    RETURN_IF_ERROR(load_data_dirs(dirs));
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
     _memtable_flush_executor->init(dirs);
