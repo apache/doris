@@ -21,6 +21,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "vec/core/block.h"
 
 // This file will convert Doris RowBatch to/from Arrow's RecordBatch
 // RowBatch is used by Doris query engine to exchange data between
@@ -40,6 +41,9 @@ class RowDescriptor;
 // Convert Doris RowDescriptor to Arrow Schema.
 Status convert_to_arrow_schema(const RowDescriptor& row_desc,
                                std::shared_ptr<arrow::Schema>* result);
+
+Status get_block_arrow_schema(const vectorized::Block& block,
+                              std::shared_ptr<arrow::Schema>* result);
 
 Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result);
 
