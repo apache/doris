@@ -362,7 +362,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() throws UserException {
-        return source.getCatalog().getProperties();
+        return source.getCatalog().getCatalogProperty().getHadoopProperties();
     }
 
     @Override

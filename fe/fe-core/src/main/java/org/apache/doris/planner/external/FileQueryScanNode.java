@@ -73,6 +73,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -414,7 +415,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         rangeDesc.setFileType(locationType);
         if (locationType == TFileType.FILE_HDFS) {
-            rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
+            URI fileUri = fileSplit.getPath().toUri();
+            if (FeConstants.FS_PREFIX_COSN.equalsIgnoreCase(fileUri.getScheme())) {
+                rangeDesc.setPath(fileSplit.getPath().toString());
+            } else {
+                rangeDesc.setPath(fileUri.getPath());
+            }
         } else if (locationType == TFileType.FILE_S3
                 || locationType == TFileType.FILE_BROKER
                 || locationType == TFileType.FILE_LOCAL
