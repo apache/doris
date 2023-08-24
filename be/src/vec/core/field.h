@@ -311,6 +311,7 @@ public:
             Decimal32 = 19,
             Decimal64 = 20,
             Decimal128 = 21,
+            AggregateFunctionState = 22,
             JSONB = 23,
             Decimal128I = 24,
             Map = 25,
@@ -364,10 +365,10 @@ public:
                 return "HyperLogLog";
             case QuantileState:
                 return "QuantileState";
+            default:
+                LOG(FATAL) << "type not supported, type=" << Types::to_string(which);
+                break;
             }
-
-            LOG(FATAL) << "Bad type of Field";
-            return nullptr;
         }
     };
 
@@ -550,9 +551,11 @@ public:
             return get<Decimal128>() <=> rhs.get<Decimal128>();
         case Types::Decimal128I:
             return get<Decimal128I>() <=> rhs.get<Decimal128I>();
+        default:
+            LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
+                       << ", rhs=" << Types::to_string(rhs.which);
+            break;
         }
-        LOG(FATAL) << "lhs type not equal with rhs, lhs=" << Types::to_string(which)
-                   << ", rhs=" << Types::to_string(rhs.which);
     }
 
 private:
@@ -637,9 +640,6 @@ private:
         case Types::Decimal128I:
             f(field.template get<DecimalField<Decimal128I>>());
             return;
-        case Types::FixedLengthObject:
-            LOG(FATAL) << "FixedLengthObject not supported";
-            break;
         case Types::VariantMap:
             f(field.template get<VariantMap>());
             return;
@@ -652,6 +652,9 @@ private:
         case Types::QuantileState:
             f(field.template get<QuantileState<double>>());
             return;
+        default:
+            LOG(FATAL) << "type not supported, type=" << Types::to_string(field.which);
+            break;
         }
     }
 
@@ -1067,8 +1070,9 @@ Field& Field::operator=(T&& rhs) {
     if (which != TypeToEnum<std::decay_t<U>>::value) {
         destroy();
         create_concrete(std::forward<U>(val));
-    } else
+    } else {
         assign_concrete(std::forward<U>(val));
+    }
 
     return *this;
 }
