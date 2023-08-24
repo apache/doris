@@ -185,7 +185,8 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
                 return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
             };
             try {
-                sec_offset = get_tz_offset(std::string {ptr, end}, local_time_zone); // use the whole remain string
+                sec_offset = get_tz_offset(std::string {ptr, end},
+                                           local_time_zone); // use the whole remain string
             } catch ([[maybe_unused]] Exception& e) {
                 return false; // invalid format
             }
@@ -2084,7 +2085,8 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                 return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
             };
             try {
-                sec_offset = get_tz_offset(std::string {ptr, end}, local_time_zone); // use the whole remain string
+                sec_offset = get_tz_offset(std::string {ptr, end},
+                                           local_time_zone); // use the whole remain string
             } catch ([[maybe_unused]] Exception& e) {
                 return false; // invalid format
             }

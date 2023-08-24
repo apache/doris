@@ -312,7 +312,8 @@ bool read_date_v2_text_impl(T& x, ReadBuffer& buf, const cctz::time_zone& local_
                             ZoneList& time_zone_cache, std::shared_mutex& cache_lock) {
     static_assert(std::is_same_v<UInt32, T>);
     auto dv = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(x);
-    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache, &cache_lock);
+    auto ans = dv.from_date_str(buf.position(), buf.count(), local_time_zone, time_zone_cache,
+                                &cache_lock);
 
     // only to match the is_all_read() check to prevent return null
     buf.position() = buf.end();
