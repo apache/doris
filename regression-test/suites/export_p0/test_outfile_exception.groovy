@@ -61,7 +61,7 @@ suite("test_outfile_exception") {
     sql """ INSERT INTO ${tableName} VALUES
             ${sb.toString()}
         """
-    qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
+    order_qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
     // check parquet
     test {
