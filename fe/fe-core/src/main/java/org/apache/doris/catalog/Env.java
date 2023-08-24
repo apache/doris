@@ -1377,17 +1377,17 @@ public class Env {
                 // when switch to pipeline engine, otherwise it may impact the load of entire cluster
                 // because the default parallelism of pipeline engine is higher than previous version.
                 // so set parallel_pipeline_task_num to parallel_fragment_exec_instance_num
-                int newParaVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
-                VariableMgr.setGlobalPipelineTask(newParaVal);
+                int newVal = VariableMgr.newSessionVariable().parallelExecInstanceNum;
+                VariableMgr.setGlobalPipelineTask(newVal);
                 LOG.info("upgrade FE from 1.x to 2.0, set parallel_pipeline_task_num "
-                        + "to parallel_fragment_exec_instance_num: {}", newParaVal);
-
-                // similar reason as above, need to upgrade broadcast scale factor during 1.2 to 2.0
-                double newBcFactorVal = VariableMgr.newSessionVariable().getBroadcastRightTableScaleFactor();
-                VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
-                LOG.info("upgrade FE from 1.x to 2.0, set broadcast_right_table_scale_factor "
-                        + "to new default value: {}", newBcFactorVal);
+                        + "to parallel_fragment_exec_instance_num: {}", newVal);
             }
+            // similar reason as above, need to upgrade broadcast scale factor during 1.2 to 2.x
+            // if the default value has been updated
+            double newBcFactorVal = VariableMgr.newSessionVariable().getBroadcastRightTableScaleFactor();
+            VariableMgr.setGlobalBroadcastScaleFactor(newBcFactorVal);
+            LOG.info("upgrade FE from 1.x to 2.x, set broadcast_right_table_scale_factor "
+                    + "to new default value: {}", newBcFactorVal);
         }
 
         getPolicyMgr().createDefaultStoragePolicy();
