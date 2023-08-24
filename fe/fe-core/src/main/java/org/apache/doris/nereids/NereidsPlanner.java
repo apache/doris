@@ -415,7 +415,7 @@ public class NereidsPlanner extends Planner {
             default:
                 plan = super.getExplainString(explainOptions);
         }
-        if (!cascadesContext.getStatementContext().getHintMap().isEmpty()) {
+        if (!statementContext.getHintMap().isEmpty()) {
             String hint = getHintExplainString(cascadesContext.getStatementContext().getHintMap());
             return plan + hint;
         }
