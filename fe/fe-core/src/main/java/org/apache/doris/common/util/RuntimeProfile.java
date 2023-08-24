@@ -378,7 +378,7 @@ public class RuntimeProfile {
 
     private static void mergeTotalTime(RuntimeProfile src, LinkedList<RuntimeProfile> rhs) {
         Counter counter = src.counterMap.get("TotalTime");
-        
+
         for (RuntimeProfile profile : rhs) {
             Counter othCounter = profile.counterMap.get("TotalTime");
             if (othCounter != null && counter != null) {
@@ -413,7 +413,7 @@ public class RuntimeProfile {
         for (String childCounterName : childCounterList) {
             Counter counter = src.counterMap.get(childCounterName);
             LinkedList<Counter> rhsCounter = getCounterListFromLists(childCounterName, rhs);
-            removeMAXMINCounter(src, childCounterName, profileLevel);// will remove if we simple profile in be
+            removeMaxMinCounter(src, childCounterName, profileLevel);// will remove if we simple profile in be
             mergeProfileCounter(src, childCounterName, rhs, profileLevel);
             mergeCounter(src, childCounterName, counter, rhsCounter, profileLevel);
             removeZeroeCounter(childCounterSet, childCounterName, counter);
@@ -426,7 +426,7 @@ public class RuntimeProfile {
         src.infoStrings.clear();
     }
 
-    private static void removeMAXMINCounter(RuntimeProfile src, String counterName, int profileLevel) {
+    private static void removeMaxMinCounter(RuntimeProfile src, String counterName, int profileLevel) {
         String maxCounterName = MAX_TIME_PRE + counterName;
         String minCounterName = MIN_TIME_PRE + counterName;
         if (profileLevel == 0) {
