@@ -120,6 +120,7 @@ import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
 import org.apache.doris.nereids.DorisParser.RollupDefsContext;
+import org.apache.doris.nereids.DorisParser.RowConstructorContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
@@ -734,7 +735,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitInlineTable(InlineTableContext ctx) {
-        return new LogicalUnion()
+        List<List<Expression>> exprs = ctx.expression().stream()
+                .map(e -> {
+                    Object o = visit(e);
+                    if (o instanceof Expression) {
+                        return ImmutableList.of(((Expression) o));
+                    } else if (o instanceof List) {
+                        return ((List<Expression>) o);
+                    } else {
+                        throw new AnalysisException("invalid inline table");
+                    }
+                }).collect(Collectors.toList());
+
+        List<String> tableAlias;
+        if (ctx.tableAlias() != null) {
+            tableAlias = visitIdentifierList(ctx.tableAlias().identifierList());
+        } else {
+            tableAlias = ImmutableList.of();
+        }
+        return null;
     }
 
     /**
@@ -1678,6 +1697,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitParenthesizedExpression(ParenthesizedExpressionContext ctx) {
         return getExpression(ctx.expression());
+    }
+
+    @Override
+    public List<Expression> visitRowConstructor(RowConstructorContext ctx) {
+        return ctx.expression().stream().map(this::getExpression).collect(Collectors.toList());
     }
 
     @Override
