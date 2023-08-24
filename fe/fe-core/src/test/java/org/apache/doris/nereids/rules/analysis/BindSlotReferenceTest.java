@@ -90,10 +90,11 @@ class BindSlotReferenceTest {
                 join
         );
         PlanChecker checker = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(aggregate);
-        LogicalAggregate plan = (LogicalAggregate) checker.getCascadesContext().getMemo().copyOut();
+        LogicalAggregate plan = (LogicalAggregate) ((LogicalProject) checker.getCascadesContext()
+                .getMemo().copyOut()).child();
         SlotReference groupByKey = (SlotReference) plan.getGroupByExpressions().get(0);
-        SlotReference t1id = (SlotReference) ((LogicalJoin) plan.child()).left().getOutput().get(0);
-        SlotReference t2id = (SlotReference) ((LogicalJoin) plan.child()).right().getOutput().get(0);
+        SlotReference t1id = (SlotReference) ((LogicalJoin) plan.child().child(0)).left().getOutput().get(0);
+        SlotReference t2id = (SlotReference) ((LogicalJoin) plan.child().child(0)).right().getOutput().get(0);
         Assertions.assertEquals(groupByKey.getExprId(), t1id.getExprId());
         Assertions.assertNotEquals(t1id.getExprId(), t2id.getExprId());
     }

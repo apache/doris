@@ -46,7 +46,6 @@ import com.google.common.collect.Lists;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -103,8 +102,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         tmpPlan = applyPlan;
                         newConjuncts.add(conjunct);
                     }
-                    Set<Expression> conjuncts = new LinkedHashSet<>();
-                    conjuncts.addAll(newConjuncts.build());
+                    Set<Expression> conjuncts = ImmutableSet.copyOf(newConjuncts.build());
                     Plan newFilter = new LogicalFilter<>(conjuncts, applyPlan);
                     if (conjuncts.stream().flatMap(c -> c.children().stream())
                             .anyMatch(MarkJoinSlotReference.class::isInstance)) {
