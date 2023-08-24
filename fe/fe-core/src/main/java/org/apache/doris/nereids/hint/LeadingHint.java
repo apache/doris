@@ -484,7 +484,7 @@ public class LeadingHint extends Hint {
             this.setErrorMessage("duplicated table");
             return totalBitmap;
         }
-        if (getTablelist().size() != tables.size()) {
+        if (tables != null && getTablelist().size() != tables.size()) {
             this.setStatus(HintStatus.SYNTAX_ERROR);
             this.setErrorMessage("tables should be same as join tables");
             return totalBitmap;
