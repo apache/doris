@@ -160,12 +160,9 @@ public:
 
     int64_t txn_id = -1;
 
-    // TODO delete code
-    // for local file
-    // std::string path;
+    bool need_schema = true;
 
     std::string txn_operation = "";
-    bool has_schema = true;
 
     bool need_rollback = false;
     // when use_streaming is true, we use stream_pipe to send source data,

@@ -30,10 +30,10 @@ class ExecEnv;
 class Status;
 class StreamLoadContext;
 
-class StreamLoadWithSqlAction : public HttpHandler {
+class HttpStreamAction : public HttpHandler {
 public:
-    StreamLoadWithSqlAction(ExecEnv* exec_env);
-    ~StreamLoadWithSqlAction() override;
+    HttpStreamAction(ExecEnv* exec_env);
+    ~HttpStreamAction() override;
 
     void handle(HttpRequest* req) override;
 

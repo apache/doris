@@ -562,23 +562,18 @@ public class Coordinator {
         }
     }
 
-    public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
-        if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
-            LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
-                    DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
-        }
-
-        if (LOG.isDebugEnabled() && !fragments.isEmpty()) {
-            LOG.debug("debug: in Coordinator::exec. query id: {}, fragment: {}",
-                    DebugUtil.printId(queryId), fragments.get(0).toThrift());
-        }
-
+    private void performFragmentProcessing() throws Exception {
         // prepare information
         prepare();
         // compute Fragment Instance
         computeScanRangeAssignment();
 
         computeFragmentExecParams();
+    }
+
+
+    public TExecPlanFragmentParams getStreamLoadPlan() throws Exception {
+        performFragmentProcessing();
 
         // This is a load process.
         List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
@@ -610,12 +605,7 @@ public class Coordinator {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
-        // prepare information
-        prepare();
-        // compute Fragment Instance
-        computeScanRangeAssignment();
-
-        computeFragmentExecParams();
+        performFragmentProcessing();
 
         traceInstance();
 

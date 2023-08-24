@@ -559,65 +559,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         }
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
-
-        // TODO (zs) : A more elegant implementation is needed here
-        // if (params.file_type == TFileType::FILE_STREAM) {
-        //     auto stream_load_ctx =
-        //             ExecEnv::GetInstance()->new_load_stream_mgr()->get(params.load_id);
-        //     auto schema_buffer = stream_load_ctx->schema_buffer;
-
-        //     std::vector<std::string> col_names;
-        //     std::vector<TypeDescriptor> col_types;
-
-        //     std::string cur_col_name;
-        //     int pos = 0;
-        //     bool is_csv_plain = true;
-        //     const size_t buffer_max_size = 1 * 1024 * 1024;
-        //     // TODO(zs) : need get columns_separator from _params
-        //     char columns_separator = ',';
-        //     int idx = 0;
-
-        //     while (pos < buffer_max_size && schema_buffer->ptr[pos] != '\n') {
-        //         if (schema_buffer->ptr[pos] == columns_separator && !cur_col_name.empty()) {
-        //             if (is_csv_plain) {
-        //                 col_names.emplace_back("c" + std::to_string(++idx));
-        //             } else {
-        //                 col_names.push_back(cur_col_name);
-        //             }
-        //             cur_col_name.clear();
-        //         } else {
-        //             cur_col_name += schema_buffer->ptr[pos];
-        //         }
-        //         ++pos;
-        //     }
-        //     if (pos == buffer_max_size) {
-        //         st = Status::InternalError(
-        //                 "buffer max size is too small, cannot read schema beginning");
-        //         st.to_protobuf(result->mutable_status());
-        //         return;
-        //     }
-        //     if (!cur_col_name.empty()) {
-        //         if (is_csv_plain) {
-        //             col_names.emplace_back("c" + std::to_string(++idx));
-        //         } else {
-        //             col_names.push_back(cur_col_name);
-        //         }
-        //     }
-        //     for (size_t j = 0; j < col_names.size(); ++j) {
-        //         col_types.emplace_back(TypeDescriptor::create_string_type());
-        //     }
-        //     result->set_column_nums(col_names.size());
-        //     for (size_t idx = 0; idx < col_names.size(); ++idx) {
-        //         result->add_column_names(col_names[idx]);
-        //     }
-        //     for (size_t idx = 0; idx < col_types.size(); ++idx) {
-        //         PTypeDesc* type_desc = result->add_column_types();
-        //         col_types[idx].to_protobuf(type_desc);
-        //     }
-        //     st.to_protobuf(result->mutable_status());
-        //     return;
-        // }
-
+        
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =

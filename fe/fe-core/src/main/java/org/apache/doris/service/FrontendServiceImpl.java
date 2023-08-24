@@ -1706,7 +1706,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             // TODO(zs)：This needs to be replaced by other methods
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
-                streamLoadPutWithSqlImpl(request, result);
+                httpStreamPutImpl(request, result);
                 return result;
             } else {
                 if (Config.enable_pipeline_load) {
@@ -1840,7 +1840,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
 
-    private void streamLoadPutWithSqlImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
+    private void httpStreamPutImpl(TStreamLoadPutRequest request, TStreamLoadPutResult result)
             throws UserException {
         LOG.info("receive stream load put request");
         String originStmt = request.getLoadSql();
@@ -1887,10 +1887,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
-            throw new UserException("exec sql error");
+            throw new UserException("exec sql error" + e);
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
-            throw new UserException("exec sql error catch unknown result.");
+            throw new UserException("exec sql error catch unknown result." + e);
         }
     }
 
@@ -1928,7 +1928,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throws UserException {
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException(
-                "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
+                    "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);

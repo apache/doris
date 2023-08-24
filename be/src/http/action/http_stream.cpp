@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/action/stream_load_with_sql.h"
+#include "http/action/http_stream.h"
 
 #include <cstddef>
 #include <deque>
@@ -73,7 +73,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_duration_ms, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_current_processing,
                                    MetricUnit::REQUESTS);
 
-StreamLoadWithSqlAction::StreamLoadWithSqlAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+HttpStreamAction::HttpStreamAction(ExecEnv* exec_env) : _exec_env(exec_env) {
     _stream_load_with_sql_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load_with_sql");
     INT_COUNTER_METRIC_REGISTER(_stream_load_with_sql_entity,
@@ -83,11 +83,11 @@ StreamLoadWithSqlAction::StreamLoadWithSqlAction(ExecEnv* exec_env) : _exec_env(
                               streaming_load_with_sql_current_processing);
 }
 
-StreamLoadWithSqlAction::~StreamLoadWithSqlAction() {
+HttpStreamAction::~HttpStreamAction() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_stream_load_with_sql_entity);
 }
 
-void StreamLoadWithSqlAction::handle(HttpRequest* req) {
+void HttpStreamAction::handle(HttpRequest* req) {
     std::shared_ptr<StreamLoadContext> ctx =
             std::static_pointer_cast<StreamLoadContext>(req->handler_ctx());
     if (ctx == nullptr) {
@@ -131,7 +131,7 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
     streaming_load_with_sql_current_processing->increment(-1);
 }
 
-Status StreamLoadWithSqlAction::_handle(HttpRequest* http_req,
+Status HttpStreamAction::_handle(HttpRequest* http_req,
                                         std::shared_ptr<StreamLoadContext> ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
@@ -149,7 +149,7 @@ Status StreamLoadWithSqlAction::_handle(HttpRequest* http_req,
     return Status::OK();
 }
 
-int StreamLoadWithSqlAction::on_header(HttpRequest* req) {
+int HttpStreamAction::on_header(HttpRequest* req) {
     streaming_load_with_sql_current_processing->increment(1);
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
@@ -158,14 +158,10 @@ int StreamLoadWithSqlAction::on_header(HttpRequest* req) {
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
-    ctx->use_streaming = true;
-
     ctx->label = req->header(HTTP_LABEL_KEY);
     if (ctx->label.empty()) {
         ctx->label = generate_uuid_string();
     }
-
-    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true" ? true : false;
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
               << " sql : " << req->header(HTTP_SQL);
@@ -191,7 +187,7 @@ int StreamLoadWithSqlAction::on_header(HttpRequest* req) {
 }
 
 // TODO The parameters of this function may need to be refactored because the parameters in HttpRequest are not sufficient.
-Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req,
+Status HttpStreamAction::_on_header(HttpRequest* http_req,
                                            std::shared_ptr<StreamLoadContext> ctx) {
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
@@ -226,7 +222,7 @@ Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req,
     return Status::OK();
 }
 
-void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
+void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     std::shared_ptr<StreamLoadContext> ctx =
             std::static_pointer_cast<StreamLoadContext>(req->handler_ctx());
     if (ctx == nullptr || !ctx->status.ok()) {
@@ -238,7 +234,7 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
 
     int64_t start_read_data_time = MonotonicNanos();
 
-    const int max_schema_buffer_capacity = 10 * 1024 * 1024;
+    bool is_put = true;
 
     while (evbuffer_get_length(evbuf) > 0) {
         auto bb = ByteBuffer::allocate(128 * 1024);
@@ -246,13 +242,16 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
         bb->pos = remove_bytes;
         bb->flip();
         auto st = ctx->body_sink->append(bb);
-        // schema_buffer stores 10M of data for parsing column information
-        if (ctx->schema_buffer->pos < max_schema_buffer_capacity) {
+        // schema_buffer stores a row of data for parsing column information
+        bool is_end = std::find(bb->ptr, bb->ptr + remove_bytes, '\n') != bb->ptr + remove_bytes;
+        if(is_end) {
             ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
-            if (ctx->schema_buffer->pos >= max_schema_buffer_capacity) {
-                ctx->status = _process_put(req, ctx);
-            }
+            ctx->status = _process_put(req, ctx);
+            is_put = false;
+        } else {
+            ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
         }
+
         if (!st.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
@@ -260,14 +259,14 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
         }
         ctx->receive_bytes += remove_bytes;
     }
-
-    if (ctx->schema_buffer->pos < max_schema_buffer_capacity) {
+    // to avoid not requesting fe
+    if (is_put) {
         ctx->status = _process_put(req, ctx);
     }
     ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
 }
 
-void StreamLoadWithSqlAction::free_handler_ctx(std::shared_ptr<void> param) {
+void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
     std::shared_ptr<StreamLoadContext> ctx = std::static_pointer_cast<StreamLoadContext>(param);
     if (ctx == nullptr) {
         return;
@@ -280,7 +279,7 @@ void StreamLoadWithSqlAction::free_handler_ctx(std::shared_ptr<void> param) {
     ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
 }
 
-Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req,
+Status HttpStreamAction::_process_put(HttpRequest* http_req,
                                              std::shared_ptr<StreamLoadContext> ctx) {
     TStreamLoadPutRequest request;
     set_request_auth(&request, ctx->auth);
@@ -315,7 +314,7 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req,
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 
-void StreamLoadWithSqlAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
+void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
                                                        const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {

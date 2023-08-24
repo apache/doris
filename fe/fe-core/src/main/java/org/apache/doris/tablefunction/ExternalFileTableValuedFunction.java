@@ -226,6 +226,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
 
+        // TODO Support is needed in the future
+        if (getTFileType() == TFileType.FILE_STREAM && (formatString.equals("json")
+                || formatString.equals("parquet")
+                || formatString.equals("orc")
+        )) {
+            throw new AnalysisException("current http_stream does not yet support json, parquet and orc");
+        }
         columnSeparator = validParams.getOrDefault(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
         lineDelimiter = validParams.getOrDefault(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
         jsonRoot = validParams.getOrDefault(JSON_ROOT, "");
