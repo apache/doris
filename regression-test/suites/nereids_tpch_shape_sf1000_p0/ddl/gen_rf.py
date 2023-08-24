@@ -15,7 +15,7 @@
 # // specific language governing permissions and limitations
 # // under the License.
 if __name__ == '__main__':
-    with open('rf.tmpl.groovy', 'r') as f:
+    with open('rf.tmpl', 'r') as f:
         tmpl = f.read()
         for i in range(1,23):
             with open('../../../../tools/tpch-tools/queries/q'+str(i)+'.sql', 'r') as fi:
