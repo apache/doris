@@ -79,6 +79,7 @@ import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
 import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefsContext;
+import org.apache.doris.nereids.DorisParser.InlineTableContext;
 import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
@@ -729,6 +730,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             selectPlan = withQueryOrganization(selectPlan, ctx.queryOrganization());
             return withSelectHint(selectPlan, selectCtx.selectHint());
         });
+    }
+
+    @Override
+    public LogicalPlan visitInlineTable(InlineTableContext ctx) {
+        return new LogicalUnion()
     }
 
     /**
