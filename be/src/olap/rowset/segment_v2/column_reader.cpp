@@ -674,6 +674,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     auto& column_offsets =
             static_cast<vectorized::ColumnArray::ColumnOffsets&>(*column_offsets_ptr);
     RETURN_IF_ERROR(_offsets_iterator->_calculate_offsets(start, column_offsets));
+    DCHECK(column_offsets.get_data().back() >= column_offsets.get_data()[start - 1]);
     size_t num_items =
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
     auto key_ptr = column_map->get_keys().assume_mutable();
@@ -808,20 +809,33 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
     return Status::OK();
 }
 
+/**
+ *  first_storage_offset read from page should smaller than next_storage_offset which here call _peek_one_offset from page,
+    and first_column_offset is keep in memory data which is different dimension with (first_storage_offset and next_storage_offset)
+     eg. step1. read page: first_storage_offset = 16382
+         step2. read page below with _peek_one_offset(&last_offset): last_offset = 16387
+         step3. first_offset = 126 which is calculate in column offsets
+         for loop column offsets element in size
+            we can calculate from first_storage_offset to next_storage_offset one by one to fill with offsets_data in memory column offsets
+ * @param start
+ * @param column_offsets
+ * @return
+ */
 Status OffsetFileColumnIterator::_calculate_offsets(
         ssize_t start, vectorized::ColumnArray::ColumnOffsets& column_offsets) {
-    ordinal_t last_offset = 0;
-    RETURN_IF_ERROR(_peek_one_offset(&last_offset));
+    ordinal_t next_storage_offset = 0;
+    RETURN_IF_ERROR(_peek_one_offset(&next_storage_offset));
 
     // calculate real offsets
     auto& offsets_data = column_offsets.get_data();
-    ordinal_t first_offset = offsets_data[start - 1]; // -1 is valid
-    ordinal_t first_ord = offsets_data[start];
+    ordinal_t first_column_offset = offsets_data[start - 1]; // -1 is valid
+    ordinal_t first_storage_offset = offsets_data[start];
     for (ssize_t i = start; i < offsets_data.size() - 1; ++i) {
-        offsets_data[i] = first_offset + (offsets_data[i + 1] - first_ord);
+        offsets_data[i] = first_column_offset + (offsets_data[i + 1] - first_storage_offset);
     }
     // last offset
-    offsets_data[offsets_data.size() - 1] = first_offset + (last_offset - first_ord);
+    offsets_data[offsets_data.size() - 1] =
+            first_column_offset + (next_storage_offset - first_storage_offset);
     return Status::OK();
 }
 
