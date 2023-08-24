@@ -552,6 +552,9 @@ private:
     std::map<int, std::shared_ptr<doris::pipeline::PipelineXSinkLocalState>>
             _op_id_to_sink_local_state;
 
+    std::mutex _local_state_lock;
+    std::mutex _local_sink_state_lock;
+
     QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0

@@ -27,7 +27,6 @@
 #include "testutil/any_type.h"
 #include "util/bitmap_value.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -206,32 +205,6 @@ TEST(function_bitmap_test, function_bitmap_has_all) {
                         {{Null(), &empty_bitmap1}, Null()}};
 
     check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
-}
-
-TEST(function_bitmap_test, function_to_bitmap) {
-    std::string func_name = "to_bitmap";
-    InputTypeSet input_types = {TypeIndex::String};
-
-    BitmapValue bitmap1(1);
-    DataSet data_set = {{{std::string("1")}, &bitmap1},
-                        {{std::string("-1")}, Null()},
-                        {{std::string("1.11")}, Null()},
-                        {{Null()}, Null()}};
-
-    check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
-}
-
-TEST(function_bitmap_test, function_bitmap_from_string) {
-    std::string func_name = "bitmap_from_string";
-    InputTypeSet input_types = {TypeIndex::String};
-
-    BitmapValue bitmap1(1);
-    DataSet data_set = {{{std::string("1")}, &bitmap1},
-                        {{std::string("-1")}, Null()},
-                        {{std::string("1.11")}, Null()},
-                        {{Null()}, Null()}};
-
-    check_function<DataTypeBitMap, true>(func_name, input_types, data_set);
 }
 
 } // namespace doris::vectorized

@@ -40,7 +40,20 @@
 #include "vec/runtime/shared_scanner_controller.h"
 
 namespace doris {
-
+struct ReportStatusRequest {
+    const Status& status;
+    RuntimeProfile* profile;
+    RuntimeProfile* load_channel_profile;
+    bool done;
+    TNetworkAddress coord_addr;
+    TUniqueId query_id;
+    int fragment_id;
+    TUniqueId fragment_instance_id;
+    int backend_num;
+    RuntimeState* runtime_state;
+    std::function<Status(Status)> update_fn;
+    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+};
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -49,9 +62,11 @@ class QueryContext {
     ENABLE_FACTORY_CREATOR(QueryContext);
 
 public:
-    QueryContext(int total_fragment_num, ExecEnv* exec_env, const TQueryOptions& query_options)
+    QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
+                 const TQueryOptions& query_options)
             : fragment_num(total_fragment_num),
               timeout_second(-1),
+              _query_id(query_id),
               _exec_env(exec_env),
               _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
               _query_options(query_options) {
@@ -69,7 +84,7 @@ public:
             LOG(INFO) << fmt::format(
                     "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                     "PeakUsed={}",
-                    print_id(query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
+                    print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
                     MemTracker::print_bytes(query_mem_tracker->consumption()),
                     MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
         }
@@ -184,8 +199,9 @@ public:
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 
+    TUniqueId query_id() const { return _query_id; }
+
 public:
-    TUniqueId query_id;
     DescriptorTbl* desc_tbl;
     bool set_rsc_info = false;
     std::string user;
@@ -213,6 +229,7 @@ public:
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
 private:
+    TUniqueId _query_id;
     ExecEnv* _exec_env;
     vectorized::VecDateTimeValue _start_time;
 
@@ -225,7 +242,7 @@ private:
 
     std::mutex _start_lock;
     std::condition_variable _start_cond;
-    // Only valid when _need_wait_execution_trigger is set to true in FragmentExecState.
+    // Only valid when _need_wait_execution_trigger is set to true in PlanFragmentExecutor.
     // And all fragments of this query will start execution when this is set to true.
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};

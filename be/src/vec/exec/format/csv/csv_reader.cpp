@@ -100,38 +100,51 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
 
 void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
                                                         std::vector<Slice>* splitted_values) {
-    const char* data = line.data;
     size_t start = 0;  // point to the start pos of next col value.
     size_t curpos = 0; // point to the start pos of separator matching sequence.
-    size_t p1 = 0;     // point to the current pos of separator matching sequence.
 
-    // Separator: AAAA
-    //
-    //    p1
-    //     ▼
-    //     AAAA
-    //   1000AAAA2000AAAA
-    //   ▲   ▲
-    // Start │
-    //     curpos
-    while (curpos < line.size) {
-        if (curpos + p1 == line.size || *(data + curpos + p1) != _value_sep[p1]) {
-            // Not match, move forward:
-            curpos += (p1 == 0 ? 1 : p1);
-            p1 = 0;
-        } else {
-            p1++;
-            if (p1 == value_sep_len) {
-                // Match a separator
-                process_value_func(data, start, curpos - start, trimming_char, splitted_values);
-                start = curpos + value_sep_len;
-                curpos = start;
-                p1 = 0;
-            }
+    // value_sep : AAAA
+    // line.data : 1234AAAA5678
+    // -> 1234,5678
+
+    //    start   start
+    //      ▼       ▼
+    //      1234AAAA5678\0
+    //          ▲       ▲
+    //      curpos     curpos
+
+    //kmp
+    vector<int> next(value_sep_len);
+    next[0] = -1;
+    for (int i = 1, j = -1; i < value_sep_len; i++) {
+        while (j > -1 && _value_sep[i] != _value_sep[j + 1]) {
+            j = next[j];
+        }
+        if (_value_sep[i] == _value_sep[j + 1]) {
+            j++;
+        }
+        next[i] = j;
+    }
+
+    for (int i = 0, j = -1; i < line.size; i++) {
+        // i : line
+        // j : _value_sep
+        while (j > -1 && line[i] != _value_sep[j + 1]) {
+            j = next[j];
+        }
+        if (line[i] == _value_sep[j + 1]) {
+            j++;
+        }
+        if (j == value_sep_len - 1) {
+            curpos = i - value_sep_len + 1;
+
+            process_value_func(line.data, start, curpos - start, trimming_char, splitted_values);
+
+            start = i + 1;
+            j = next[j];
         }
     }
-    CHECK(curpos == line.size) << curpos << " vs " << line.size;
-    process_value_func(data, start, curpos - start, trimming_char, splitted_values);
+    process_value_func(line.data, start, line.size - start, trimming_char, splitted_values);
 }
 
 void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {

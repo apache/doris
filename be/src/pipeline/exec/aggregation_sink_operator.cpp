@@ -56,11 +56,10 @@ AggSinkLocalState::AggSinkLocalState(DataSinkOperatorX* parent, RuntimeState* st
           _merge_timer(nullptr),
           _serialize_data_timer(nullptr),
           _deserialize_data_timer(nullptr),
-          _hash_table_size_counter(nullptr),
           _max_row_size_counter(nullptr) {}
 
-Status AggSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
-    _dependency = (AggDependency*)dependency;
+Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    _dependency = (AggDependency*)info.dependency;
     _shared_state = (AggSharedState*)_dependency->shared_state();
     _agg_data = _shared_state->agg_data.get();
     _agg_arena_pool = _shared_state->agg_arena_pool.get();
@@ -79,8 +78,7 @@ Status AggSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
     for (size_t i = 0; i < _shared_state->probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _shared_state->probe_expr_ctxs[i]));
     }
-    std::string title = fmt::format("AggSinkLocalState");
-    _profile = p._pool->add(new RuntimeProfile(title));
+    _profile = p._pool->add(new RuntimeProfile("AggSinkLocalState"));
     _memory_usage_counter = ADD_LABEL_COUNTER(profile(), "MemoryUsage");
     _hash_table_memory_usage =
             ADD_CHILD_COUNTER(profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
@@ -97,7 +95,6 @@ Status AggSinkLocalState::init(RuntimeState* state, Dependency* dependency) {
     _deserialize_data_timer = ADD_TIMER(profile(), "DeserializeAndMergeTime");
     _hash_table_compute_timer = ADD_TIMER(profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(profile(), "HashTableEmplaceTime");
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
     _hash_table_input_counter = ADD_COUNTER(profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
@@ -712,9 +709,9 @@ Status AggSinkLocalState::try_spill_disk(bool eos) {
             _agg_data->method_variant);
 }
 
-AggSinkOperatorX::AggSinkOperatorX(const int id, ObjectPool* pool, const TPlanNode& tnode,
+AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                    const DescriptorTbl& descs)
-        : DataSinkOperatorX(id),
+        : DataSinkOperatorX(tnode.node_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -825,7 +822,7 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AggSinkOperatorX::open(doris::RuntimeState* state) {
+Status AggSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -855,24 +852,15 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_
     return Status::OK();
 }
 
-Status AggSinkOperatorX::setup_local_state(RuntimeState* state, Dependency* dependency) {
+Status AggSinkOperatorX::setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) {
     auto local_state = AggSinkLocalState::create_shared(this, state);
     state->emplace_sink_local_state(id(), local_state);
-    return local_state->init(state, dependency);
+    return local_state->init(state, info);
 }
 
 Status AggSinkOperatorX::close(RuntimeState* state) {
     auto& local_state = state->get_sink_local_state(id())->cast<AggSinkLocalState>();
 
-    /// _hash_table_size_counter may be null if prepare failed.
-    if (local_state._hash_table_size_counter) {
-        std::visit(
-                [&](auto&& agg_method) {
-                    COUNTER_SET(local_state._hash_table_size_counter,
-                                int64_t(agg_method.data.size()));
-                },
-                local_state._agg_data->method_variant);
-    }
     local_state._preagg_block.clear();
 
     vectorized::PODArray<vectorized::AggregateDataPtr> tmp_places;

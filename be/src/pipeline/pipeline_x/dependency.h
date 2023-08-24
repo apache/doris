@@ -17,23 +17,28 @@
 
 #pragma once
 
+#include "pipeline/exec/data_queue.h"
+#include "vec/common/sort/sorter.h"
 #include "vec/exec/vaggregation_node.h"
 
-namespace doris::pipeline {
+namespace doris {
+namespace pipeline {
 class Dependency;
 using DependencySPtr = std::shared_ptr<Dependency>;
 
 class Dependency {
 public:
-    Dependency() : _done(false) {}
+    Dependency(int id) : _id(id), _done(false) {}
     virtual ~Dependency() = default;
 
     [[nodiscard]] bool done() const { return _done; }
     void set_done() { _done = true; }
 
     virtual void* shared_state() = 0;
+    [[nodiscard]] int id() const { return _id; }
 
 private:
+    int _id;
     std::atomic<bool> _done;
 };
 
@@ -42,6 +47,7 @@ public:
     AggSharedState() {
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
+        data_queue = std::make_unique<DataQueue>(1);
     }
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
@@ -59,11 +65,12 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
+    std::unique_ptr<DataQueue> data_queue;
 };
 
 class AggDependency final : public Dependency {
 public:
-    AggDependency() : Dependency() {
+    AggDependency(int id) : Dependency(id) {
         _mem_tracker = std::make_unique<MemTracker>("AggregateOperator:");
     }
     ~AggDependency() override = default;
@@ -118,4 +125,21 @@ private:
     MemoryRecord _mem_usage_record;
     std::unique_ptr<MemTracker> _mem_tracker;
 };
-} // namespace doris::pipeline
+
+struct SortSharedState {
+public:
+    std::unique_ptr<vectorized::Sorter> sorter;
+};
+
+class SortDependency final : public Dependency {
+public:
+    SortDependency(int id) : Dependency(id) {}
+    ~SortDependency() override = default;
+    void* shared_state() override { return (void*)&_sort_state; };
+
+private:
+    SortSharedState _sort_state;
+};
+
+} // namespace pipeline
+} // namespace doris

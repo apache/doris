@@ -40,7 +40,6 @@
 #include "exec/olap_utils.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "gutil/casts.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -996,7 +995,7 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
                                         const orc::TypeKind& type_kind, orc::ColumnVectorBatch* cvb,
                                         size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-    auto* data = down_cast<orc::EncodedStringVectorBatch*>(cvb);
+    auto* data = dynamic_cast<orc::EncodedStringVectorBatch*>(cvb);
     if (data == nullptr) {
         return Status::InternalError("Wrong data type for colum '{}'", col_name);
     }
@@ -1281,7 +1280,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        auto* orc_list = down_cast<orc::ListVectorBatch*>(cvb);
+        auto* orc_list = dynamic_cast<orc::ListVectorBatch*>(cvb);
         auto& doris_offsets = static_cast<ColumnArray&>(*data_column).get_offsets();
         auto& orc_offsets = orc_list->offsets;
         size_t element_size = 0;
@@ -1299,7 +1298,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        auto* orc_map = down_cast<orc::MapVectorBatch*>(cvb);
+        auto* orc_map = dynamic_cast<orc::MapVectorBatch*>(cvb);
         auto& doris_map = static_cast<ColumnMap&>(*data_column);
         size_t element_size = 0;
         RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_map.get_offsets(),
@@ -1325,7 +1324,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
-        auto* orc_struct = down_cast<orc::StructVectorBatch*>(cvb);
+        auto* orc_struct = dynamic_cast<orc::StructVectorBatch*>(cvb);
         auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
         if (orc_struct->fields.size() != doris_struct.tuple_size()) {
             return Status::InternalError("Wrong number of struct fields for column '{}'", col_name);
@@ -1562,7 +1561,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
 void OrcReader::_fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                                 orc::ColumnVectorBatch* batch, int idx) {
-    for (auto* field : down_cast<orc::StructVectorBatch*>(batch)->fields) {
+    for (auto* field : dynamic_cast<orc::StructVectorBatch*>(batch)->fields) {
         result.push_back(field);
         if (_is_acid && _col_orc_type[idx++]->getKind() == orc::TypeKind::STRUCT) {
             _fill_batch_vec(result, field, idx);

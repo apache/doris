@@ -24,6 +24,7 @@
 #include <optional>
 
 #include "common/factory_creator.h"
+#include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
@@ -38,7 +39,30 @@ struct SegmentStatistics {
     int64_t data_size;
     int64_t index_size;
     KeyBoundsPB key_bounds;
+
+    SegmentStatistics() = default;
+
+    SegmentStatistics(SegmentStatisticsPB pb)
+            : row_num(pb.row_num()),
+              data_size(pb.data_size()),
+              index_size(pb.index_size()),
+              key_bounds(pb.key_bounds()) {}
+
+    void to_pb(SegmentStatisticsPB* segstat_pb) {
+        segstat_pb->set_row_num(row_num);
+        segstat_pb->set_data_size(data_size);
+        segstat_pb->set_index_size(index_size);
+        segstat_pb->mutable_key_bounds()->CopyFrom(key_bounds);
+    }
+
+    std::string to_string() {
+        std::stringstream ss;
+        ss << "row_num: " << row_num << ", data_size: " << data_size
+           << ", index_size: " << index_size << ", key_bounds: " << key_bounds.ShortDebugString();
+        return ss.str();
+    }
 };
+using SegmentStatisticsSharedPtr = std::shared_ptr<SegmentStatistics>;
 
 class RowsetWriter {
 public:

@@ -21,7 +21,6 @@
 
 #include <type_traits>
 
-#include "gutil/casts.h"
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 #include "vec/io/io_helper.h"
@@ -181,7 +180,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
 
     // now uint8 for bool
     if constexpr (std::is_same_v<T, UInt8>) {
-        auto concrete_array = down_cast<const arrow::BooleanArray*>(arrow_array);
+        auto concrete_array = dynamic_cast<const arrow::BooleanArray*>(arrow_array);
         for (size_t bool_i = 0; bool_i != static_cast<size_t>(concrete_array->length()); ++bool_i) {
             col_data.emplace_back(concrete_array->Value(bool_i));
         }

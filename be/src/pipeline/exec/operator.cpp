@@ -224,6 +224,16 @@ void PipelineXLocalState::reached_limit(vectorized::Block* block, bool* eos) {
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
 
+void PipelineXLocalState::reached_limit(vectorized::Block* block, SourceState& source_state) {
+    if (_parent->_limit != -1 and _num_rows_returned + block->rows() >= _parent->_limit) {
+        block->set_num_rows(_parent->_limit - _num_rows_returned);
+        source_state = SourceState::FINISHED;
+    }
+
+    _num_rows_returned += block->rows();
+    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+}
+
 std::string DataSinkOperatorX::debug_string() const {
     std::stringstream ss;
     ss << _name << ", is_closed: " << _is_closed;

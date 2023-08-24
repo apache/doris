@@ -20,6 +20,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
+#include <sys/_types/_int32_t.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
@@ -307,19 +308,13 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
     for (const auto& sub_predicate : sub_pred_list) {
         TCondition condition;
         RETURN_IF_ERROR(parse_condition(sub_predicate, &condition));
-        if constexpr (std::is_same_v<SubPredType, DeleteSubPredicatePB>) {
-            if (sub_predicate.has_column_unique_id()) {
-                condition.__set_column_unique_id(sub_predicate.column_unique_id());
-            } else {
-                condition.__set_column_unique_id(
-                        delete_pred_related_schema->column(condition.column_name).unique_id());
-            }
-        } else {
-            condition.__set_column_unique_id(
-                    delete_pred_related_schema->column(condition.column_name).unique_id());
-        }
+        int32_t col_unique_id =
+                delete_pred_related_schema->column(condition.column_name).unique_id();
+        condition.__set_column_unique_id(col_unique_id);
+        const auto& column = complete_schema->column_by_uid(col_unique_id);
+        uint32_t index = complete_schema->field_index(col_unique_id);
         auto* predicate =
-                parse_to_predicate(complete_schema, condition, _predicate_arena.get(), true);
+                parse_to_predicate(column, index, condition, _predicate_arena.get(), true);
         if (predicate != nullptr) {
             delete_conditions->column_predicate_vec.push_back(predicate);
         }
@@ -349,7 +344,7 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         if (delete_pred->version().first > version) {
             continue;
         }
-        // Need the tablet schema at the delete condition to parse the accurate column unique id
+        // Need the tablet schema at the delete condition to parse the accurate column
         const auto& delete_pred_related_schema = delete_pred->tablet_schema();
         auto& delete_condition = delete_pred->delete_predicate();
         DeleteConditions temp;
@@ -365,12 +360,9 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         for (const auto& in_predicate : delete_condition.in_predicates()) {
             TCondition condition;
             condition.__set_column_name(in_predicate.column_name());
-            if (in_predicate.has_column_unique_id()) {
-                condition.__set_column_unique_id(in_predicate.column_unique_id());
-            } else {
-                condition.__set_column_unique_id(
-                        delete_pred_related_schema->column(condition.column_name).unique_id());
-            }
+            condition.__set_column_unique_id(
+                    delete_pred_related_schema->column(condition.column_name).unique_id());
+
             if (in_predicate.is_not_in()) {
                 condition.__set_condition_op("!*=");
             } else {
@@ -379,8 +371,12 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
             for (const auto& value : in_predicate.values()) {
                 condition.condition_values.push_back(value);
             }
+            int32_t col_unique_id =
+                    delete_pred_related_schema->column(condition.column_name).unique_id();
+            const auto& column = tablet_schema->column_by_uid(col_unique_id);
+            uint32_t index = tablet_schema->field_index(col_unique_id);
             temp.column_predicate_vec.push_back(
-                    parse_to_predicate(tablet_schema, condition, _predicate_arena.get(), true));
+                    parse_to_predicate(column, index, condition, _predicate_arena.get(), true));
         }
 
         _del_conds.emplace_back(std::move(temp));

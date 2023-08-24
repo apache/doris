@@ -32,6 +32,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
+#include "util/container_util.hpp"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 
@@ -44,16 +45,16 @@ namespace doris::pipeline {
 PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                              PipelineFragmentContext* fragment_context,
                              RuntimeProfile* parent_profile,
-                             const std::vector<TScanRangeParams>& scan_ranges)
+                             const std::vector<TScanRangeParams>& scan_ranges, const int sender_id)
         : PipelineTask(pipeline, index, state, fragment_context, parent_profile),
           _scan_ranges(scan_ranges),
           _operators(pipeline->operator_xs()),
           _source(_operators.front()),
           _root(_operators.back()),
-          _sink(pipeline->sink_shared_pointer()) {
+          _sink(pipeline->sink_shared_pointer()),
+          _sender_id(sender_id) {
     _pipeline_task_watcher.start();
     _sink->get_dependency(_downstream_dependency);
-    _upstream_dependency.reset((Dependency*)nullptr);
 }
 
 Status PipelineXTask::prepare(RuntimeState* state) {
@@ -93,15 +94,19 @@ Status PipelineXTask::_open() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_open_timer);
-    LocalStateInfo info {_scan_ranges, _upstream_dependency.get()};
     Status st = Status::OK();
     for (auto& o : _operators) {
+        Dependency* dep = _upstream_dependency.find(o->id()) == _upstream_dependency.end()
+                                  ? (Dependency*)nullptr
+                                  : _upstream_dependency.find(o->id())->second.get();
+        LocalStateInfo info {_scan_ranges, dep};
         Status cur_st = o->setup_local_state(_state, info);
         if (!cur_st.ok()) {
             st = cur_st;
         }
     }
-    RETURN_IF_ERROR(_sink->setup_local_state(_state, _downstream_dependency.get()));
+    LocalSinkStateInfo info {_sender_id, _downstream_dependency.get()};
+    RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
     RETURN_IF_ERROR(st);
     _opened = true;
     return Status::OK();
@@ -240,7 +245,7 @@ Status PipelineXTask::close() {
 std::string PipelineXTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
 
-    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id));
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
 
     fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
                    PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));

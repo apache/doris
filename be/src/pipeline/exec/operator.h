@@ -216,6 +216,8 @@ public:
 
     virtual bool can_write() { return false; } // for sink
 
+    [[nodiscard]] virtual bool can_terminate_early() { return false; }
+
     /**
      * The main method to execute a pipeline task.
      * Now it is a pull-based pipeline and operators pull data from its child by this method.
@@ -340,6 +342,8 @@ public:
             : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
+
+    [[nodiscard]] bool can_terminate_early() override { return _node->can_terminate_early(); }
 
     Status prepare(RuntimeState* state) override {
         _node->increase_ref();
@@ -485,6 +489,12 @@ struct LocalStateInfo {
     Dependency* dependency;
 };
 
+// This struct is used only for initializing local sink state.
+struct LocalSinkStateInfo {
+    const int sender_id;
+    Dependency* dependency;
+};
+
 class PipelineXLocalState {
 public:
     PipelineXLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -512,6 +522,7 @@ public:
 
     bool reached_limit() const;
     void reached_limit(vectorized::Block* block, bool* eos);
+    void reached_limit(vectorized::Block* block, SourceState& source_state);
     RuntimeProfile* profile() { return _runtime_profile.get(); }
 
     MemTracker* mem_tracker() { return _mem_tracker.get(); }
@@ -694,7 +705,7 @@ public:
             : _parent(parent_), _state(state_) {}
     virtual ~PipelineXSinkLocalState() {}
 
-    virtual Status init(RuntimeState* state, Dependency* dependency) { return Status::OK(); }
+    virtual Status init(RuntimeState* state, LocalSinkStateInfo& info) { return Status::OK(); }
     template <class TARGET>
     TARGET& cast() {
         DCHECK(dynamic_cast<TARGET*>(this));
@@ -734,7 +745,7 @@ public:
 
     virtual Status init(const TDataSink& tsink) override { return Status::OK(); }
 
-    virtual Status setup_local_state(RuntimeState* state, Dependency* dependency) = 0;
+    virtual Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) = 0;
 
     template <class TARGET>
     TARGET& cast() {

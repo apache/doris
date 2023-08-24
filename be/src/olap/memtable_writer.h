@@ -91,15 +91,12 @@ public:
     Status cancel();
     Status cancel_with_status(const Status& st);
 
-    // submit current memtable to flush queue, and wait all memtables in flush queue
-    // to be flushed.
-    // This is currently for reducing mem consumption of this delta writer.
-    // If need_wait is true, it will wait for all memtable in flush queue to be flushed.
-    // Otherwise, it will just put memtables to the flush queue and return.
-    Status flush_memtable_and_wait(bool need_wait);
-
     int64_t mem_consumption(MemType mem);
     int64_t active_memtable_mem_consumption();
+
+    // Submit current memtable to flush queue, and return without waiting.
+    // This is currently for reducing mem consumption of this memtable writer.
+    Status flush_async();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();

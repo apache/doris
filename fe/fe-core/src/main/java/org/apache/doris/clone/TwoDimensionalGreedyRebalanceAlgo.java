@@ -288,8 +288,13 @@ public class TwoDimensionalGreedyRebalanceAlgo {
      */
     public static boolean applyMove(PartitionMove move, TreeMultimap<Long, Long> beByTotalReplicaCount,
                                     TreeMultimap<Long, PartitionBalanceInfo> skewMap) {
-        // Update the total counts
-        moveOneReplica(move.fromBe, move.toBe, beByTotalReplicaCount);
+        try {
+            // Update the total counts
+            moveOneReplica(move.fromBe, move.toBe, beByTotalReplicaCount);
+        } catch (IllegalStateException e) {
+            LOG.info("{} apply failed, {}", move, e.getMessage());
+            return false;
+        }
 
         try {
             PartitionBalanceInfo partitionBalanceInfo = null;

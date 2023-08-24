@@ -69,23 +69,23 @@ std::unique_ptr<Block> AsyncResultWriter::get_block_from_queue() {
     return block;
 }
 
-void AsyncResultWriter::start_writer(RuntimeState* state) {
+void AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* profile) {
     ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state]() { this->process_block(state); });
+            [this, state, profile]() { this->process_block(state, profile); });
 }
 
-void AsyncResultWriter::process_block(RuntimeState* state) {
-    _writer_status = open(state);
+void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profile) {
+    _writer_status = open(state, profile);
     if (_writer_status.ok()) {
         while (true) {
             {
                 std::unique_lock l(_m);
-                while (!_eos && _data_queue.empty() && !_close) {
+                while (!_eos && _data_queue.empty() && !_force_close) {
                     _cv.wait(l);
                 }
             }
 
-            if ((_eos && _data_queue.empty()) || _close) {
+            if ((_eos && _data_queue.empty()) || _force_close) {
                 _data_queue.clear();
                 break;
             }
@@ -97,6 +97,13 @@ void AsyncResultWriter::process_block(RuntimeState* state) {
                 break;
             }
         }
+    }
+
+    // if not in transaction or status is in error or force close we can do close in
+    // async IO thread
+    if (!_writer_status.ok() || _force_close || !in_transaction()) {
+        close();
+        _need_normal_close = false;
     }
     _writer_thread_closed = true;
 }
@@ -115,7 +122,7 @@ Status AsyncResultWriter::_projection_block(doris::vectorized::Block& input_bloc
 
 void AsyncResultWriter::force_close() {
     std::lock_guard l(_m);
-    _close = true;
+    _force_close = true;
     _cv.notify_one();
 }
 

@@ -92,13 +92,6 @@ struct DefaultHash<T> {
 };
 
 template <>
-struct DefaultHash<doris::vectorized::Int128I> {
-    size_t operator()(doris::vectorized::Int128I key) const {
-        return default_hash64<doris::vectorized::Int128I>(key);
-    }
-};
-
-template <>
 struct DefaultHash<doris::StringRef> : public doris::StringRefHash {};
 
 template <typename T>

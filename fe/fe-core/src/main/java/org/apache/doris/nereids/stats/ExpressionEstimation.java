@@ -185,15 +185,15 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             return ColumnStatistic.UNKNOWN;
         }
         double literalVal = literal.getDouble();
-        ColumnStatisticBuilder columnStatBuilder = new ColumnStatisticBuilder();
-        columnStatBuilder.setMaxValue(literalVal);
-        columnStatBuilder.setMinValue(literalVal);
-        columnStatBuilder.setNdv(1);
-        columnStatBuilder.setNumNulls(1);
-        columnStatBuilder.setAvgSizeByte(1);
-        columnStatBuilder.setMinExpr(literal.toLegacyLiteral());
-        columnStatBuilder.setMaxExpr(literal.toLegacyLiteral());
-        return columnStatBuilder.build();
+        return new ColumnStatisticBuilder()
+                .setMaxValue(literalVal)
+                .setMinValue(literalVal)
+                .setNdv(1)
+                .setNumNulls(1)
+                .setAvgSizeByte(1)
+                .setMinExpr(literal.toLegacyLiteral())
+                .setMaxExpr(literal.toLegacyLiteral())
+                .build();
     }
 
     @Override

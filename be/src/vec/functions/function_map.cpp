@@ -295,7 +295,7 @@ public:
     }
 
 private:
-    FunctionArrayIndex<ArrayContainsAction, FunctionMapContains<is_key>> array_contains;
+    FunctionArrayIndex<ArrayContainsAction> array_contains;
 };
 
 template <bool is_key>

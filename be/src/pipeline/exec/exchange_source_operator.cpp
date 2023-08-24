@@ -41,7 +41,7 @@ bool ExchangeSourceOperator::is_pending_finish() const {
 }
 
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState(state, parent), num_rows_skipped(0) {}
+        : PipelineXLocalState(state, parent), num_rows_skipped(0), is_ready(false) {}
 
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     if (_init) {
@@ -65,7 +65,6 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
         : OperatorXBase(pool, tnode, descs, op_name),
           _num_senders(num_senders),
           _is_merging(tnode.exchange_node.__isset.sort_info),
-          _is_ready(false),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
@@ -108,11 +107,11 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
                                           SourceState& source_state) {
     auto& local_state = state->get_local_state(id())->cast<ExchangeLocalState>();
     SCOPED_TIMER(local_state.profile()->total_time_counter());
-    if (_is_merging && !_is_ready) {
+    if (_is_merging && !local_state.is_ready) {
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
                 local_state.vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
                 state->batch_size(), _limit, _offset));
-        _is_ready = true;
+        local_state.is_ready = true;
         return Status::OK();
     }
     bool eos = false;
