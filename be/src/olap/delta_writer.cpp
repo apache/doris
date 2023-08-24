@@ -276,7 +276,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
     closure->cntl.set_timeout_ms(config::slave_replica_writer_rpc_timeout_sec * 1000);
     closure->cntl.ignore_eovercrowded();
     stub->request_slave_tablet_pull_rowset(&closure->cntl, &request, &closure->result, closure);
-    request.release_rowset_meta();
+    static_cast<void>(request.release_rowset_meta());
 
     closure->join();
     if (closure->cntl.Failed()) {
