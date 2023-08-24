@@ -1486,3 +1486,8 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: The storage directory for files queried by `local` table valued functions.
 * Default value: `${DORIS_HOME}`
+
+#### `brpc_streaming_client_batch_bytes`
+
+* Description: The batch size for sending data by brpc streaming client
+* Default value: 262144
