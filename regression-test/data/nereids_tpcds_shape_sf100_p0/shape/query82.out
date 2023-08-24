@@ -20,7 +20,7 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[inventory]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter((item.i_current_price >= 17.00)i_manufact_id IN (138, 169, 339, 639)(item.i_current_price <= 47.00))
+------------------------------filter((item.i_current_price >= 17.00)(item.i_current_price <= 47.00)i_manufact_id IN (138, 169, 339, 639))
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject

@@ -24,7 +24,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
@@ -892,33 +891,6 @@ public class TypeCoercionUtils {
                 .map(e -> e.getDataType().isNullType() ? new NullLiteral(BooleanType.INSTANCE) : e)
                 .collect(Collectors.toList());
         return compoundPredicate.withChildren(children);
-    }
-
-    /**
-     * process between type coercion.
-     */
-    public static Expression processBetween(Between between) {
-        // check
-        between.checkLegalityBeforeTypeCoercion();
-
-        if (between.getLowerBound().getDataType().equals(between.getCompareExpr().getDataType())
-                && between.getUpperBound().getDataType().equals(between.getCompareExpr().getDataType())) {
-            return between;
-        }
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(
-                between.children()
-                        .stream()
-                        .map(Expression::getDataType)
-                        .collect(Collectors.toList()));
-
-        return optionalCommonType
-                .map(commonType -> {
-                    List<Expression> newChildren = between.children().stream()
-                            .map(e -> TypeCoercionUtils.castIfNotMatchType(e, commonType))
-                            .collect(Collectors.toList());
-                    return between.withChildren(newChildren);
-                })
-                .orElse(between);
     }
 
     private static boolean canCompareDate(DataType t1, DataType t2) {

@@ -134,7 +134,6 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
@@ -1827,10 +1826,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression outExpression;
             switch (ctx.kind.getType()) {
                 case DorisParser.BETWEEN:
-                    outExpression = new Between(
-                            valueExpression,
-                            getExpression(ctx.lower),
-                            getExpression(ctx.upper)
+                    outExpression = new And(
+                            new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
+                            new LessThanEqual(valueExpression, getExpression(ctx.upper))
                     );
                     break;
                 case DorisParser.LIKE:
