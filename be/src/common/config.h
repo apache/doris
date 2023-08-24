@@ -1187,6 +1187,10 @@ DECLARE_Bool(ignore_always_true_predicate_for_segment);
 // Dir of default timezone files
 DECLARE_String(default_tzfiles_path);
 
+DECLARE_mBool(enable_check_primary_keys);
+
+DECLARE_Int32(check_primary_keys_max_thread);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

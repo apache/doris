@@ -54,6 +54,7 @@
 #include "util/metrics.h"
 #include "util/once.h"
 #include "util/slice.h"
+#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
 
@@ -73,7 +74,10 @@ class TupleDescriptor;
 class CalcDeleteBitmapToken;
 enum CompressKind : int;
 class RowsetBinlogMetasPB;
-
+class CheckPrimaryKeysToken;
+namespace segment_v2 {
+class SegmentWriter;
+}
 namespace io {
 class RemoteFileSystem;
 } // namespace io
@@ -568,6 +572,19 @@ public:
             const BetaRowsetSharedPtr& rowset, uint32_t segid, const TabletColumn& target_column,
             std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
             OlapReaderStatistics* stats);
+
+    Status fetch_pk_entries(const PartialUpdateReadPlan* read_plan,
+                            const std::map<RowsetId, RowsetSharedPtr>* rsid_to_rowset,
+                            std::unordered_map<uint32_t, std::string>* pk_entries);
+    Status check_primary_keys_consistency(const PartialUpdateReadPlan* read_plan,
+                                          const std::map<RowsetId, RowsetSharedPtr>* rsid_to_rowset,
+                                          std::unordered_map<uint32_t, std::string>* pk_entries,
+                                          bool with_seq_col);
+    Status check_primary_keys_consistency(
+            const PartialUpdateReadPlan* read_plan,
+            const std::map<RowsetId, RowsetSharedPtr>* rsid_to_rowset,
+            segment_v2::SegmentWriter* segment_writer,
+            std::vector<vectorized::IOlapColumnDataAccessor*>* key_columns, uint32_t row_pos);
 
 private:
     Status _init_once_action();

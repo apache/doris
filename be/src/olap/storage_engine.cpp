@@ -123,6 +123,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
           _calc_delete_bitmap_executor(nullptr),
+          _check_primary_keys_executor(nullptr),
           _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
@@ -183,6 +184,9 @@ Status StorageEngine::_open() {
 
     _calc_delete_bitmap_executor.reset(new CalcDeleteBitmapExecutor());
     _calc_delete_bitmap_executor->init();
+
+    _check_primary_keys_executor.reset(new CheckPrimaryKeysExecutor());
+    _check_primary_keys_executor->init();
 
     _parse_default_rowset_type();
 

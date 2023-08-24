@@ -3182,13 +3182,24 @@ Status Tablet::generate_new_block_for_partial_update(
     auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
     std::map<uint32_t, uint32_t> read_index_old;
+    std::unordered_map<uint32_t, std::string> pk_entries;
+    if (config::enable_check_primary_keys) {
+        RETURN_IF_ERROR(fetch_pk_entries(&read_plan_update, &rsid_to_rowset, &pk_entries));
+    }
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, missing_cids, read_plan_ori, rsid_to_rowset,
                                          old_block, &read_index_old));
 
     std::map<uint32_t, uint32_t> read_index_update;
+    auto token = StorageEngine::instance()->check_primary_keys_executor()->create_token();
+    if (config::enable_check_primary_keys) {
+        RETURN_IF_ERROR(token->submit(this, &read_plan_update, &rsid_to_rowset, &pk_entries,
+                                      rowset_schema->has_sequence_col()));
+    }
     RETURN_IF_ERROR(read_columns_by_plan(rowset_schema, update_cids, read_plan_update,
                                          rsid_to_rowset, update_block, &read_index_update));
-
+    if (config::enable_check_primary_keys) {
+        RETURN_IF_ERROR(token->wait());
+    }
     // build full block
     CHECK(read_index_old.size() == read_index_update.size());
     for (auto i = 0; i < missing_cids.size(); ++i) {
@@ -3236,16 +3247,16 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                     LOG(WARNING) << "failed to fetch value through row column";
                     return st;
                 }
-                continue;
-            }
-            for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
-                TabletColumn tablet_column = tablet_schema->column(cids_to_read[cid]);
-                auto st = fetch_value_by_rowids(rowset_iter->second, seg_it.first, rids,
-                                                tablet_column, mutable_columns[cid]);
-                // set read value to output block
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value";
-                    return st;
+            } else {
+                for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
+                    TabletColumn tablet_column = tablet_schema->column(cids_to_read[cid]);
+                    auto st = fetch_value_by_rowids(rowset_iter->second, seg_it.first, rids,
+                                                    tablet_column, mutable_columns[cid]);
+                    // set read value to output block
+                    if (!st.ok()) {
+                        LOG(WARNING) << "failed to fetch value";
+                        return st;
+                    }
                 }
             }
         }
@@ -3871,4 +3882,194 @@ Status Tablet::check_delete_bitmap_correctness(DeleteBitmapPtr delete_bitmap, in
     }
     return Status::OK();
 }
+
+Status Tablet::check_primary_keys_consistency(
+        const PartialUpdateReadPlan* read_plan,
+        const std::map<RowsetId, RowsetSharedPtr>* rsid_to_rowset,
+        std::unordered_map<uint32_t, std::string>* pk_entries, bool with_seq_col) {
+    size_t count = 0;
+    for (auto& [rowset_id, segment_read_info] : *read_plan) {
+        for (auto& [segment_id, rows_info] : segment_read_info) {
+            auto rowset_iter = rsid_to_rowset->find(rowset_id);
+            CHECK(rowset_iter != rsid_to_rowset->end());
+            BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(rowset_iter->second);
+            CHECK(rowset);
+            const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
+            SegmentCacheHandle segment_cache;
+            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                                   segment_cache.get_segments().cend(),
+                                   [segment_id](const segment_v2::SegmentSharedPtr& seg) {
+                                       return seg->id() == segment_id;
+                                   });
+            if (it == segment_cache.get_segments().end()) {
+                return Status::NotFound(fmt::format("rowset {} 's segemnt not found, seg_id {}",
+                                                    rowset->rowset_id().to_string(), segment_id));
+            }
+
+            segment_v2::SegmentSharedPtr segment = *it;
+            LOG(INFO) << fmt::format(
+                    "[Tablet::check_primary_keys_consistency][rowset_id:{}][segment_id:{}]",
+                    segment->rowset_id().to_string(), segment->id());
+            RETURN_IF_ERROR(segment->load_index());
+            auto pk_index = segment->get_primary_key_index();
+            std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+            RETURN_IF_ERROR(pk_index->new_iterator(&iter));
+            auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    pk_index->type_info()->type(), 1, 0);
+            auto index_column = index_type->create_column();
+
+            size_t idx = 0;
+            for (auto [rowid, pos] : rows_info) {
+                RETURN_IF_ERROR(iter->seek_to_ordinal(rowid));
+                size_t num_read = 1;
+                RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
+                CHECK(num_read == 1);
+                std::string prev_pk_entry = index_column->get_data_at(idx++).to_string();
+                std::string cur_pk_entry = pk_entries->at(pos);
+                Slice key1 = Slice(prev_pk_entry.data(), prev_pk_entry.size());
+                Slice key2 = Slice(cur_pk_entry.data(), cur_pk_entry.size());
+                int result = 0;
+                // always ignore the seq col
+                if (tablet_schema->has_sequence_col()) {
+                    auto seq_col_length =
+                            tablet_schema->column(tablet_schema->sequence_col_idx()).length() + 1;
+                    key1 = Slice(prev_pk_entry.data(), prev_pk_entry.size() - seq_col_length);
+                    if (with_seq_col) {
+                        key2 = Slice(cur_pk_entry.data(), cur_pk_entry.size() - seq_col_length);
+                    }
+                }
+                result = key1.compare(key2);
+                if (result != 0) {
+                    LOG(WARNING) << fmt::format(
+                            "check primary keys consistency failed, pk at pos {} in current "
+                            "block is {}, but in previous conflict segment is {}!",
+                            pos, key2.to_string(), key1.to_string());
+                    return Status::InternalError("check primary keys consistency failed");
+                }
+            }
+            count += rows_info.size();
+        }
+    }
+    if (count != pk_entries->size()) {
+        return Status::InternalError(
+                "check primary keys consistency failed, pk_entries.size():{}, but number of keys "
+                "in read plan is {}",
+                pk_entries->size(), count);
+    }
+    return Status::OK();
+}
+
+Status Tablet::check_primary_keys_consistency(
+        const PartialUpdateReadPlan* read_plan,
+        const std::map<RowsetId, RowsetSharedPtr>* rsid_to_rowset,
+        segment_v2::SegmentWriter* segment_writer,
+        std::vector<vectorized::IOlapColumnDataAccessor*>* key_columns, uint32_t row_pos) {
+    for (auto& [rowset_id, segment_read_info] : *read_plan) {
+        for (auto& [segment_id, rows_info] : segment_read_info) {
+            auto rowset_iter = rsid_to_rowset->find(rowset_id);
+            CHECK(rowset_iter != rsid_to_rowset->end());
+            BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(rowset_iter->second);
+            CHECK(rowset);
+            const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
+            SegmentCacheHandle segment_cache;
+            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                                   segment_cache.get_segments().cend(),
+                                   [segment_id](const segment_v2::SegmentSharedPtr& seg) {
+                                       return seg->id() == segment_id;
+                                   });
+            if (it == segment_cache.get_segments().end()) {
+                return Status::NotFound(fmt::format("rowset {} 's segemnt not found, seg_id {}",
+                                                    rowset->rowset_id().to_string(), segment_id));
+            }
+
+            segment_v2::SegmentSharedPtr segment = *it;
+            LOG(INFO) << fmt::format(
+                    "[Tablet::check_primary_keys_consistency][rowset_id:{}][segment_id:{}]",
+                    segment->rowset_id().to_string(), segment->id());
+            RETURN_IF_ERROR(segment->load_index());
+            auto pk_index = segment->get_primary_key_index();
+            std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+            RETURN_IF_ERROR(pk_index->new_iterator(&iter));
+            auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    pk_index->type_info()->type(), 1, 0);
+            auto index_column = index_type->create_column();
+
+            size_t idx = 0;
+            for (auto [rowid, pos] : rows_info) {
+                RETURN_IF_ERROR(iter->seek_to_ordinal(rowid));
+                size_t num_read = 1;
+                RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
+                CHECK(num_read == 1);
+                std::string prev_pk_entry = index_column->get_data_at(idx++).to_string();
+                std::string cur_pk_entry =
+                        segment_writer->full_encode_keys(*key_columns, pos - row_pos);
+                Slice key1 = Slice(prev_pk_entry.data(), prev_pk_entry.size());
+                Slice key2 = Slice(cur_pk_entry.data(), cur_pk_entry.size());
+                int result = 0;
+                // always ignore the seq col
+                if (tablet_schema->has_sequence_col()) {
+                    auto seq_col_length =
+                            tablet_schema->column(tablet_schema->sequence_col_idx()).length() + 1;
+                    key1 = Slice(prev_pk_entry.data(), prev_pk_entry.size() - seq_col_length);
+                }
+                result = key1.compare(key2);
+                if (result != 0) {
+                    LOG(WARNING) << fmt::format(
+                            "check primary keys consistency failed, pk at pos {} in current "
+                            "block is {}, but in previous conflict segment is {}!",
+                            pos, key2.to_string(), key1.to_string());
+                    return Status::InternalError("check primary keys consistency failed");
+                }
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status Tablet::fetch_pk_entries(const PartialUpdateReadPlan* read_plan,
+                                const std::map<RowsetId, RowsetSharedPtr>* rsid_to_rowset,
+                                std::unordered_map<uint32_t, std::string>* pk_entries) {
+    for (auto& [rowset_id, segment_read_info] : *read_plan) {
+        for (auto& [segment_id, rows_info] : segment_read_info) {
+            auto rowset_iter = rsid_to_rowset->find(rowset_id);
+            CHECK(rowset_iter != rsid_to_rowset->end());
+            BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(rowset_iter->second);
+            CHECK(rowset);
+            SegmentCacheHandle segment_cache;
+            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                                   segment_cache.get_segments().cend(),
+                                   [segment_id](const segment_v2::SegmentSharedPtr& seg) {
+                                       return seg->id() == segment_id;
+                                   });
+            if (it == segment_cache.get_segments().end()) {
+                return Status::NotFound(fmt::format("rowset {} 's segemnt not found, seg_id {}",
+                                                    rowset->rowset_id().to_string(), segment_id));
+            }
+            segment_v2::SegmentSharedPtr segment = *it;
+
+            RETURN_IF_ERROR(segment->load_index());
+            auto pk_index = segment->get_primary_key_index();
+            std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+            RETURN_IF_ERROR(pk_index->new_iterator(&iter));
+            auto index_column = vectorized::DataTypeFactory::instance()
+                                        .create_data_type(pk_index->type_info()->type(), 1, 0)
+                                        ->create_column();
+
+            size_t idx = 0;
+            for (auto [rowid, pos] : rows_info) {
+                RETURN_IF_ERROR(iter->seek_to_ordinal(rowid));
+                size_t num_read = 1;
+                RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
+                CHECK(num_read == 1);
+                std::string pk_entry = index_column->get_data_at(idx++).to_string();
+                pk_entries->emplace(pos, pk_entry);
+            }
+        }
+    }
+    return Status::OK();
+}
+
 } // namespace doris

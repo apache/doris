@@ -1117,6 +1117,10 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
+DEFINE_mBool(enable_check_primary_keys, "true");
+
+DEFINE_Int32(check_primary_keys_max_thread, "16");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

@@ -45,6 +45,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker.h"
@@ -410,7 +411,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         // here row_pos = 2, num_rows = 4.
         size_t delta_pos = block_pos - row_pos;
         size_t segment_pos = segment_start_pos + delta_pos;
-        std::string key = _full_encode_keys(key_columns, delta_pos);
+        std::string key = full_encode_keys(key_columns, delta_pos);
         if (have_input_seq_column) {
             _encode_seq_column(seq_column, delta_pos, &key);
         }
@@ -490,8 +491,16 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
+    auto token = StorageEngine::instance()->check_primary_keys_executor()->create_token();
+    if (config::enable_check_primary_keys) {
+        RETURN_IF_ERROR(token->submit(tablet, &_rssid_to_rid, &_rsid_to_rowset, this, &key_columns,
+                                      row_pos));
+    }
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
                                          has_default_or_nullable, segment_start_pos));
+    if (config::enable_check_primary_keys) {
+        RETURN_IF_ERROR(token->wait());
+    }
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -533,7 +542,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                     _num_rows_written, row_pos, _primary_key_index_builder->num_rows());
         }
         for (size_t block_pos = row_pos; block_pos < row_pos + num_rows; block_pos++) {
-            std::string key = _full_encode_keys(key_columns, block_pos - row_pos);
+            std::string key = full_encode_keys(key_columns, block_pos - row_pos);
             _encode_seq_column(seq_column, block_pos - row_pos, &key);
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
         }
@@ -746,7 +755,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             // create primary indexes
             std::string last_key;
             for (size_t pos = 0; pos < num_rows; pos++) {
-                std::string key = _full_encode_keys(key_columns, pos);
+                std::string key = full_encode_keys(key_columns, pos);
                 if (_tablet_schema->has_sequence_col()) {
                     _encode_seq_column(seq_column, pos, &key);
                 }
@@ -760,8 +769,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         } else {
             // create short key indexes'
             // for min_max key
-            set_min_key(_full_encode_keys(key_columns, 0));
-            set_max_key(_full_encode_keys(key_columns, num_rows - 1));
+            set_min_key(full_encode_keys(key_columns, 0));
+            set_max_key(full_encode_keys(key_columns, num_rows - 1));
 
             key_columns.resize(_num_short_key_columns);
             for (const auto pos : short_key_pos) {
@@ -787,7 +796,7 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     return std::min(size_rows, count_rows);
 }
 
-std::string SegmentWriter::_full_encode_keys(
+std::string SegmentWriter::full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
     assert(_key_index_size.size() == _num_key_columns);
