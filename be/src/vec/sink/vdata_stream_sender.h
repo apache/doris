@@ -264,9 +264,6 @@ public:
         if (_closure != nullptr && _closure->unref()) {
             delete _closure;
         }
-        // release this before request desctruct
-        _brpc_request.release_finst_id();
-        _brpc_request.release_query_id();
     }
 
     // Initialize channel.
