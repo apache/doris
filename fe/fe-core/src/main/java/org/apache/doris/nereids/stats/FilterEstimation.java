@@ -396,14 +396,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         ColumnStatisticBuilder leftColumnStatisticBuilder;
         Statistics updatedStatistics;
         if (intersectRange.isEmpty()) {
-            updatedStatistics = context.statistics.updateRowCountOnly(1);
+            updatedStatistics = context.statistics.updateRowCountOnly(0);
             leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
                     .setMinValue(Double.NEGATIVE_INFINITY)
                     .setMinExpr(null)
                     .setMaxValue(Double.POSITIVE_INFINITY)
                     .setMaxExpr(null)
-                    .setNdv(1)
-                    .setCount(1);
+                    .setNdv(0)
+                    .setCount(0);
         } else {
             leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
                     .setMinValue(intersectRange.getLow())
