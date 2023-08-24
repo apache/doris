@@ -564,9 +564,8 @@ class FilterEstimationTest {
     /**
      *  test filter estimation, c > 300, where 300 is out of c's range (0,200)
      *  after filter
-     *     c.selectivity=a.selectivity=b.selectivity = 0
-     *     c.ndv=a.ndv=b.ndv=0
-     *     a.ndv = b.ndv = 0
+     *     c.ndv=a.ndv=b.ndv=1
+     *     if estimate is 0, set ndv and row count to 1 to avoid error propagation
      */
 
     @Test
@@ -605,11 +604,11 @@ class FilterEstimationTest {
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics estimated = filterEstimation.estimate(ge, stat);
         ColumnStatistic statsA = estimated.findColumnStatistics(a);
-        Assertions.assertEquals(0, statsA.ndv);
+        Assertions.assertEquals(1, statsA.ndv);
         ColumnStatistic statsB = estimated.findColumnStatistics(b);
-        Assertions.assertEquals(0, statsB.ndv);
+        Assertions.assertEquals(1, statsB.ndv);
         ColumnStatistic statsC = estimated.findColumnStatistics(c);
-        Assertions.assertEquals(0, statsC.ndv);
+        Assertions.assertEquals(1, statsC.ndv);
         Assertions.assertTrue(Double.isInfinite(statsC.minValue));
         Assertions.assertTrue(Double.isInfinite(statsC.maxValue));
     }

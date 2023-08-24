@@ -396,7 +396,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         ColumnStatisticBuilder leftColumnStatisticBuilder;
         Statistics updatedStatistics;
         if (intersectRange.isEmpty()) {
-            updatedStatistics = context.statistics.updateRowCountOnly(0);
+            updatedStatistics = context.statistics.updateRowCountOnly(1);
             leftColumnStatisticBuilder = new ColumnStatisticBuilder(leftStats)
                     .setMinValue(Double.NEGATIVE_INFINITY)
                     .setMinExpr(null)
