@@ -403,6 +403,7 @@ WITHIN: 'WITHIN';
 YEAR: 'YEAR';
 ZONE: 'ZONE';
 DATEV2: 'DATEV2';
+BOOLEAN: 'BOOLEAN';
 //--DORIS-KEYWORD-LIST-END
 //============================
 // End of the keywords list
