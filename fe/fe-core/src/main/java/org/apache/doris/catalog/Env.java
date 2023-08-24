@@ -5380,57 +5380,50 @@ public class Env {
     }
 
     public void setPartitionVersion(AdminSetPartitionVersionStmt stmt) throws DdlException {
+        String database = stmt.getDatabase();
+        String table = stmt.getTable();
         long partitionId = stmt.getPartitionId();
-        long versionInfo = stmt.getVisibleVersion();
-        int setSuccess = setPartitionVersionInternal(partitionId, versionInfo, false);
+        long visibleVersion = stmt.getVisibleVersion();
+        int setSuccess = setPartitionVersionInternal(database, table, partitionId, visibleVersion, false);
         if (setSuccess == -1) {
-            throw new DdlException("Failed to set partition visible version to " + versionInfo + ". "
-                + "Partition " + partitionId + " not exists.");
+            throw new DdlException("Failed to set partition visible version to " + visibleVersion + ". " + "Partition "
+                    + partitionId + " not exists. Database " + database + ", Table " + table + ".");
         }
     }
 
     public void replaySetPartitionVersion(SetPartitionVersionOperationLog log) throws DdlException {
-        int setSuccess = setPartitionVersionInternal(log.getPartitionId(), log.getVersionInfo(), true);
+        int setSuccess = setPartitionVersionInternal(log.getDatabase(), log.getTable(),
+                log.getPartitionId(), log.getVisibleVersion(), true);
         if (setSuccess == -1) {
-            LOG.warn("Failed to set partition visible version to {}. Partition {} not exists.",
-                    log.getVersionInfo(), log.getPartitionId());
+            LOG.warn("Failed to set partition visible version to {}. "
+                    + "Database {}, Table {}, Partition {} not exists.", log.getDatabase(), log.getTable(),
+                    log.getVisibleVersion(), log.getPartitionId());
         }
     }
 
-    public int setPartitionVersionInternal(long partitionId, long versionInfo, boolean isReplay) throws DdlException {
+    public int setPartitionVersionInternal(String database, String table, long partitionId,
+                                           long visibleVersion, boolean isReplay) throws DdlException {
         int result = -1;
-        List<Long> dbIds = getInternalCatalog().getDbIds();
-        // TODO should use inverted index
-        for (long dbId : dbIds) {
-            Database database = getInternalCatalog().getDbNullable(dbId);
-            if (database == null) {
-                continue;
-            }
-            List<Table> tables = database.getTables();
-            for (Table tbl : tables) {
-                if (tbl instanceof OlapTable) {
-                    tbl.writeLock();
-                    try {
-                        Partition partition = ((OlapTable) tbl).getPartition(partitionId);
-                        if (partition != null) {
-                            Long oldVersion = partition.getVisibleVersion();
-                            partition.updateVisibleVersion(versionInfo);
-                            partition.setNextVersion(versionInfo + 1);
-                            result = 0;
-                            if (!isReplay) {
-                                SetPartitionVersionOperationLog log = new SetPartitionVersionOperationLog(
-                                        partitionId, versionInfo);
-                                getEditLog().logSetPartitionVersion(log);
-                            }
-                            LOG.info("set partition {} of table {} visible version from {} to {}",
-                                    partitionId, tbl.getId(), oldVersion, versionInfo);
-                            break;
-                        }
-                    } finally {
-                        tbl.writeUnlock();
-                    }
+        Database db = getInternalCatalog().getDbOrDdlException(database);
+        OlapTable olapTable = db.getOlapTableOrDdlException(table);
+        olapTable.writeLockOrDdlException();
+        try {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition != null) {
+                Long oldVersion = partition.getVisibleVersion();
+                partition.updateVisibleVersion(visibleVersion);
+                partition.setNextVersion(visibleVersion + 1);
+                result = 0;
+                if (!isReplay) {
+                    SetPartitionVersionOperationLog log = new SetPartitionVersionOperationLog(
+                            database, table, partitionId, visibleVersion);
+                    getEditLog().logSetPartitionVersion(log);
                 }
+                LOG.info("set partition {} visible version from {} to {}. Database {}, Table {}, is replay:"
+                        + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
             }
+        } finally {
+            olapTable.writeUnlock();
         }
         return result;
     }

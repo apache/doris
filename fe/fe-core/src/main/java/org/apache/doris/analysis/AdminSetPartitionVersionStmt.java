@@ -23,6 +23,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -30,17 +31,27 @@ import java.util.Map;
 
 // Modify version of specified partition. Only used in emergency.
 /*
- *  admin set partition version properties ("key" = "val", ..);
+ *  admin set table db.tbl partition version properties ("key" = "val", ..);
  *      "partition_id" = "20010",
  *      "visible_version" = "101"
  */
 public class AdminSetPartitionVersionStmt extends DdlStmt {
     private long partitionId = -1;
     private long visibleVersion = -1;
+    private final TableName tableName;
     private final Map<String, String> properties;
 
-    public AdminSetPartitionVersionStmt(Map<String, String> properties) {
+    public AdminSetPartitionVersionStmt(TableName tableName, Map<String, String> properties) {
+        this.tableName = tableName;
         this.properties = properties;
+    }
+
+    public String getDatabase() {
+        return tableName.getDb();
+    }
+
+    public String getTable() {
+        return tableName.getTbl();
     }
 
     public Long getPartitionId() {
@@ -59,6 +70,9 @@ public class AdminSetPartitionVersionStmt extends DdlStmt {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
+
+        tableName.analyze(analyzer);
+        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
         checkProperties();
     }

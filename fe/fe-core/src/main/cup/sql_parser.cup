@@ -7216,9 +7216,9 @@ admin_stmt ::=
     {:
         RESULT = new AdminCleanTrashStmt(null);
     :}
-    | KW_ADMIN KW_SET KW_PARTITION KW_VERSION opt_properties:properties
+    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
-        RESULT = new AdminSetPartitionVersionStmt(properties);
+        RESULT = new AdminSetPartitionVersionStmt(name, properties);
     :}
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:

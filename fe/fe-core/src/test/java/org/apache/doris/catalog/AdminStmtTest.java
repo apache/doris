@@ -143,12 +143,12 @@ public class AdminStmtTest extends TestWithFeService {
         Assertions.assertEquals(1, oldVersion);
         // set partition version to 100
         long newVersion = 100;
-        String adminStmt = "admin set partition version properties ('partition_id' = '" + partitionId
-                + "', 'visible_version' = '" + newVersion + "');";
+        String adminStmt = "admin set table test.tbl2 partition version properties ('partition_id' = '"
+                + partitionId + "', " + "'visible_version' = '" + newVersion + "');";
         Assertions.assertNotNull(getSqlStmtExecutor(adminStmt));
         Assertions.assertEquals(newVersion, partition.getVisibleVersion());
-        adminStmt = "admin set partition version properties ('partition_id' = '" + partitionId
-                + "', 'visible_version' = '" + oldVersion + "');";
+        adminStmt = "admin set table test.tbl2 partition version properties ('partition_id' = '"
+                + partitionId + "', " + "'visible_version' = '" + oldVersion + "');";
         Assertions.assertNotNull(getSqlStmtExecutor(adminStmt));
         Assertions.assertEquals(oldVersion, partition.getVisibleVersion());
     }
@@ -162,7 +162,8 @@ public class AdminStmtTest extends TestWithFeService {
             Files.createFile(path);
             DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
-            SetPartitionVersionOperationLog log = new SetPartitionVersionOperationLog(10002, 100);
+            SetPartitionVersionOperationLog log = new SetPartitionVersionOperationLog(
+                    "test", "tbl2", 10002, 100);
             log.write(out);
             out.flush();
             out.close();
@@ -171,12 +172,15 @@ public class AdminStmtTest extends TestWithFeService {
             DataInputStream in = new DataInputStream(Files.newInputStream(path));
 
             SetPartitionVersionOperationLog readLog = SetPartitionVersionOperationLog.read(in);
+            Assertions.assertEquals(log.getDatabase(), readLog.getDatabase());
+            Assertions.assertEquals(log.getTable(), readLog.getTable());
             Assertions.assertEquals(log.getPartitionId(), readLog.getPartitionId());
-            Assertions.assertEquals(log.getVersionInfo(), readLog.getVersionInfo());
+            Assertions.assertEquals(log.getVisibleVersion(), readLog.getVisibleVersion());
 
             in.close();
         } finally {
             Files.deleteIfExists(path);
         }
     }
+
 }

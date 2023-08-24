@@ -70,7 +70,6 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
     public static final String PROPERTIES_SCHEMA_VERSION = "schema_version";
-
     public static final String PROPERTIES_PARTITION_ID = "partition_id";
     public static final String PROPERTIES_VISIBLE_VERSION = "visible_version";
 
@@ -430,36 +429,28 @@ public class PropertyAnalyzer {
         return schemaVersion;
     }
 
-    public static Long analyzePartitionId(Map<String, String> properties) throws AnalysisException {
-        long partitionId = -1;
-        if (properties != null && properties.containsKey(PROPERTIES_PARTITION_ID)) {
-            String partitionIdStr = properties.get(PROPERTIES_PARTITION_ID);
+    private static Long getPropertyLong(Map<String, String> properties, String propertyId) throws AnalysisException {
+        long id = -1;
+        if (properties != null && properties.containsKey(propertyId)) {
+            String propertyIdStr = properties.get(propertyId);
             try {
-                partitionId = Long.parseLong(partitionIdStr);
+                id = Long.parseLong(propertyIdStr);
             } catch (Exception e) {
-                throw new AnalysisException("Invalid partition id: " + partitionIdStr);
+                throw new AnalysisException("Invalid property long id: " + propertyIdStr);
             }
 
-            properties.remove(PROPERTIES_PARTITION_ID);
+            properties.remove(propertyId);
         }
 
-        return partitionId;
+        return id;
+    }
+
+    public static Long analyzePartitionId(Map<String, String> properties) throws AnalysisException {
+        return getPropertyLong(properties, PROPERTIES_PARTITION_ID);
     }
 
     public static Long analyzeVisibleVersion(Map<String, String> properties) throws AnalysisException {
-        long visibleVersion = -1;
-        if (properties != null && properties.containsKey(PROPERTIES_VISIBLE_VERSION)) {
-            String visibleVersionStr = properties.get(PROPERTIES_VISIBLE_VERSION);
-            try {
-                visibleVersion = Long.parseLong(visibleVersionStr);
-            } catch (Exception e) {
-                throw new AnalysisException("Invalid visible version: " + visibleVersionStr);
-            }
-
-            properties.remove(PROPERTIES_VISIBLE_VERSION);
-        }
-
-        return visibleVersion;
+        return getPropertyLong(properties, PROPERTIES_VISIBLE_VERSION);
     }
 
     public static Set<String> analyzeBloomFilterColumns(Map<String, String> properties, List<Column> columns,

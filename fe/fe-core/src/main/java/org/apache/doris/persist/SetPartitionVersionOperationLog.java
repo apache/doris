@@ -22,29 +22,32 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+@Getter
 public class SetPartitionVersionOperationLog implements Writable {
+
+    @SerializedName(value = "database")
+    private String database;
+
+    @SerializedName(value = "table")
+    private String table;
 
     @SerializedName(value = "partitionId")
     private long partitionId;
-    @SerializedName(value = "versionInfo")
-    private long versionInfo;
 
-    public SetPartitionVersionOperationLog(long partitionId, long versionInfo) {
+    @SerializedName(value = "visibleVersion")
+    private long visibleVersion;
+
+    public SetPartitionVersionOperationLog(String database, String table, long partitionId, long visibleVersion) {
+        this.database = database;
+        this.table = table;
         this.partitionId = partitionId;
-        this.versionInfo = versionInfo;
-    }
-
-    public long getPartitionId() {
-        return partitionId;
-    }
-
-    public long getVersionInfo() {
-        return versionInfo;
+        this.visibleVersion = visibleVersion;
     }
 
     public static SetPartitionVersionOperationLog read(DataInput in) throws IOException {
