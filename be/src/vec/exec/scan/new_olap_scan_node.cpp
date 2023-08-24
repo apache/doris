@@ -382,14 +382,6 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
     return Status::OK();
 }
 
-bool NewOlapScanNode::_should_push_down_common_expr() {
-    return _state->enable_common_expr_pushdown() &&
-           (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||
-            (_olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
-             _olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-             _olap_scan_node.enable_unique_key_merge_on_write));
-}
-
 // PlanFragmentExecutor will call this method to set scan range
 // Doris scan range is defined in thrift file like this
 // struct TPaloScanRange {
