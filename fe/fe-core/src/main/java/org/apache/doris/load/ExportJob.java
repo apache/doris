@@ -471,7 +471,6 @@ public class ExportJob implements Writable {
             default:
                 LOG.info("Table Type unsupport export, ExportTable type : {}", exportTable.getType());
                 throw new UserException("Table Type unsupport export :" + exportTable.getType());
-                break;
         }
         fragment.setOutputExprs(createOutputExprs());
 
