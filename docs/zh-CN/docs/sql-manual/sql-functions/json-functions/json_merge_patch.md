@@ -24,7 +24,7 @@ under the License.
 
 ## json_merge_patch
 
-<version since="1.2.5">
+<version since="1.2.8">
 
 json_merge_patch
 
