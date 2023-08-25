@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -23,8 +23,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
-import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;

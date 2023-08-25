@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -66,8 +65,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 logicalFilter().thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
 
-                    ImmutableList<Set> subqueryExprsList = filter.getConjuncts().stream()
-                            .map(e -> (Set) e.collect(SubqueryExpr.class::isInstance))
+                    ImmutableList<Set<SubqueryExpr>> subqueryExprsList = filter.getConjuncts().stream()
+                            .map(e -> (Set<SubqueryExpr>) e.collect(SubqueryExpr.class::isInstance))
                             .collect(ImmutableList.toImmutableList());
                     if (subqueryExprsList.stream()
                             .flatMap(Collection::stream).noneMatch(SubqueryExpr.class::isInstance)) {
@@ -115,15 +114,14 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             ),
             RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {
                 LogicalProject<Plan> project = ctx.root;
-                ImmutableList<Set> subqueryExprsList = project.getProjects().stream()
-                        .map(e -> (Set) e.collect(SubqueryExpr.class::isInstance))
+                ImmutableList<Set<SubqueryExpr>> subqueryExprsList = project.getProjects().stream()
+                        .map(e -> (Set<SubqueryExpr>) e.collect(SubqueryExpr.class::isInstance))
                         .collect(ImmutableList.toImmutableList());
-                if (subqueryExprsList.stream().flatMap(Collection::stream)
-                        .noneMatch(SubqueryExpr.class::isInstance)) {
+                if (subqueryExprsList.stream().flatMap(Collection::stream).count() == 0) {
                     return project;
                 }
                 List<NamedExpression> oldProjects = ImmutableList.copyOf(project.getProjects());
-                List<NamedExpression> newProjects = Lists.newArrayList();
+                ImmutableList.Builder<NamedExpression> newProjects = new ImmutableList.Builder<>();
                 LogicalPlan childPlan = (LogicalPlan) project.child();
                 LogicalPlan applyPlan;
                 for (int i = 0; i < subqueryExprsList.size(); ++i) {
@@ -150,7 +148,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     newProjects.add((NamedExpression) newProject);
                 }
 
-                return project.withProjectsAndChild(newProjects, childPlan);
+                return project.withProjectsAndChild(newProjects.build(), childPlan);
             }))
         );
     }

@@ -119,8 +119,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
-            bottomUp(new SubqueryToApply()),
-            bottomUp(new CheckAnalysis())
+            bottomUp(new SubqueryToApply())
         );
     }
 }
