@@ -30,7 +30,6 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
@@ -51,18 +50,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.nereids.DorisLexer;
-import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.parser.CaseInsensitiveStream;
-import org.apache.doris.nereids.parser.LogicalPlanBuilder;
-import org.apache.doris.nereids.parser.ParseErrorListener;
-import org.apache.doris.nereids.parser.PostProcessor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -79,11 +67,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import org.antlr.v4.runtime.CharStreams;
-import org.antlr.v4.runtime.CommonTokenStream;
-import org.antlr.v4.runtime.ParserRuleContext;
-import org.antlr.v4.runtime.atn.PredictionMode;
-import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -174,8 +157,6 @@ public class ExportJob implements Writable {
 
     private Expr whereExpr;
 
-    private String whereSql;
-
     private String sql = "";
 
     private Integer parallelism;
@@ -190,7 +171,7 @@ public class ExportJob implements Writable {
     // TODO(ftw): delete
     private List<SelectStmt> selectStmtList = Lists.newArrayList();
 
-    private List<List<StatementBase>> selectStmtListPerParallel = Lists.newArrayList();
+    private List<List<SelectStmt>> selectStmtListPerParallel = Lists.newArrayList();
 
     private List<StmtExecutor> stmtExecutorList;
 
@@ -254,20 +235,16 @@ public class ExportJob implements Writable {
         exportTable.readLock();
         try {
             // generateQueryStmtOld
-            if (sessionVariables.isEnableNereidsPlanner()) {
-                generateLogicalPlanAdapter();
-            } else {
-                generateQueryStmt();
-            }
+            generateQueryStmt();
         } finally {
             exportTable.readUnlock();
         }
         generateExportJobExecutor();
     }
 
-    private void generateExportJobExecutor() {
+    public void generateExportJobExecutor() {
         jobExecutorList = Lists.newArrayList();
-        for (List<StatementBase> selectStmts : selectStmtListPerParallel) {
+        for (List<SelectStmt> selectStmts : selectStmtListPerParallel) {
             ExportTaskExecutor executor = new ExportTaskExecutor(selectStmts, this);
             jobExecutorList.add(executor);
         }
@@ -288,13 +265,13 @@ public class ExportJob implements Writable {
             }
         }
 
-        List<List<Long>> tabletsListPerQuery = splitTablets();
+        ArrayList<ArrayList<Long>> tabletsListPerQuery = splitTablets();
 
-        List<List<TableRef>> tableRefListPerQuery = Lists.newArrayList();
-        for (List<Long> tabletsList : tabletsListPerQuery) {
-            TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(), null,
-                    (ArrayList) tabletsList, this.tableRef.getTableSample(), this.tableRef.getCommonHints());
-            List<TableRef> tableRefList = Lists.newArrayList();
+        ArrayList<ArrayList<TableRef>> tableRefListPerQuery = Lists.newArrayList();
+        for (ArrayList<Long> tabletsList : tabletsListPerQuery) {
+            TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(), null, tabletsList,
+                    this.tableRef.getTableSample(), this.tableRef.getCommonHints());
+            ArrayList<TableRef> tableRefList = Lists.newArrayList();
             tableRefList.add(tblRef);
             tableRefListPerQuery.add(tableRefList);
         }
@@ -307,7 +284,7 @@ public class ExportJob implements Writable {
             }
         }
 
-        for (List<TableRef> tableRefList : tableRefListPerQuery) {
+        for (ArrayList<TableRef> tableRefList : tableRefListPerQuery) {
             FromClause fromClause = new FromClause(tableRefList);
             // generate outfile clause
             OutFileClause outfile = new OutFileClause(this.exportPath, this.format, convertOutfileProperties());
@@ -344,7 +321,7 @@ public class ExportJob implements Writable {
             }
         }
 
-        List<List<TableRef>> tableRefListPerParallel = getTableRefListPerParallel();
+        ArrayList<ArrayList<TableRef>> tableRefListPerParallel = getTableRefListPerParallel();
         LOG.info("Export Job [{}] is split into {} Export Task Executor.", id, tableRefListPerParallel.size());
 
         // debug LOG output
@@ -358,10 +335,10 @@ public class ExportJob implements Writable {
         }
 
         // generate 'select..outfile..' statement
-        for (List<TableRef> tableRefList : tableRefListPerParallel) {
-            List<StatementBase> selectStmtLists = Lists.newArrayList();
+        for (ArrayList<TableRef> tableRefList : tableRefListPerParallel) {
+            List<SelectStmt> selectStmtLists = Lists.newArrayList();
             for (TableRef tableRef : tableRefList) {
-                List<TableRef> tmpTableRefList = Lists.newArrayList(tableRef);
+                ArrayList<TableRef> tmpTableRefList = Lists.newArrayList(tableRef);
                 FromClause fromClause = new FromClause(tmpTableRefList);
                 // generate outfile clause
                 OutFileClause outfile = new OutFileClause(this.exportPath, this.format, convertOutfileProperties());
@@ -378,194 +355,25 @@ public class ExportJob implements Writable {
         if (LOG.isDebugEnabled()) {
             for (int i = 0; i < selectStmtListPerParallel.size(); ++i) {
                 LOG.debug("ExportTaskExecutor {} is responsible for outfile:", i);
-                for (StatementBase outfile : selectStmtListPerParallel.get(i)) {
+                for (SelectStmt outfile : selectStmtListPerParallel.get(i)) {
                     LOG.debug("outfile sql: [{}]", outfile.toSql());
                 }
             }
         }
     }
 
-    private void generateLogicalPlanAdapter() throws UserException {
-        // generate 'select...into outfile' sql
-        List<List<String>> outfileSqlPerParallel = generateOutfileSqlPerParallel();
-        // debug outfile sql
-        if (LOG.isDebugEnabled()) {
-            for (int i = 0; i < outfileSqlPerParallel.size(); ++i) {
-                LOG.debug("ExportTaskExecutor {} is responsible for outfile sql:", i);
-                for (String outfileSql : outfileSqlPerParallel.get(i)) {
-                    LOG.debug("outfile sql: [{}]", outfileSql);
-                }
-            }
-        }
+    private ArrayList<ArrayList<TableRef>> getTableRefListPerParallel() throws UserException {
+        ArrayList<ArrayList<Long>> tabletsListPerParallel = splitTablets();
 
-
-        // use nereids to parse 'select...into outfile' sql
-        // and get LogicalPlanAdapter
-        StatementContext statementContext = new StatementContext();
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
-            connectContext.setStatementContext(statementContext);
-            statementContext.setConnectContext(connectContext);
-        }
-
-        outfileSqlPerParallel.stream().forEach(outfileSqlList -> {
-            List<StatementBase> logicalPlanAdapterList = Lists.newArrayList();
-            outfileSqlList.stream().forEach(outfileSql -> {
-                DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(outfileSql)));
-                CommonTokenStream tokenStream = new CommonTokenStream(lexer);
-                DorisParser parser = new DorisParser(tokenStream);
-
-                parser.addParseListener(new PostProcessor());
-                parser.removeErrorListeners();
-                parser.addErrorListener(new ParseErrorListener());
-
-                ParserRuleContext tree;
-                try {
-                    // first, try parsing with potentially faster SLL mode
-                    parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
-                    tree =  parser.singleStatement();
-                } catch (ParseCancellationException ex) {
-                    // if we fail, parse with LL mode
-                    tokenStream.seek(0); // rewind input stream
-                    parser.reset();
-
-                    parser.getInterpreter().setPredictionMode(PredictionMode.LL);
-                    tree =  parser.singleStatement();
-                }
-                LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
-                LogicalPlan statements = (LogicalPlan) logicalPlanBuilder.visit(tree);
-                LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(statements, statementContext);
-                logicalPlanAdapter.setOrigStmt(new OriginStatement(outfileSql, 0));
-                logicalPlanAdapterList.add(logicalPlanAdapter);
-            });
-            selectStmtListPerParallel.add(logicalPlanAdapterList);
-        });
-    }
-
-    private List<List<String>> generateOutfileSqlPerParallel() throws UserException {
-        // get all tablets
-        List<List<Long>> tabletsListPerParallel = splitTablets();
-
-        List<List<String>> outfileSqlPerParallel = Lists.newArrayList();
-        for (List<Long> tabletsList : tabletsListPerParallel) {
-            List<String> outfileSqlList = Lists.newArrayList();
+        ArrayList<ArrayList<TableRef>> tableRefListPerParallel = Lists.newArrayList();
+        for (ArrayList<Long> tabletsList : tabletsListPerParallel) {
+            ArrayList<TableRef> tableRefList = Lists.newArrayList();
             for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
                 int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
                         ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
                 ArrayList<Long> tablets = new ArrayList<>(tabletsList.subList(i, end));
-                String outfileSql = generateSelectSql(tablets);
-                outfileSqlList.add(outfileSql);
-            }
-            outfileSqlPerParallel.add(outfileSqlList);
-        }
-        return outfileSqlPerParallel;
-    }
-
-    private String generateSelectSql(List<Long> tablets) {
-        StringBuilder selectSql = new StringBuilder();
-        selectSql.append("SELECT ").append(generateColumnSql())
-                .append(" FROM ").append(generateFromSql(tablets))
-                .append(generateWhereSql())
-                .append(" INTO OUTFILE ").append(generateUrlSql())
-                .append(" FORMAT AS ").append(generateFormatSql())
-                .append(generatePropertiesSql())
-                .append(";");
-        return selectSql.toString();
-    }
-
-    private StringBuilder generateColumnSql() {
-        StringBuilder columns = new StringBuilder();
-        if (exportColumns.isEmpty()) {
-            columns.append("*");
-        } else {
-            for (int i = 0; i < exportColumns.size(); ++i) {
-                if (i != 0) {
-                    columns.append(", ");
-                }
-                columns.append(exportColumns.get(i));
-            }
-        }
-        return columns;
-    }
-
-    private StringBuilder generateFromSql(List<Long> tablets) {
-        StringBuilder fromSqlString = new StringBuilder();
-        if (tableName.getCtl() != null && !tableName.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            fromSqlString.append("`").append(tableName.getCtl()).append("`").append(".");
-        }
-        if (tableName.getDb() != null) {
-            fromSqlString.append("`").append(tableName.getDb()).append("`").append(".");
-        }
-        fromSqlString.append("`").append(tableName.getTbl()).append("`");
-
-        // set tablets
-        fromSqlString.append(" ").append("TABLET(");
-        for (int i = 0; i < tablets.size(); ++i) {
-            if (i != 0) {
-                fromSqlString.append(", ");
-            }
-            fromSqlString.append(tablets.get(i));
-        }
-        fromSqlString.append(")");
-        return fromSqlString;
-    }
-
-    private StringBuilder generateWhereSql() {
-        StringBuilder sb = new StringBuilder();
-        if (whereSql != null) {
-            sb.append(" ").append(whereSql).append(" ");
-        }
-        return sb;
-    }
-
-    private StringBuilder generateUrlSql() {
-        StringBuilder urlString = new StringBuilder();
-        urlString.append("\"")
-                .append(exportPath)
-                .append("\"");
-        return urlString;
-    }
-
-    private StringBuilder generateFormatSql() {
-        StringBuilder formatString = new StringBuilder();
-        formatString.append(format);
-        return formatString;
-    }
-
-    private StringBuilder generatePropertiesSql() {
-        Map<String, String> outfileProperties = convertOutfileProperties();
-        StringBuilder sb = new StringBuilder();
-        if (outfileProperties.isEmpty()) {
-            return sb;
-        }
-
-        sb.append(" PROPERTIES ").append("(");
-        int i = 0;
-        for (String key : outfileProperties.keySet()) {
-            if (i != 0) {
-                sb.append(", ");
-            }
-            sb.append("\"").append(key).append("\"")
-                    .append(" = ")
-                    .append("\"").append(outfileProperties.get(key)).append("\"");
-            ++i;
-        }
-        sb.append(")");
-        return sb;
-    }
-
-    private List<List<TableRef>> getTableRefListPerParallel() throws UserException {
-        List<List<Long>> tabletsListPerParallel = splitTablets();
-
-        List<List<TableRef>> tableRefListPerParallel = Lists.newArrayList();
-        for (List<Long> tabletsList : tabletsListPerParallel) {
-            List<TableRef> tableRefList = Lists.newArrayList();
-            for (int i = 0; i < tabletsList.size(); i += MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT) {
-                int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
-                        ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
-                List<Long> tablets = new ArrayList<>(tabletsList.subList(i, end));
                 TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(),
-                        this.tableRef.getPartitionNames(), (ArrayList) tablets,
+                        this.tableRef.getPartitionNames(), tablets,
                         this.tableRef.getTableSample(), this.tableRef.getCommonHints());
                 tableRefList.add(tblRef);
             }
@@ -574,7 +382,7 @@ public class ExportJob implements Writable {
         return tableRefListPerParallel;
     }
 
-    private List<List<Long>> splitTablets() throws UserException {
+    private ArrayList<ArrayList<Long>> splitTablets() throws UserException {
         // get tablets
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(this.tableName.getDb());
         OlapTable table = db.getOlapTableOrAnalysisException(this.tableName.getTbl());
@@ -610,7 +418,7 @@ public class ExportJob implements Writable {
         Integer tabletsNumPerParallel = tabletsAllNum / this.parallelism;
         Integer tabletsNumPerQueryRemainder = tabletsAllNum - tabletsNumPerParallel * this.parallelism;
 
-        List<List<Long>> tabletsListPerParallel = Lists.newArrayList();
+        ArrayList<ArrayList<Long>> tabletsListPerParallel = Lists.newArrayList();
         Integer realParallelism = this.parallelism;
         if (tabletsAllNum < this.parallelism) {
             realParallelism = tabletsAllNum;
