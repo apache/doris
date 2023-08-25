@@ -927,7 +927,8 @@ public class Analyzer {
             // ===================================================
             // Someone may concern that if t2 is not alias of t, this fix will cause incorrect resolve. In fact,
             // this does not happen, since we push t2.a in (1.2) down to this inline view, t2 must be alias of t.
-            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)) {
+            if (d == null && isInlineView && newTblName.getTbl().equals(explicitViewAlias)
+                    && !tupleByAlias.containsKey(newTblName.getTbl())) {
                 d = resolveColumnRef(colName);
             }
         }
