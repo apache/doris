@@ -62,5 +62,6 @@ static const std::string HTTP_SQL = "sql";
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";
 static const std::string HTTP_TXN_OPERATION_KEY = "txn_operation";
+static const std::string HTTP_MEMTABLE_ON_SINKNODE = "memtable_on_sink_node";
 
 } // namespace doris
