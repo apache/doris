@@ -80,9 +80,7 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
 ResultSinkOperatorX::ResultSinkOperatorX(const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(0),
-          _row_desc(row_desc),
-          _t_output_expr(t_output_expr) {
+        : DataSinkOperatorX(0), _row_desc(row_desc), _t_output_expr(t_output_expr) {
     if (!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL) {
         _sink_type = TResultSinkType::MYSQL_PROTOCAL;
     } else {
@@ -182,7 +180,6 @@ Status ResultSinkLocalState::close(RuntimeState* state) {
 }
 
 bool ResultSinkOperatorX::can_write(RuntimeState* state) {
-    auto& local_state = state->get_sink_local_state(id())->cast<ResultSinkLocalState>();
-    return local_state._sender->can_sink();
+    return state->get_sink_local_state(id())->cast<ResultSinkLocalState>()._sender->can_sink();
 }
 } // namespace doris::pipeline

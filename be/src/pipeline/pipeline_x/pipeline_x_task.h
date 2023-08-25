@@ -52,7 +52,8 @@ public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
                   const std::vector<TScanRangeParams>& scan_ranges, const int sender_id,
-                  std::shared_ptr<BufferControlBlock>& sender, std::shared_ptr<vectorized::VDataStreamRecvr>& recvr);
+                  std::shared_ptr<BufferControlBlock>& sender,
+                  std::shared_ptr<vectorized::VDataStreamRecvr>& recvr);
 
     Status prepare(RuntimeState* state) override;
 
