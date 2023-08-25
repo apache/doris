@@ -40,6 +40,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.hadoop.util.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -89,9 +90,9 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         if (slots.size() != ctasCols.size()) {
             throw new AnalysisException("ctas column size is not equal to the query's");
         }
-        List<ColumnDefinition> columnsOfQuery = slots.stream()
+        List<ColumnDefinition> columnsOfQuery = Lists.newArrayList(slots.stream()
                 .map(s -> new ColumnDefinition(s.getName(), s.getDataType(), s.nullable()))
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery, ctx);
 
         CreateTableStmt createTableStmt = createTableInfo.translateToCatalogStyle();

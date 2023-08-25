@@ -1751,7 +1751,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * ******************************************************************************************** */
 
     @Override
-    public Object visitCreateTable(CreateTableContext ctx) {
+    public LogicalPlan visitCreateTable(CreateTableContext ctx) {
         String dbName = null;
         String tableName;
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
@@ -1786,7 +1786,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.EXISTS() != null,
                     dbName,
                     tableName,
-                    visitColumnDefs(ctx.columnDefs()),
+                    Lists.newArrayList(visitColumnDefs(ctx.columnDefs())),
                     ImmutableList.of(),
                     engineName,
                     keysType,
