@@ -443,15 +443,17 @@ bool AnalyticSourceOperatorX::can_read(RuntimeState* state) {
     return true;
 }
 
-Status AnalyticSourceOperatorX::close(RuntimeState* state) {
-    auto& local_state = state->get_local_state(id())->cast<AnalyticLocalState>();
-    for (auto* agg_function : local_state._agg_functions) {
+Status AnalyticLocalState::close(RuntimeState* state) {
+    if (_closed) {
+        return Status::OK();
+    }
+    for (auto* agg_function : _agg_functions) {
         agg_function->close(state);
     }
 
-    local_state._destroy_agg_status();
-    local_state.release_mem();
-    return OperatorXBase::close(state);
+    _destroy_agg_status();
+    release_mem();
+    return PipelineXLocalState::close(state);
 }
 
 Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {

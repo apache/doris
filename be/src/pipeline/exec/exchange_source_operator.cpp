@@ -161,17 +161,22 @@ bool ExchangeSourceOperatorX::is_pending_finish(RuntimeState* /*state*/) const {
     return false;
 }
 
-Status ExchangeSourceOperatorX::close(RuntimeState* state) {
-    if (is_closed()) {
+Status ExchangeLocalState::close(RuntimeState* state) {
+    if (_closed) {
         return Status::OK();
     }
-    auto& local_state = state->get_local_state(id())->cast<ExchangeLocalState>();
-    if (local_state.stream_recvr != nullptr) {
-        local_state.stream_recvr->close();
+    if (stream_recvr != nullptr) {
+        stream_recvr->close();
     }
-    if (_is_merging) {
+    if (_parent->cast<ExchangeSourceOperatorX>()._is_merging) {
+        vsort_exec_exprs.close(state);
+    }
+    return PipelineXLocalState::close(state);
+}
+
+Status ExchangeSourceOperatorX::close(RuntimeState* state) {
+    if (_is_merging && !is_closed()) {
         _vsort_exec_exprs.close(state);
-        local_state.vsort_exec_exprs.close(state);
     }
     _is_closed = true;
     return OperatorXBase::close(state);
