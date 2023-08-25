@@ -632,19 +632,24 @@ bool OrcReader::_init_search_argument(
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         type_map.emplace(_get_field_name_lower_case(&root_type, i), root_type.getSubtype(i));
     }
-    for (auto it = colname_to_value_range->begin(); it != colname_to_value_range->end(); ++it) {
-        auto type_it = type_map.find(it->first);
-        if (type_it != type_map.end()) {
-            std::visit(
-                    [&](auto& range) {
-                        std::vector<OrcPredicate> value_predicates =
-                                value_range_to_predicate(range, type_it->second);
-                        for (auto& range_predicate : value_predicates) {
-                            predicates.emplace_back(range_predicate);
-                        }
-                    },
-                    it->second);
+    for (auto& col_name : _lazy_read_ctx.all_read_columns) {
+        auto iter = colname_to_value_range->find(col_name);
+        if (iter == colname_to_value_range->end()) {
+            continue;
         }
+        auto type_it = type_map.find(col_name);
+        if (type_it == type_map.end()) {
+            continue;
+        }
+        std::visit(
+                [&](auto& range) {
+                    std::vector<OrcPredicate> value_predicates =
+                            value_range_to_predicate(range, type_it->second);
+                    for (auto& range_predicate : value_predicates) {
+                        predicates.emplace_back(range_predicate);
+                    }
+                },
+                iter->second);
     }
     if (predicates.empty()) {
         return false;
