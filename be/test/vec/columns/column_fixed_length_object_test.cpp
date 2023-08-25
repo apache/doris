@@ -25,6 +25,8 @@
 #include <memory>
 
 #include "gtest/gtest_pred_impl.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/sip_hash.h"
 
 namespace doris::vectorized {
 
@@ -54,4 +56,29 @@ TEST(ColumnFixedLenghtObjectTest, InsertRangeFrom) {
     }
 }
 
+TEST(ColumnFixedLenghtObjectTest, UpdateHashWithValue) {
+    auto column1 = ColumnFixedLengthObject::create(sizeof(size_t));
+    EXPECT_EQ(sizeof(size_t), column1->item_size());
+    const size_t count = 1000;
+
+    column1->resize(count);
+    auto& data = column1->get_data();
+    for (size_t i = 0; i < count; ++i) {
+        *((size_t*)&data[i * sizeof(size_t)]) = i;
+    }
+
+    SipHash hash1;
+    column1->update_hash_with_value(count, hash1);
+
+    auto column2 = ColumnVector<int64_t>::create();
+    column2->resize(count);
+    for (size_t i = 0; i != count; ++i) {
+        column2->get_data()[i] = i;
+    }
+
+    SipHash hash2;
+    column2->update_hash_with_value(count, hash2);
+
+    EXPECT_EQ(hash1.get64(), hash2.get64());
+}
 } // namespace doris::vectorized
